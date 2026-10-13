@@ -4,9 +4,11 @@
  */
 import { test, expect, devices } from '@playwright/test';
 
-test.describe('E2E-08: Mobile Donation Flow', () => {
-  test.use(devices['iPhone 14']);
+// Must be file-level: Playwright rejects test.use({ defaultBrowserType }) inside
+// a describe group because it forces a new worker.
+test.use(devices['iPhone 14']);
 
+test.describe('E2E-08: Mobile Donation Flow', () => {
   test('mobile homepage loads with responsive layout', async ({ page }) => {
     await page.goto('/');
 

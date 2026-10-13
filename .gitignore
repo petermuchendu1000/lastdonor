@@ -23,7 +23,12 @@ npm-debug.log*
 # IDE
 .vscode/
 .idea/
-.claude/
+
+# Claude Code: share the session-start hook, keep personal settings local
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/settings.local.json
 
 # OS
 .DS_Store
