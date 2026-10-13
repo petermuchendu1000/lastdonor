@@ -19,7 +19,10 @@ describe('NewsletterSignup', () => {
 
   it('renders an email input', () => {
     render(<NewsletterSignup source="homepage" />);
-    expect(screen.getByPlaceholderText('your@email.com')).toBeInTheDocument();
+    const input = screen.getByLabelText('Email address');
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveAttribute('type', 'email');
+    expect(input).toHaveAttribute('placeholder', 'you@example.com');
   });
 
   it('renders a subscribe button', () => {
@@ -42,7 +45,7 @@ describe('NewsletterSignup', () => {
     });
 
     render(<NewsletterSignup source="footer" />);
-    const input = screen.getByPlaceholderText('your@email.com');
+    const input = screen.getByLabelText('Email address');
     await userEvent.type(input, 'test@example.com');
     await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
 
@@ -62,7 +65,7 @@ describe('NewsletterSignup', () => {
     });
 
     render(<NewsletterSignup source="homepage" />);
-    await userEvent.type(screen.getByPlaceholderText('your@email.com'), 'test@example.com');
+    await userEvent.type(screen.getByLabelText('Email address'), 'test@example.com');
     await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
 
     // Should show the subscribed state

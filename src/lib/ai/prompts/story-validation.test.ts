@@ -77,10 +77,13 @@ describe('validateStory', () => {
   const defaultWordRange = { min: 100, max: 250 };
 
   it('accepts a valid well-formed story', () => {
-    const html = buildValidStory('chronological', 150);
+    // Build comfortably above MIN_ABSOLUTE_WORDS (150): the helper's filler
+    // accounting means a requested 150 lands at ~141 actual words.
+    const html = buildValidStory('chronological', 200);
     const result = validateStory(html, 'chronological', defaultWordRange);
-    expect(result.valid).toBe(true);
+    expect(result.wordCount).toBeGreaterThanOrEqual(150);
     expect(result.issues).toHaveLength(0);
+    expect(result.valid).toBe(true);
   });
 
   it('accepts all patterns with correct sections', () => {
@@ -157,22 +160,20 @@ describe('validateStory', () => {
   });
 
   it('allows tolerance band on word count (90% min, 120% max)', () => {
-    // Target: 100-200 words. Effective min is floor(100*0.9) = 90.
-    // Build a story that has ~92 words (below 100 but above 90)
-    // We need to use inline HTML to control word count precisely
+    // Target 300-400 words, so effectiveMin = max(MIN_ABSOLUTE_WORDS, 300*0.9)
+    // = 270. A ~284-word story is under the target min but inside the band.
     const sections = ['before', 'the-event', 'aftermath', 'whats-needed', 'looking-ahead'];
     const sectionHtml = sections.map((id, idx) => {
-      // ~18 words per section Ã- 5 = ~90 words + some extra = ~95
-      const words = Array.from({ length: 18 }, (_, i) => `word${idx}w${i}`).join(' ');
+      const words = Array.from({ length: 56 }, (_, i) => `word${idx}w${i}`).join(' ');
       const content = idx === 1
         ? `<p>As reported by <a href="https://example.com">News</a> ${words}</p>`
         : `<p>${words}</p>`;
       return `<section data-section="${id}">${content}</section>`;
     }).join('\n');
 
-    const result = validateStory(sectionHtml, 'chronological', { min: 100, max: 200 });
-    // ~92-95 words should be >= effectiveMin (90)
-    expect(result.wordCount).toBeGreaterThanOrEqual(90);
+    const result = validateStory(sectionHtml, 'chronological', { min: 300, max: 400 });
+    expect(result.wordCount).toBeGreaterThanOrEqual(270);
+    expect(result.wordCount).toBeLessThan(300);
     expect(result.issues.filter((i) => i.type === 'word_count_low')).toHaveLength(0);
   });
 

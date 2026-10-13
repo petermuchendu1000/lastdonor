@@ -586,7 +586,11 @@ describe('Donation webhook - lifecycle triggers', () => {
     });
 
     it('destructures transaction result', () => {
-      expect(webhookSource).toContain('const { newRaised, goalAmount, justCompleted } = txResult');
+      // `newRaised` is bound as `_newRaised` where it is unused; assert the
+      // destructuring shape rather than one spelling of the alias.
+      expect(webhookSource).toMatch(
+        /const \{[^}]*newRaised[^}]*goalAmount[^}]*justCompleted[^}]*\} = txResult/,
+      );
     });
   });
 

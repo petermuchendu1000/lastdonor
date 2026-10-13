@@ -95,8 +95,13 @@ describe('DonationForm', () => {
     expect(screen.getByText(/secured by stripe/i)).toBeInTheDocument();
   });
 
-  it('renders nonprofit disclaimer', () => {
+  // The "501(c)(3) nonprofit" claim was deliberately dropped in 13a2726
+  // ("Hardening SEO and GEO trust signals"); the platform does not make it.
+  // Assert the trust signals actually shown instead.
+  it('renders trust signals below the CTA', () => {
     render(<DonationForm {...defaultProps} />);
-    expect(screen.getByText(/501\(c\)\(3\) nonprofit/i)).toBeInTheDocument();
+    expect(screen.getByText(/secured by stripe/i)).toBeInTheDocument();
+    expect(screen.getByText(/reviewed campaign/i)).toBeInTheDocument();
+    expect(screen.getByText(/0% platform fees/i)).toBeInTheDocument();
   });
 });

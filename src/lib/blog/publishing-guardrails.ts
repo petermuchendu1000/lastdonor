@@ -64,8 +64,10 @@ export const MAX_POSTS_PER_WEEK = 7;
 /**
  * Maximum pending/generating topics per category in the queue.
  * Prevents the queue from filling up with one category during Reddit spikes.
+ * Must hold at least 2 weeks of generation, i.e. >= 2 *
+ * MAX_POSTS_PER_CATEGORY_PER_WEEK, or the queue starves between cron runs.
  */
-export const MAX_QUEUED_PER_CATEGORY = 4;
+export const MAX_QUEUED_PER_CATEGORY = 6;
 
 /**
  * Days before a news-sourced topic becomes stale.
