@@ -141,6 +141,10 @@ const FIRST_PARTY_IMAGE_PATTERNS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Self-contained server bundle in `.next/standalone` for the Fly.io image
+  // (docs/26 §1 "Vercel couplings to remove", §10 step 1). Without this the
+  // runtime stage would have to carry the full `node_modules` tree.
+  output: "standalone",
   compress: true,
   poweredByHeader: false,
   reactStrictMode: true,
