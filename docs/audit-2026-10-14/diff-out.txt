@@ -1,0 +1,95 @@
+### TABLES
+schema.ts tables: 31  migration tables: 30
+IN SCHEMA, NOT CREATED BY ANY MIGRATION: ["impact_updates"]
+IN MIGRATIONS, NOT IN SCHEMA: []
+
+### COLUMN DIFF (per table)
+-- ai_usage_logs (schema.ts:675)
+   MISMATCH: id: NOT NULL schema=true mig=false [0013_monitoring.sql]
+-- blog_generation_logs (schema.ts:483)
+   MISMATCH: id: NOT NULL schema=true mig=false [0018_blog_pipeline.sql]
+-- blog_topic_queue (schema.ts:450)
+   MISSING_IN_MIGRATIONS: attempt_count  (schema.ts:468)
+   MISMATCH: id: NOT NULL schema=true mig=false [0018_blog_pipeline.sql]
+-- bulk_emails (schema.ts:981)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+-- campaign_messages (schema.ts:725)
+   MISMATCH: id: NOT NULL schema=true mig=false [0014_dual_campaign_system.sql]
+-- campaign_withdrawals (schema.ts:752)
+   MISMATCH: id: NOT NULL schema=true mig=false [0015_user_campaigns.sql]
+-- donor_campaign_subscriptions (schema.ts:910)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+-- fund_pool_allocations (schema.ts:698)
+   MISMATCH: id: NOT NULL schema=true mig=false [0014_dual_campaign_system.sql]
+-- info_requests (schema.ts:877)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+-- refund_batches (schema.ts:930)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+-- refund_records (schema.ts:956)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+-- support_conversations (schema.ts:1005)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+-- users (schema.ts:242)
+   MISSING_IN_MIGRATIONS: failed_login_count  (schema.ts:270)
+   MISSING_IN_MIGRATIONS: failed_login_window_start  (schema.ts:271)
+-- verification_documents (schema.ts:817)
+   MISMATCH: id: NOT NULL schema=true mig=false [0019_trust_verification.sql]
+
+TOTALS: missing_in_migrations=3 only_in_migrations=0 mismatches=13
+
+### ENUMS
+audit_severity: created 0000_square_chronomancer.sql base=[info,warning,error,critical] adds=[]
+blog_category: created 0000_square_chronomancer.sql base=[campaign_story,impact_report,news] adds=[]
+blog_source: created 0018_blog_pipeline.sql base=[ai_generated,manual,refresh] adds=[]
+blog_topic_status: created 0018_blog_pipeline.sql base=[pending,generating,generated,published,rejected,stale] adds=[]
+bulk_email_status: created 0019_trust_verification.sql base=[draft,sending,completed,failed] adds=[]
+campaign_category: created 0000_square_chronomancer.sql base=[medical,disaster,military,veterans,memorial,first-responders,community,essential-needs] adds=[emergency,charity,education,animal,environment,business,competition,creative,event,faith,family,sports,travel,volunteer,wishes,emergency,charity,education,animal,environment,business,competition,creative,event,faith,family,sports,travel,volunteer,wishes]
+campaign_status: created 0000_square_chronomancer.sql base=[draft,active,last_donor_zone,completed,archived] adds=[paused,under_review,suspended,cancelled,paused,under_review,suspended,cancelled]
+document_status: created 0019_trust_verification.sql base=[pending,approved,rejected] adds=[]
+donation_phase: created 0000_square_chronomancer.sql base=[first_believers,the_push,closing_in,last_donor_zone] adds=[]
+donation_source: created 0000_square_chronomancer.sql base=[real,seed] adds=[]
+donor_type: created 0004_fancy_patriot.sql base=[individual,corporate,foundation] adds=[]
+fund_release_status: created 0019_trust_verification.sql DROPPED 0030_remove_milestone_system.sql base=[held,approved,processing,released,refunded] adds=[paused]
+info_request_status: created 0019_trust_verification.sql base=[pending,responded,expired,closed] adds=[]
+interaction_type: created 0004_fancy_patriot.sql base=[email,call,meeting,note] adds=[]
+milestone_status: created 0019_trust_verification.sql DROPPED 0030_remove_milestone_system.sql base=[pending,evidence_submitted,approved,rejected,overdue] adds=[reached,reached]
+notification_type: created 0007_smart_tusk.sql base=[donation_refunded,donation_refund_reversed,campaign_completed,campaign_archived,campaign_status_changed,role_changed,account_deleted,new_message,message_flagged,campaign_donation_received,campaign_milestone,campaign_message_received,withdrawal_processed,campaign_submitted,campaign_paused,campaign_resumed,campaign_suspended,campaign_cancelled,info_request,info_request_reminder,milestone_approved,milestone_rejected,fund_released,verification_approved,verification_rejected,bulk_refund_processed] adds=[new_message,message_flagged,campaign_donation_received,campaign_milestone,campaign_message_received,withdrawal_processed,campaign_submitted,campaign_paused,campaign_resumed,campaign_suspended,campaign_cancelled,info_request,info_request_reminder,milestone_approved,milestone_rejected,fund_released,verification_approved,verification_rejected,bulk_refund_processed,abandoned_donation,donor_reengagement,creator_inactivity]
+refund_batch_status: created 0019_trust_verification.sql base=[processing,completed,partial_failure] adds=[]
+refund_record_status: created 0019_trust_verification.sql base=[pending,completed,failed] adds=[]
+stripe_connect_status: created 0022_stripe_connect_payout.sql base=[not_started,onboarding_started,pending_verification,verified,restricted,rejected] adds=[]
+support_channel: created 0019_trust_verification.sql base=[site_chat,whatsapp,email,phone,social_media] adds=[]
+support_conversation_status: created 0019_trust_verification.sql base=[open,assigned,pending_user,resolved,closed] adds=[]
+support_priority: created 0019_trust_verification.sql base=[low,normal,high,urgent] adds=[]
+user_role: created 0000_square_chronomancer.sql base=[donor,editor,admin] adds=[]
+verification_status: created 0015_user_campaigns.sql base=[unverified,pending,verified] adds=[submitted_for_review,documents_uploaded,identity_verified,fully_verified,info_requested,rejected,suspended]
+withdrawal_status: created 0015_user_campaigns.sql base=[requested,approved,completed,rejected] adds=[processing,failed]
+
+### JOURNAL
+journal entries: 9  sql files: 33
+SQL FILES NOT IN JOURNAL (drizzle-kit migrate will NEVER apply these):
+   0007_add_notifications.sql
+   0008_add_categories.sql
+   0009_campaign_profile.sql
+   0010_organizer_and_update_type.sql
+   0011_last_donor_completion.sql
+   0012_news_pipeline_quality.sql
+   0013_monitoring.sql
+   0014_dual_campaign_system.sql
+   0015_user_campaigns.sql
+   0016_campaign_fund_usage.sql
+   0017_campaign_submitted_notification.sql
+   0018_blog_pipeline.sql
+   0019_trust_verification.sql
+   0020_milestone_reached_status.sql
+   0021_fund_release_hold_flag.sql
+   0022_stripe_connect_payout.sql
+   0023_youtube_video_url.sql
+   0024_general_fund_campaign.sql
+   0025_gallery_images.sql
+   0026_adaptive_email_notification_types.sql
+   0027_oblique_audit_enforcement.sql
+   0028_row_level_security.sql
+   0029_stripe_identity_migration.sql
+   0030_remove_milestone_system.sql
+JOURNAL TAGS WITH NO SQL FILE:
+snapshots present: 9 -> 0000_snapshot.json, 0001_snapshot.json, 0002_snapshot.json, 0003_snapshot.json, 0004_snapshot.json, 0005_snapshot.json, 0006_snapshot.json, 0007_snapshot.json, 0008_snapshot.json

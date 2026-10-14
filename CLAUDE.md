@@ -41,6 +41,10 @@ transcript or a commit message is lost.
 | `26-DEPLOYMENT-ARCHITECTURE.md` | Cloudflare + Fly.io + Supabase topology, caching, capacity |
 | `27-TOOLING-STACK.md` | Free/low-cost tool inventory by capability |
 | `28-TOOL-ALTERNATIVES-ADR.md` | Keep/swap decisions per tool, with rejected alternatives |
+| `29-SYSTEM-AUDIT.md` | **Full-system audit (2026-10-14). Read before touching money, auth, storage or migrations.** |
+| `30-GOFUNDME-BENCHMARK.md` | Competitor benchmark: parity gaps, attack surface, corrections to docs 22/23 |
+| `31-REMEDIATION-PLAN.md` | **Ordered fix plan with per-item acceptance criteria. Start here for work.** |
+| `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
 
