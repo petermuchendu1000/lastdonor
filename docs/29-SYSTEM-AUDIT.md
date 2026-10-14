@@ -32,7 +32,27 @@ Three verification tiers are used below:
 
 ---
 
-## 2. The gating problem: the live database schema is unknowable from this repo
+## 2. The gating problem — RESOLVED 2026-10-14 by live inspection
+
+> **Resolved.** Project `vavxdjqufxrsbyohcwdh` was inspected via the Supabase
+> Management API: the `public` schema has **0 tables**, **0 custom enums**, no
+> `drizzle.__drizzle_migrations` table, **0 `auth.users`**, and storage holds
+> **0 objects** in a single private `verification` bucket. The database is a
+> pre-launch blank slate — nothing was ever applied to it. The project
+> `ntnrcedafgmeyajmzvga`, hardcoded for storage in three files, **is not in the
+> account**.
+>
+> This resolves §2.2's flip-table in the best possible direction: there is no
+> drift to reconcile, so the repair is to fix `_journal.json` and apply all 33
+> migrations onto an empty database. It also means **no real money, no donors,
+> no seed data and no stored documents exist**, so P0-1/P0-1b never materialised
+> here and P0-2 is moot in fact (see `docs/33` §1). The code defects were real
+> and are fixed; the exposure did not occur in this project.
+>
+> The analysis below is retained because the repo-side migration defects it
+> documents are unchanged and still must be repaired before any deploy.
+
+### The original analysis (repo-side defects, still valid)
 
 This blocks severity ranking on roughly a third of the register and must be
 resolved first.

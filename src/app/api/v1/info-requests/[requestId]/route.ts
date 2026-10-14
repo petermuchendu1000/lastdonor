@@ -4,7 +4,7 @@ import { infoRequests, campaigns, auditLogs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
 import { randomUUID } from 'crypto';
-import { supabase, BUCKET_NAME, getPublicUrl } from '@/lib/supabase-storage';
+import { uploadPrivateObject, privateObjectRef } from '@/lib/supabase-storage';
 import type { ApiError } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -242,13 +242,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         );
       }
 
-      const { error: uploadError } = await supabase.storage
-        .from(BUCKET_NAME)
-        .upload(storagePath, buffer, {
-          contentType: detectedType,
-          cacheControl: '31536000',
-          upsert: false,
-        });
+      // P0-1b (docs/29): these uploads previously went to the PUBLIC bucket and
+      // were persisted as getPublicUrl(), so government IDs, medical records and
+      // other verification evidence were readable by anyone with the URL and the
+      // URL never expired. They now go to the private bucket; getPublicUrl()
+      // throws for this prefix, so no caller can mint a public URL for one.
+      const { error: uploadError } = await uploadPrivateObject(
+        storagePath,
+        buffer,
+        { contentType: detectedType },
+      );
 
       if (uploadError) {
         console.error('Info request file upload failed:', uploadError.message, 'path:', storagePath, 'type:', file.type, 'size:', file.size);
@@ -260,7 +263,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
       uploadedFiles.push({
         name: file.name,
-        url: getPublicUrl(storagePath),
+        // Deliberately NOT a dereferenceable URL. Admin review must mint a
+        // short-lived signed URL via createSignedObjectUrl() after an
+        // authorisation check; storing a fetchable link here is what made P0-1b
+        // a leak in the first place.
+        url: privateObjectRef(storagePath),
         size: file.size,
         type: file.type,
       });

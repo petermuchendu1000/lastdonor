@@ -45,7 +45,14 @@ export const PRIVATE_BUCKET_NAME =
  * be turned into a public URL. Matching is on the storage key, so it holds
  * regardless of which route does the uploading.
  */
-export const PRIVATE_PATH_PREFIXES = ['verification-documents/'] as const;
+export const PRIVATE_PATH_PREFIXES = [
+  'verification-documents/',
+  // P0-1b: info-request responses are the documents a campaigner sends when an
+  // admin asks for further verification evidence - the same category of
+  // sensitive material as verification-documents/, and they were going to the
+  // public bucket by the same mechanism until 2026-10-14. See docs/32 §1.
+  'info-request-responses/',
+] as const;
 
 /**
  * TTL for issued signed URLs, in seconds.
