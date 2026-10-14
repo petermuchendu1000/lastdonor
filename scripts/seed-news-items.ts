@@ -1,4 +1,28 @@
 /**
+ * ⛔ DO NOT RUN. Superseded 2026-10-14 — see docs/36-SEED-CONTENT-SANITIZATION.md.
+ *
+ * The 12 stories below attribute:
+ *   - fabricated articles to twelve REAL newsrooms, at URLs on their own
+ *     domains (wral.com, militarytimes.com, kcrg.com, 11alive.com, ...);
+ *   - fabricated quotes to REAL, NAMED, SITTING officials — the mayors of
+ *     Prattville AL, Prestonsburg KY and Cedar Rapids IA, and the Memphis
+ *     fire chief;
+ *   - fabricated actions to REAL organisations — the FDNY Foundation, the
+ *     American Red Cross, the Linn County Community Foundation;
+ *   - fabricated named staff to REAL hospitals (Grady Memorial, NYU Langone).
+ *
+ * Publishing those as live campaigns on a donation platform is forgery, and it
+ * contradicts this pipeline's OWN anti-fabrication rules in
+ * `src/lib/ai/prompts/extract-entities.ts:72-76` ("NEVER construct or shorten
+ * URLs", "NEVER invent family members", "NEVER estimate or guess an age").
+ *
+ * Use `scripts/seed-news-items-clean.ts` instead. It loads the same 12
+ * narratives with every real-entity reference removed, from
+ * `scripts/seed-data/news-items-sanitized.json`.
+ *
+ * This file is kept, unrun, as the provenance of that data.
+ */
+/**
  * Seed 12 high-quality news items into the database.
  * Each has a rich article_body with specific names, locations, and needs
  * so entity extraction produces high-confidence results that pass the quality gate.
