@@ -34,7 +34,13 @@
 export const IS_PRODUCTION_BUILD =
   process.env.NEXT_PHASE === 'phase-production-build';
 
-/** One warning per distinct message, so the build log stays readable. */
+/**
+ * One warning per distinct message *per process*, so the build log stays
+ * readable. Next pre-renders in several worker processes, each with its own
+ * module instance and so its own set, so expect up to one line per worker per
+ * distinct message — observed 4 for a single `ECONNREFUSED` on the verifying
+ * build. That is the intended ceiling, not a dedupe failure.
+ */
 const warned = new Set<string>();
 
 function warnOnce(err: unknown): void {

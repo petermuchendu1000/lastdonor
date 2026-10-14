@@ -87,8 +87,9 @@ These exist for a reason; changing them has consequences beyond the local file.
 - **Migrations: one baseline, two inert directories.** Resolved 2026-10-14, see
   `docs/34-MIGRATION-BASELINE-ADR.md`. `drizzle.config.ts` points at
   `src/db/migrations-v2/`, which holds a single baseline generated from
-  `schema.ts` — 659 statements, 31 tables — that was validated against the live
-  database inside `BEGIN … ROLLBACK` before adoption. `src/db/migrations/`
+  `schema.ts` — 179 statements, 31 tables, 24 enums, in 659 lines — that was
+  validated against the live database inside `BEGIN … ROLLBACK` before adoption.
+  (Corrected 2026-10-14: "659 statements" was the line count.) `src/db/migrations/`
   retains the original 33 files for history and is **inert**: the migrator reads
   only the journal of the directory `out` names (`drizzle-orm/migrator.js:12`).
   **Add new migrations to `migrations-v2/`, never to `migrations/`.**

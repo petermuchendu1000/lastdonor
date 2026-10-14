@@ -97,7 +97,52 @@ Replace before any real traffic.
 
 ---
 
-## 3a. `next build` requires a reachable database — partially mitigated
+## 3a. `next build` no longer requires a database — RESOLVED 2026-10-14
+
+**The analysis below was wrong in one decisive way and is kept with its
+correction, per `CLAUDE.md` ("update the affected doc rather than adding a
+contradicting one").** It said an empty database would let these pages
+"pre-render as empty and fill in via `revalidate`". That conflated **empty of
+rows** with **empty of tables**. Only the second was true, and a missing
+relation *throws* rather than returning no rows:
+
+```
+relation "blog_posts" does not exist      (42P01)
+Export encountered an error on /blog/sitemap.xml/route, exiting the build.
+```
+
+The DB-*unreachable* case was verified by experiment; the
+reachable-but-schemaless case — the only one that applies to a first deploy —
+never was. The first deploy failed on it. Root cause and resolution are in
+`docs/34` §5a; the mechanism is `src/db/build-phase.ts`, which fails soft on a
+database read **only** while `NEXT_PHASE=phase-production-build` and is inert at
+runtime.
+
+**Verified hermetic 2026-10-14.** `next build` with the Dockerfile's exact
+build-stage environment and `DATABASE_URL` pointed at a dead address
+(`127.0.0.1:1`) — a stricter condition than the real one, since every query
+fails rather than just the missing relations — exited **0** and generated
+**118/118 static pages** with zero prerender errors and zero build errors. The
+guard logged 4 `ECONNREFUSED` lines, one per prerender worker process.
+
+**Consequences for this runbook:**
+
+- `--build-secret database_url=…` is **no longer required**. It is still
+  harmless and still worth passing when the schema exists, because real data
+  pre-renders real pages instead of empty ones. On a virgin database it changes
+  nothing.
+- CI builds no longer need a live database, which is the "hermetic build"
+  follow-up the original text below deferred. That follow-up is now done.
+- The two `generateStaticParams()` try/catch blocks from `7b9e033` are now
+  redundant with the client-level guard. They are harmless and left in place:
+  they log a clearer, route-specific warning.
+
+The original analysis follows, for the reasoning about *which* routes query at
+build time, which is still accurate.
+
+---
+
+## 3b. Original analysis — `next build` requires a reachable database (superseded by §3a)
 
 **Verified 2026-10-14 by building with Postgres unreachable.** 24 pages combine
 `export const revalidate` with a `@/db` query, so Next pre-renders them at build
@@ -115,9 +160,10 @@ request later.
 **Not mitigated:** the remaining 22 pages query inside the page body. Making them
 all fail soft is a refactor, not a fix, and was deliberately not attempted.
 
-**Consequence for deploying: the build needs a reachable database.** This is
-fine, because the Fly builder has normal network egress, and the Dockerfile takes
-`DATABASE_URL` as a **BuildKit secret** so it never lands in a layer or in
+**Consequence for deploying ~~the build needs a reachable database~~** —
+superseded by §3a; the build is now hermetic. Retained because the BuildKit
+secret mechanism below is still how `DATABASE_URL` reaches the build when you
+*do* want real data pre-rendered, and it still must never land in a layer or in
 `docker history`:
 
 ```bash
@@ -129,10 +175,13 @@ The pooled 6543 URL is correct here — the build only issues SELECTs. Our datab
 is empty, so these pages pre-render as empty and fill in via `revalidate` once
 seeded.
 
-**Follow-up for a hermetic build**, which would also make CI builds independent of
-a live database: a build-phase guard in the data layer (Next sets
-`NEXT_PHASE=phase-production-build`) returning empty results instead of throwing,
-rather than 22 individual try/catch blocks.
+**Follow-up for a hermetic build** — **DONE 2026-10-14**, exactly as sketched
+here: a build-phase guard in the data layer (Next sets
+`NEXT_PHASE=phase-production-build`) returning empty results instead of
+throwing, rather than 22 individual try/catch blocks. See
+`src/db/build-phase.ts` and §3a. Worth noting that this was already identified
+as the right fix and deferred as "a refactor, not a fix" — the first deploy
+then failed for precisely the reason it was meant to prevent.
 
 ---
 
