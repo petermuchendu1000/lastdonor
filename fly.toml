@@ -1,0 +1,206 @@
+# =============================================================================
+#  LastDonor - Fly.io app configuration
+#  Implements docs/26 "Deployment Architecture" §10 step 4.
+#
+#  Scope: this file configures the app only. Secrets are set out of band with
+#  `fly secrets set` (docs/26 §10 step 5) and are deliberately absent here.
+#  Cloudflare DNS, cache rules and the cron Worker are steps 7-8 and live
+#  outside this repo.
+# =============================================================================
+
+# Confirm this matches the real Fly app before the first deploy; `fly deploy`
+# will not create it for you non-interactively.
+app = "lastdonor"
+
+# -----------------------------------------------------------------------------
+# PRIMARY REGION - DELIBERATE, DO NOT "OPTIMISE" THIS.
+#
+# `arn` is Stockholm, which is the Fly region colocated with AWS `eu-north-1`,
+# where the Supabase project lives. docs/26 §6: "Region colocation is the
+# largest single latency factor. Most pages are DB-driven, so place the Fly
+# primary region in the same geography as the Supabase project. One region
+# close to Postgres beats multi-region with a single primary."
+#
+# Moving this closer to users instead of closer to Postgres puts every query on
+# a transatlantic round trip, and the reads that would benefit are already
+# served from Cloudflare's edge (docs/26 §5 layer 1). Do not add regions until
+# read replicas exist to go with them (docs/26 §8).
+# -----------------------------------------------------------------------------
+primary_region = "arn"
+
+# Give in-flight work time to finish on rolling deploys and machine restarts.
+# The donation webhook runs a single DB transaction plus post-commit side
+# effects (docs/26 §7); cutting it mid-flight is the one failure this app
+# cannot shrug off. Next's standalone server shuts down on SIGTERM, and
+# dumb-init (the image's PID 1) forwards it.
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+  # Build-time-only, non-secret client config. `NEXT_PUBLIC_*` is inlined into
+  # the client bundle by the compiler, so setting these as Fly secrets has no
+  # effect - they must be build args. Fill in the publishable values before
+  # the first deploy; they are public by definition.
+  [build.args]
+    NEXT_PUBLIC_APP_URL = "https://lastdonor.org"
+    # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_..."
+    # NEXT_PUBLIC_SENTRY_DSN = "https://...ingest.sentry.io/..."
+    # NEXT_PUBLIC_TAWK_PROPERTY_ID = ""
+    # NEXT_PUBLIC_TAWK_WIDGET_ID = ""
+
+  # The build also needs a reachable Postgres, because three SSG routes call
+  # `generateStaticParams()` straight against the database. It is passed as a
+  # BuildKit secret so it never lands in a layer:
+  #
+  #   fly deploy --build-secret database_url="postgresql://...:6543/postgres"
+  #
+  # A pooled, read-only URL is fine here - the build only SELECTs.
+
+# -----------------------------------------------------------------------------
+# Non-secret runtime environment. Secrets go through `fly secrets set` only.
+# -----------------------------------------------------------------------------
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  HOSTNAME = "0.0.0.0"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+  # REQUIRED for this topology, not optional tuning. Both Cloudflare and Fly
+  # append to `X-Forwarded-For`, so the client IP is the second-from-last hop.
+  # Without these two the rate limiter reads the wrong element and every limit
+  # becomes trivially bypassable (docs/26 §10 step 5; docs/32 §4; audit P1-5).
+  # `.env.example` ships the single-proxy defaults (`xff` / `1`) for local dev;
+  # these are the Cloudflare-in-front values.
+  CLIENT_IP_SOURCE = "cf"
+  TRUSTED_PROXY_HOPS = "2"
+
+[deploy]
+  # ---------------------------------------------------------------------------
+  # Drizzle migrations, once per deploy, before any traffic shifts. A non-zero
+  # exit aborts the deploy and the previous release keeps serving.
+  #
+  # The script is baked into the image at /usr/local/bin/release-migrate (see
+  # the Dockerfile) rather than inlined here, so that:
+  #   - the shell quoting lives in a shell file,
+  #   - it asserts MIGRATION_DATABASE_URL is set and is NOT port 6543 before
+  #     connecting. docs/26 §6 and CLAUDE.md: migrations run over port 5432
+  #     (session mode), because transaction-mode pooling cannot hold the
+  #     session state that DDL and advisory locks need. 6543 is the
+  #     application's pooled port and is rejected outright.
+  #   - it refuses to run while `src/db/migrations/meta/_journal.json` has
+  #     fewer entries than there are `.sql` files. Verified 2026-10-14: 9
+  #     entries vs 33 files. drizzle-orm's migrator iterates only
+  #     `journal.entries`, so without that guard this command would apply 9 of
+  #     33 migrations and exit 0, reporting a successful deploy over a schema
+  #     that is 24 migrations short.
+  #
+  # ⛔ THEREFORE: this release command will FAIL until the journal is repaired
+  # (CLAUDE.md, docs/29). That is intended. Set `SKIP_MIGRATIONS=1` as a Fly
+  # secret to deploy the app without migrating in the meantime.
+  #
+  # Set before the first deploy:
+  #   fly secrets set MIGRATION_DATABASE_URL='postgresql://...@...:5432/postgres'
+  # ---------------------------------------------------------------------------
+  release_command = "/usr/local/bin/release-migrate"
+
+  # Rolling, so there is always a machine serving. This is the other half of
+  # why docs/26 §9 starts at two machines, and why the shared ISR cache
+  # (docs/26 §5 layer 2, migration step 3) must land before machine count > 1
+  # is safe: two machines without it serve divergent stale HTML silently.
+  strategy = "rolling"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+
+  # ---------------------------------------------------------------------------
+  # NO SCALE-TO-ZERO. docs/26 §7: "Never scale to zero. A cold start on a
+  # payment webhook risks a timeout; Stripe retries, but on a payments platform
+  # the right answer is a warm machine."
+  #
+  # `auto_stop_machines = "off"` is what actually prevents it - machines are
+  # never stopped, so there is never a cold start to pay for.
+  # `min_machines_running = 1` is the explicit floor required by docs/26 §9 and
+  # is kept as a second line of defence: if auto-stop is ever switched on, the
+  # floor still holds. Fly only consults it when auto-stop is enabled, so the
+  # two settings together are belt and braces, not a contradiction.
+  # ---------------------------------------------------------------------------
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    # A Node process serving SSR; these are starting values, not measurements.
+    # docs/26 §9 is explicit that sizing cannot be derived without traffic
+    # numbers - raise or lower from Fly metrics and the p95 signal in that
+    # table rather than from intuition.
+    soft_limit = 150
+    hard_limit = 250
+
+  # ---------------------------------------------------------------------------
+  # HEALTH CHECK - /api/v1/live, NEVER /api/v1/health.
+  #
+  # docs/26 §1 and docs/32 §11 (audit R-09 / P1-13): `/api/v1/health` calls
+  # `stripe.balance.retrieve()` and returns 503 if ANY dependency check fails.
+  # Shared dependencies fail on every machine at once, so pointing Fly at it
+  # would turn a Stripe or Supabase blip into Fly killing the entire fleet
+  # simultaneously - an outage caused entirely by the monitoring.
+  #
+  # `/api/v1/live` is the shallow, process-only probe built for this: no DB, no
+  # Stripe, no Redis, no await. It can only fail for reasons local to the one
+  # process a restart would actually fix.
+  #
+  # Verified it answers unauthenticated: `src/middleware.ts` is default-deny
+  # over `/api/*`, and `PUBLIC_API_ROUTES` carries an anchored
+  # `/^\/api\/v1\/live$/` entry for exactly this reason. A restart probe cannot
+  # carry a credential.
+  #
+  # Keep `/api/v1/health` as the deep readiness/diagnostic endpoint for humans
+  # and external uptime monitoring, where a 503 during a Stripe outage is the
+  # signal you want.
+  # ---------------------------------------------------------------------------
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/v1/live"
+    protocol = "http"
+    interval = "15s"
+    timeout = "5s"
+    # Next's standalone server is listening in a second or two, but the first
+    # request compiles nothing and touches no dependency, so this is generous
+    # rather than tight.
+    grace_period = "15s"
+    [http_service.checks.headers]
+      User-Agent = "fly-health-check"
+
+# -----------------------------------------------------------------------------
+# Machine size. docs/26 §9: "Starting point: 2 × shared-cpu-2x (1 GB) Machines,
+# min_machines_running = 1, in the Supabase region."
+#
+# `fly scale count 2` sets the machine count; this block sets what each one is.
+# 1 GB is the figure to watch first: a Next SSR process plus sharp's libvips
+# working set is the memory consumer, and the Fly metrics signal in docs/26 §9
+# says scale up before scaling out.
+# -----------------------------------------------------------------------------
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
+  processes = ["app"]
+
+# -----------------------------------------------------------------------------
+# Deliberately NOT configured here:
+#
+#  * `[[statics]]` - Next already serves `/_next/static` with immutable
+#    headers set in `next.config.ts`, and Cloudflare caches it at the edge
+#    (docs/26 §5 layer 1). A Fly static mount would duplicate that and bypass
+#    those headers.
+#  * `[mounts]` - no volume. The app is stateless; ISR state is per-machine
+#    disk today and moves to Upstash in docs/26 §5 layer 2.
+#  * `[[services]]` for the grey-cloud `origin.lastdonor.com` hostname
+#    (docs/26 §3). It is the same HTTP service on the same port; it is a
+#    Cloudflare DNS-only record plus `fly certs add origin.lastdonor.com`, not
+#    a second Fly service.
+# -----------------------------------------------------------------------------

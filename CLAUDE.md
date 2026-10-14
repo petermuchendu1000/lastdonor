@@ -45,6 +45,7 @@ transcript or a commit message is lost.
 | `30-GOFUNDME-BENCHMARK.md` | Competitor benchmark: parity gaps, attack surface, corrections to docs 22/23 |
 | `31-REMEDIATION-PLAN.md` | **Ordered fix plan with per-item acceptance criteria. Start here for work.** |
 | `32-REMEDIATION-DECISIONS-ADR.md` | **Decisions taken implementing docs/31, with rejected alternatives. Read before revisiting auth, storage, CSP or cron locks.** |
+| `34-MIGRATION-BASELINE-ADR.md` | **Why there is one baseline and two migration dirs. Read before any schema change.** |
 | `33-SEED-DATA-DISCLOSURE-DECISION.md` | **Owner decision on seed-donation disclosure + engineering objection. Read before touching the simulation engine or public totals.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
@@ -58,9 +59,8 @@ npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
 npm run test:unit      # Vitest (3977 tests)
 npm run test:e2e       # Playwright (72 tests, 21 files)
-# ⛔ DO NOT RUN EITHER OF THESE UNTIL THE MIGRATION STATE IS REPAIRED (see below)
-npm run db:generate    # HAZARDOUS: would diff against the 0008 snapshot
-npm run db:migrate     # HAZARDOUS: silently applies only 9 of 33 migrations
+npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
+npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline
 ```
 
 Before any commit: `npm run lint && npm run typecheck && npm run test:unit`
@@ -84,27 +84,31 @@ These exist for a reason; changing them has consequences beyond the local file.
   `PUBLIC_API_PREFIXES` in `src/middleware.ts`. Add to that list deliberately.
 - **Cron routes authenticate via `verifyCronAuth`** (timing-safe Bearer compare).
   Every new cron route must call it.
-- **⛔ MIGRATIONS ARE BROKEN — READ THIS BEFORE ANY DB WORK.** Verified
-  2026-10-14: `src/db/migrations/meta/_journal.json` has **9 entries** but there
-  are **33 `.sql` files**; the last journaled tag is `0008`. `drizzle-orm`'s
-  migrator (`migrator.js:12`) iterates *only* `journal.entries` and never lists
-  the directory, so `db:migrate` silently skips 24 migrations. Snapshots also
-  stop at `0008`, so **`db:generate` would diff against a 0008 baseline and emit
-  a migration re-creating 0009–0030**, including DROP/CREATE on indexes. The 8
-  ad-hoc scripts in the repo root and `scripts/` exist because of this. Net
-  effect: **the live database schema cannot be determined from this repo.** Do
-  not run `db:generate` or `db:migrate`, and do not trust `schema.ts` as a
-  description of production, until this is repaired. See docs/29.
+- **Migrations: one baseline, two inert directories.** Resolved 2026-10-14, see
+  `docs/34-MIGRATION-BASELINE-ADR.md`. `drizzle.config.ts` points at
+  `src/db/migrations-v2/`, which holds a single baseline generated from
+  `schema.ts` — 659 statements, 31 tables — that was validated against the live
+  database inside `BEGIN … ROLLBACK` before adoption. `src/db/migrations/`
+  retains the original 33 files for history and is **inert**: the migrator reads
+  only the journal of the directory `out` names (`drizzle-orm/migrator.js:12`).
+  **Add new migrations to `migrations-v2/`, never to `migrations/`.**
 
-- **Donation idempotency — VERIFY BEFORE TRUSTING.** `schema.ts:385` declares
-  `uniqueIndex('idx_donations_stripe_payment_id')`, but
-  `0000_square_chronomancer.sql:190` creates that exact name as a **NON-UNIQUE**
-  index. The only UNIQUE index is `idx_donations_stripe_payment_id_unique` in
-  `0015_user_campaigns.sql:49` — **which is not journaled**. If 0015 was never
-  applied out-of-band, there is no unique constraint, `onConflictDoNothing({
-  target: stripePaymentId })` in `payment-service.ts:103` raises Postgres 42P10,
-  and every Stripe webhook aborts. Whichever is true, never drop the unique
-  index once confirmed — it is the only replay protection.
+  Why the old directory was abandoned: it holds **two overlapping lineages that
+  cannot be replayed together** — `0007_smart_tusk.sql` (journaled) is a late
+  regenerated baseline creating 15 enum types that `0015`, `0018` and `0019`
+  (unjournaled) create again. Proven by a dry run failing with
+  `42710: type "notification_type" already exists` against a database confirmed
+  to hold zero enums. Separately `0027` adds a CHECK for `failed_login_count`,
+  a column no migration there creates.
+
+- **Donation idempotency — RESOLVED 2026-10-14.** The baseline creates
+  `CREATE UNIQUE INDEX "idx_donations_stripe_payment_id"`, so the canonical name
+  is genuinely UNIQUE and `onConflictDoNothing({ target: stripePaymentId })` in
+  `payment-service.ts:103` is sound. This supersedes the earlier warning that
+  `0000:190` created that name NON-unique while only unjournaled `0015:49`
+  created a unique one under a different name. **Never drop this index** — it is
+  the only replay protection against duplicate Stripe webhooks.
+
 - **Stripe metadata is the disaster-recovery substrate.** `create-checkout`
   writes full donor context onto every PaymentIntent, which makes `donations`
   reconstructible from Stripe alone. Preserve this in any refactor.

@@ -1,0 +1,111 @@
+# =============================================================================
+#  Docker build context exclusions (docs/26 §10 step 1)
+#
+#  Three jobs, in order of importance:
+#    1. Keep credentials out of the build context entirely. A file that never
+#       enters the context cannot be COPYed into a layer by accident.
+#    2. Keep the context small. `node_modules` is 1.3 GB and `.next` is a stale
+#       host build; both would be uploaded to the Fly builder and then
+#       discarded, and a host-built `node_modules` would also defeat the
+#       libc-matching that the Dockerfile relies on for `sharp`.
+#    3. Keep the layer cache sharp - docs and tests changing should not
+#       invalidate the build.
+#
+#  package-lock.json (~700 KB) is deliberately NOT excluded: `npm ci` needs it
+#  and it is what makes the install reproducible.
+# =============================================================================
+
+# ---- secrets and local config (highest priority) ----------------------------
+.env
+.env.*
+.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.sentryclirc
+.npmrc
+secrets/
+backups/
+
+# ---- the two big ones -------------------------------------------------------
+node_modules
+**/node_modules
+.next
+out
+
+# ---- VCS and CI -------------------------------------------------------------
+.git
+.gitignore
+.gitattributes
+.github
+
+# ---- docs: never needed at build or runtime ---------------------------------
+docs
+*.md
+!README.md
+SECURITY-AUDIT.md
+LICENSE
+
+# ---- tests and test tooling -------------------------------------------------
+# `next build` runs ESLint and tsc over the context, so dropping 86 in-src test
+# files and the e2e suite also shortens the build. Verified: nothing under
+# `src/` that ships imports from `test/` or from a `*.test.*` file.
+test
+e2e
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.ts
+vitest.config.integration.ts
+playwright.config.ts
+playwright-report
+test-results
+trace
+coverage
+
+# ---- build/IDE/OS droppings -------------------------------------------------
+# tsconfig.tsbuildinfo is 4 MB of host-local incremental state and is useless
+# in the image.
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+dist
+build
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+mig.log
+migration-output.log
+
+# ---- Vercel / other platforms ----------------------------------------------
+# vercel.json's `crons` array is replaced by the Cloudflare Worker in docs/26
+# §4 and does nothing on Fly.
+.vercel
+vercel.json
+
+# ---- ad-hoc migration scripts ----------------------------------------------
+# The repo-root scripts that exist because the migration journal is broken
+# (CLAUDE.md, docs/29). They are operator tools, not part of the runtime; the
+# release command in the Dockerfile uses drizzle-kit against
+# src/db/migrations instead. `src/db/migrations` itself is NOT excluded.
+apply-gallery-migration.mjs
+apply-preferences-migration.mjs
+check-migration.cjs
+run-migration.cjs
+scripts
+temp-blog-post.json
+
+# ---- things with no runtime role -------------------------------------------
+figma-plugin
+.claude
+components.json
+shadcn-extension.json
+
+# ---- the artifacts themselves ----------------------------------------------
+Dockerfile
+.dockerignore
+fly.toml
