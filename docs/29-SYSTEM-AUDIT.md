@@ -114,6 +114,17 @@ avatar display (cosmetic); stops the exposure.
 *Fix:* separate private bucket, signed URLs behind `requireRole(['admin'])`,
 migrate existing objects, then rotate the exposed paths.
 
+### P0-1b · Info-request response documents are also publicly readable · **RE-VERIFIED, added 2026-10-14**
+
+**This audit missed it.** `src/app/api/v1/info-requests/[requestId]/route.ts:263`
+returns `getPublicUrl()` for `info-request-responses/<campaignId>/<requestId>/*`
+uploaded into the public `BUCKET_NAME`. These are the documents campaigners send when
+an admin requests further verification evidence — the same category of sensitive
+material as P0-1, by the same mechanism. Found by the security implementation pass,
+not by this audit, because the audit scoped the verification-documents route and not
+`info-requests`. Not fixed in `d6450e3`: adding the prefix to the private list would
+have converted a leak into a 500 in a file that change did not own.
+
 ### P0-2 · Simulated donations inflate the totals real donors rely on · **RE-VERIFIED**
 
 `simulation-engine.ts:330-341` increments **the same** `campaigns.raisedAmount`
@@ -237,7 +248,15 @@ Recorded because an audit that never corrects itself is not an audit.
    element with `opacity < 0.05`. The agent may have rendered a component in
    isolation. **Needs re-test against a fully-booted app before it enters the
    backlog.**
-2. **"Site renders in browser default serif" — NOT PROVEN.** My browser check hit
+2. **"Site renders in browser default serif" — RESOLVED 2026-10-14: the claim was
+   CORRECT.** Proven from the compiled stylesheet plus CSS semantics rather than from
+   a page render: `--default-font-family` resolved to a value containing
+   `var(--font-dm-sans)`, which nothing defined, and an unresolvable `var()` in a
+   non-custom property is invalid at computed-value time, so `html` took the initial
+   value. Body text, all 180 `font-display` headings and all 133 `font-mono` figures
+   rendered in the UA serif while all three DM families downloaded unused. Fixed in
+   `e1fee65`. The original agent's claim was right; its evidence was not. Original
+   note follows. **"Site renders in browser default serif" — NOT PROVEN at the time.** My browser check hit
    an error boundary (`h1` read "Something went wrong") because the dev server has
    no `DATABASE_URL`, so the measurement is invalid for the real homepage. The
    *variable mismatch* is verified; the *rendered consequence* is not. Settling it

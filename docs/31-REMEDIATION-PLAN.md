@@ -1,5 +1,15 @@
 # 31 — Remediation Plan
 
+> **Status 2026-10-14.** Phase 1–3 code landed in `ec2482e`, `53cfd61`,
+> `c6fdfb9`, `d6450e3`, `e1fee65`. Decisions and rejected alternatives are in
+> `docs/32`. **Closed:** P0-3, P0-4 (minus its column), P1-1 through P1-6,
+> P1-11 through P1-15, P2-1 through P2-5 (CSP partial). **Still open:** P0-1
+> needs operator steps; **P0-1b is a new P0** (`info-requests` writes response
+> documents to the public bucket — missed by docs/29); P0-2 awaits the seed
+> purge; P0-6, P1-7, P1-9 and P1-10 are blocked on database access per §2 of
+> `docs/29`. Gate at time of landing: lint clean, tsc clean, **4410/4410 tests**
+> (from 3977).
+
 Ordered execution plan for `docs/29`. Every item states its **acceptance
 criterion as a test**, because per `docs/29` §9 the existing 3,977 tests pass
 while every P0 defect is live — so "fixed" means "a test now fails without the
