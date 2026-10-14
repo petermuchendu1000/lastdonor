@@ -113,24 +113,31 @@ import { SkipToContent } from '@/components/layout/SkipToContent';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 
+// The CSS variable names below are the ones `globals.css` reads in its
+// `@theme` block (--font-dm-serif-display / --font-dm-sans / --font-dm-mono).
+// They previously read --font-display / --font-body / --font-mono, so every
+// font utility resolved `var(--font-dm-*)` against an undefined property; an
+// unresolvable var() makes the whole `font-family` declaration invalid at
+// computed-value time, and because font-family is inherited the document fell
+// back to the UA default serif for body, headings AND mono. See docs/29 §6.2.
 const dmSerifDisplay = DM_Serif_Display({
   weight: '400',
   subsets: ['latin'],
-  variable: '--font-display',
+  variable: '--font-dm-serif-display',
   display: 'swap',
 });
 
 const dmSans = DM_Sans({
   weight: ['400', '500', '600'],
   subsets: ['latin'],
-  variable: '--font-body',
+  variable: '--font-dm-sans',
   display: 'swap',
 });
 
 const dmMono = DM_Mono({
   weight: '400',
   subsets: ['latin'],
-  variable: '--font-mono',
+  variable: '--font-dm-mono',
   display: 'swap',
 });
 
@@ -213,7 +220,7 @@ export default function RootLayout({
           src="https://plausible.io/js/script.js"
         />
       </head>
-      <body className="flex min-h-screen flex-col bg-background font-body text-foreground antialiased">
+      <body className="flex min-h-screen flex-col bg-background font-sans text-foreground antialiased">
         <noscript data-nosnippet>
           <div className="bg-yellow-50 px-4 py-3 text-center text-sm text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-200">
             JavaScript is required to donate and interact with campaigns. Please enable JavaScript to continue.

@@ -135,7 +135,7 @@ export default function AboutPage() {
                 <tr className="bg-card">
                   <td className="px-4 py-3 font-medium text-foreground">Does LastDonor take a platform fee?</td>
                   <td className="px-4 py-3 text-primary">0% platform fees on fundraisers</td>
-                  <td className="px-4 py-3 text-muted-foreground">Checkout fee breakdown</td>
+                  <td className="px-4 py-3 text-muted-foreground">Fee disclosure on the transparency page</td>
                 </tr>
                 <tr className="bg-card/60">
                   <td className="px-4 py-3 font-medium text-foreground">Are campaigns reviewed first?</td>
@@ -170,7 +170,7 @@ export default function AboutPage() {
             sponsorships, and operating support. That support helps pay for
             campaign review, verification work, donor support, hosting, payment
             operations, and impact updates. Standard Stripe processing fees are
-            separate and may be shown before checkout.
+            separate.
           </p>
 
           <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Who we help</h2>

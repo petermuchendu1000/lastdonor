@@ -27,7 +27,7 @@ const trustSignals = [
     icon: ShieldCheckIcon,
     title: '0% platform fees',
     body:
-      'LastDonor does not take a platform cut. Standard Stripe processing fees apply and are disclosed before checkout.',
+      'LastDonor does not take a platform cut. Standard Stripe processing fees apply.',
     detail: 'Stripe-secured payments',
   },
 ];

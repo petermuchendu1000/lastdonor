@@ -42,7 +42,7 @@ const faqs = [
   {
     question: 'Does LastDonor charge a setup fee?',
     answer:
-      'No. LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees are shown before checkout. Operations are funded separately through general fund donations, grants, sponsorships, and operating support.',
+      'No. LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees apply. Operations are funded separately through general fund donations, grants, sponsorships, and operating support.',
   },
 ];
 

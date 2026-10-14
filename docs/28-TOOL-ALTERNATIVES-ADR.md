@@ -150,9 +150,11 @@ exact pin plus reading the changelog before any deliberate bump.
 for the free moderation endpoint.**
 
 **Why:** `src/lib/ai/openrouter.ts` already routes through OpenRouter with a
-configured fallback key, and `scripts/list-free-models.ts`,
-`test-free-models.ts` and `generate-fallback-pool.ts` show model selection is
-already treated as data. This is the correct design: **changing model is a
+configured fallback key, and `scripts/list-free-models.ts` plus
+`test-free-models.ts` show model selection is already treated as data — the
+ladder itself lives in `modelOrder` in `call-ai.ts`. (**Corrected 2026-10-14:**
+this previously also cited `generate-fallback-pool.ts`, which is unrelated — it
+generates campaign hero *image* fallbacks from Unsplash/Pexels.) This is the correct design: **changing model is a
 config change, not a migration.** There is nothing to improve structurally.
 
 **Two concrete actions rather than a swap:**

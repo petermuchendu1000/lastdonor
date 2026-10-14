@@ -65,7 +65,7 @@ export function WhereYourMoneyGoes() {
       label: 'Payment Processing',
       value: 'Stripe fee',
       dotClass: 'bg-brand-amber',
-      description: 'Stripe charges its standard card processing fee. The exact fee is shown before checkout.',
+      description: 'Stripe charges its standard card processing fee. LastDonor does not receive any part of it.',
     },
     {
       label: 'LastDonor Platform Fee',
@@ -91,7 +91,7 @@ export function WhereYourMoneyGoes() {
             0% Platform Fees,<br className="hidden md:block" /> Clear Payment Processing
           </h2>
           <p className="mx-auto mt-6 max-w-2xl font-sans text-[17px] leading-relaxed text-foreground">
-            LastDonor charges 0% platform fees on fundraisers. Standard Stripe payment processing fees apply and are shown before checkout.<br className="hidden md:block" />
+            LastDonor charges 0% platform fees on fundraisers. Standard Stripe payment processing fees apply.<br className="hidden md:block" />
             Operations are funded separately through general fund donations, grants, sponsorships, and operating support.
           </p>
         </motion.div>

@@ -138,7 +138,9 @@ headers: { Authorization: 'Bearer ' + CRON_SECRET }})`, fire-and-forget with
 truncated.
 
 **Overlap guard.** `update-phases` runs every 5 minutes with `maxDuration = 120`,
-and `simulate-donations` every 15 minutes at 300s. A slow run can overlap its
+and `simulate-donations` every 15 minutes at 120s (**corrected 2026-10-14**: this
+document previously said 300s; the route declares `maxDuration = 120`, and the
+platform enforces the declaration). A slow run can overlap its
 own next invocation. Take a short-lived Upstash lock (`SET NX` with a TTL
 slightly above `maxDuration`) at the top of each cron handler and exit early if
 it is held. Without this, concurrent phase mutation is possible.

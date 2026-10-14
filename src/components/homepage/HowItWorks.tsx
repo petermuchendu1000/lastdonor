@@ -17,7 +17,7 @@ const steps = [
     icon: LockClosedIcon,
     title: 'Donate Securely',
     description:
-      'Pay with any card. LastDonor charges 0% platform fees on fundraisers, and standard Stripe processing fees are shown before checkout.',
+      'Pay with any card. LastDonor charges 0% platform fees on fundraisers; standard Stripe processing fees apply.',
   },
   {
     number: '03',

@@ -2,6 +2,18 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Typography plugin — REQUIRED. Tailwind 4 does not auto-load plugins from a
+   config file, so `@tailwindcss/typography` has to be registered here. Without
+   this line every `prose*` class in the app compiles to nothing: a compile of
+   this file emitted 0 `.prose` rules (audit docs/29 P2-1), which left the
+   campaign story at campaigns/[slug]/page.tsx with no paragraph spacing,
+   heading hierarchy or list markers once preflight's `*{margin:0;padding:0}`
+   and list resets had applied. `.blog-article` below is the blog pipeline's own
+   class contract (emitted by src/lib/blog/html-formatter.ts and consumed by
+   ArticleRenderer); it is NOT a substitute for `prose` and no call site mixes
+   the two. Asserted by src/app/css-compile.test.ts. */
+@plugin "@tailwindcss/typography";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -10,6 +22,27 @@
   --font-sans: var(--font-dm-sans), system-ui, sans-serif;
   --font-mono: var(--font-dm-mono), ui-monospace, monospace;
   --font-heading: var(--font-display);
+
+  /* Accessible pairings for the conversion path (audit docs/29 P2-4).
+     Every ratio below is computed by src/app/contrast.test.ts from these token
+     values, so the numbers cannot silently rot.
+       --color-cta-amber            solid amber CTA fill; white label = 5.02:1
+                                    (brand amber #D97706 gave 3.19:1 — a 1.4.3
+                                    failure at the 14px/700 these buttons use)
+       --color-primary-foreground-muted
+                                    de-emphasised text on a `bg-primary` band:
+                                    5.15:1 light / 4.95:1 dark (the previous
+                                    hard-coded text-white/70..90 gave 3.54:1
+                                    light and 1.89–2.49:1 dark)
+       --color-primary-elevated     card surface sitting on a `bg-primary` band;
+                                    darkens in light mode and lightens in dark
+                                    mode so the band's foreground keeps >=4.5:1
+                                    (`bg-white/[0.06]` lightened in both themes,
+                                    which pushed white text to 4.48:1 on hover) */
+  --color-cta-amber: #B45309;
+  --color-primary-foreground-muted: var(--primary-foreground-muted);
+  --color-primary-elevated: var(--primary-elevated);
+  --color-primary-elevated-hover: var(--primary-elevated-hover);
 
   /* Brand accent colors (available as bg-brand-teal, text-brand-amber, etc.) */
   --color-brand-teal: #0F766E;
@@ -92,15 +125,29 @@
   --popover-foreground: #1A1A1A;
   --primary: #0F766E;
   --primary-foreground: #FFFFFF;
+  --primary-foreground-muted: #F4F9F8;
+  --primary-elevated: #0D655F;
+  --primary-elevated-hover: #0C5C56;
   --secondary: #F5F5F5;
   --secondary-foreground: #1A1A1A;
   --muted: #F5F5F5;
   --muted-foreground: #64707D;
   --accent: #D97706;
-  --accent-foreground: #FFFFFF;
+  /* 1.4.3: the amber CTA surface keeps the brand hue from docs/02, so its
+     label is dark ink, not white. White on #D97706 computed 3.19:1 on the
+     sidebar donate button, the sticky mobile donate bar, the navbar CTA and
+     the notification badge; #1A1A1A on the same amber computes 5.47:1 and
+     also leaves `hover:bg-accent` surfaces that inherit --foreground
+     unchanged (darkening the amber instead would have taken those to
+     3.47:1). */
+  --accent-foreground: #1A1A1A;
   --destructive: #8B2332;
   --border: #E5E7EB;
-  --input: #E5E7EB;
+  /* Form-control boundary, WCAG 1.4.11 (>=3:1 against the control's own
+     background). #E5E7EB computed 1.24:1 against #FFFFFF; #6B7280 computes
+     4.83:1 on white and 4.43:1 on --muted. --border stays light because card
+     and divider edges are decoration, not a control boundary. */
+  --input: #6B7280;
   --ring: #0F766E;
   --chart-1: #0F766E;
   --chart-2: #D97706;
@@ -137,6 +184,9 @@
   --popover-foreground: #F1F5F9;
   --primary: #14B8A6;
   --primary-foreground: #0F1A19;
+  --primary-foreground-muted: #123B36;
+  --primary-elevated: #35C2B2;
+  --primary-elevated-hover: #48C8BA;
   --secondary: #132322;
   --secondary-foreground: #F1F5F9;
   --muted: #1A2E2B;
@@ -145,7 +195,10 @@
   --accent-foreground: #1A1A1A;
   --destructive: #EF4444;
   --border: #2D4A47;
-  --input: #2D4A47;
+  /* 1.4.11: #2D4A47 computed 1.47:1 against --card and 1.85:1 against
+     --background. #6E8C88 computes 3.93:1 / 4.88:1 / 4.47:1 against --card,
+     --background and --secondary. */
+  --input: #6E8C88;
   --ring: #14B8A6;
   --chart-1: #14B8A6;
   --chart-2: #FBBF24;
@@ -172,6 +225,21 @@
   html {
     @apply font-sans;
   }
+}
+
+/* ── WCAG 1.4.3: solid amber CTA surfaces ──────────────────────────────────
+   Every `bg-brand-amber` call site pairs the fill with a hard-coded white
+   label (donate submit button, hero CTA, trust-banner CTA, newsletter
+   buttons). White on the brand amber #D97706 computes 3.19:1, which fails
+   1.4.3 at 14px/700. Only the *solid surface* role is darkened to amber-700
+   here; the amber *ink* role (`text-brand-amber`) and the tints
+   (`bg-brand-amber/10`, `border-brand-amber/20`, `ring-brand-amber/20`)
+   generate their own class names and keep the brand hue from docs/02, which
+   they need in dark mode (#D97706 is 5.58:1 on --background, amber-700 would
+   be 3.54:1). Unlayered on purpose: it must win over the generated utility.
+   Asserted by src/app/contrast.test.ts and src/app/css-compile.test.ts. */
+.bg-brand-amber {
+  background-color: var(--color-cta-amber);
 }
 
 /* Focus indicator - Warm Amber for visibility on generic focusables */
@@ -254,7 +322,13 @@ button:focus-visible {
 
 /* ─── Blog Article Styles ───────────────────────────────────────────── */
 
-/* Base article typography (replaces @tailwindcss/typography prose classes) */
+/* Base article typography for the blog pipeline. This is NOT a replacement for
+   `prose` (the earlier comment here claimed it was, while 10 `prose` call sites
+   kept compiling to nothing — see the @plugin note at the top of this file).
+   `.blog-article` / `.blog-*` are the class names src/lib/blog/html-formatter.ts
+   emits and src/components/blog/ArticleRenderer.tsx applies; everything else
+   uses `prose`. Collapsing the two onto the plugin is a deliberate follow-up:
+   it would restyle every published blog post. */
 .blog-article {
   max-width: none;
   font-size: 1.125rem;

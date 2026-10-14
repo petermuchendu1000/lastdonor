@@ -133,7 +133,7 @@ export function injectCta(html: string, causeCategory: string): string {
 
   const topCta = `\n<aside class="blog-cta" role="complementary" aria-label="Start your campaign">
 <p class="blog-cta-heading"><strong>Need Help With a ${capitalize(categoryLabel)} Cause?</strong></p>
-<p>LastDonor.org charges 0% platform fees. Standard Stripe processing fees apply and are shown before checkout.</p>
+<p>LastDonor.org charges 0% platform fees. Standard Stripe processing fees apply.</p>
 <p><a href="/share-your-story" class="blog-cta-button">Start a Campaign</a></p>
 </aside>\n`;
 
@@ -145,7 +145,7 @@ export function injectCta(html: string, causeCategory: string): string {
 
   const bottomCta = `\n<aside class="blog-cta" role="complementary" aria-label="Start your campaign">
 <p class="blog-cta-heading"><strong>Ready to Make a Difference?</strong></p>
-<p>Whether you're raising funds for a ${categoryLabel} cause or supporting someone in need, LastDonor.org makes it simple. LastDonor charges 0% platform fees, and payment processing is disclosed before checkout.</p>
+<p>Whether you're raising funds for a ${categoryLabel} cause or supporting someone in need, LastDonor.org makes it simple. LastDonor charges 0% platform fees, and standard Stripe processing fees apply.</p>
 <p><a href="/share-your-story" class="blog-cta-button">Start a Campaign</a> or <a href="/how-it-works">learn how it works</a>.</p>
 </aside>`;
 

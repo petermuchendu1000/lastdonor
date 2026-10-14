@@ -41,7 +41,7 @@ export default function DonatePage() {
     {
       question: 'Does LastDonor charge a platform fee on donations?',
       answer:
-        'LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees are shown before checkout. LastDonor funds operations separately through general fund donations, grants, sponsorships, and operating support.',
+        'LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees apply. LastDonor funds operations separately through general fund donations, grants, sponsorships, and operating support.',
     },
     {
       question: 'Can I cancel a monthly general fund donation?',

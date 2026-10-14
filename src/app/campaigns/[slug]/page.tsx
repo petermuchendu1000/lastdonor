@@ -365,7 +365,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
       description: campaignDescription,
     },
     description:
-      `Donate to help ${campaign.subjectName}. LastDonor charges 0% platform fees; standard Stripe processing fees apply and are shown before checkout.`,
+      `Donate to help ${campaign.subjectName}. LastDonor charges 0% platform fees; standard Stripe processing fees apply.`,
   };
 
   return (

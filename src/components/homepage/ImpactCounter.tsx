@@ -9,6 +9,10 @@ import { staggerContainer, fadeInUp } from '@/lib/animations';
  * StatItem: Individual metric with tabular-nums for alignment.
  * Numbers are THE focal point -- largest element on screen.
  * Uses dt/dd for screen readers and semantic structure.
+ *
+ * Foreground is `text-primary-foreground` / `text-primary-foreground-muted`,
+ * never a hard-coded `text-white`: --primary is #14B8A6 in dark mode, where
+ * white computed 2.49:1 and white/70 1.89:1 (audit docs/29 P2-4).
  */
 function StatItem({
   value,
@@ -23,11 +27,11 @@ function StatItem({
 }) {
   return (
     <motion.div variants={fadeInUp} className="text-center">
-      <dd className="font-mono text-4xl font-bold tabular-nums text-white number-highlight sm:text-5xl lg:text-6xl">
+      <dd className="font-mono text-4xl font-bold tabular-nums text-primary-foreground number-highlight sm:text-5xl lg:text-6xl">
         {prefix && <span aria-hidden="true">{prefix}</span>}
         <NumberTicker
           value={value}
-          className="font-mono text-4xl font-bold tabular-nums text-white sm:text-5xl lg:text-6xl"
+          className="font-mono text-4xl font-bold tabular-nums text-primary-foreground sm:text-5xl lg:text-6xl"
           delay={0.3}
         />
         <span className="sr-only">
@@ -35,8 +39,8 @@ function StatItem({
           {value.toLocaleString('en-US')}
         </span>
       </dd>
-      <dt className="mt-2 text-sm font-semibold text-white/90">{label}</dt>
-      <p className="mt-0.5 text-xs text-white/70">{sublabel}</p>
+      <dt className="mt-2 text-sm font-semibold text-primary-foreground">{label}</dt>
+      <p className="mt-0.5 text-xs text-primary-foreground-muted">{sublabel}</p>
     </motion.div>
   );
 }
@@ -77,10 +81,10 @@ export function ImpactCounter({
         className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8"
       >
         <motion.div variants={fadeInUp} className="max-w-2xl">
-          <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="font-display text-3xl font-bold tracking-tight text-primary-foreground sm:text-4xl">
             Real Numbers. Real People Helped.
           </h2>
-          <p className="mt-3 text-base text-white/80">
+          <p className="mt-3 text-base text-primary-foreground-muted">
             These are totals from real donors giving to reviewed campaigns.
             Not projections. Not estimates.
           </p>
@@ -113,11 +117,11 @@ export function ImpactCounter({
           />
         </motion.dl>
 
-        <motion.p variants={fadeInUp} className="mt-12 text-sm text-white/70">
+        <motion.p variants={fadeInUp} className="mt-12 text-sm text-primary-foreground-muted">
           Full breakdown of every campaign published.{' '}
           <Link
             href="/transparency"
-            className="font-medium text-white/80 underline underline-offset-4 transition-colors hover:text-white"
+            className="font-medium text-primary-foreground-muted underline underline-offset-4 transition-colors hover:text-primary-foreground"
           >
             View transparency report
           </Link>

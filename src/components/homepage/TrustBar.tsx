@@ -19,7 +19,7 @@ const proofPoints = [
   {
     icon: CurrencyDollarIcon,
     label: '0% Platform Fees.',
-    sublabel: 'Standard payment processing is shown before checkout.',
+    sublabel: 'Standard Stripe payment processing fees apply.',
     tint: 'bg-brand-amber/10 text-brand-amber ring-brand-amber/20',
   },
   {

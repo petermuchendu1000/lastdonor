@@ -97,8 +97,7 @@ export default async function TransparencyPage() {
         </h2>
         <p className="mt-2 text-muted-foreground">
           LastDonor charges 0% platform fees on fundraisers. Standard Stripe
-          processing fees apply, and donors see the payment breakdown before
-          checkout.
+          processing fees apply.
         </p>
         <div className="mt-6 space-y-4">
           <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">

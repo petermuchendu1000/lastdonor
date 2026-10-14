@@ -228,7 +228,7 @@ export default async function Home() {
             <div>
               <dt className="font-semibold text-foreground">0% platform fee</dt>
               <dd className="mt-1 text-muted-foreground">
-                LastDonor does not take a platform cut. Standard Stripe processing fees apply and are shown before checkout.
+                LastDonor does not take a platform cut. Standard Stripe processing fees apply.
               </dd>
             </div>
             <div>
