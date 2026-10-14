@@ -26,7 +26,7 @@ These are the facts the design is built on. Each was checked directly.
 | Upload cap | 5 MB | `src/lib/supabase-storage.ts:16` | Far below Cloudflare's 100 MB body cap. **Not a constraint.** |
 | Image optimization | `sharp` present | `package.json` | `next/image` works on Fly unchanged. |
 | Cron auth | Timing-safe Bearer compare | `src/lib/cron-auth.ts` | Correctly implemented; keep it as the inner guard. |
-| Health check | `/api/v1/health` exists | `src/app/api/v1/health/route.ts` | Ready for Fly health checks. |
+| Health check | `/api/v1/health` exists but is **NOT safe as a Fly liveness probe** | `src/app/api/v1/health/route.ts:29,50` | **Corrected 2026-10-14 (audit R-09).** It calls `stripe.balance.retrieve()` and returns 503 if *any* dependency check fails, so a Stripe blip would make Fly kill every machine — a self-inflicted outage from a third-party degradation. It also never checks Redis. A liveness probe must test only whether this process can serve. See §10 step 4. |
 | Scale | 111 API routes, 86 pages, 30 tables, 33 migrations | — | Single deployable unit; no service split justified yet (§8). |
 
 ### Vercel couplings to remove
@@ -302,8 +302,8 @@ Dependency-ordered; each step is independently verifiable.
 1. `output: 'standalone'`, Dockerfile, `.dockerignore`. Verify: container boots locally.
 2. Remove Vercel couplings — `next/og` ×2, drop edge runtime from `apple-icon.tsx`. Verify: `npm run build` clean, OG images render.
 3. Redis `cacheHandler` + `cacheMaxMemorySize: 0`. Verify: `revalidatePath` on one machine is visible from the other.
-4. `fly.toml` — region, `min_machines_running = 1`, health check on `/api/v1/health`, `release_command` running `drizzle-kit migrate` over **port 5432**. Verify: deploy applies migrations once.
-5. Secrets via `fly secrets set` (all of `.env.example`). Verify: `/api/v1/health` is green.
+4. `fly.toml` — region, `min_machines_running = 1`, `release_command` running `drizzle-kit migrate` over **port 5432**, and a health check on a **new shallow liveness endpoint** (process-only, no dependency calls). **Do NOT point Fly's health check at `/api/v1/health`** — it 503s when Stripe is degraded, which would take the whole fleet down (audit R-09, corrected 2026-10-14). Keep `/api/v1/health` as a deep *readiness/diagnostic* endpoint for humans and uptime monitoring, where a 503 on a Stripe outage is the desired signal. Verify: deploy applies migrations once.
+5. Secrets via `fly secrets set` (all of `.env.example`). Verify: `/api/v1/health` reports every check green (as a diagnostic, not as the probe).
 6. Upstash locks in all 10 cron handlers. Verify: a forced overlapping invocation exits early.
 7. Cron Worker, one 5-minute trigger → grey-cloud hostname. Verify: each job fires on schedule and 300s jobs complete.
 8. Cloudflare DNS, Full (strict) TLS, cache rules, WAF skip rules for both webhooks, edge rate limiting. Verify: a real Stripe test webhook validates.
