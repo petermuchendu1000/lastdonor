@@ -578,7 +578,12 @@ describe('Donation webhook - lifecycle triggers', () => {
 
   describe('transaction return values', () => {
     it('returns newRaised, goalAmount, justCompleted from transaction', () => {
-      expect(webhookSource).toContain('return { newRaised, goalAmount, justCompleted, donationId }');
+      // Updated 2026-10-14: the P1-3 fix carries donorCount and isFirstDonation out of
+      // the transaction so completion/first-donation are decided from RETURNING rather
+      // than a stale pre-transaction read. The test drifted, not the code.
+      // FOLLOW-UP: this whole file asserts payment-service SOURCE TEXT and so breaks on
+      // every legitimate refactor (3rd time this session). Convert to behavioural tests.
+      expect(webhookSource).toContain('return { newRaised, goalAmount, justCompleted, donorCount: newDonorCount, isFirstDonation, donationId }');
     });
 
     it('checks for duplicate (null txResult)', () => {

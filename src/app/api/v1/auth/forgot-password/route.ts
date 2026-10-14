@@ -86,7 +86,9 @@ export async function POST(request: NextRequest) {
           </div>
         `,
       }),
-      { maxRetries: 2, baseDelayMs: 500 },
+      // Resend resolves with {data:null,error} rather than throwing, so without
+      // isFailure this password-reset email had no retry at all (docs/29 P0-4).
+      { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
     );
 
     if (sendError) {

@@ -109,7 +109,9 @@ export async function createAndEmail(p: {
             subject: emailData.subject,
             html: emailData.html,
           }),
-          { maxRetries: 2, baseDelayMs: 500 },
+          // isFailure: the Resend SDK resolves with {data:null,error} instead of
+          // throwing, so without this the retry made exactly one attempt (docs/29 P0-4).
+          { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
         );
         if (sendError) {
           console.error(`[notifications] Resend API error for ${p.userId} (${p.type}):`, sendError);
@@ -131,7 +133,8 @@ async function sendEmailOnly(p: { to: string; subject: string; html: string }) {
   try {
     const { error: sendError } = await retryWithBackoff(
       () => resend.emails.send({ from: FROM_ADDRESS, to: p.to, subject: p.subject, html: p.html }),
-      { maxRetries: 2, baseDelayMs: 500 },
+      // See note above: Resend resolves with an error value rather than throwing.
+      { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
     );
     if (sendError) {
       console.error(`[notifications] Resend API error for ${p.to}:`, sendError);

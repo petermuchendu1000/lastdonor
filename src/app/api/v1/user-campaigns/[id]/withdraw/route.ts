@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { campaigns, campaignWithdrawals, users } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
 import { withdrawalRequestSchema } from '@/lib/validators/payout';
 import { createTransfer } from '@/lib/stripe-connect';
@@ -49,8 +49,11 @@ export async function POST(
   }
 
   const { amount, idempotencyKey } = parsed.data;
+  const userId = session.user.id;
 
-  // Idempotency: reject if a withdrawal with the same key already exists
+  // Cheap pre-check for a replayed request. This is a fast path only - the
+  // authoritative dedup happens inside the reservation transaction below,
+  // where it is serialised against concurrent callers.
   const [existing] = await db
     .select({ id: campaignWithdrawals.id, status: campaignWithdrawals.status })
     .from(campaignWithdrawals)
@@ -75,8 +78,6 @@ export async function POST(
     .select({
       id: campaigns.id,
       creatorId: campaigns.creatorId,
-      totalReleasedAmount: campaigns.totalReleasedAmount,
-      totalWithdrawnAmount: campaigns.totalWithdrawnAmount,
       title: campaigns.title,
     })
     .from(campaigns)
@@ -115,32 +116,111 @@ export async function POST(
     );
   }
 
-  // Check available balance
-  const availableBalance = (campaign.totalReleasedAmount ?? 0) - (campaign.totalWithdrawnAmount ?? 0);
-  if (amount > availableBalance) {
-    return NextResponse.json(
-      { ok: false, error: { code: 'VALIDATION_ERROR', message: `Insufficient balance. Available: ${availableBalance} cents`, requestId } } satisfies ApiError,
-      { status: 400 },
-    );
-  }
-
-  // Create withdrawal record and execute Stripe transfer
+  // ── Atomic check-and-reserve ──────────────────────────────────────────────
+  //
+  // totalWithdrawnAmount is only written later, by the Connect webhook on
+  // transfer.created. So a balance check that reads released - withdrawn sees
+  // nothing of a withdrawal already in flight: two concurrent POSTs both
+  // passed it and both created real Stripe transfers (audit docs/29 P1-1).
+  //
+  // The fix: do the check and the reservation in one transaction that begins
+  // by taking a row lock on the campaign. A second caller blocks on that lock,
+  // and because READ COMMITTED gives each statement a fresh snapshot, once it
+  // acquires the lock it sees the first caller's committed withdrawal row in
+  // the pending sum and fails the check.
+  //
+  // The inserted 'processing' row IS the reservation. It is counted as pending
+  // here and by user/balance, and stops being counted when it is marked
+  // 'failed' below, so a failed transfer releases the funds again.
+  const PENDING_STATUSES = ['requested', 'approved', 'processing'] as const;
   const withdrawalId = randomUUID();
   const currency = user.payoutCurrency ?? 'usd';
 
-  try {
-    // Insert withdrawal as 'processing'
-    await db.insert(campaignWithdrawals).values({
+  const reservation = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({
+        totalReleasedAmount: campaigns.totalReleasedAmount,
+        totalWithdrawnAmount: campaigns.totalWithdrawnAmount,
+      })
+      .from(campaigns)
+      .where(eq(campaigns.id, campaignId))
+      .for('update')
+      .limit(1);
+
+    if (!locked) return { ok: false as const, reason: 'not_found' as const };
+
+    // Re-check idempotency under the lock so two replays of the same key
+    // cannot both reserve.
+    const [replay] = await tx
+      .select({ id: campaignWithdrawals.id, status: campaignWithdrawals.status })
+      .from(campaignWithdrawals)
+      .where(
+        and(
+          eq(campaignWithdrawals.campaignId, campaignId),
+          eq(campaignWithdrawals.requestedBy, userId),
+          eq(campaignWithdrawals.notes, `idem:${idempotencyKey}`),
+        ),
+      )
+      .limit(1);
+
+    if (replay) return { ok: false as const, reason: 'replay' as const, replay };
+
+    const [pendingRow] = await tx
+      .select({ total: sql<number>`COALESCE(SUM(${campaignWithdrawals.amount}), 0)::int` })
+      .from(campaignWithdrawals)
+      .where(
+        and(
+          eq(campaignWithdrawals.campaignId, campaignId),
+          inArray(campaignWithdrawals.status, [...PENDING_STATUSES]),
+        ),
+      );
+
+    const availableBalance =
+      (locked.totalReleasedAmount ?? 0)
+      - (locked.totalWithdrawnAmount ?? 0)
+      - (pendingRow?.total ?? 0);
+
+    if (amount > availableBalance) {
+      return { ok: false as const, reason: 'insufficient' as const, availableBalance };
+    }
+
+    await tx.insert(campaignWithdrawals).values({
       id: withdrawalId,
       campaignId: campaign.id,
-      requestedBy: session.user.id,
+      requestedBy: userId,
       amount,
       status: 'processing',
       stripeConnectAccount: user.stripeConnectAccountId,
       notes: `idem:${idempotencyKey}`,
     });
 
-    // Execute Stripe transfer
+    return { ok: true as const };
+  });
+
+  if (!reservation.ok) {
+    if (reservation.reason === 'replay') {
+      return NextResponse.json(
+        { ok: true, data: { withdrawalId: reservation.replay.id, status: reservation.replay.status, deduplicated: true } },
+        { status: 200 },
+      );
+    }
+
+    if (reservation.reason === 'not_found') {
+      return NextResponse.json(
+        { ok: false, error: { code: 'NOT_FOUND', message: 'Campaign not found', requestId } } satisfies ApiError,
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json(
+      { ok: false, error: { code: 'VALIDATION_ERROR', message: `Insufficient balance. Available: ${reservation.availableBalance} cents`, requestId } } satisfies ApiError,
+      { status: 400 },
+    );
+  }
+
+  try {
+    // Execute Stripe transfer. Deliberately outside the transaction: no
+    // external I/O inside a DB transaction.
     const transferResult = await createTransfer(
       amount,
       currency,

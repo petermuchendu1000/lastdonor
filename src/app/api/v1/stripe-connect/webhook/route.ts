@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { users, campaigns, campaignWithdrawals } from '@/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { mapAccountToStatus } from '@/lib/stripe-connect';
 import { notifyWithdrawalCompleted } from '@/lib/notifications';
@@ -10,7 +10,11 @@ import type Stripe from 'stripe';
 
 const CONNECT_WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
 
-// In-memory dedup (durable guard is DB unique constraints / idempotent updates)
+// Fast-path dedup within one process only: it is empty after a restart and
+// unknown to every other instance, so it can never be the idempotency guard
+// (audit docs/29 P1-1). The durable guard lives in the handlers below, each of
+// which advances a withdrawal's status with a conditional UPDATE and only
+// touches money when that UPDATE actually matched a row.
 const processedEvents = new Set<string>();
 
 /**
@@ -48,9 +52,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Idempotency check
+  // Idempotency fast path (see note on processedEvents).
   if (processedEvents.has(event.id)) {
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, deduplicated: true });
   }
   processedEvents.add(event.id);
 
@@ -78,11 +82,24 @@ export async function POST(request: NextRequest) {
         break;
 
       default:
-        break;
+        // Not subscribed to: nothing to retry, so acknowledging is correct.
+        return NextResponse.json({ received: true, ignored: event.type });
     }
   } catch (error) {
-    console.error(`[Connect Webhook] Error processing ${event.type}:`, error);
-    // Return 200 to prevent Stripe retries for application errors
+    logError(error, { requestId: event.id, route: 'stripe-connect/webhook', method: 'POST' });
+
+    // Release the fast-path marker so Stripe's retry is processed rather than
+    // short-circuited by this instance.
+    processedEvents.delete(event.id);
+
+    // Do not acknowledge a genuine failure. A swallowed transfer.created left
+    // totalWithdrawnAmount un-incremented, which silently re-grants the
+    // creator a balance they have already been paid. The handlers are
+    // replay-safe, so a Stripe retry is the correct recovery.
+    return NextResponse.json(
+      { error: 'Webhook handler failed', eventId: event.id },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ received: true });
@@ -134,14 +151,22 @@ async function handleTransferCreated(transfer: Stripe.Transfer) {
     return;
   }
 
-  await db.transaction(async (tx) => {
-    await tx
+  // Durable idempotency: the `status <> 'completed'` guard is what makes a
+  // replay (Stripe retry, duplicate delivery, process restart) harmless. If it
+  // matches no row the withdrawal was already settled, so totalWithdrawnAmount
+  // must not be incremented a second time and the creator must not be emailed
+  // again.
+  const settled = await db.transaction(async (tx) => {
+    const claimed = await tx
       .update(campaignWithdrawals)
       .set({
         status: 'completed',
         processedAt: new Date(),
       })
-      .where(eq(campaignWithdrawals.id, withdrawalId));
+      .where(and(eq(campaignWithdrawals.id, withdrawalId), ne(campaignWithdrawals.status, 'completed')))
+      .returning({ id: campaignWithdrawals.id });
+
+    if (claimed.length === 0) return false;
 
     await tx
       .update(campaigns)
@@ -149,7 +174,19 @@ async function handleTransferCreated(transfer: Stripe.Transfer) {
         totalWithdrawnAmount: sql`${campaigns.totalWithdrawnAmount} + ${transfer.amount}`,
       })
       .where(eq(campaigns.id, campaignId));
+
+    return true;
   });
+
+  if (!settled) {
+    logError(new Error('transfer.created replay ignored'), {
+      requestId: transfer.id,
+      route: 'stripe-connect/webhook',
+      method: 'POST',
+      input: { withdrawalId, campaignId },
+    });
+    return;
+  }
 
   // Send notification to the campaign creator
   try {
@@ -197,15 +234,20 @@ async function handleTransferReversed(transfer: Stripe.Transfer) {
     return;
   }
 
+  // Same durable guard as transfer.created: only the delivery that actually
+  // flips the row out of its current state may move the money counter.
   await db.transaction(async (tx) => {
-    await tx
+    const claimed = await tx
       .update(campaignWithdrawals)
       .set({
         status: 'failed',
         failureReason: 'Transfer reversed',
         processedAt: new Date(),
       })
-      .where(eq(campaignWithdrawals.id, withdrawalId));
+      .where(and(eq(campaignWithdrawals.id, withdrawalId), ne(campaignWithdrawals.status, 'failed')))
+      .returning({ id: campaignWithdrawals.id });
+
+    if (claimed.length === 0) return;
 
     await tx
       .update(campaigns)

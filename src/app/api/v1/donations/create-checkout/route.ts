@@ -70,6 +70,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorBody, { status: 404 });
     }
 
+    // One donor-context object, used on every Stripe object we can attach it
+    // to. These three copies drifted apart once already: the subscription copy
+    // existed while the PaymentIntent copy did not, which is how recurring
+    // charges ended up unrecorded (audit docs/29 P1-2).
+    const donationMetadata = {
+      campaignId: data.campaignId,
+      donorName: data.donorName || 'Anonymous',
+      donorEmail: data.donorEmail,
+      donorLocation: data.donorLocation ?? '',
+      message: data.message ?? '',
+      isAnonymous: String(data.isAnonymous),
+      isRecurring: String(data.isRecurring),
+      subscribedToUpdates: String(data.subscribedToUpdates),
+    };
+
     const origin = request.headers.get('origin') || 'https://lastdonor.org';
     const returnPath = `/campaigns/${campaign.slug}/donate?donation=success&session_id={CHECKOUT_SESSION_ID}&amount=${data.amount}`;
 
@@ -108,46 +123,19 @@ export async function POST(request: NextRequest) {
               },
             ],
           }),
+      // Stripe rejects payment_intent_data in subscription mode, so a recurring
+      // donation's PaymentIntents carry no metadata at creation time. The
+      // subscription copy below is the authoritative one for those charges:
+      // payment-service resolves invoice -> subscription -> metadata and then
+      // writes it back onto the PaymentIntent, which keeps Stripe metadata
+      // usable as the disaster-recovery substrate for recurring donations too.
       payment_intent_data: data.isRecurring
         ? undefined
-        : {
-            metadata: {
-              campaignId: data.campaignId,
-              donorName: data.donorName || 'Anonymous',
-              donorEmail: data.donorEmail,
-              donorLocation: data.donorLocation ?? '',
-              message: data.message ?? '',
-              isAnonymous: String(data.isAnonymous),
-              isRecurring: 'false',
-              subscribedToUpdates: String(data.subscribedToUpdates),
-            },
-          },
+        : { metadata: donationMetadata },
       ...(data.isRecurring
-        ? {
-            subscription_data: {
-              metadata: {
-                campaignId: data.campaignId,
-                donorName: data.donorName || 'Anonymous',
-                donorEmail: data.donorEmail,
-                donorLocation: data.donorLocation ?? '',
-                message: data.message ?? '',
-                isAnonymous: String(data.isAnonymous),
-                isRecurring: 'true',
-                subscribedToUpdates: String(data.subscribedToUpdates),
-              },
-            },
-          }
+        ? { subscription_data: { metadata: donationMetadata } }
         : {}),
-      metadata: {
-        campaignId: data.campaignId,
-        donorName: data.donorName || 'Anonymous',
-        donorEmail: data.donorEmail,
-        donorLocation: data.donorLocation ?? '',
-        message: data.message ?? '',
-        isAnonymous: String(data.isAnonymous),
-        isRecurring: String(data.isRecurring),
-        subscribedToUpdates: String(data.subscribedToUpdates),
-      },
+      metadata: donationMetadata,
     });
 
     const response: ApiResponse<{ clientSecret: string }> = {

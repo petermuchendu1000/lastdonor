@@ -34,9 +34,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Idempotency check
+  // Fast-path idempotency only. The durable guard is the unique index on
+  // donations.stripe_payment_id, which is what makes a Stripe retry safe.
   if (processedEvents.has(event.id)) {
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, deduplicated: true });
   }
   processedEvents.add(event.id);
 
@@ -97,11 +98,29 @@ export async function POST(request: NextRequest) {
         break;
 
       default:
-        break;
+        // Event types we do not subscribe to any behaviour for. Acknowledging
+        // these with 200 is correct: there is nothing to retry.
+        return NextResponse.json({ received: true, ignored: event.type });
     }
   } catch (error) {
     logError(error, { route: 'webhook', requestId: event.id });
-    // Still return 200 to prevent Stripe retries for application errors
+
+    // Release the fast-path marker so Stripe's retry is actually processed
+    // rather than short-circuited to 200 by this same instance.
+    processedEvents.delete(event.id);
+
+    // A genuine application error must NOT be acknowledged. Returning 200 here
+    // told Stripe the event was handled, so a refund that failed to record, or
+    // a donation whose transaction rolled back, was never retried and nothing
+    // ever reconciled it (audit docs/29 P0-3).
+    //
+    // Retries are safe: donation inserts are idempotent on
+    // donations.stripe_payment_id, and every other handler reached from here
+    // is written to be replay-safe.
+    return NextResponse.json(
+      { error: 'Webhook handler failed', eventId: event.id },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ received: true });

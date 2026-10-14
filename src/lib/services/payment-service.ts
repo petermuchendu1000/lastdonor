@@ -13,7 +13,7 @@ import {
   campaigns, donations, users, auditLogs, fundPoolAllocations,
   campaignMessages, campaignUpdates, donorCampaignSubscriptions,
 } from '@/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { getCampaignPhase } from '@/lib/utils/phase';
 import { revalidatePath } from 'next/cache';
@@ -45,20 +45,17 @@ interface TransactionResult {
   newRaised: number;
   goalAmount: number;
   justCompleted: boolean;
+  /** Donor count AFTER this donation, read from the transaction's RETURNING. */
+  donorCount: number;
+  /** True only for the donation that moved donorCount from 0 to 1. */
+  isFirstDonation: boolean;
   donationId: string;
 }
 
 // ─── Metadata Extraction (Fail Fast) ────────────────────────────────────────
 
-function extractMetadata(paymentIntent: Stripe.PaymentIntent): PaymentMetadata | null {
-  const meta = paymentIntent.metadata;
-  if (!meta.campaignId || !meta.donorEmail) {
-    logError(
-      new Error('Missing required metadata on PaymentIntent'),
-      { requestId: paymentIntent.id, route: 'webhook/payment-service' },
-    );
-    return null;
-  }
+function parseMetadata(meta: Stripe.Metadata): PaymentMetadata | null {
+  if (!meta.campaignId || !meta.donorEmail) return null;
 
   return {
     campaignId: meta.campaignId,
@@ -70,6 +67,70 @@ function extractMetadata(paymentIntent: Stripe.PaymentIntent): PaymentMetadata |
     isRecurring: meta.isRecurring === 'true',
     subscribedToUpdates: meta.subscribedToUpdates === 'true',
   };
+}
+
+/**
+ * Recover donor context for a recurring charge.
+ *
+ * Stripe forbids `payment_intent_data` in subscription mode, so a subscription
+ * invoice's PaymentIntent carries no metadata of its own: the donor context
+ * lives on `subscription.metadata` (written by create-checkout). Without this
+ * lookup every recurring charge is taken with no donation row, no receipt and
+ * no campaign credit (audit docs/29 P1-2).
+ *
+ * All Stripe I/O here happens *before* the database transaction opens.
+ */
+async function resolveSubscriptionMetadata(
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<PaymentMetadata | null> {
+  const invoiceRef = paymentIntent.invoice;
+  if (!invoiceRef) return null;
+
+  const invoice =
+    typeof invoiceRef === 'string' ? await stripe.invoices.retrieve(invoiceRef) : invoiceRef;
+
+  const subscriptionRef = invoice.subscription;
+  if (!subscriptionRef) return null;
+
+  const subscription =
+    typeof subscriptionRef === 'string'
+      ? await stripe.subscriptions.retrieve(subscriptionRef)
+      : subscriptionRef;
+
+  const subscriptionMeta: Stripe.Metadata = { ...(subscription.metadata ?? {}), isRecurring: 'true' };
+  const parsed = parseMetadata(subscriptionMeta);
+  if (!parsed) return null;
+
+  // Stripe metadata is the disaster-recovery substrate: donations must be
+  // reconstructible from Stripe alone. Copy the donor context onto the
+  // PaymentIntent that actually moved the money. Best effort only - a failure
+  // here must never stop the donation being recorded.
+  try {
+    await stripe.paymentIntents.update(paymentIntent.id, { metadata: subscriptionMeta });
+  } catch (updateError) {
+    logError(updateError, {
+      requestId: paymentIntent.id,
+      route: 'webhook/recurring-metadata-writeback',
+    });
+  }
+
+  return parsed;
+}
+
+async function extractMetadata(
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<PaymentMetadata | null> {
+  const direct = parseMetadata(paymentIntent.metadata);
+  if (direct) return direct;
+
+  const fromSubscription = await resolveSubscriptionMetadata(paymentIntent);
+  if (fromSubscription) return fromSubscription;
+
+  logError(
+    new Error('Missing required metadata on PaymentIntent'),
+    { requestId: paymentIntent.id, route: 'webhook/payment-service' },
+  );
+  return null;
 }
 
 // ─── Core Transaction ───────────────────────────────────────────────────────
@@ -115,39 +176,60 @@ async function processPaymentTransaction(
         updatedAt: new Date(),
       })
       .where(eq(campaigns.id, campaignId))
-      .returning({ raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount });
+      .returning({
+        raisedAmount: campaigns.raisedAmount,
+        goalAmount: campaigns.goalAmount,
+        donorCount: campaigns.donorCount,
+        status: campaigns.status,
+      });
 
     const newRaised = newRaisedResult[0]?.raisedAmount ?? campaign.raisedAmount + amount;
     const goalAmount = newRaisedResult[0]?.goalAmount ?? campaign.goalAmount;
+    // Post-increment counters, read from this transaction's own RETURNING.
+    // Never from the pre-transaction snapshot in `campaign`, which two
+    // concurrent donors would both see as stale (audit docs/29 P1-3).
+    const newDonorCount = newRaisedResult[0]?.donorCount ?? campaign.donorCount + 1;
+    const currentStatus = newRaisedResult[0]?.status ?? campaign.status;
+    const isFirstDonation = newDonorCount === 1;
 
     let justCompleted = false;
 
-    // Check if campaign is now completed
-    if (newRaised >= goalAmount && campaign.status !== 'completed') {
-      justCompleted = true;
-      await tx.update(campaigns).set({
+    // Check if campaign is now completed.
+    if (newRaised >= goalAmount) {
+      // The `status <> 'completed'` guard is what makes completion single-shot:
+      // of two donors crossing the goal concurrently, the second one's UPDATE
+      // matches no row and returns nothing, so it raises no duplicate
+      // completion email, no duplicate celebration post and no second payout
+      // eligibility.
+      const completionResult = await tx.update(campaigns).set({
         status: 'completed',
         completedAt: new Date(),
         lastDonorName: isAnonymous ? 'Anonymous' : donorName,
         lastDonorAmount: amount,
         ...(userId ? { lastDonorId: userId } : {}),
-      }).where(eq(campaigns.id, campaignId));
+      })
+        .where(and(eq(campaigns.id, campaignId), ne(campaigns.status, 'completed')))
+        .returning({ id: campaigns.id });
 
-      if (userId) {
-        await tx.update(users).set({
-          lastDonorCount: sql`${users.lastDonorCount} + 1`,
-        }).where(eq(users.id, userId));
+      if (completionResult.length > 0) {
+        justCompleted = true;
+
+        if (userId) {
+          await tx.update(users).set({
+            lastDonorCount: sql`${users.lastDonorCount} + 1`,
+          }).where(eq(users.id, userId));
+        }
+
+        // Celebration update
+        const lastDonorDisplay = isAnonymous ? 'An anonymous donor' : donorName;
+        await tx.insert(campaignUpdates).values({
+          campaignId,
+          title: 'Campaign Goal Reached!',
+          bodyHtml: `<p><strong>${lastDonorDisplay}</strong> just made the final donation of $${(amount / 100).toFixed(2)}, pushing this campaign past its goal of $${(goalAmount / 100).toFixed(2)}!</p><p>Thank you to every single donor who made this possible. This campaign has now been fully funded.</p>`,
+          updateType: 'celebration',
+        });
       }
-
-      // Celebration update
-      const lastDonorDisplay = isAnonymous ? 'An anonymous donor' : donorName;
-      await tx.insert(campaignUpdates).values({
-        campaignId,
-        title: 'Campaign Goal Reached!',
-        bodyHtml: `<p><strong>${lastDonorDisplay}</strong> just made the final donation of $${(amount / 100).toFixed(2)}, pushing this campaign past its goal of $${(goalAmount / 100).toFixed(2)}!</p><p>Thank you to every single donor who made this possible. This campaign has now been fully funded.</p>`,
-        updateType: 'celebration',
-      });
-    } else if (newRaised >= goalAmount * 0.9 && campaign.status === 'active') {
+    } else if (newRaised >= goalAmount * 0.9 && currentStatus === 'active') {
       await tx.update(campaigns).set({ status: 'last_donor_zone' }).where(eq(campaigns.id, campaignId));
     }
 
@@ -201,7 +283,7 @@ async function processPaymentTransaction(
       });
     }
 
-    return { newRaised, goalAmount, justCompleted, donationId };
+    return { newRaised, goalAmount, justCompleted, donorCount: newDonorCount, isFirstDonation, donationId };
   });
 }
 
@@ -216,7 +298,7 @@ async function handlePostPaymentEffects(
 ) {
   const { campaignId, donorName, donorEmail, isAnonymous, message: _message, subscribedToUpdates } = meta;
   const amount = paymentIntent.amount;
-  const { newRaised: _newRaised, goalAmount, justCompleted } = txResult;
+  const { newRaised: _newRaised, goalAmount, justCompleted, donorCount, isFirstDonation } = txResult;
   const requestCtx = { requestId: paymentIntent.id, userId: userId ?? undefined };
 
   // Campaign subscription (fire-and-forget)
@@ -248,8 +330,12 @@ async function handlePostPaymentEffects(
   // Pre-fetch creator for completion notifications
   const creator = campaign.creatorId ? await fetchCreator(campaign.creatorId) : null;
 
-  // First donation notification
-  if (campaign.donorCount === 0 && creator) {
+  // First donation notification. `isFirstDonation` comes from the
+  // transaction's own RETURNING (donorCount === 1 after the increment), so of
+  // two concurrent first donors exactly one sends this email. Reading
+  // `campaign.donorCount === 0` from the pre-transaction snapshot sent it
+  // twice (audit docs/29 P1-3).
+  if (isFirstDonation && creator) {
     safeAsync(
       notifyCreatorFirstDonation({
         creatorId: creator.id,
@@ -273,7 +359,7 @@ async function handlePostPaymentEffects(
         campaignTitle: campaign.title,
         campaignSlug: campaign.slug,
         goalAmount,
-        donorCount: campaign.donorCount + 1,
+        donorCount,
         documentRequirementsHtml: formatDocumentRequirementsHtml(
           campaign.category,
           campaign.beneficiaryRelation ?? 'other',
@@ -296,7 +382,14 @@ async function fetchCreator(creatorId: string) {
   return creator ?? null;
 }
 
-async function sendDonationReceipt({
+/**
+ * Send the donor receipt.
+ *
+ * Exported for direct testing: the production call site wraps this in
+ * `safeAsync`, which both captures to Sentry and feeds the degradation
+ * counter, so this function reports the failure and then rethrows.
+ */
+export async function sendDonationReceipt({
   paymentIntent, meta, campaign, userId,
 }: {
   paymentIntent: Stripe.PaymentIntent;
@@ -318,7 +411,10 @@ async function sendDonationReceipt({
   if (!meta.donorEmail) return;
   const amount = paymentIntent.amount;
 
-  await retryWithBackoff(
+  // The Resend SDK never throws: it resolves `{ data: null, error }` for every
+  // non-2xx AND from inside its own catch, so without `isFailure` this loop
+  // made exactly one attempt and the error was discarded (audit docs/29 P0-4).
+  const sendResult = await retryWithBackoff(
     () => resend.emails.send({
       from: 'LastDonor.org <receipts@lastdonor.org>',
     to: meta.donorEmail,
@@ -352,8 +448,38 @@ async function sendDonationReceipt({
       </div>
     `,
     }),
-    { maxRetries: 2, baseDelayMs: 500 },
+    {
+      maxRetries: 2,
+      baseDelayMs: 500,
+      isFailure: (result) => Boolean(result?.error),
+    },
   );
+
+  if (sendResult?.error) {
+    const { name, message } = sendResult.error;
+    const failure = new Error(
+      `Donation receipt delivery failed for donation on campaign ${campaign.id}: ${name ?? 'unknown'}: ${message ?? 'no message'}`,
+    );
+
+    // Explicit Sentry capture at the failure site. Until `donations` carries a
+    // receipt-state column (blocked on the migration repair - docs/29 §2) this
+    // report is the only record that a donor never got their receipt.
+    logError(failure, {
+      requestId: paymentIntent.id,
+      route: 'webhook/receipt-email',
+      userId: userId ?? undefined,
+      input: {
+        campaignId: campaign.id,
+        stripePaymentId: paymentIntent.id,
+        donorEmail: meta.donorEmail,
+        resendErrorName: name ?? 'unknown',
+        attempts: 3,
+      },
+    });
+
+    // Rethrow so the caller's safeAsync degradation counter also sees it.
+    throw failure;
+  }
 }
 
 async function sendDonationNotifications({
@@ -391,7 +517,7 @@ async function sendDonationNotifications({
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
-  const meta = extractMetadata(paymentIntent);
+  const meta = await extractMetadata(paymentIntent);
   if (!meta) return;
 
   // Fetch campaign
@@ -462,17 +588,45 @@ export async function processRefund(charge: Stripe.Charge) {
   await db.transaction(async (tx) => {
     await tx.update(donations).set({ refunded: true }).where(eq(donations.id, donation.id));
 
-    await tx.update(campaigns).set({
-      raisedAmount: sql`GREATEST(${campaigns.raisedAmount} - ${donation.amount}, 0)`,
+    // A refund reduces raised_amount, so total_released_amount must be clamped
+    // in the SAME statement or the campaigns_released_lte_raised CHECK
+    // (migration 0027:18) aborts the whole transaction - leaving refunded =
+    // false while Stripe has already paid the donor back (audit docs/29 P0-3).
+    //
+    // Both SET expressions read the pre-UPDATE raised_amount, which is what
+    // makes the clamp exact: released is pulled down only as far as the new
+    // raised figure, never below zero, and never further than necessary.
+    const newRaisedAmount = sql`GREATEST(${campaigns.raisedAmount} - ${donation.amount}, 0)`;
+
+    const [totals] = await tx.update(campaigns).set({
+      raisedAmount: newRaisedAmount,
+      totalReleasedAmount: sql`LEAST(${campaigns.totalReleasedAmount}, ${newRaisedAmount})`,
       donorCount: sql`GREATEST(${campaigns.donorCount} - 1, 0)`,
       updatedAt: new Date(),
-    }).where(eq(campaigns.id, donation.campaignId));
+    })
+      .where(eq(campaigns.id, donation.campaignId))
+      .returning({
+        raisedAmount: campaigns.raisedAmount,
+        totalReleasedAmount: campaigns.totalReleasedAmount,
+        totalWithdrawnAmount: campaigns.totalWithdrawnAmount,
+      });
 
     await tx.insert(auditLogs).values({
       eventType: 'donation.refunded',
       targetType: 'donation',
       targetId: donation.id,
-      details: { amount: donation.amount, campaignId: donation.campaignId, stripePaymentId: paymentIntentId },
+      details: {
+        amount: donation.amount,
+        campaignId: donation.campaignId,
+        stripePaymentId: paymentIntentId,
+        raisedAmountAfter: totals?.raisedAmount ?? null,
+        totalReleasedAmountAfter: totals?.totalReleasedAmount ?? null,
+        // Released funds clawed back below what has already been paid out to
+        // the creator leave a real cash shortfall. Recorded so reconciliation
+        // can find it; nothing here can undo a completed transfer.
+        releasedBelowWithdrawn:
+          totals != null && totals.totalReleasedAmount < totals.totalWithdrawnAmount,
+      },
       severity: 'warning',
     });
   });
