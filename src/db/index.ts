@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
+import { withBuildPhaseFailSoft } from './build-phase';
 import * as schema from './schema';
 
 const connectionString = process.env.DATABASE_URL!;
@@ -13,4 +14,6 @@ const client = postgres(connectionString, {
   max_lifetime: 60 * 30, // 30 min max connection lifetime
 });
 
-export const db = drizzle(client, { schema });
+// See `./build-phase.ts`: inert at runtime, fails soft only during
+// `next build`, where the schema may not exist yet on a first deploy.
+export const db = drizzle(withBuildPhaseFailSoft(client), { schema });
