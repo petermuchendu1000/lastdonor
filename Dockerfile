@@ -13,6 +13,8 @@
 #
 #  Build it with BuildKit (required - this file uses `--mount=type=secret`):
 #
+#    fly deploy
+#    # optionally, to pre-render real content from a seeded database:
 #    fly deploy --build-secret database_url="postgresql://...:6543/postgres"
 #    # or locally:
 #    DOCKER_BUILDKIT=1 docker build \
@@ -20,20 +22,25 @@
 #      --build-arg NEXT_PUBLIC_APP_URL=https://lastdonor.org \
 #      -t lastdonor .
 #
-#  Why a build-time DATABASE_URL is unavoidable today (VERIFIED 2026-10-14):
-#  `next build` prerenders SSG routes whose `generateStaticParams()` queries
-#  Postgres with no fallback -
-#    src/app/campaigns/[slug]/page.tsx:28  (campaigns)
-#    src/app/blog/[slug]/page.tsx:55       (blog_posts)
-#  plus the static sitemap. With an unreachable database the build dies with
-#  `Failed to collect page data for /blog/[slug]: connect ECONNREFUSED`. It is
-#  passed as a BuildKit secret, not an ARG or ENV, so it is mounted only for
-#  the duration of the build step and is never written to a layer or to
-#  `docker history`. The durable fix is to make those two
-#  `generateStaticParams()` functions return `[]` when the query fails, which
-#  is outside this file's ownership - see the handover notes.
-#  (`campaigns/category/[category]` also calls `generateStaticParams()` but
-#  returns a static list, so it needs nothing.)
+#  DATABASE_URL at build time is OPTIONAL as of 2026-10-14 (previously this
+#  note read "unavoidable"). `src/db/build-phase.ts` makes a failed database
+#  read during `next build` resolve to zero rows, keyed on Next's own
+#  `NEXT_PHASE=phase-production-build` and inert at runtime. VERIFIED: a build
+#  with `DATABASE_URL` pointed at a dead address exits 0 and generates 118/118
+#  static pages, zero prerender errors.
+#
+#  That matters most on a FIRST deploy, where requiring the secret was not
+#  merely inconvenient but insufficient: the schema is created by fly.toml's
+#  release_command, which runs only AFTER the image builds, so the secret could
+#  be present and valid and the build would still die with
+#  `relation "blog_posts" does not exist` (42P01). See `docs/34` §5a.
+#
+#  The 24 routes that combine `export const revalidate` with a `@/db` read
+#  pre-render EMPTY without it and fill in on first request. Pass it once the
+#  database is seeded so visitors do not pay for that first render. When passed
+#  it is a BuildKit secret, not an ARG or ENV, so it is mounted only for the
+#  duration of the build step and never written to a layer or to
+#  `docker history`.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -130,24 +137,42 @@ ENV NODE_ENV=production \
 
 COPY . .
 
+# The build is HERMETIC as of 2026-10-14 (`src/db/build-phase.ts`,
+# `docs/34` §5a): a database read that fails during `next build` resolves to
+# zero rows, so `database_url` is OPTIONAL and its absence is a warning, not a
+# failure.
+#
+# It used to `exit 1` here, with the message "a reachable database is
+# required to build". That was true at the time and is now false twice over:
+# the build no longer needs a database, and demanding one defeated the point of
+# making it hermetic — it blocked exactly the CI builds the guard enables. On a
+# FIRST deploy it was worse than useless: the schema does not exist yet, so the
+# secret could be present, valid, and still not satisfy the build.
+#
+# Passing it is still worth doing once the schema and real rows exist, because
+# then the 24 `revalidate` routes pre-render with real content instead of
+# empty, and visitors do not pay for the first render. Either way it arrives as
+# a BuildKit secret, so it never lands in a layer or in `docker history`.
 RUN --mount=type=secret,id=database_url \
     set -eu; \
-    if [ ! -s /run/secrets/database_url ]; then \
+    if [ -s /run/secrets/database_url ]; then \
+      DATABASE_URL="$(cat /run/secrets/database_url)" npm run build; \
+    else \
       echo "" >&2; \
-      echo "FATAL: build secret 'database_url' is missing or empty." >&2; \
+      echo "NOTE: no 'database_url' build secret; building hermetically." >&2; \
       echo "" >&2; \
-      echo "  'next build' prerenders SSG routes whose generateStaticParams()" >&2; \
-      echo "  queries Postgres directly (campaigns/[slug], blog/[slug]) with no" >&2; \
-      echo "  fallback, so a reachable database is required to build." >&2; \
+      echo "  The 24 routes that combine 'export const revalidate' with a" >&2; \
+      echo "  @/db read will pre-render EMPTY and fill in on first request." >&2; \
+      echo "  Correct for a first deploy, where no schema exists yet." >&2; \
       echo "" >&2; \
-      echo "  fly deploy --build-secret database_url=\"postgresql://...\"" >&2; \
+      echo "  To pre-render real content once the database is seeded:" >&2; \
+      echo "    fly deploy --build-secret database_url=\"postgresql://...\"" >&2; \
       echo "" >&2; \
       echo "  A read-only pooled (6543) URL is sufficient: the build only" >&2; \
       echo "  SELECTs. It is never persisted into the image." >&2; \
       echo "" >&2; \
-      exit 1; \
-    fi; \
-    DATABASE_URL="$(cat /run/secrets/database_url)" npm run build
+      npm run build; \
+    fi
 
 # Fail the build here rather than at runtime if the standalone output is not
 # where the runner stage expects it.
