@@ -13,7 +13,7 @@
 #
 #  Build it with BuildKit (required - this file uses `--mount=type=secret`):
 #
-#    fly deploy --build-secret database_url="$MIGRATION_DATABASE_URL"
+#    fly deploy --build-secret database_url="postgresql://...:6543/postgres"
 #    # or locally:
 #    DOCKER_BUILDKIT=1 docker build \
 #      --secret id=database_url,env=DATABASE_URL \
@@ -29,9 +29,11 @@
 #  `Failed to collect page data for /blog/[slug]: connect ECONNREFUSED`. It is
 #  passed as a BuildKit secret, not an ARG or ENV, so it is mounted only for
 #  the duration of the build step and is never written to a layer or to
-#  `docker history`. The durable fix is to make those three
+#  `docker history`. The durable fix is to make those two
 #  `generateStaticParams()` functions return `[]` when the query fails, which
 #  is outside this file's ownership - see the handover notes.
+#  (`campaigns/category/[category]` also calls `generateStaticParams()` but
+#  returns a static list, so it needs nothing.)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -150,7 +152,7 @@ RUN test -f .next/standalone/server.js \
 #
 # `drizzle-kit` is a devDependency and is NOT part of `.next/standalone`, so it
 # has to be carried into the runtime image deliberately. Copying all of
-# `node_modules` would add ~1.3 GB; this subtree is ~45 MB.
+# `node_modules` would add ~1.3 GB; this subtree measured 63 MB.
 #
 # The list below is drizzle-kit's + drizzle-orm's + postgres' complete
 # transitive closure, computed from package-lock.json rather than guessed.
@@ -184,11 +186,14 @@ RUN set -eu; mkdir -p node_modules; \
       cp -R "/app/node_modules/$pkg" "node_modules/$pkg"; \
     done
 
-# `drizzle.config.ts` is TypeScript and is loaded through esbuild-register, and
-# it names `./src/db/schema.ts`, so both paths must resolve from this cwd.
+# `drizzle.config.ts` is TypeScript and is loaded through esbuild-register, so
+# every path it names has to resolve from this cwd: `schema` and, critically,
+# `out`. `out` is NOT hard-coded anywhere in this image - it moved from
+# `./src/db/migrations` to `./src/db/migrations-v2` during the journal repair
+# on 2026-10-14 - so the whole of `src/db` (1.1 MB) is copied and the release
+# script reads `out` back out of the config at run time.
 COPY package.json drizzle.config.ts ./
-COPY src/db/schema.ts ./src/db/schema.ts
-COPY src/db/migrations ./src/db/migrations
+COPY src/db ./src/db
 
 # -----------------------------------------------------------------------------
 # runner - minimal runtime
@@ -239,12 +244,19 @@ RUN mkdir -p .next/cache && chown -R node:node .next
 # Written here instead of fly.toml so the shell quoting lives in a shell file
 # and the preconditions are checked before anything touches the database.
 #
-# It REFUSES to run while the migration journal is unrepaired. CLAUDE.md,
-# verified 2026-10-14: `meta/_journal.json` has 9 entries against 33 `.sql`
-# files, and drizzle-orm's migrator iterates only `journal.entries`, so
-# `drizzle-kit migrate` would silently apply 9 of 33 and report success. On a
-# payments platform a release command that lies about having migrated is worse
-# than one that fails the deploy, so it fails the deploy.
+# It REFUSES to run if the migration journal does not account for every `.sql`
+# file in the configured `out` folder. drizzle-orm's migrator iterates ONLY
+# `journal.entries` and never lists the directory, so an under-populated
+# journal makes `drizzle-kit migrate` apply a subset and exit 0, reporting a
+# successful deploy over a short schema. That is exactly the state CLAUDE.md
+# records for `src/db/migrations` (9 journal entries against 33 `.sql` files).
+#
+# Checked against the live tree 2026-10-14, after the lead session's repair:
+# `drizzle.config.ts` now points `out` at `./src/db/migrations-v2`, which holds
+# 1 squashed baseline migration and 1 matching journal entry, so this guard
+# passes. It stays in as a standing invariant, because the failure it catches
+# is silent and this is a payments platform: a release command that lies about
+# having migrated is worse than one that fails the deploy.
 RUN cat > /usr/local/bin/release-migrate <<'SH'
 #!/bin/sh
 # Fly release_command. Runs once per deploy, before traffic shifts; a non-zero
@@ -279,11 +291,25 @@ case "$MIGRATION_DATABASE_URL" in
     ;;
 esac
 
-journalled=$(node -e 'process.stdout.write(String(require("./src/db/migrations/meta/_journal.json").entries.length))')
-onDisk=$(find ./src/db/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')
+# Read `out` back out of drizzle.config.ts through the same TS loader
+# drizzle-kit itself uses, so this check can never drift from the folder
+# drizzle-kit will actually read.
+out=$(node -e 'require("esbuild-register/dist/node").register();
+const c = require("./drizzle.config.ts");
+process.stdout.write(String((c.default ?? c).out || ""));')
+
+if [ -z "$out" ] || [ ! -f "$out/meta/_journal.json" ]; then
+  echo "release-migrate: FATAL - no meta/_journal.json under drizzle.config.ts's" >&2
+  echo "  out directory ('${out:-<unset>}'). Either the config moved or the" >&2
+  echo "  Dockerfile's migrator stage did not copy that path." >&2
+  exit 1
+fi
+
+journalled=$(node -e 'process.stdout.write(String(require(process.argv[1]).entries.length))' "$PWD/$out/meta/_journal.json")
+onDisk=$(find "$out" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')
 
 if [ "$journalled" != "$onDisk" ]; then
-  echo "release-migrate: FATAL - migration journal is out of sync." >&2
+  echo "release-migrate: FATAL - migration journal is out of sync in '$out'." >&2
   echo "  meta/_journal.json entries: $journalled" >&2
   echo "  .sql files on disk:         $onDisk" >&2
   echo "" >&2
@@ -296,7 +322,7 @@ if [ "$journalled" != "$onDisk" ]; then
   exit 1
 fi
 
-echo "release-migrate: applying $onDisk migrations over session mode..."
+echo "release-migrate: applying $onDisk migration(s) from '$out' over session mode..."
 DATABASE_URL="$MIGRATION_DATABASE_URL"
 export DATABASE_URL
 exec node node_modules/drizzle-kit/bin.cjs migrate

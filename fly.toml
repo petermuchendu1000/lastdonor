@@ -76,6 +76,25 @@ kill_timeout = "30s"
   CLIENT_IP_SOURCE = "cf"
   TRUSTED_PROXY_HOPS = "2"
 
+  # REQUIRED off Vercel. This is a Vercel coupling docs/26 §1 does not list.
+  # NextAuth v5 only trusts the forwarded host when `AUTH_TRUST_HOST` is set,
+  # `trustHost: true` is in the auth config, or it detects `VERCEL=1`. None of
+  # those is true on Fly, and `src/lib/auth.ts` sets no `trustHost`, so without
+  # this every auth call fails with `UntrustedHost`.
+  #
+  # VERIFIED 2026-10-14 by booting the standalone server built from this
+  # Dockerfile: with NEXTAUTH_URL set but AUTH_TRUST_HOST unset,
+  # `[auth][error] UntrustedHost: Host must be trusted` fired on every
+  # `/api/auth/session` call from middleware (4 occurrences in one short run);
+  # with AUTH_TRUST_HOST=true, zero errors, `/api/auth/session` returned 200
+  # and `/dashboard` correctly 307'd an anonymous visitor to login. Setting
+  # NEXTAUTH_URL alone does NOT fix it.
+  #
+  # Trade-off: the forwarded Host header is now trusted. That is sound here
+  # because the Fly proxy terminates and sets it, `force_https` is on below,
+  # and docs/26 §3 requires Cloudflare SSL mode Full (strict) in front.
+  AUTH_TRUST_HOST = "true"
+
 [deploy]
   # ---------------------------------------------------------------------------
   # Drizzle migrations, once per deploy, before any traffic shifts. A non-zero
@@ -89,16 +108,29 @@ kill_timeout = "30s"
   #     (session mode), because transaction-mode pooling cannot hold the
   #     session state that DDL and advisory locks need. 6543 is the
   #     application's pooled port and is rejected outright.
-  #   - it refuses to run while `src/db/migrations/meta/_journal.json` has
-  #     fewer entries than there are `.sql` files. Verified 2026-10-14: 9
-  #     entries vs 33 files. drizzle-orm's migrator iterates only
-  #     `journal.entries`, so without that guard this command would apply 9 of
-  #     33 migrations and exit 0, reporting a successful deploy over a schema
-  #     that is 24 migrations short.
+  #   - it reads `out` back out of `drizzle.config.ts` through the same TS
+  #     loader drizzle-kit uses, so it cannot drift from the folder drizzle-kit
+  #     will actually read, and it refuses to run if that folder's
+  #     `meta/_journal.json` has fewer entries than it has `.sql` files.
+  #     drizzle-orm's migrator iterates only `journal.entries`, so without that
+  #     guard an under-journalled folder would be applied in part and exit 0,
+  #     reporting a successful deploy over a short schema. That is the state
+  #     CLAUDE.md records for the old `src/db/migrations` (9 entries, 33 files).
   #
-  # ⛔ THEREFORE: this release command will FAIL until the journal is repaired
-  # (CLAUDE.md, docs/29). That is intended. Set `SKIP_MIGRATIONS=1` as a Fly
-  # secret to deploy the app without migrating in the meantime.
+  # Checked 2026-10-14 against the tree as the lead session's journal repair
+  # left it: `out` is `./src/db/migrations-v2`, 1 squashed baseline migration
+  # and 1 journal entry, so the guard passes and the command runs. Verified by
+  # executing this exact script against a scratch Postgres 16 in session mode:
+  # it applied the baseline, created 31 tables, wrote 1 row to
+  # `drizzle.__drizzle_migrations`, and produced
+  # `idx_donations_stripe_payment_id` as a UNIQUE index.
+  #
+  # ⚠ The baseline is NOT idempotent - plain `CREATE TYPE` / `CREATE TABLE`,
+  # no `IF NOT EXISTS`. Against a database that already carries the schema it
+  # will fail on the first `CREATE TYPE`, which aborts the deploy with the
+  # previous release still serving. Pre-stamp `drizzle.__drizzle_migrations`
+  # with the baseline's hash on an existing database, or set
+  # `SKIP_MIGRATIONS=1` as a Fly secret to deploy without migrating.
   #
   # Set before the first deploy:
   #   fly secrets set MIGRATION_DATABASE_URL='postgresql://...@...:5432/postgres'
