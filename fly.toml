@@ -44,13 +44,12 @@ kill_timeout = "30s"
   # effect - they must be build args. Fill in the publishable values before
   # the first deploy; they are public by definition.
   [build.args]
-    # The *.fly.dev hostname, not lastdonor.org: no DNS points at Fly yet, so
-    # an inlined lastdonor.org origin would make every absolute client-side URL
-    # (canonical tags, OG images, share links, redirect targets) point at a host
-    # that does not resolve to this app. Flip this to "https://lastdonor.org"
-    # in the same change that cuts DNS over, and redeploy — it is compiled in,
-    # so a Fly secret cannot override it later.
-    NEXT_PUBLIC_APP_URL = "https://lastdonor.fly.dev"
+    # Flipped to the real domain 2026-10-14, in the same change that cut DNS
+    # over: lastdonor.org's apex A/AAAA now point at this app's Fly addresses
+    # (DNS-only, see §"Cloudflare proxy" note below) and Fly holds certificates
+    # for the apex and www. This value is COMPILED IN, so a Fly secret cannot
+    # override it — changing the canonical origin always requires a redeploy.
+    NEXT_PUBLIC_APP_URL = "https://lastdonor.org"
 
     # Drives `images.remotePatterns` in `next.config.ts` as well as the client
     # bundle; see `src/lib/supabase-host.ts`. Verified 2026-10-14 as the only
@@ -104,6 +103,28 @@ kill_timeout = "30s"
   # ---------------------------------------------------------------------------
   CLIENT_IP_SOURCE = "xff"
   TRUSTED_PROXY_HOPS = "1"
+
+  # ---------------------------------------------------------------------------
+  # CLOUDFLARE PROXY IS DELIBERATELY OFF (grey cloud) as of the 2026-10-14 DNS
+  # cutover, which is why `xff` / `1` above is correct.
+  #
+  # lastdonor.org is on Cloudflare and its records WERE proxied (pointing at a
+  # dead Vercel deployment). They are now DNS-only, pointing straight at Fly.
+  # Turning the orange cloud back on is a deliberate multi-part change, not a
+  # toggle, and doing it piecemeal breaks things silently:
+  #
+  #   1. Flip CLIENT_IP_SOURCE/TRUSTED_PROXY_HOPS to `cf` / `2` IN THE SAME
+  #      change (docs/32 §4). The pairing is enforced by
+  #      test/security/client-ip-trust-boundary.test.ts.
+  #   2. Cloudflare SSL mode must be Full (strict) (docs/26 §3), or the proxy
+  #      will not validate the Fly certificate.
+  #   3. Cloudflare's proxy times out at 100s. ELEVEN routes declare
+  #      maxDuration 120-300s, including `simulate-donations` (120s), so they
+  #      need the DNS-only `origin.lastdonor.com` hostname from docs/26 §3 or
+  #      they will 524 under the proxy.
+  #   4. WAF skip rules for both webhook paths, or Stripe deliveries get
+  #      challenged and silently fail (docs/26 §10 step 8).
+  # ---------------------------------------------------------------------------
 
   # REQUIRED off Vercel. This is a Vercel coupling docs/26 §1 does not list.
   # NextAuth v5 only trusts the forwarded host when `AUTH_TRUST_HOST` is set,
