@@ -165,11 +165,11 @@ pages, registration and credentials login, admin shell, `/api/v1/live`.
 
 **Not working, by design, until follow-ups land:**
 
-1. **Every campaign image 404s.** `next.config.ts`, `src/app/layout.tsx` and
-   `src/lib/validators/url-allowlist.ts` hardcode
-   `ntnrcedafgmeyajmzvga.supabase.co` — **a project that is not in this
-   account**. Must be repointed at `vavxdjqufxrsbyohcwdh`, ideally via env var
-   so it cannot rot again. **Highest-priority follow-up.**
+1. ~~**Every campaign image 404s.**~~ **RESOLVED before first deploy.** The
+   three hardcoded `ntnrcedafgmeyajmzvga.supabase.co` literals — a project
+   verified absent from this account — now derive the host from
+   `NEXT_PUBLIC_SUPABASE_URL` (falling back to `SUPABASE_URL`, then to a named
+   constant) via `src/lib/supabase-host.ts`. See §5a.
 2. **The site is empty.** Zero campaigns. Seeding *campaign content* — stories,
    images, categories — is legitimate and unrelated to the donation-totals
    question in `docs/33`.
@@ -177,6 +177,59 @@ pages, registration and credentials login, admin shell, `/api/v1/live`.
 4. **Crons skip** (no Upstash; fail-closed by design).
 5. **Verification document review shows dead links** — the admin UI reads
    `fileUrl` directly and must move to the signed-URL endpoint (`docs/32` §1).
+
+---
+
+## 5a. Supabase storage host is derived, not hardcoded
+
+Fixed 2026-10-14, before the first deploy, because shipping it broken would
+have meant a second deploy to fix the most visible thing on the site.
+
+**What was wrong.** Three call sites each carried the literal
+`ntnrcedafgmeyajmzvga.supabase.co`:
+
+| Call site | Effect of the dead host |
+|---|---|
+| `next.config.ts` `images.remotePatterns` | `/_next/image` refuses every real upload URL → broken image for every campaign |
+| `src/app/layout.tsx` preconnect/dns-prefetch | A TCP+TLS handshake to a host that does not resolve, on every page load |
+| `src/lib/validators/url-allowlist.ts` | Our own storage URLs fail the SSRF guard, so the news image pipeline cannot fetch what it just uploaded |
+
+**What it is now.** `src/lib/supabase-host.ts` exports `SUPABASE_HOST`, derived
+from `NEXT_PUBLIC_SUPABASE_URL || SUPABASE_URL`, with
+`FALLBACK_SUPABASE_HOST = 'vavxdjqufxrsbyohcwdh.supabase.co'` for local builds
+and unit tests. The `process.env` reads are static member expressions so the
+compiler inlines the `NEXT_PUBLIC_` value into any client bundle that reaches
+the allowlist; a dynamic lookup would be `undefined` in the browser.
+
+**`next.config.ts` duplicates the derivation rather than importing it.** Next
+loads that file through its own TypeScript transpiler, and a failed import
+there kills the build outright. Two lines of duplication is a smaller risk than
+that. The duplication is pinned by
+`test/security/image-optimizer-hosts.test.ts`, which reads the **real exported
+config** and asserts that the only `*.supabase.co` pattern in it equals
+`SUPABASE_HOST`, plus a regression test that the dead project name never
+reappears. Divergence fails CI instead of silently 404ing every image.
+
+**Build-time requirement.** `images.remotePatterns` is serialised into the build
+output, so the host must be correct at build time, not boot time. `fly.toml`
+passes `NEXT_PUBLIC_SUPABASE_URL` as a `[build.args]` entry and the Dockerfile
+declares the matching `ARG`/`ENV` in the builder stage. A Fly *secret* cannot
+do this job — `NEXT_PUBLIC_*` is compiled in.
+
+**Rejected: an `images.remotePatterns` wildcard such as `**.supabase.co`.** It
+would have been one line and needed no plumbing, but it re-opens audit P1-14 in
+miniature: the optimiser would fetch from any Supabase project on earth,
+including an attacker's, and the pattern cap (`docs/26`; 50 entries) is a scarce
+resource already spent one-per-publisher.
+
+**Also changed:** `NEXT_PUBLIC_APP_URL` in `[build.args]` now points at
+`https://lastdonor.fly.dev` rather than `https://lastdonor.org`. No DNS points
+at Fly yet, so the previous value would have inlined a non-resolving origin into
+every absolute client-side URL. **Flip it back in the same change that cuts DNS
+over, and redeploy** — it is compiled in, so no secret can override it later.
+
+**Still open:** the admin verification review path (§5 item 5) is unaffected by
+this; it reads `fileUrl` directly and still needs the signed-URL endpoint.
 
 ---
 

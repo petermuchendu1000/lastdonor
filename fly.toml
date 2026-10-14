@@ -44,7 +44,18 @@ kill_timeout = "30s"
   # effect - they must be build args. Fill in the publishable values before
   # the first deploy; they are public by definition.
   [build.args]
-    NEXT_PUBLIC_APP_URL = "https://lastdonor.org"
+    # The *.fly.dev hostname, not lastdonor.org: no DNS points at Fly yet, so
+    # an inlined lastdonor.org origin would make every absolute client-side URL
+    # (canonical tags, OG images, share links, redirect targets) point at a host
+    # that does not resolve to this app. Flip this to "https://lastdonor.org"
+    # in the same change that cuts DNS over, and redeploy — it is compiled in,
+    # so a Fly secret cannot override it later.
+    NEXT_PUBLIC_APP_URL = "https://lastdonor.fly.dev"
+
+    # Drives `images.remotePatterns` in `next.config.ts` as well as the client
+    # bundle; see `src/lib/supabase-host.ts`. Verified 2026-10-14 as the only
+    # Supabase project in this account.
+    NEXT_PUBLIC_SUPABASE_URL = "https://vavxdjqufxrsbyohcwdh.supabase.co"
     # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_..."
     # NEXT_PUBLIC_SENTRY_DSN = "https://...ingest.sentry.io/..."
     # NEXT_PUBLIC_TAWK_PROPERTY_ID = ""

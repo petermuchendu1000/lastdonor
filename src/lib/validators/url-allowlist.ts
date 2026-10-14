@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SUPABASE_HOST } from '@/lib/supabase-host';
+
 /**
  * URL Allowlist Validators
  *
@@ -16,7 +18,7 @@ import { z } from 'zod';
 
 /** Domains allowed for campaign hero/gallery images. */
 const IMAGE_URL_ALLOWED_HOSTS = new Set([
-  'ntnrcedafgmeyajmzvga.supabase.co',  // Our Supabase storage
+  SUPABASE_HOST,  // Our Supabase storage, derived from NEXT_PUBLIC_SUPABASE_URL
   'images.unsplash.com',
   'cdn.pixabay.com',
   'images.pexels.com',

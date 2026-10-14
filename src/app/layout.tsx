@@ -112,6 +112,7 @@ import { Providers } from '@/components/Providers';
 import { SkipToContent } from '@/components/layout/SkipToContent';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
+import { SUPABASE_HOST } from '@/lib/supabase-host';
 
 // The CSS variable names below are the ones `globals.css` reads in its
 // `@theme` block (--font-dm-serif-display / --font-dm-sans / --font-dm-mono).
@@ -195,8 +196,8 @@ export default function RootLayout({
         {/* Preconnect to critical third-party origins */}
         <link rel="preconnect" href="https://js.stripe.com" />
         <link rel="dns-prefetch" href="https://js.stripe.com" />
-        <link rel="preconnect" href="https://ntnrcedafgmeyajmzvga.supabase.co" />
-        <link rel="dns-prefetch" href="https://ntnrcedafgmeyajmzvga.supabase.co" />
+        <link rel="preconnect" href={`https://${SUPABASE_HOST}`} />
+        <link rel="dns-prefetch" href={`https://${SUPABASE_HOST}`} />
         <link rel="dns-prefetch" href="https://plausible.io" />
         {/* Tawk.to live chat — preconnect reduces widget load latency */}
         <link rel="preconnect" href="https://embed.tawk.to" />

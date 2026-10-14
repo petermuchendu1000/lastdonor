@@ -89,7 +89,15 @@ ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
 ARG NEXT_PUBLIC_SENTRY_DSN=""
 ARG NEXT_PUBLIC_TAWK_PROPERTY_ID=""
 ARG NEXT_PUBLIC_TAWK_WIDGET_ID=""
-ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
+# Needed at BUILD time specifically, not just for the client bundle:
+# `next.config.ts` derives the Supabase storage host for
+# `images.remotePatterns` from it, and remotePatterns is serialised into the
+# build output. Unset, it falls back to the hardcoded project constant in
+# `src/lib/supabase-host.ts`, which is correct today but would rot silently if
+# the project ever changes.
+ARG NEXT_PUBLIC_SUPABASE_URL=""
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
+    NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY} \
     NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN} \
     NEXT_PUBLIC_TAWK_PROPERTY_ID=${NEXT_PUBLIC_TAWK_PROPERTY_ID} \

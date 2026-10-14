@@ -119,6 +119,22 @@ const NEWS_IMAGE_DOMAINS = [
 ] as const;
 
 /**
+ * Hostname of our Supabase project. Mirrors `supabaseHostFrom` in
+ * `src/lib/supabase-host.ts`; kept in sync by test, see below.
+ */
+const SUPABASE_HOST = (() => {
+  const raw =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const fallback = "vavxdjqufxrsbyohcwdh.supabase.co";
+  if (!raw) return fallback;
+  try {
+    return new URL(raw).hostname || fallback;
+  } catch {
+    return fallback;
+  }
+})();
+
+/**
  * First-party and stock-photo image sources. These are the only hosts the
  * product itself writes into `heroImageUrl`/`galleryImages` when an operator or
  * campaigner uploads through us, plus the two stock APIs the resolver's
@@ -127,7 +143,15 @@ const NEWS_IMAGE_DOMAINS = [
 const FIRST_PARTY_IMAGE_PATTERNS = [
   {
     protocol: "https" as const,
-    hostname: "ntnrcedafgmeyajmzvga.supabase.co",
+    // Derived, not hardcoded: the previous literal pointed at a Supabase
+    // project that is not in this account, so every campaign image 404'd
+    // (docs/35 §5). The same two-line derivation lives in
+    // `src/lib/supabase-host.ts` for the runtime call sites; it is duplicated
+    // here rather than imported because `next.config.ts` is loaded by Next's
+    // own TS transpiler and a failed import there kills the build. The
+    // duplication is pinned by a test — see
+    // `test/security/image-optimizer-hosts.test.ts`.
+    hostname: SUPABASE_HOST,
     pathname: "/storage/v1/object/public/**",
   },
   {

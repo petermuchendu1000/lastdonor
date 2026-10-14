@@ -14,6 +14,8 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 
+import { SUPABASE_HOST } from '@/lib/supabase-host';
+
 interface RemotePattern {
   protocol?: string;
   hostname: string;
@@ -137,8 +139,8 @@ describe('P1-14: hosts an attacker controls are not optimisable', () => {
 
 describe('P1-14: the hosts the product actually serves still work', () => {
   const MUST_MATCH = [
-    // First party.
-    'ntnrcedafgmeyajmzvga.supabase.co',
+    // First party. Derived from config, see `src/lib/supabase-host.ts`.
+    SUPABASE_HOST,
     // Stock photo fallbacks — resolver tiers 3 and 4.
     'images.unsplash.com',
     'images.pexels.com',
@@ -177,9 +179,27 @@ describe('P1-14: the hosts the product actually serves still work', () => {
   });
 
   it('keeps the supabase pattern scoped to the public object path', () => {
-    const supabase = patterns.find((p) =>
-      p.hostname === 'ntnrcedafgmeyajmzvga.supabase.co',
-    );
+    const supabase = patterns.find((p) => p.hostname === SUPABASE_HOST);
     expect(supabase?.pathname).toBe('/storage/v1/object/public/**');
+  });
+
+  it('pins next.config.ts to the same supabase host as src/lib', () => {
+    // `next.config.ts` duplicates the derivation rather than importing it,
+    // because Next loads that file through its own TS transpiler and a failed
+    // import there kills the build. This assertion is what keeps the two
+    // copies honest: it reads the REAL exported config, so a divergence fails
+    // CI instead of silently 404ing every campaign image.
+    const supabaseHosts = patterns
+      .map((p) => p.hostname)
+      .filter((h) => h.endsWith('.supabase.co'));
+    expect(supabaseHosts).toEqual([SUPABASE_HOST]);
+  });
+
+  it('no longer references the Supabase project that is not in this account', () => {
+    // Verified 2026-10-14: `ntnrcedafgmeyajmzvga` is absent from the account
+    // that owns this deployment (docs/33 §1). Any reappearance is a regression.
+    expect(patterns.map((p) => p.hostname)).not.toContain(
+      'ntnrcedafgmeyajmzvga.supabase.co',
+    );
   });
 });

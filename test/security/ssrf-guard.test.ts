@@ -31,6 +31,7 @@ import {
   SsrfBlockedError,
 } from '@/lib/validators/url-allowlist';
 import { safeFetch } from '@/lib/news/safe-fetch';
+import { SUPABASE_HOST } from '@/lib/supabase-host';
 
 const ROOT = resolve(__dirname, '../..');
 
@@ -95,7 +96,7 @@ describe('P1-15: outbound URL guard rejects non-public hosts', () => {
     'https://ichef.bbci.co.uk/news/976/hero.jpg',
     'https://static01.nyt.com/images/2026/story.jpg',
     'https://images.unsplash.com/photo-123?w=800',
-    'https://ntnrcedafgmeyajmzvga.supabase.co/storage/v1/object/public/media/x.jpg',
+    `https://${SUPABASE_HOST}/storage/v1/object/public/media/x.jpg`,
     'https://news.example.com/photo.jpg',
   ];
 
