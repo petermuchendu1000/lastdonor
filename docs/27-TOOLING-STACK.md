@@ -21,7 +21,7 @@ Audit of the existing stack before adding anything.
 | Fraud screening | Stripe Radar | Included with payments; priced separately for the Fraud-teams tier |
 | KYC / identity | Stripe Identity | In use (`stripeVerificationId` on `campaigns`) |
 | Transactional email | Resend | In use — **but see §2, the daily cap is a live problem** |
-| Database + storage | Supabase (Postgres + `media` bucket) | In use; 75 indexes, RLS from migration 0028 |
+| Database + storage | Supabase (Postgres + `media` bucket) | In use. **CORRECTED 2026-10-14:** RLS is **NOT** deployed — `0028_row_level_security.sql` is 79 lines containing **zero executable statements** (all comments; its own header says "this migration is a template"). And 7 declared indexes exist in no migration. See docs/29. |
 | Cache / rate limit | Upstash Redis | In use; also the ISR cache store per doc 26 |
 | Error tracking | Sentry | In use (`instrumentation.ts`) |
 | AI | OpenAI | In use (blog + campaign generation) |
@@ -130,7 +130,7 @@ for money, which attracts fraud, impersonation and distressing content.
 | Static analysis (SAST) | **GitHub CodeQL** | Free for public repos; paid for private ⚠️ | If the repo stays private, use **Semgrep OSS** free instead. |
 | Secret scanning | **GitHub Secret Scanning** + **gitleaks** in CI | Free | Verified: no credentials have ever been committed here. A CI gate keeps it that way. |
 | Container scanning | **Trivy** | Free (OSS) | Scans the Fly image you'll build per doc 26. |
-| Row-level security | **Supabase RLS** | Included | Already deployed in migration 0028. Keep policies in version control. |
+| Row-level security | **Supabase RLS** | Included | **CORRECTED 2026-10-14: NOT deployed.** Migration 0028 is a comment-only template; `scripts/rls-policies.sql` policies are `USING (true)`; and the app connects as the table owner, which is RLS-exempt without `FORCE ROW LEVEL SECURITY`. This is net-new work, not an existing control. |
 | Secret storage | **Fly secrets** | Free with Fly | Sufficient. Add **Infisical** or **Doppler** (free tiers) only when more than one person needs managed access. |
 
 ---
@@ -138,7 +138,9 @@ for money, which attracts fraud, impersonation and distressing content.
 ## 7. Search
 
 **Start with what you own: PostgreSQL full-text search** — free, no new
-service, and your `/search` route plus 75 indexes already live in Postgres.
+service, and your `/search` route already lives in Postgres (note: of the 75
+indexes declared in `schema.ts`, 7 are not in any migration — corrected
+2026-10-14).
 With `tsvector` columns and a GIN index this is genuinely good to tens of
 thousands of documents.
 

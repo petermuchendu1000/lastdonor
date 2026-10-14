@@ -83,9 +83,13 @@ These exist for a reason; changing them has consequences beyond the local file.
 - **Stripe metadata is the disaster-recovery substrate.** `create-checkout`
   writes full donor context onto every PaymentIntent, which makes `donations`
   reconstructible from Stripe alone. Preserve this in any refactor.
-- **Echo columns** (`seedDonationCount`, `messageCount`, `updateCount`) are
-  denormalised counters that exist to avoid N+1 queries on listing pages. Keep
-  them updated in the same transaction as the rows they count.
+- **Echo columns are currently BROKEN, not a convention to uphold.**
+  `seedDonationCount`, `messageCount` and `updateCount` were intended as
+  denormalised counters to avoid N+1 listing queries. Verified 2026-10-14: they
+  are **never incremented anywhere** in `src/` — the only write is a reset to 0
+  in `admin/seed/purge/route.ts:61`. Do not trust their values and do not cite
+  them as a performance mitigation. Either populate them in the same transaction
+  as the rows they count, or delete them. See docs/29.
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
   shared handler, multi-instance deploys serve stale HTML silently. See

@@ -21,7 +21,7 @@ These are the facts the design is built on. Each was checked directly.
 | Dynamic routes | 18 × `force-dynamic` | `src/app/**` | These always reach origin; they set the origin floor. |
 | Campaign detail page | `generateStaticParams()` + `revalidate = 60` | `src/app/campaigns/[slug]/page.tsx:26` | Hottest path is ISR, so it is cacheable — the main scaling win. |
 | DB driver | `prepare: false`, `max: 5`, `idle_timeout: 20` | `src/db/index.ts` | Already correct for Supavisor transaction mode. No change needed. |
-| Indexes | 75 declared | `src/db/schema.ts` | Schema is already indexed; DB is not the first bottleneck. |
+| Indexes | 75 declared in `schema.ts`, but **7 of them exist in no migration** (incl. all 3 on `impact_updates`, read on every campaign render), and `campaign_updates` has **zero** indexes | `src/db/schema.ts`; verified against all `CREATE INDEX` statements in `src/db/migrations/` | **CORRECTED 2026-10-14 (audit SCAL-02/07).** The earlier claim that the DB "is already indexed; not the first bottleneck" was WRONG — a declared index is not a deployed index. Hot paths lack composite `(campaign_id, created_at)` coverage. |
 | Realtime | Not used | no `.channel()` / realtime subscriptions | No WebSockets, no sticky sessions, no long-lived connection budget. |
 | Upload cap | 5 MB | `src/lib/supabase-storage.ts:16` | Far below Cloudflare's 100 MB body cap. **Not a constraint.** |
 | Image optimization | `sharp` present | `package.json` | `next/image` works on Fly unchanged. |
@@ -171,8 +171,14 @@ here — this app is on 15). All instances must share the same `buildId`, which 
 single Docker image guarantees.
 
 **Layer 3 — Postgres.** The 75 declared indexes and the `seedDonationCount` /
-`messageCount` / `updateCount` echo columns already avoid the N+1 listing
-queries. No change needed.
+`messageCount` / `updateCount` echo columns were claimed to avoid the N+1
+listing queries. **CORRECTED 2026-10-14 (audit SCAL-06): that mitigation does
+not exist.** Those three columns are **never incremented anywhere in `src/`** —
+the only write is a reset to 0 in `admin/seed/purge/route.ts:61`. They are
+permanently 0 or stale, so nothing is being avoided. Layer 3 therefore needs
+real work: deploy the 7 missing indexes, index `campaign_updates`, add the
+composite indexes, and either populate the echo columns in the same transaction
+as the rows they count or delete them.
 
 ---
 
@@ -253,8 +259,10 @@ Precision includes refusing complexity that does not pay for itself here.
 - **No separate queue broker (yet).** The crons plus Upstash locks cover current
   background work. Introduce a real queue when a job needs per-item retries and
   a dead-letter queue — most likely the AI pipeline, as volume grows.
-- **No read replicas yet.** 75 indexes and echo columns mean Postgres is not the
-  bottleneck at this stage. Add replicas when measurement says so, not before.
+- **No read replicas yet.** Still correct, but **not for the reason originally
+  given** (corrected 2026-10-14): the indexes and echo columns do not provide
+  the cover claimed. Replicas remain wrong because the fix is to index the hot
+  queries, not to buy hardware to mask missing indexes.
 - **No Next.js on Cloudflare Workers.** `sharp` is unsupported there, Node
   middleware is not yet supported, and the 300s AI routes do not fit the Worker
   execution model. Cloudflare is the edge, not the runtime.
@@ -270,7 +278,12 @@ derived is the shape of the load and the knobs.
 **Origin load is bounded by the uncacheable surface, not by total traffic.**
 With a shared ISR cache and edge caching, a page with `revalidate = 60` costs
 the origin ~1 render per 60s *globally*, regardless of whether 100 or 100,000
-people view it. So origin cost ≈ (18 `force-dynamic` routes + authenticated
+people view it. **CORRECTED 2026-10-14 (audit SCAL-01): this does not hold in
+the current code.** `payment-service.ts:233-234` calls `revalidatePath()` on the
+campaign page and the campaign index on *every single donation*, which destroys
+ISR amortisation exactly when a campaign goes viral — the page re-renders per
+donation, not per 60s. The capacity reasoning below is only valid once that
+blanket revalidation is replaced with throttled or tag-scoped invalidation. So origin cost ≈ (18 `force-dynamic` routes + authenticated
 traffic + API calls), plus a bounded ISR revalidation trickle. Anonymous
 campaign-page traffic — the bulk of a crowdfunding site — is nearly free.
 
