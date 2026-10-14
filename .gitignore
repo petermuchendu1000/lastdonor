@@ -49,3 +49,8 @@ mig.log
 migration-output.log
 temp-blog-post.json
 1
+
+# TypeScript incremental build cache. Host-local, ~4 MB, churns on every
+# `tsc` run and conflicts on every merge. Already excluded by .dockerignore
+# ("useless in the image"); it should never have been tracked either.
+*.tsbuildinfo
