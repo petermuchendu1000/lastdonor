@@ -11,10 +11,70 @@ export const supabase = createClient(supabaseUrl ?? '', supabaseServiceKey ?? ''
   auth: { persistSession: false },
 });
 
+/**
+ * Public bucket. Everything in it is served from
+ * `/storage/v1/object/public/<bucket>/<path>` with no authentication, forever.
+ * Only content that is *meant* to be world-readable belongs here: avatars,
+ * campaign photos, gallery images.
+ */
 export const BUCKET_NAME = 'media';
+
+/**
+ * Private bucket for identity and medical evidence (audit P0-1).
+ *
+ * Verification documents — government IDs, medical records, death
+ * certificates — were previously uploaded into `BUCKET_NAME` and persisted as
+ * `getPublicUrl(...)`, i.e. a permanent unauthenticated URL. No private access
+ * path existed anywhere in the codebase (`grep -rn createSignedUrl src/`
+ * returned zero hits). They now go here, and are only ever read through
+ * `createSignedObjectUrl`.
+ *
+ * ⚠️ OPERATOR ACTION REQUIRED — this bucket is NOT created by code.
+ * Supabase buckets are provisioned out of band; creating one from application
+ * code would mean the running app can change its own storage ACLs, which is
+ * exactly the privilege this fix is trying to remove. Create it in the Supabase
+ * dashboard (Storage → New bucket) with **Public = off**. Until it exists,
+ * verification-document uploads fail closed with a 500 rather than silently
+ * writing PII somewhere world-readable.
+ */
+export const PRIVATE_BUCKET_NAME =
+  process.env.SUPABASE_PRIVATE_BUCKET ?? 'verification';
+
+/**
+ * Object-key prefixes that may never live in the public bucket and may never
+ * be turned into a public URL. Matching is on the storage key, so it holds
+ * regardless of which route does the uploading.
+ */
+export const PRIVATE_PATH_PREFIXES = ['verification-documents/'] as const;
+
+/**
+ * TTL for issued signed URLs, in seconds.
+ *
+ * 15 minutes. Long enough for an admin to open a PDF or image in a reviewer
+ * tab, short enough that a URL leaked through a referrer header, a screenshot
+ * or a browser history export is dead before it is useful. This also makes
+ * true the claim `docs/06:248` and `docs/21:388,1775` have been making since
+ * before this control existed.
+ */
+export const SIGNED_URL_TTL_SECONDS = 900;
+
+/** Scheme used to persist a private object reference in place of a URL. */
+const PRIVATE_REF_SCHEME = 'supabase-private';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+
+/** Raised when code attempts to expose a private object publicly. */
+export class PrivateObjectError extends Error {
+  constructor(path: string) {
+    super(
+      `Refusing to build a public URL for private storage key "${path}". ` +
+      `Keys under ${PRIVATE_PATH_PREFIXES.join(', ')} must be served via ` +
+      `createSignedObjectUrl() to an authorised caller only.`,
+    );
+    this.name = 'PrivateObjectError';
+  }
+}
 
 export function validateFile(file: File): string | null {
   if (!ALLOWED_TYPES.includes(file.type)) {
@@ -26,7 +86,148 @@ export function validateFile(file: File): string | null {
   return null;
 }
 
+/** Normalise a storage key: no leading slash, no traversal segments. */
+function normaliseKey(path: string): string {
+  return path.replace(/^\/+/, '');
+}
+
+/** True when this object key holds content that must never be public. */
+export function isPrivateStoragePath(path: string): boolean {
+  const key = normaliseKey(path).toLowerCase();
+  return PRIVATE_PATH_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/**
+ * Build a public URL for an object in the public bucket.
+ *
+ * Fails closed for private keys. This is the assertion behind docs/31 §1.2's
+ * acceptance criterion "no code path can produce a public URL for a
+ * `verification-documents/` key": it holds for every caller, including the
+ * `folder`-parameterised `/api/v1/upload` route, not just the verification
+ * route that was fixed.
+ */
 export function getPublicUrl(path: string): string {
+  if (isPrivateStoragePath(path)) {
+    throw new PrivateObjectError(path);
+  }
   const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(path);
   return data.publicUrl;
+}
+
+/**
+ * Upload an object into the private bucket.
+ * Refuses keys that are not under a private prefix, so the private bucket
+ * cannot quietly become a second general-purpose store.
+ */
+export async function uploadPrivateObject(
+  path: string,
+  body: Buffer | Uint8Array | ArrayBuffer | Blob,
+  options: { contentType: string; upsert?: boolean },
+): Promise<{ error: { message: string } | null }> {
+  const key = normaliseKey(path);
+  if (!isPrivateStoragePath(key)) {
+    return {
+      error: {
+        message:
+          `Key "${key}" is not under a private prefix ` +
+          `(${PRIVATE_PATH_PREFIXES.join(', ')}); refusing private upload.`,
+      },
+    };
+  }
+
+  const { error } = await supabase.storage
+    .from(PRIVATE_BUCKET_NAME)
+    .upload(key, body, {
+      contentType: options.contentType,
+      // Private objects are never served from a CDN, so a long cache control
+      // buys nothing and only widens the window of an intermediary copy.
+      cacheControl: 'no-store',
+      upsert: options.upsert ?? false,
+    });
+
+  return { error: error ? { message: error.message } : null };
+}
+
+/**
+ * Reference stored in the database in place of a URL.
+ *
+ * `verificationDocuments.fileUrl` is `NOT NULL` and repairing migrations is
+ * out of scope here (see CLAUDE.md), so the column keeps holding a string —
+ * but a deliberately non-dereferenceable one. If this value leaks through a
+ * log, an API response or a mis-scoped select, it grants nothing.
+ */
+export function privateObjectRef(path: string): string {
+  return `${PRIVATE_REF_SCHEME}://${PRIVATE_BUCKET_NAME}/${normaliseKey(path)}`;
+}
+
+/**
+ * Resolve a stored `fileUrl` value back to a (bucket, key) pair.
+ *
+ * Handles three shapes:
+ *   1. `supabase-private://<bucket>/<key>` — written by this module.
+ *   2. A legacy public URL `…/storage/v1/object/public/<bucket>/<key>` —
+ *      written before this fix. Returned so admin review keeps working on
+ *      already-uploaded documents, which still need signing even while they
+ *      sit in the public bucket awaiting the migration script.
+ *   3. A bare key.
+ *
+ * Returns `null` when the value cannot be parsed, so callers 404 rather than
+ * guessing.
+ */
+export function parseStorageRef(
+  stored: string,
+): { bucket: string; key: string } | null {
+  if (!stored) return null;
+  const value = stored.trim();
+
+  if (value.startsWith(`${PRIVATE_REF_SCHEME}://`)) {
+    const rest = value.slice(`${PRIVATE_REF_SCHEME}://`.length);
+    const slash = rest.indexOf('/');
+    if (slash <= 0 || slash === rest.length - 1) return null;
+    return { bucket: rest.slice(0, slash), key: rest.slice(slash + 1) };
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      return null;
+    }
+    const m = /^\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/.exec(
+      parsed.pathname,
+    );
+    if (!m) return null;
+    return { bucket: m[1], key: decodeURIComponent(m[2]) };
+  }
+
+  // Bare key, assumed to live in the private bucket.
+  if (value.includes('..')) return null;
+  return { bucket: PRIVATE_BUCKET_NAME, key: normaliseKey(value) };
+}
+
+/**
+ * Issue a short-lived signed URL for a stored object.
+ *
+ * The ONLY read path for verification documents. Callers must have already
+ * established authorisation — this function performs no authorisation of its
+ * own, it just mints the credential.
+ */
+export async function createSignedObjectUrl(
+  bucket: string,
+  key: string,
+  expiresInSeconds: number = SIGNED_URL_TTL_SECONDS,
+): Promise<{ signedUrl: string | null; error: string | null }> {
+  if (!key || key.includes('..')) {
+    return { signedUrl: null, error: 'Invalid storage key' };
+  }
+
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(normaliseKey(key), expiresInSeconds);
+
+  if (error || !data?.signedUrl) {
+    return { signedUrl: null, error: error?.message ?? 'Failed to sign URL' };
+  }
+  return { signedUrl: data.signedUrl, error: null };
 }

@@ -31,6 +31,8 @@
 import {
   getCategoryFallbackImage,
 } from '@/lib/news/image-validation';
+import { safeFetch } from '@/lib/news/safe-fetch';
+import { isSafeOutboundUrl } from '@/lib/validators/url-allowlist';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -119,20 +121,16 @@ async function validateImageWithSize(
   if (url.startsWith('/')) return url; // Local paths are always valid
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    const res = await fetch(url, {
+    // SSRF guard (audit P1-15): the host comes from third-party content, and
+    // safeFetch re-validates every redirect hop rather than following blindly.
+    const res = await safeFetch(url, {
       method: 'HEAD',
-      signal: controller.signal,
+      timeoutMs: FETCH_TIMEOUT_MS,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; LastDonor/1.0)',
         Accept: 'image/*',
       },
-      redirect: 'follow',
     });
-
-    clearTimeout(timeout);
 
     if (!res.ok) return undefined;
 
@@ -170,20 +168,16 @@ async function extractAndValidateOgImage(
   articleUrl: string,
 ): Promise<string | undefined> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    const res = await fetch(articleUrl, {
-      signal: controller.signal,
+    // SSRF guard (audit P1-15). The article URL itself is third-party data.
+    const res = await safeFetch(articleUrl, {
+      method: 'GET',
+      timeoutMs: FETCH_TIMEOUT_MS,
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'text/html,application/xhtml+xml',
       },
-      redirect: 'follow',
     });
-
-    clearTimeout(timeout);
 
     if (!res.ok) return undefined;
 
@@ -214,6 +208,10 @@ export function extractImageCandidates(html: string): string[] {
     if (!url || seen.has(url)) return;
     // Basic sanity: must be absolute HTTPS URL
     if (!url.startsWith('https://')) return;
+    // SSRF guard (audit P1-15): these values are attacker-controlled markup
+    // from an arbitrary publisher. `startsWith('https://')` alone admits
+    // `https://169.254.169.254/` and `https://trusted.example@10.0.0.1/`.
+    if (!isSafeOutboundUrl(url)) return;
     // Reject known non-image URLs (SVG logos, site icons)
     if (url.includes('favicon') || url.includes('logo') || url.endsWith('.ico')) return;
     seen.add(url);

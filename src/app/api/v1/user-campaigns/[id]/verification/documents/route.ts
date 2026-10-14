@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { campaigns, verificationDocuments } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { auth, UnauthorizedError, ForbiddenError } from '@/lib/auth';
-import { supabase, BUCKET_NAME, getPublicUrl } from '@/lib/supabase-storage';
+import { auth, requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
+import {
+  uploadPrivateObject,
+  privateObjectRef,
+  parseStorageRef,
+  createSignedObjectUrl,
+  SIGNED_URL_TTL_SECONDS,
+} from '@/lib/supabase-storage';
 import { uploadVerificationDocumentSchema } from '@/lib/validators/verification';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
@@ -117,7 +123,13 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
-    // Upload to Supabase Storage
+    // ── Upload to the PRIVATE bucket (audit P0-1) ──────────────────────────
+    // These files are government IDs, medical records and death certificates.
+    // They used to land in the public `media` bucket and be persisted as a
+    // permanent unauthenticated `getPublicUrl(...)`. They now go to the
+    // private bucket and the row stores a non-dereferenceable reference; the
+    // only read path is the admin-only GET below, which mints a 15-minute
+    // signed URL.
     const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
     const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 5);
     const storagePath = `verification-documents/${campaignId}/${randomUUID()}.${safeExt}`;
@@ -125,13 +137,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(storagePath, buffer, {
-        contentType: file.type,
-        cacheControl: '31536000',
-        upsert: false,
-      });
+    const { error: uploadError } = await uploadPrivateObject(storagePath, buffer, {
+      contentType: file.type,
+    });
 
     if (uploadError) {
       console.error('Verification document upload failed:', uploadError.message);
@@ -141,16 +149,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
-    const fileUrl = getPublicUrl(storagePath);
-
-    // Insert document record
+    // Insert document record. `fileUrl` holds a private reference, never a URL.
     const [doc] = await db
       .insert(verificationDocuments)
       .values({
         campaignId,
         uploadedBy: session.user.id!,
         documentType: parsed.data.documentType,
-        fileUrl,
+        fileUrl: privateObjectRef(storagePath),
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type,
@@ -158,9 +164,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       })
       .returning({ id: verificationDocuments.id, status: verificationDocuments.status });
 
+    // Deliberately no URL in the response: the uploader already holds the
+    // file, and returning one would recreate a shareable handle to PII.
     return NextResponse.json({
       ok: true,
-      data: { documentId: doc.id, status: doc.status, fileUrl },
+      data: { documentId: doc.id, status: doc.status },
     });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
@@ -176,6 +184,111 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
     console.error('Verification document upload error:', error);
+    return NextResponse.json(
+      { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId } } satisfies ApiError,
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * GET /api/v1/user-campaigns/[id]/verification/documents?documentId=<uuid>
+ *
+ * Issue a short-lived signed URL for one verification document (audit P0-1).
+ *
+ * This is the ONLY read path for verification documents. It is admin-only:
+ * `requireRole(['admin'])` throws `ForbiddenError` for every other role,
+ * including the campaigner who uploaded the file and the `editor` role that
+ * can otherwise touch campaigns. The route is additionally covered by the
+ * default-deny middleware, so an unauthenticated caller never reaches this
+ * function at all.
+ *
+ * The URL expires after `SIGNED_URL_TTL_SECONDS` (15 minutes) and is never
+ * persisted.
+ */
+export async function GET(request: NextRequest, { params }: Params) {
+  const requestId = randomUUID();
+  const { id: campaignId } = await params;
+
+  try {
+    // Authorisation first: nothing about a document is revealed, not even
+    // whether it exists, before the caller is proven to be an admin.
+    await requireRole(['admin']);
+
+    const documentId = request.nextUrl.searchParams.get('documentId');
+    if (!documentId) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'documentId is required', requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+
+    const [doc] = await db
+      .select({
+        id: verificationDocuments.id,
+        campaignId: verificationDocuments.campaignId,
+        fileUrl: verificationDocuments.fileUrl,
+        fileName: verificationDocuments.fileName,
+        mimeType: verificationDocuments.mimeType,
+      })
+      .from(verificationDocuments)
+      .where(eq(verificationDocuments.id, documentId))
+      .limit(1);
+
+    // Scope the document to the campaign in the path, so a valid admin cannot
+    // read a document through an unrelated campaign's URL.
+    if (!doc || doc.campaignId !== campaignId) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'NOT_FOUND', message: 'Document not found', requestId } } satisfies ApiError,
+        { status: 404 },
+      );
+    }
+
+    // Handles both the new `supabase-private://` references and legacy public
+    // URLs from rows written before this fix, so review keeps working while
+    // the stored objects are migrated.
+    const ref = parseStorageRef(doc.fileUrl);
+    if (!ref) {
+      console.error('Unparseable verification document reference for', doc.id);
+      return NextResponse.json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Document reference is unreadable', requestId } } satisfies ApiError,
+        { status: 500 },
+      );
+    }
+
+    const { signedUrl, error } = await createSignedObjectUrl(ref.bucket, ref.key);
+    if (!signedUrl) {
+      console.error('Failed to sign verification document URL:', error);
+      return NextResponse.json(
+        { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Could not issue document URL', requestId } } satisfies ApiError,
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        documentId: doc.id,
+        fileName: doc.fileName,
+        mimeType: doc.mimeType,
+        url: signedUrl,
+        expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+      },
+    });
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required', requestId } } satisfies ApiError,
+        { status: 401 },
+      );
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'FORBIDDEN', message: 'Administrator access required', requestId } } satisfies ApiError,
+        { status: 403 },
+      );
+    }
+    console.error('Verification document URL error:', error);
     return NextResponse.json(
       { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId } } satisfies ApiError,
       { status: 500 },

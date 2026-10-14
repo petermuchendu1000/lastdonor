@@ -4,6 +4,8 @@
  * Falls back gracefully to the provided summary if fetching or parsing fails.
  */
 
+import { safeFetch } from '@/lib/news/safe-fetch';
+
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BODY_LENGTH = 5000; // chars - enough context for entity extraction
 
@@ -16,21 +18,19 @@ export async function fetchArticleBody(
   fallback: string,
 ): Promise<string> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    const res = await fetch(url, {
-      signal: controller.signal,
+    // SSRF guard (audit P1-15): `url` is a link harvested from an RSS feed or
+    // the GNews API, i.e. third-party data. safeFetch refuses non-public hosts
+    // and re-validates every redirect hop instead of following blindly.
+    const res = await safeFetch(url, {
+      method: 'GET',
+      timeoutMs: FETCH_TIMEOUT_MS,
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept:
           'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
-      redirect: 'follow',
     });
-
-    clearTimeout(timeout);
 
     if (!res.ok) return fallback;
 

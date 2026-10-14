@@ -1,7 +1,15 @@
 /**
  * Image validation utilities for campaign publishing.
  * Validates external image URLs are accessible before storing them.
+ *
+ * The HEAD probe below targets a host supplied by third-party news content,
+ * so it goes through `safeFetch` (audit P1-15), which refuses non-public
+ * hosts and re-validates every redirect hop.
  */
+
+import { safeFetch } from '@/lib/news/safe-fetch';
+
+const VALIDATION_TIMEOUT_MS = 5_000;
 
 const CATEGORY_FALLBACK_MAP: Record<string, string> = {
   emergency: 'disaster',
@@ -37,20 +45,14 @@ export async function validateImageUrl(url: string | undefined): Promise<string 
   if (url.startsWith('/')) return url;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: 'HEAD',
-      signal: controller.signal,
+      timeoutMs: VALIDATION_TIMEOUT_MS,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; LastDonor/1.0)',
         Accept: 'image/*',
       },
-      redirect: 'follow',
     });
-
-    clearTimeout(timeout);
 
     if (!res.ok) return undefined;
 
