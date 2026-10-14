@@ -40,6 +40,7 @@ transcript or a commit message is lost.
 | `01`–`25` | Product, brand, architecture, content, ops, research |
 | `26-DEPLOYMENT-ARCHITECTURE.md` | Cloudflare + Fly.io + Supabase topology, caching, capacity |
 | `27-TOOLING-STACK.md` | Free/low-cost tool inventory by capability |
+| `28-TOOL-ALTERNATIVES-ADR.md` | Keep/swap decisions per tool, with rejected alternatives |
 
 ---
 
