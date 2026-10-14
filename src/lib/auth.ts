@@ -6,22 +6,183 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import type { UserRole } from '@/types';
+import type { JWT } from 'next-auth/jwt';
 
-/* ---- Custom credential errors (code surfaces in client result.code) ---- */
-class NoAccountError extends CredentialsSignin { code = 'no_account'; }
-class OAuthOnlyError extends CredentialsSignin { code = 'oauth_only'; }
-class InvalidPasswordError extends CredentialsSignin { code = 'invalid_password'; }
-class AccountLockedError extends CredentialsSignin { code = 'account_locked'; }
+/* ---- Credential failures (audit A4) --------------------------------------
+ * The sign-in result code is reflected to the unauthenticated caller — it
+ * reaches client JS as `result.code` and, on the redirect flow, lands in the
+ * URL as `?code=...`. Emitting `no_account` / `oauth_only` / `invalid_password`
+ * / `account_locked` therefore turned the login form into an account-existence
+ * oracle: anyone could submit an email with a junk password and read off
+ * whether that address has an account here, and whether it uses Google.
+ *
+ * On a platform that publishes medical and hardship appeals, "does this person
+ * have an account" is itself sensitive, and the list is trivially enumerable.
+ *
+ * So: ONE code for every pre-authentication failure. The distinguishing detail
+ * is kept, but only server-side, via `logAuthFailure` below.
+ *
+ * `password_reset_required` is deliberately kept distinct. It can only be
+ * reached by a caller who supplied the CORRECT password against a legacy
+ * unpeppered hash, so it reveals nothing to an enumerator — and collapsing it
+ * would leave those users with no way to understand why they cannot get in.
+ *
+ * Keeping the OAuth-only case usable without leaking existence: the login page
+ * already renders "Continue with Google" unconditionally, above the credential
+ * form, so a Google-only user always has a working path. The generic failure
+ * copy should name it ("check your email and password, or continue with
+ * Google") — that copy is shown for every failure, so it discloses nothing.
+ * See the report note on `src/app/login/page.tsx`, which still switches on the
+ * old codes and needs that one copy change.
+ */
+class InvalidCredentialsError extends CredentialsSignin { code = 'invalid_credentials'; }
 class PasswordResetRequiredError extends CredentialsSignin { code = 'password_reset_required'; }
 
+/** Server-side-only reason for a credential rejection. Never sent to a client. */
+type AuthFailureReason =
+  | 'no_account'
+  | 'oauth_only'
+  | 'invalid_password'
+  | 'account_locked'
+  | 'password_reset_required';
+
+/**
+ * Record why a sign-in failed, at the fidelity the old error codes had, where
+ * only operators can read it.
+ *
+ * Deliberately not written to the `audit_logs` table: an unauthenticated
+ * endpoint that performs a DB INSERT per failed attempt is a write-amplification
+ * lever. Durable audit storage for these events is tracked as follow-up.
+ */
+export function logAuthFailure(reason: AuthFailureReason, email: string): void {
+  console.warn(
+    `[auth] credential sign-in rejected reason=${reason} email=${email}`,
+  );
+}
+
+/**
+ * Absolute session lifetime per role (seconds), enforced in the `jwt` callback.
+ * `@auth/core` re-signs the JWT and re-stamps `iat` on every session read, so
+ * its own `maxAge` behaves as an IDLE timeout; these are the absolute caps.
+ */
 const SESSION_MAX_AGE: Record<UserRole, number> = {
   donor: 604800,    // 7 days
   editor: 86400,    // 24 hours
   admin: 28800,     // 8 hours
 };
 
+/**
+ * Idle timeout handed to `@auth/core`. Must be >= the longest role cap, since
+ * the role-specific cap is what actually bounds the session.
+ *
+ * Before this fix no `maxAge` was set at all, so `@auth/core`'s 30-day default
+ * applied to admins (audit P1-4).
+ */
+const SESSION_IDLE_MAX_AGE = Math.max(...Object.values(SESSION_MAX_AGE));
+
+/**
+ * How stale a role claim may be before it is re-read from the database
+ * (seconds). This is the revocation path for P1-4: demoting a rogue editor or
+ * admin takes effect within a minute instead of never.
+ *
+ * Trade-off, stated explicitly because it is a real cost: for editors and
+ * admins this is one indexed primary-key SELECT per session read once a minute
+ * has elapsed, on top of the stateless JWT check. We keep `strategy: 'jwt'`
+ * (per CLAUDE.md and docs/26 §1 that is what makes horizontal scale-out free);
+ * this buys bounded revocation latency without reintroducing a database session
+ * per request. Donors get a long interval because the only thing a stale donor
+ * claim can hide is a *promotion*, which is not a security event.
+ */
+const ROLE_REVALIDATION_INTERVAL: Record<UserRole, number> = {
+  donor: 3600,      // 1 hour
+  editor: 60,       // 1 minute
+  admin: 60,        // 1 minute
+};
+
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * A real bcrypt hash of a value nobody knows, used to spend the same CPU on a
+ * miss as on a hit. Without it, "no such account" returns in microseconds while
+ * a wrong password costs a full bcrypt round — a timing oracle that survives
+ * collapsing the error codes.
+ */
+const DECOY_PASSWORD_HASH =
+  '$2a$12$C6UzMDM.H6dfI/f/IKcEe.ONqvk1ybYuK1nkzN1cQZGMEeaLRRPFO';
+
+function isUserRole(value: unknown): value is UserRole {
+  return value === 'donor' || value === 'editor' || value === 'admin';
+}
+
+/**
+ * Read a user's current role. Distinguishes "no such user" (null) from
+ * "could not tell" (undefined), because the two must be handled differently
+ * when deciding whether to invalidate a live session.
+ */
+async function readRole(userId: string): Promise<UserRole | null | undefined> {
+  try {
+    const [dbUser] = await db
+      .select({ role: schema.users.role })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    if (!dbUser) return null;
+    return isUserRole(dbUser.role) ? dbUser.role : 'donor';
+  } catch (err) {
+    console.error('[auth] role lookup failed:', err);
+    return undefined;
+  }
+}
+
+/** A role lookup, injectable so the expiry/revocation rules can be tested. */
+export type RoleLookup = (userId: string) => Promise<UserRole | null | undefined>;
+
+/**
+ * Decide what happens to an already-issued session token (audit P1-4).
+ *
+ * Returns the token to keep (possibly with a refreshed role claim), or `null`
+ * to end the session. Exported and injectable because this is the entire
+ * expiry-and-revocation rule, and `@auth/core` does not let a test reach the
+ * `jwt` callback directly.
+ */
+export async function resolveSessionToken(
+  token: JWT,
+  nowSec: number = Math.floor(Date.now() / 1000),
+  lookupRole: RoleLookup = readRole,
+): Promise<JWT | null> {
+  const userId = typeof token.id === 'string' ? token.id : null;
+  const authAt = typeof token.authAt === 'number' ? token.authAt : null;
+
+  // Tokens minted before this fix carry no `authAt`. They are the unexpirable,
+  // unrevokable tokens P1-4 is about, so they are rejected rather than grandfathered.
+  if (!userId || authAt === null) return null;
+
+  const role = isUserRole(token.role) ? token.role : 'donor';
+
+  // Absolute, role-scoped cap. This is enforced here and nowhere else: a JWT
+  // session can only be ended by this callback returning null.
+  if (nowSec - authAt > SESSION_MAX_AGE[role]) return null;
+
+  const roleCheckedAt = typeof token.roleCheckedAt === 'number' ? token.roleCheckedAt : 0;
+  if (nowSec - roleCheckedAt < ROLE_REVALIDATION_INTERVAL[role]) return token;
+
+  const fresh = await lookupRole(userId);
+
+  // The row is gone (deleted / GDPR-erased user): end the session.
+  if (fresh === null) return null;
+
+  // Could not tell (database unreachable). Keep the existing claim but do NOT
+  // advance roleCheckedAt, so the next request retries. Failing open for one
+  // interval beats logging the whole platform out on a transient pooler error;
+  // every privileged route needs the same database anyway, so the window grants
+  // no usable capability.
+  if (fresh === undefined) return token;
+
+  token.role = fresh;
+  token.roleCheckedAt = nowSec;
+  return token;
+}
 
 async function checkAccountLocked(email: string): Promise<boolean> {
   const [user] = await db
@@ -92,7 +253,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionsTable: schema.sessions,
     verificationTokensTable: schema.verificationTokens,
   }),
-  session: { strategy: 'jwt' },
+  // `strategy: 'jwt'` is load-bearing (CLAUDE.md, docs/26 §1): stateless
+  // sessions are what make horizontal scale-out free. Do not switch to
+  // database sessions. `maxAge` is the idle timeout; the absolute,
+  // role-scoped cap is enforced in the `jwt` callback.
+  session: { strategy: 'jwt', maxAge: SESSION_IDLE_MAX_AGE },
+  jwt: { maxAge: SESSION_IDLE_MAX_AGE },
   pages: {
     signIn: '/login',
   },
@@ -142,36 +308,47 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const email = credentials?.email as string | undefined;
+        const rawEmail = credentials?.email as string | undefined;
         const password = credentials?.password as string | undefined;
 
-        if (!email || !password) return null;
-
-        if (await checkAccountLocked(email)) {
-          throw new AccountLockedError();
-        }
+        if (!rawEmail || !password) return null;
+        const email = rawEmail.trim().toLowerCase();
 
         try {
+          const { verifyPassword, verifyLegacyPassword } = await import('@/lib/password');
+
+          if (await checkAccountLocked(email)) {
+            logAuthFailure('account_locked', email);
+            throw new InvalidCredentialsError();
+          }
+
           const [user] = await db
             .select()
             .from(schema.users)
             .where(eq(schema.users.email, email))
             .limit(1);
 
-          if (!user) throw new NoAccountError();
-          if (!user.passwordHash) throw new OAuthOnlyError();
+          // Spend the same CPU whether or not the account exists, so the
+          // response time does not restore the oracle the error codes used to
+          // give away. The result is discarded.
+          if (!user || !user.passwordHash) {
+            await verifyPassword(password, DECOY_PASSWORD_HASH);
+            logAuthFailure(user ? 'oauth_only' : 'no_account', email);
+            throw new InvalidCredentialsError();
+          }
 
-          const { verifyPassword, verifyLegacyPassword } = await import('@/lib/password');
           const valid = await verifyPassword(password, user.passwordHash);
           if (!valid) {
             // Check if this is a legacy (unpeppered) hash - correct password
             // but hash was created before the pepper was introduced.
             const isLegacyHash = await verifyLegacyPassword(password, user.passwordHash);
             if (isLegacyHash) {
+              logAuthFailure('password_reset_required', email);
               throw new PasswordResetRequiredError();
             }
             await recordFailedAttempt(email);
-            throw new InvalidPasswordError();
+            logAuthFailure('invalid_password', email);
+            throw new InvalidCredentialsError();
           }
 
           await clearFailedAttempts(email);
@@ -191,37 +368,55 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    /**
+     * Audit P1-4. Three things happen here, and all three are load-bearing:
+     *
+     * 1. `authAt` — our own issued-at claim. We cannot use `iat`: `@auth/core`
+     *    re-signs the token on every session read (`lib/actions/session.js`
+     *    calls `jwt.encode`, and `jwt.js` calls `.setIssuedAt()`), so `iat`
+     *    always says "just now". The previous role-expiry check read `iat` and
+     *    was therefore dead on arrival, in addition to writing an `expires`
+     *    value that nothing consumed.
+     *
+     * 2. Absolute, role-scoped expiry, enforced by returning `null`.
+     *    `@auth/core` treats a `null` from this callback as "no session" and
+     *    clears the session cookie, which is the only mechanism that actually
+     *    ends a JWT session. (The deleted epoch-zero `expires` value in the
+     *    `session` callback was read by nothing — the JWT stayed valid.)
+     *
+     * 3. Role revalidation against the database, so demoting a rogue
+     *    editor/admin takes effect within `ROLE_REVALIDATION_INTERVAL` rather
+     *    than whenever their token happens to expire.
+     *
+     * Note: tokens minted before this fix carry no `authAt` and are rejected,
+     * so deploying this signs existing sessions out once. That is the intended
+     * behaviour — the whole point of P1-4 is that those tokens are
+     * unexpirable and unrevokable.
+     */
     async jwt({ token, user }) {
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      // ── Sign-in: mint the claims ────────────────────────────────────────
       if (user?.id) {
         token.id = user.id;
-        try {
-          const [dbUser] = await db
-            .select({ role: schema.users.role })
-            .from(schema.users)
-            .where(eq(schema.users.id, user.id))
-            .limit(1);
-          token.role = dbUser?.role ?? 'donor';
-        } catch {
-          token.role = 'donor';
-        }
+        token.authAt = nowSec;
+        const role = await readRole(user.id);
+        token.role = role ?? 'donor';
+        token.roleCheckedAt = nowSec;
+        return token;
       }
-      return token;
+
+      // ── Subsequent reads: enforce expiry, then refresh the role ─────────
+      return resolveSessionToken(token, nowSec);
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = token.role as UserRole;
+        session.user.role = isUserRole(token.role) ? token.role : 'donor';
       }
-      // Apply role-based session maxAge
-      const role = (token.role as UserRole) ?? 'donor';
-      const maxAge = SESSION_MAX_AGE[role];
-      if (token.iat && typeof token.iat === 'number') {
-        const elapsed = Math.floor(Date.now() / 1000) - token.iat;
-        if (elapsed > maxAge) {
-          // Session expired for this role
-          return { ...session, expires: new Date(0).toISOString() } as typeof session;
-        }
-      }
+      // No expiry logic here: `expires` on the returned session object is
+      // presentation-only and does not invalidate the JWT. Expiry is enforced
+      // in the `jwt` callback above, which is the only place that can.
       return session;
     },
   },

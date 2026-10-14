@@ -3,6 +3,152 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import type { ApiError } from '@/types/api';
 
+// ─── Client IP resolution (audit P1-5) ──────────────────────────────────────
+/**
+ * Deriving the client IP from the FIRST `X-Forwarded-For` entry is forgeable:
+ * XFF is append-only, so the left-most entry is whatever the *client* sent.
+ * On Vercel today the value happens to be normalised, but `docs/26` moves the
+ * app behind Cloudflare -> Fly, where the client's own XFF survives as a prefix
+ * and every rate limit becomes bypassable by rotating that prefix.
+ *
+ * The only trustworthy entries are the ones appended by proxies we operate.
+ * Each such proxy appends the address of the peer it received the request from,
+ * so with `hops` proxies in front of us the real client sits at
+ * `entries.length - hops` (the right-most hop, minus our own infrastructure).
+ *
+ * Configuration is explicit, because the correct answer is a property of the
+ * deployment topology and cannot be detected at runtime:
+ *
+ *   CLIENT_IP_SOURCE   'xff' (default) | 'cf' | 'header:<name>'
+ *   TRUSTED_PROXY_HOPS integer >= 1, default 1
+ *
+ * - `xff`  : right-most-hop rule over `X-Forwarded-For` (correct for Vercel
+ *            with TRUSTED_PROXY_HOPS=1, and for Fly-without-Cloudflare).
+ * - `cf`   : prefer `CF-Connecting-IP`, which Cloudflare *overwrites* on every
+ *            request so a client cannot forge it; falls back to the `xff` rule
+ *            when the header is absent.
+ * - `header:<name>`: trust exactly the named header. Escape hatch for another
+ *            edge (e.g. `header:fly-client-ip`, `header:true-client-ip`).
+ *
+ * This is deliberately NOT "trust CF-Connecting-IP whenever it is present":
+ * off Cloudflare that header is attacker-controlled, so auto-trusting it would
+ * reintroduce exactly the bug being fixed. The Cloudflare/Fly cutover must set
+ * `CLIENT_IP_SOURCE=cf` and `TRUSTED_PROXY_HOPS=2` (Cloudflare + Fly both
+ * append a hop). See docs/26 and docs/31 item 2.6.
+ */
+
+const DEFAULT_TRUSTED_PROXY_HOPS = 1;
+const MAX_TRUSTED_PROXY_HOPS = 10;
+
+/** Sentinel used when no trustworthy client address can be derived. */
+export const UNKNOWN_CLIENT_IP = 'unknown';
+
+let warnedInvalidHops = false;
+let warnedInvalidSource = false;
+
+function trustedProxyHops(): number {
+  const raw = process.env.TRUSTED_PROXY_HOPS?.trim();
+  if (!raw) return DEFAULT_TRUSTED_PROXY_HOPS;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_TRUSTED_PROXY_HOPS) {
+    if (!warnedInvalidHops) {
+      warnedInvalidHops = true;
+      console.error(
+        `[RATE-LIMIT] TRUSTED_PROXY_HOPS="${raw}" is not an integer in 1..${MAX_TRUSTED_PROXY_HOPS}; ` +
+        `falling back to ${DEFAULT_TRUSTED_PROXY_HOPS}.`,
+      );
+    }
+    return DEFAULT_TRUSTED_PROXY_HOPS;
+  }
+  return parsed;
+}
+
+/**
+ * The single header the trusted edge sets authoritatively, or `null` when the
+ * deployment has not declared one (in which case only `X-Forwarded-For` is used).
+ */
+function trustedClientIpHeader(): string | null {
+  const raw = process.env.CLIENT_IP_SOURCE?.trim().toLowerCase();
+  if (!raw || raw === 'xff') return null;
+  if (raw === 'cf') return 'cf-connecting-ip';
+  if (raw.startsWith('header:')) {
+    const name = raw.slice('header:'.length).trim();
+    if (name) return name;
+  }
+  if (!warnedInvalidSource) {
+    warnedInvalidSource = true;
+    console.error(
+      `[RATE-LIMIT] CLIENT_IP_SOURCE="${raw}" is not one of 'xff' | 'cf' | 'header:<name>'; ` +
+      `using X-Forwarded-For right-most-hop instead.`,
+    );
+  }
+  return null;
+}
+
+const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const IPV6_RE = /^[0-9a-f:]+(?:\.\d{1,3}){0,3}$/i;
+
+/**
+ * Normalise one forwarded-for entry to a bare IP, or `null` if it is not one.
+ *
+ * Rejecting non-IP values matters beyond tidiness: the result becomes part of
+ * the rate-limit key, so an unvalidated header lets a client mint unlimited
+ * distinct keys (in Redis and in the in-memory Map) and sidestep every limit.
+ */
+function normaliseIp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let candidate = value.trim();
+  if (!candidate || candidate.length > 64) return null;
+
+  // "[2001:db8::1]:443" / "[2001:db8::1]"
+  if (candidate.startsWith('[')) {
+    const close = candidate.indexOf(']');
+    if (close === -1) return null;
+    candidate = candidate.slice(1, close);
+  } else if (candidate.includes('.') && candidate.includes(':')) {
+    // "1.2.3.4:5678"
+    candidate = candidate.slice(0, candidate.indexOf(':'));
+  }
+
+  if (IPV4_RE.test(candidate)) return candidate;
+  if (candidate.includes(':') && IPV6_RE.test(candidate)) return candidate.toLowerCase();
+  return null;
+}
+
+/**
+ * Resolve the client IP for rate-limiting purposes.
+ *
+ * Returns {@link UNKNOWN_CLIENT_IP} when no trustworthy address is available.
+ * Callers must treat that as a single shared bucket, never as "skip the limit".
+ */
+export function getClientIp(headers: Headers): string {
+  const headerName = trustedClientIpHeader();
+  if (headerName) {
+    const direct = normaliseIp(headers.get(headerName));
+    if (direct) return direct;
+    // Fall through: the edge header is missing (direct hit, health probe,
+    // misconfiguration). Never fall back to the left-most XFF entry.
+  }
+
+  const forwarded = headers.get('x-forwarded-for');
+  if (forwarded) {
+    const entries = forwarded
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    if (entries.length > 0) {
+      // Skip the hops our own infrastructure appended; anything to the LEFT of
+      // that index was supplied by the client and is not evidence of anything.
+      const index = Math.max(0, entries.length - trustedProxyHops());
+      const hop = normaliseIp(entries[index]);
+      if (hop) return hop;
+    }
+  }
+
+  return normaliseIp(headers.get('x-real-ip')) ?? UNKNOWN_CLIENT_IP;
+}
+
 // ─── In-memory fallback store (per-instance backstop for dev / Upstash outage) ──
 
 interface RateLimitEntry {
@@ -184,7 +330,7 @@ export async function checkRateLimitAsync(request: NextRequest): Promise<NextRes
   if (!pathname.startsWith('/api/')) return null;
   if (pathname.includes('/webhook')) return null;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const ip = getClientIp(request.headers);
   const config = getConfig(pathname);
   const key = `${ip}:${pathname.split('/').slice(0, 5).join('/')}`;
 
@@ -235,7 +381,7 @@ export function checkRateLimit(request: NextRequest): NextResponse | null {
   if (!pathname.startsWith('/api/')) return null;
   if (pathname.includes('/webhook')) return null;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const ip = getClientIp(request.headers);
   const config = getConfig(pathname);
   const key = `${ip}:${pathname.split('/').slice(0, 5).join('/')}`;
 
