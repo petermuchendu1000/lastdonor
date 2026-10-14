@@ -78,14 +78,32 @@ kill_timeout = "30s"
   HOSTNAME = "0.0.0.0"
   NEXT_TELEMETRY_DISABLED = "1"
 
-  # REQUIRED for this topology, not optional tuning. Both Cloudflare and Fly
-  # append to `X-Forwarded-For`, so the client IP is the second-from-last hop.
-  # Without these two the rate limiter reads the wrong element and every limit
-  # becomes trivially bypassable (docs/26 §10 step 5; docs/32 §4; audit P1-5).
-  # `.env.example` ships the single-proxy defaults (`xff` / `1`) for local dev;
-  # these are the Cloudflare-in-front values.
-  CLIENT_IP_SOURCE = "cf"
-  TRUSTED_PROXY_HOPS = "2"
+  # ---------------------------------------------------------------------------
+  # CLIENT IP RESOLUTION - these are the FLY-ONLY values. They MUST change to
+  # `cf` / `2` in the same change that puts Cloudflare in front, and not before.
+  #
+  # This file previously carried the Cloudflare values (`cf` / `2`) while
+  # Cloudflare was not yet in front of the app. Verified against
+  # `src/lib/rate-limit.ts`, that combination is unsafe in two independent ways:
+  #
+  #   1. `CLIENT_IP_SOURCE=cf` makes `cf-connecting-ip` the authoritative
+  #      source and it is consulted FIRST (`trustedClientIpHeader`, line 72).
+  #      With no Cloudflare in front to overwrite that header, any client sets
+  #      it to anything, mints unlimited distinct rate-limit keys, and bypasses
+  #      every limit.
+  #   2. Even on fallthrough, `TRUSTED_PROXY_HOPS=2` with Fly's single appended
+  #      hop computes `index = entries.length - 2 = 0` on a two-entry header -
+  #      the LEFT-most, client-supplied entry. That is precisely what the
+  #      comment at `rate-limit.ts:141` warns is "not evidence of anything".
+  #
+  # These are plain configuration, not secrets, so they live here where they are
+  # version-controlled and reviewable. They were ALSO being staged into the Fly
+  # secret store with the opposite values, which gave one security control two
+  # contradictory sources of truth; the secret-store copies have been removed so
+  # this file is the only place they are set.
+  # ---------------------------------------------------------------------------
+  CLIENT_IP_SOURCE = "xff"
+  TRUSTED_PROXY_HOPS = "1"
 
   # REQUIRED off Vercel. This is a Vercel coupling docs/26 §1 does not list.
   # NextAuth v5 only trusts the forwarded host when `AUTH_TRUST_HOST` is set,

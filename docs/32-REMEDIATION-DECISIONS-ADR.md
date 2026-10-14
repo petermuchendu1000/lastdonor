@@ -129,10 +129,43 @@ IP validation matters independently of hop logic: an unvalidated header value
 goes straight into the rate-limit key, so a client could mint unlimited distinct
 keys in Redis *and* the in-memory map and bypass every limit.
 
-**⚠ Cutover requirement.** The Cloudflare→Fly migration in `docs/26` **must**
-set `CLIENT_IP_SOURCE=cf` and `TRUSTED_PROXY_HOPS=2` (both Cloudflare and Fly
-append). Without them every rate limit becomes bypassable. Both are now in
-`.env.example`.
+**⚠ Cutover requirement — and it cuts BOTH ways.** These two values must match
+the number of proxies actually in front of the app at that moment. Setting them
+*early* is as unsafe as setting them *late*.
+
+| Topology | Correct values | What the wrong values do |
+|---|---|---|
+| Fly alone (today) | `xff` / `1` | `cf` / `2` here is unsafe twice over — see below |
+| Cloudflare → Fly | `cf` / `2` | `xff` / `1` here reads Fly's hop, so every client shares one bucket |
+
+Amended 2026-10-14. The original text above read one-directionally ("the
+migration must set `cf` / `2`, without them every rate limit becomes
+bypassable"), and `fly.toml` was written with the end-state values while
+Cloudflare was **not** yet in front. Verified against `src/lib/rate-limit.ts`,
+that interim state is unsafe in two independent ways:
+
+1. `CLIENT_IP_SOURCE=cf` makes `cf-connecting-ip` authoritative and it is
+   consulted **first** (`trustedClientIpHeader`, line 72). With no Cloudflare
+   in front to overwrite that header, any client sets it freely and mints
+   unlimited distinct rate-limit keys — the precise defect this section's
+   "Rejected" paragraph above was written to prevent, reintroduced through
+   configuration rather than code.
+2. Even on fallthrough, `TRUSTED_PROXY_HOPS=2` against Fly's single appended
+   hop computes `index = entries.length - 2 = 0` on a two-entry header: the
+   **left-most, client-supplied** entry, which `rate-limit.ts:141` describes as
+   "not evidence of anything".
+
+So the code was right, the decision here was right, and the deployment config
+applied the end-state value prematurely. Lesson recorded: a config value that is
+only correct *after* a future topology change must not be committed in its
+future form. `fly.toml` now carries `xff` / `1` with the flip documented inline.
+
+**One source of truth.** These are plain configuration, not secrets. They live
+in `fly.toml` `[env]`, where they are version-controlled and reviewable, and
+**not** in the Fly secret store. They were briefly in both with opposite values
+(2026-10-14, never deployed); the secret-store copies were removed rather than
+corrected, because two sources for one security control is the more dangerous
+defect. Both remain in `.env.example` for local development.
 
 ---
 

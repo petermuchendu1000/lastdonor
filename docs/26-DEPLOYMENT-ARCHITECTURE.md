@@ -319,10 +319,12 @@ Dependency-ordered; each step is independently verifiable.
 2. Remove Vercel couplings — `next/og` ×2, drop edge runtime from `apple-icon.tsx`. Verify: `npm run build` clean, OG images render.
 3. Redis `cacheHandler` + `cacheMaxMemorySize: 0`. Verify: `revalidatePath` on one machine is visible from the other.
 4. `fly.toml` — region, `min_machines_running = 1`, `release_command` running `drizzle-kit migrate` over **port 5432**, and a health check on a **new shallow liveness endpoint** (process-only, no dependency calls). **Do NOT point Fly's health check at `/api/v1/health`** — it 503s when Stripe is degraded, which would take the whole fleet down (audit R-09, corrected 2026-10-14). Keep `/api/v1/health` as a deep *readiness/diagnostic* endpoint for humans and uptime monitoring, where a 503 on a Stripe outage is the desired signal. Verify: deploy applies migrations once.
-5. Secrets via `fly secrets set` (all of `.env.example`). **Required for this cutover
-   or every rate limit becomes bypassable (audit P1-5, see docs/32 §4):**
-   `CLIENT_IP_SOURCE=cf` and `TRUSTED_PROXY_HOPS=2` — both Cloudflare and Fly append
-   to `X-Forwarded-For`. Verify: `/api/v1/health` reports every check green (as a diagnostic, not as the probe).
+5. Secrets via `fly secrets set` (all of `.env.example`). **Set `CLIENT_IP_SOURCE=cf`
+   and `TRUSTED_PROXY_HOPS=2` in this step and NOT EARLIER** — they are correct only
+   once Cloudflare is actually in front; applied while Fly is alone they make every
+   rate limit bypassable in two separate ways (corrected 2026-10-14, see docs/32 §4
+   for the bidirectional hazard table). They are `[env]` entries in `fly.toml`, not
+   secrets. Verify: `/api/v1/health` reports every check green (as a diagnostic, not as the probe).
 6. Upstash locks in all 10 cron handlers. Verify: a forced overlapping invocation exits early.
 7. Cron Worker, one 5-minute trigger → grey-cloud hostname. Verify: each job fires on schedule and 300s jobs complete.
 8. Cloudflare DNS, Full (strict) TLS, cache rules, WAF skip rules for both webhooks, edge rate limiting. Verify: a real Stripe test webhook validates.

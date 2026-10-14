@@ -32,7 +32,7 @@ configured. If per-change latency becomes the bottleneck, revisit.
 | Storage | Bucket `verification` exists, private, empty. |
 | `Dockerfile`, `fly.toml`, `.dockerignore` | Present |
 | `output: 'standalone'` | Set (`f31a1ff`) |
-| Secrets | 20 prepared in the session scratchpad, **not** in the repo and **not** set on Fly |
+| Secrets | 17 prepared in the session scratchpad, **not** in the repo. Staged on Fly 2026-10-14. |
 
 ### Verified fly.toml properties
 
@@ -51,7 +51,7 @@ configured. If per-change latency becomes the bottleneck, revisit.
 
 ---
 
-## 3. Secrets — 20 values, two of them placeholders
+## 3. Secrets — 17 values, two of them placeholders
 
 Prepared as a reviewable script in the session scratchpad (chmod 600, outside
 the repo, never committed). **Secrets must never enter git.**
@@ -60,6 +60,16 @@ the repo, never committed). **Secrets must never enter git.**
 `validate-secrets.ts`:** `NEXTAUTH_SECRET`, `CRON_SECRET`, `PASSWORD_PEPPER`,
 `SETTINGS_ENCRYPTION_KEY`, `NEWSLETTER_UNSUBSCRIBE_SECRET`,
 `CAMPAIGN_UNSUBSCRIBE_SECRET`.
+
+**Deliberately NOT secrets** (amended 2026-10-14, was 20 values): the staging
+script also set `CLIENT_IP_SOURCE`, `TRUSTED_PROXY_HOPS` and
+`NEXT_PUBLIC_APP_URL`. All three were removed. The first two are plain config
+that belongs in `fly.toml` `[env]`, and they were being staged with values
+*opposite* to the ones in that file — two contradictory sources for one security
+control (see `docs/32` §4, and §7 below). `NEXT_PUBLIC_APP_URL` is inlined by the
+compiler at build time, so a secret for it is inert and purely misleading; it is
+a `[build.args]` entry. Caught before the first deploy, so no release ever
+carried them.
 
 **Derived or retrieved:** `DATABASE_URL` (pooler **6543**, transaction mode —
 the app sets `prepare: false` for it), `MIGRATION_DATABASE_URL` (**5432**,
@@ -252,7 +262,11 @@ Not optional, and tracked elsewhere:
 - Real Stripe keys, and a verified webhook endpoint.
 - `CLIENT_IP_SOURCE=cf` and `TRUSTED_PROXY_HOPS=2` **if and when Cloudflare goes
   in front** (`docs/32` §4). Until then `xff`/`1` is correct for Fly alone;
-  getting this wrong makes every rate limit bypassable.
+  getting this wrong makes every rate limit bypassable. This paragraph was
+  already correct on 2026-10-14 while `fly.toml` carried `cf`/`2` anyway — the
+  runbook and the config disagreed and the config was wrong. Both now say
+  `xff`/`1`, set in exactly one place (`fly.toml` `[env]`), with the flip
+  documented inline next to the values.
 - Shared ISR cache handler before scaling past one machine (`docs/26` §5).
 - Nightly `pg_dump` to R2 (`docs/27` §1) — there is still no backup of anything.
 - The open P0/P1 items in `docs/31` and `docs/32` §"Open items".
