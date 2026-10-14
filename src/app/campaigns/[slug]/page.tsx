@@ -26,17 +26,32 @@ import { categorySeoKeywords } from '@/lib/seo/keywords';
 export const revalidate = 60;
 
 export async function generateStaticParams() {
-  const rows = await db
-    .select({ slug: campaigns.slug })
-    .from(campaigns)
-    .where(
-      or(
-        eq(campaigns.status, 'active'),
-        eq(campaigns.status, 'last_donor_zone'),
-        eq(campaigns.status, 'completed'),
-      ),
+  // Fail soft: the build must not require a reachable database. Returning []
+  // pre-renders nothing and lets `revalidate = 60` render each page on first
+  // request instead, which is the same end state one request later. Without
+  // this, `next build` dies on "Failed to collect page data" whenever the DB
+  // is unreachable, which makes the Docker image un-buildable without
+  // production credentials. See docs/35 §"build is hermetic".
+  try {
+    const rows = await db
+      .select({ slug: campaigns.slug })
+      .from(campaigns)
+      .where(
+        or(
+          eq(campaigns.status, 'active'),
+          eq(campaigns.status, 'last_donor_zone'),
+          eq(campaigns.status, 'completed'),
+        ),
+      );
+    return rows.map((r) => ({ slug: r.slug }));
+  } catch (err) {
+    console.warn(
+      '[build] generateStaticParams(campaigns): database unreachable, ' +
+        'pre-rendering no campaign pages; they will render on demand.',
+      err instanceof Error ? err.message : err,
     );
-  return rows.map((r) => ({ slug: r.slug }));
+    return [];
+  }
 }
 
 interface PageProps {

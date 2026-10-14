@@ -36,6 +36,7 @@ These are the facts the design is built on. Each was checked directly.
 | `@vercel/og` | `api/v1/og/page/route.tsx`, `api/v1/og/campaign/[slug]/route.tsx` | Swap import to `next/og` (built into Next 15). |
 | `runtime = 'edge'` | `src/app/apple-icon.tsx:3` | Delete the line; run on Node. |
 | `crons` array | `vercel.json` | Replaced by the Cloudflare Worker in §4. |
+| **`AUTH_TRUST_HOST` unset** | `src/lib/auth.ts` (no `trustHost`) | **Added 2026-10-14.** NextAuth v5 trusts the forwarded host only via `AUTH_TRUST_HOST`, `trustHost: true`, or detecting `VERCEL=1`. Off Vercel, **login breaks**: every `/api/auth/session` call fails with `UntrustedHost`. Reproduced empirically; setting `NEXTAUTH_URL` alone does **not** fix it. Now set in `fly.toml [env]`. |
 | `output` mode | `next.config.ts` | Add `output: 'standalone'`. |
 
 ---

@@ -53,11 +53,22 @@ interface PageProps {
 export const revalidate = 120;
 
 export async function generateStaticParams() {
-  const rows = await db
-    .select({ slug: blogPosts.slug })
-    .from(blogPosts)
-    .where(eq(blogPosts.published, true));
-  return rows.map((r) => ({ slug: r.slug }));
+  // Fail soft - see the note in campaigns/[slug]/page.tsx. `revalidate = 120`
+  // renders each post on first request when nothing is pre-rendered.
+  try {
+    const rows = await db
+      .select({ slug: blogPosts.slug })
+      .from(blogPosts)
+      .where(eq(blogPosts.published, true));
+    return rows.map((r) => ({ slug: r.slug }));
+  } catch (err) {
+    console.warn(
+      '[build] generateStaticParams(blog): database unreachable, ' +
+        'pre-rendering no blog posts; they will render on demand.',
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {

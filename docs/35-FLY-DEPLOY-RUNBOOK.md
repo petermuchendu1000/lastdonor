@@ -87,6 +87,45 @@ Replace before any real traffic.
 
 ---
 
+## 3a. `next build` requires a reachable database — partially mitigated
+
+**Verified 2026-10-14 by building with Postgres unreachable.** 24 pages combine
+`export const revalidate` with a `@/db` query, so Next pre-renders them at build
+time and each one needs the database. With it unreachable the build dies, e.g.
+`Export encountered an error on /campaigns/category/[category]`.
+
+**Mitigated, partially:** `generateStaticParams()` in
+`src/app/campaigns/[slug]/page.tsx` and `src/app/blog/[slug]/page.tsx` now fail
+soft, returning `[]` and logging a warning. Those two were the highest-value
+cases — they enumerate every campaign and post, so they fail first and loudest —
+and returning `[]` is correct regardless: both pages set `revalidate`, so a page
+that is not pre-rendered simply renders on first request. Same end state, one
+request later.
+
+**Not mitigated:** the remaining 22 pages query inside the page body. Making them
+all fail soft is a refactor, not a fix, and was deliberately not attempted.
+
+**Consequence for deploying: the build needs a reachable database.** This is
+fine, because the Fly builder has normal network egress, and the Dockerfile takes
+`DATABASE_URL` as a **BuildKit secret** so it never lands in a layer or in
+`docker history`:
+
+```bash
+flyctl deploy --app lastdonor --ha=false \
+  --build-secret database_url='postgresql://...:6543/postgres'
+```
+
+The pooled 6543 URL is correct here — the build only issues SELECTs. Our database
+is empty, so these pages pre-render as empty and fill in via `revalidate` once
+seeded.
+
+**Follow-up for a hermetic build**, which would also make CI builds independent of
+a live database: a build-phase guard in the data layer (Next sets
+`NEXT_PHASE=phase-production-build`) returning empty results instead of throwing,
+rather than 22 individual try/catch blocks.
+
+---
+
 ## 4. Steps the owner must authorise
 
 Each creates infrastructure or writes production state.
