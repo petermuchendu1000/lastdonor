@@ -6,6 +6,7 @@ import { isOrganizerUpdateDue, generateOrganizerUpdate } from '@/lib/seed/organi
 import { logError } from '@/lib/errors';
 import { verifyCronAuth } from '@/lib/cron-auth';
 import { randomUUID } from 'crypto';
+import { acquireCronLock, CRON_LOCKS, lockSkipPayload } from '@/lib/locks';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -22,6 +23,15 @@ export async function GET(request: NextRequest) {
   const requestId = randomUUID();
   if (!verifyCronAuth(request.headers.get('authorization'))) {
     return NextResponse.json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid cron authorization.', requestId } }, { status: 401 });
+  }
+
+  // ── Overlap guard (P1-11, docs/26 §4) ──────────────────────────────────
+  // TTL is derived from this route's maxDuration; see CRON_LOCKS for this job's
+  // lock-backend-unavailable policy and why.
+  const lockSpec = CRON_LOCKS['update-phases'];
+  const lock = await acquireCronLock(lockSpec);
+  if (!lock.ok) {
+    return NextResponse.json(lockSkipPayload(lockSpec, lock.reason));
   }
 
   try {
@@ -77,5 +87,7 @@ export async function GET(request: NextRequest) {
       { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Phase update processing failed.', requestId } },
       { status: 500 },
     );
+  } finally {
+    await lock.lock.release();
   }
 }

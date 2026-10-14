@@ -3,6 +3,7 @@ import { runBlogPipeline } from '@/lib/blog/blog-pipeline';
 import { db } from '@/db';
 import { auditLogs } from '@/db/schema';
 import { verifyCronAuth } from '@/lib/cron-auth';
+import { acquireCronLock, CRON_LOCKS, lockSkipPayload } from '@/lib/locks';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -20,6 +21,15 @@ export async function GET(request: NextRequest) {
   if (process.env.BLOG_PIPELINE_ENABLED !== 'true') {
     console.warn('[blog-generate cron] BLOG_PIPELINE_ENABLED is not set to "true" - pipeline skipped. Set BLOG_PIPELINE_ENABLED=true in Vercel env vars to enable blog auto-generation.');
     return NextResponse.json({ ok: true, skipped: true, reason: 'Pipeline disabled - set BLOG_PIPELINE_ENABLED=true in environment variables' });
+  }
+
+  // ── Overlap guard (P1-11, docs/26 §4) ──────────────────────────────────
+  // TTL is derived from this route's maxDuration; see CRON_LOCKS for this job's
+  // lock-backend-unavailable policy and why.
+  const lockSpec = CRON_LOCKS['blog-generate'];
+  const lock = await acquireCronLock(lockSpec);
+  if (!lock.ok) {
+    return NextResponse.json(lockSkipPayload(lockSpec, lock.reason));
   }
 
   try {
@@ -51,5 +61,7 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[blog-generate cron]', message);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  } finally {
+    await lock.lock.release();
   }
 }

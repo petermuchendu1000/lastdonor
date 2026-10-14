@@ -175,6 +175,115 @@ export function canAcceptDonation(campaign: Campaign): boolean {
   return campaign.raisedAmount < campaign.goalAmount * OVERFUND_CAP_PERCENT;
 }
 
+// â”€â”€ Transactional seed-donation write â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/** One simulated donation's worth of work, as it is written to the database. */
+type SeedDonationWrite = {
+  campaignId: string;
+  amountCents: number;
+  donorName: string;
+  donorEmail: string;
+  donorLocation: string | null;
+  message: string | null;
+  isAnonymous: boolean;
+  phase: DonationPhase;
+  createdAt: Date;
+  /** Display name on the public message wall ('Anonymous' when anonymous). */
+  wallDonorName: string;
+  wallDonorLocation: string | null;
+};
+
+/**
+ * Write one simulated donation, its message-wall mirror and the campaign tally
+ * as a **single transaction**, and enforce the overfund cap in the database.
+ *
+ * Remediation P1-11 (`docs/29` / `docs/31` §2.4). These were three
+ * un-transacted statements, which gave two distinct failure modes:
+ *
+ *  1. A mid-run failure (or a machine killed at `maxDuration`) between them left
+ *     a donation row with no tally increment, or a tally increment with no
+ *     message — silent, permanent drift that only `cron/reconcile` would later
+ *     notice.
+ *  2. The cap was checked by `canAcceptDonation` against `campaign`, an
+ *     **in-memory copy** mutated locally through the loop. Two overlapping cron
+ *     runs each hold their own copy, so both believe there is room and the 150%
+ *     overfund cap is breached.
+ *
+ * The conditional `UPDATE` fixes (2) properly: the predicate re-evaluates
+ * `canAcceptDonation`'s conditions against committed state, and taking the
+ * campaign row lock first serialises concurrent writers on the same campaign.
+ * The cron lock in `src/lib/locks.ts` is the first line of defence; this is the
+ * one that holds when the lock backend is degraded.
+ *
+ * The predicate deliberately mirrors `canAcceptDonation` exactly — "allowed to
+ * *start* a donation while still under the cap" — rather than "the result must
+ * stay under the cap", so the goal-crossing / last-donor behaviour is unchanged.
+ *
+ * No external I/O inside the transaction (message and donor selection happen
+ * before it), preserving the property `docs/29` §7 verified for all 17 existing
+ * transactions.
+ *
+ * @returns `true` when committed; `false` when the database refused the tally
+ *   because the cap or the overfund window had been reached, in which case
+ *   nothing at all was written.
+ */
+async function commitSeedDonation(write: SeedDonationWrite): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    // 1. Tally first: takes the campaign row lock and re-checks the cap against
+    //    committed state, not the caller's stale in-memory copy.
+    const updated = await tx
+      .update(schema.campaigns)
+      .set({
+        raisedAmount: sql`${schema.campaigns.raisedAmount} + ${write.amountCents}`,
+        donorCount: sql`${schema.campaigns.donorCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.campaigns.id, write.campaignId),
+          sql`${schema.campaigns.raisedAmount} < ${schema.campaigns.goalAmount} * ${OVERFUND_CAP_PERCENT}`,
+          sql`(${schema.campaigns.completedAt} IS NULL OR ${schema.campaigns.completedAt} > now() - (${OVERFUND_WINDOW_MS / 1000} * interval '1 second'))`,
+        ),
+      )
+      .returning({ id: schema.campaigns.id });
+
+    if (updated.length === 0) return false;
+
+    // 2. The donation itself.
+    const [donationRecord] = await tx
+      .insert(schema.donations)
+      .values({
+        campaignId: write.campaignId,
+        stripePaymentId: generateRealisticPaymentId(),
+        amount: write.amountCents,
+        donorName: write.donorName,
+        donorEmail: write.donorEmail,
+        donorLocation: write.donorLocation,
+        message: write.message ?? undefined,
+        isAnonymous: write.isAnonymous,
+        phaseAtTime: write.phase,
+        source: 'seed',
+        createdAt: write.createdAt,
+      })
+      .returning({ id: schema.donations.id });
+
+    // 3. Mirror the message onto the public wall.
+    if (write.message) {
+      await tx.insert(schema.campaignMessages).values({
+        campaignId: write.campaignId,
+        donorName: write.wallDonorName,
+        donorLocation: write.wallDonorLocation,
+        message: write.message,
+        isAnonymous: write.isAnonymous,
+        donationId: donationRecord.id,
+        createdAt: write.createdAt,
+      });
+    }
+
+    return true;
+  });
+}
+
 // â”€â”€ Realistic seed-data generators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -298,43 +407,26 @@ export async function runSimulation(volumeMultiplier = 1.0): Promise<SimulationR
         const message = await pickSeedMessage(campaign.id, phase);
         const donationTime = jitteredTimestamp(cycleStart);
 
-        // Insert donation with jittered timestamp
-        const [donationRecord] = await db.insert(schema.donations).values({
+        // Donation + message-wall mirror + campaign tally in ONE transaction,
+        // with the overfund cap enforced against committed state (P1-11).
+        const committed = await commitSeedDonation({
           campaignId: campaign.id,
-          stripePaymentId: generateRealisticPaymentId(),
-          amount: amountCents,
+          amountCents,
           donorName: donor.displayName,
           donorEmail: generateRealisticEmail(donor.displayName),
           donorLocation: donor.displayLocation || null,
-          message: message ?? undefined,
+          message: message ?? null,
           isAnonymous: donor.isAnonymous,
-          phaseAtTime: phase,
-          source: 'seed',
+          phase,
           createdAt: donationTime,
-        }).returning({ id: schema.donations.id });
+          wallDonorName: donor.isAnonymous ? 'Anonymous' : donor.displayName,
+          wallDonorLocation: donor.isAnonymous ? null : (donor.displayLocation || null),
+        });
 
-        // Mirror message to campaign_messages wall
-        if (message) {
-          await db.insert(schema.campaignMessages).values({
-            campaignId: campaign.id,
-            donorName: donor.isAnonymous ? 'Anonymous' : donor.displayName,
-            donorLocation: donor.isAnonymous ? null : (donor.displayLocation || null),
-            message,
-            isAnonymous: donor.isAnonymous,
-            donationId: donationRecord.id,
-            createdAt: donationTime,
-          });
-        }
-
-        // Atomically update campaign totals
-        await db
-          .update(schema.campaigns)
-          .set({
-            raisedAmount: sql`${schema.campaigns.raisedAmount} + ${amountCents}`,
-            donorCount: sql`${schema.campaigns.donorCount} + 1`,
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.campaigns.id, campaign.id));
+        // The database refused the tally: the cap or overfund window was reached
+        // by a writer we could not see. Stop this campaign's cycle - the stale
+        // in-memory total says there is room, and there is not.
+        if (!committed) break;
 
         // Update local reference for subsequent iterations
         campaign.raisedAmount += amountCents;
@@ -393,41 +485,22 @@ export async function runSimulation(volumeMultiplier = 1.0): Promise<SimulationR
             cohortTime = new Date(cycleStart.getTime() + clusterOffsetMs);
           }
 
-          const [cohortDonationRecord] = await db.insert(schema.donations).values({
+          // Same single-transaction, cap-guarded write as the main loop (P1-11).
+          const cohortCommitted = await commitSeedDonation({
             campaignId: campaign.id,
-            stripePaymentId: generateRealisticPaymentId(),
-            amount: cohortAmount,
+            amountCents: cohortAmount,
             donorName: cohortDonor.displayName,
             donorEmail: generateRealisticEmail(cohortDonor.displayName),
             donorLocation: cohortDonor.displayLocation || null,
-            message: cohortMessage ?? undefined,
+            message: cohortMessage ?? null,
             isAnonymous: cohortDonor.isAnonymous,
-            phaseAtTime: cohortPhase,
-            source: 'seed',
+            phase: cohortPhase,
             createdAt: cohortTime,
-          }).returning({ id: schema.donations.id });
+            wallDonorName: cohortDonor.isAnonymous ? 'Anonymous' : cohortDonor.displayName,
+            wallDonorLocation: cohortDonor.isAnonymous ? null : (cohortDonor.displayLocation || null),
+          });
 
-          // Mirror cohort message to campaign_messages wall
-          if (cohortMessage) {
-            await db.insert(schema.campaignMessages).values({
-              campaignId: campaign.id,
-              donorName: cohortDonor.isAnonymous ? 'Anonymous' : cohortDonor.displayName,
-              donorLocation: cohortDonor.isAnonymous ? null : (cohortDonor.displayLocation || null),
-              message: cohortMessage,
-              isAnonymous: cohortDonor.isAnonymous,
-              donationId: cohortDonationRecord.id,
-              createdAt: cohortTime,
-            });
-          }
-
-          await db
-            .update(schema.campaigns)
-            .set({
-              raisedAmount: sql`${schema.campaigns.raisedAmount} + ${cohortAmount}`,
-              donorCount: sql`${schema.campaigns.donorCount} + 1`,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.campaigns.id, campaign.id));
+          if (!cohortCommitted) break;
 
           campaign.raisedAmount += cohortAmount;
           campaign.donorCount += 1;

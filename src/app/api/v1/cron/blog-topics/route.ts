@@ -6,6 +6,7 @@ import { markStaleTopics } from '@/lib/blog/publishing-guardrails';
 import { db } from '@/db';
 import { auditLogs } from '@/db/schema';
 import { verifyCronAuth } from '@/lib/cron-auth';
+import { acquireCronLock, CRON_LOCKS, lockSkipPayload } from '@/lib/locks';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -26,6 +27,15 @@ export const maxDuration = 300;
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request.headers.get('authorization'))) {
     return NextResponse.json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid or missing authorization' } }, { status: 401 });
+  }
+
+  // ── Overlap guard (P1-11, docs/26 §4) ──────────────────────────────────
+  // TTL is derived from this route's maxDuration; see CRON_LOCKS for this job's
+  // lock-backend-unavailable policy and why.
+  const lockSpec = CRON_LOCKS['blog-topics'];
+  const lock = await acquireCronLock(lockSpec);
+  if (!lock.ok) {
+    return NextResponse.json(lockSkipPayload(lockSpec, lock.reason));
   }
 
   try {
@@ -80,5 +90,7 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[blog-topics cron]', message);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  } finally {
+    await lock.lock.release();
   }
 }
