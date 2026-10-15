@@ -11,6 +11,18 @@ interface UsePollingListOptions<T> {
   getId: (item: T) => string;
   /** Max items to keep in the list. */
   maxItems?: number;
+  /**
+   * Re-read the first page once on mount and treat the answer as
+   * authoritative, replacing `initialItems`.
+   *
+   * Set this for any list whose server-rendered copy can be stale, which on an
+   * ISR page is every list: `initialItems` comes from a cached render that no
+   * write path can reliably invalidate above a single instance (no shared cache
+   * handler is deployed - see docs/26 section 5 and docs/43). Without it the
+   * first fetch is one whole `pollIntervalMs` away, so a reader who reloads
+   * sees the stale list, and an empty one reads as "nothing was saved".
+   */
+  syncOnMount?: boolean;
 }
 
 interface UsePollingListResult<T> {
@@ -34,7 +46,13 @@ export function usePollingList<T>(
   initialItems: T[],
   options: UsePollingListOptions<T>,
 ): UsePollingListResult<T> {
-  const { buildUrl, pollIntervalMs, getId, maxItems = 100 } = options;
+  const {
+    buildUrl,
+    pollIntervalMs,
+    getId,
+    maxItems = 100,
+    syncOnMount = false,
+  } = options;
   const [items, setItems] = useState<T[]>(initialItems);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialItems.length >= 20);
@@ -57,6 +75,36 @@ export function usePollingList<T>(
   useEffect(() => {
     const controller = new AbortController();
 
+    /**
+     * Authoritative first-page read on mount.
+     *
+     * `mergeNew` below can only add, which is right for a live feed but cannot
+     * repair a stale server render: it would keep a message that has since been
+     * hidden, and it cannot help at all when the stale render is the reason the
+     * list looks empty. This replaces the first page outright, so what the
+     * reader sees after a reload is what the database holds, whichever instance
+     * rendered the HTML. The server-rendered list is still the first paint and
+     * is still what crawlers read.
+     */
+    async function sync() {
+      try {
+        const res = await fetch(buildUrl({}), {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!json?.ok || !Array.isArray(json.data)) return;
+        const fresh = (json.data as T[]).slice(0, maxItems);
+        setItems(fresh);
+        cursorRef.current = fresh.length;
+        setHasMore(Boolean(json.meta?.hasMore));
+      } catch {
+        // Keep the server-rendered list on abort or network error. A failed
+        // refresh must never blank a list that did render.
+      }
+    }
+
     async function poll() {
       try {
         const url = buildUrl({});
@@ -71,12 +119,14 @@ export function usePollingList<T>(
       }
     }
 
+    if (syncOnMount) void sync();
+
     const interval = setInterval(poll, pollIntervalMs);
     return () => {
       controller.abort();
       clearInterval(interval);
     };
-  }, [buildUrl, pollIntervalMs, mergeNew]);
+  }, [buildUrl, pollIntervalMs, mergeNew, syncOnMount, maxItems]);
 
   // Load older items
   const loadMore = useCallback(async () => {

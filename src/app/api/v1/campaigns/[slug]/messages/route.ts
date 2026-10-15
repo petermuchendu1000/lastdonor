@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { campaigns, campaignMessages, users } from '@/db/schema';
 import { publicMessageSelect } from '@/db/public-select';
@@ -140,6 +141,13 @@ export const POST = withApiHandler(async (request, { requestId, session, params 
       isAnonymous: parsed.data.isAnonymous,
     })
     .returning({ id: campaignMessages.id, createdAt: campaignMessages.createdAt });
+
+  // Best-effort: drop this instance's ISR entry for the campaign page so the
+  // crawler-visible HTML and a no-JS reload pick the message up. It is NOT
+  // sufficient on its own: with no shared cache handler deployed, this only
+  // invalidates the instance that served the POST (docs/26 section 5), which is
+  // why MessageWall also re-reads this endpoint on mount. See docs/43.
+  revalidatePath(`/campaigns/${slug}`);
 
   return NextResponse.json({
     ok: true,

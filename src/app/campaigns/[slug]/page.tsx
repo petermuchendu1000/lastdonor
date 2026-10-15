@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import { cache } from 'react';
 import { notFound } from 'next/navigation';
+import { unstable_noStore as noStore } from 'next/cache';
 import { db } from '@/db';
+import { CampaignUnavailableError, lookupCampaign } from '@/lib/campaign-lookup';
 import { campaigns, donations, campaignUpdates, campaignMessages, impactUpdates } from '@/db/schema';
 import { publicCampaignSelect, publicMessageSelect } from '@/db/public-select';
 import { eq, and, desc, or } from 'drizzle-orm';
@@ -80,9 +82,20 @@ async function getCampaign(slug: string) {
   return campaign ?? null;
 }
 
-// Request-scoped memoization: getCampaign is called in both generateMetadata
-// and the page component during each ISR render. cache() deduplicates to one DB call.
-const getCampaignCached = cache(getCampaign);
+// Request-scoped memoization: the lookup is run by both generateMetadata and
+// the page component during each ISR render. cache() deduplicates to one DB call.
+//
+// `lookupCampaign` classifies the outcome instead of returning a nullable row,
+// because "the query answered and matched nothing" and "the query never
+// answered" have to end in different HTTP statuses. Before this, a lookup that
+// exhausted the 15s query bound (src/db/query-timeout.ts) rejected inside
+// generateMetadata, which resolves before the HTML shell is flushed, so neither
+// app/error.tsx nor app/global-error.tsx existed yet and Next served its own
+// plain-text "500: Internal Server Error" with no header, footer or navigation.
+// See docs/43.
+const getCampaignLookup = cache((slug: string) =>
+  lookupCampaign(() => getCampaign(slug)),
+);
 
 async function getRecentDonors(campaignId: string): Promise<DonorFeedItem[]> {
   const rows = await db
@@ -198,11 +211,24 @@ async function getRelatedCampaigns(category: CampaignCategory, _currentId: strin
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const campaign = await getCampaignCached(slug);
+  const lookup = await getCampaignLookup(slug);
 
-  if (!campaign) {
-    return { title: 'Campaign Not Found' };
+  // Never throw from here. generateMetadata resolves before the shell is
+  // flushed, so a rejection aborts the document before any error boundary
+  // exists and Next answers with its own unstyled 500. The page component
+  // below decides the status code; metadata only has to stay renderable.
+  if (lookup.status === 'unavailable') {
+    return {
+      title: 'Campaign temporarily unavailable | LastDonor.org',
+      robots: { index: false, follow: false },
+    };
   }
+
+  if (lookup.status === 'missing') {
+    return { title: 'Campaign Not Found', robots: { index: false, follow: true } };
+  }
+
+  const campaign = lookup.campaign;
 
   const percent = campaign.goalAmount > 0
     ? Math.round((campaign.raisedAmount / campaign.goalAmount) * 100)
@@ -251,11 +277,37 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function CampaignDetailPage({ params }: PageProps) {
   const { slug } = await params;
-  const campaign = await getCampaignCached(slug);
+  const lookup = await getCampaignLookup(slug);
 
-  if (!campaign) {
+  if (lookup.status === 'unavailable') {
+    // The database did not answer, so it is unknown whether this campaign
+    // exists. Do NOT call notFound(): a 404 asserts to donors and to crawlers
+    // that the appeal is gone, which would turn a pool wedge (docs/37) into
+    // de-indexed live campaigns. Throwing instead lands on app/error.tsx, which
+    // keeps the header, footer and navigation and offers "Try Again".
+    //
+    // noStore() keeps this degraded render out of the ISR entry and out of the
+    // CDN: a render marked dynamic reports revalidate 0, which Next turns into
+    // `private, no-cache, no-store, max-age=0, must-revalidate`
+    // (verified 2026-10-15 against the installed next@15.5.14,
+    // node_modules/next/dist/server/lib/cache-control.js:14). It cannot fire
+    // during `next build`, where withBuildPhaseFailSoft turns a failed query
+    // into zero rows and the tighter lookup budget is not applied.
+    noStore();
+    console.error(
+      `[campaign] slug lookup for "${slug}" did not answer; serving 5xx, not 404.`,
+      lookup.cause,
+    );
+    throw new CampaignUnavailableError(slug, lookup.cause);
+  }
+
+  if (lookup.status === 'missing') {
+    // The query answered and matched nothing. This is the only evidence that
+    // justifies a 404, and it is reached without waiting on any timeout.
     notFound();
   }
+
+  const campaign = lookup.campaign;
 
   const [recentDonors, updates, relatedRaw, initialMessages, impactUpdate] = await Promise.all([
     getRecentDonors(campaign.id),

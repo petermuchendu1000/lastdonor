@@ -50,6 +50,13 @@ export function MessageWall({
       buildUrl,
       pollIntervalMs: POLL_INTERVAL_MS,
       getId: getMessageId,
+      // The campaign page is ISR-cached (revalidate = 60) and no write path can
+      // invalidate that cache on every instance, so `initialMessages` may be
+      // from a render taken before the reader's own message existed. Without
+      // this the first fetch is 30s away and a donor who reloads is told "No
+      // messages yet", concludes their message to a seriously ill person was
+      // lost, and posts again or gives up. See docs/43.
+      syncOnMount: true,
     },
   );
 
