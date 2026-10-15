@@ -4,12 +4,17 @@ import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { centsToDollars } from '@/lib/utils/currency';
+import { verifyDonationReturn } from '@/lib/donations/verify-return';
+import type { DonationReturnState } from '@/lib/donations/verify-return';
 import { DonatePageClient } from './client';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
+
+/** `?donation=` values Stripe or our own links use for a payment that did not complete. */
+const CANCELLED_PARAMS = new Set(['cancel', 'cancelled', 'canceled', 'failed', 'declined']);
 
 async function getDonatableCampaign(slug: string) {
   const [campaign] = await db
@@ -61,25 +66,59 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
     notFound();
   }
 
-  // Parse URL params for Stripe redirect return and amount preselection
+  // `amount` in the URL is a form preselection and nothing more. It is a
+  // number the visitor typed, so it may seed an empty form, but it must never
+  // be echoed back as a confirmed donation. See docs/42.
   const rawAmount = typeof resolvedParams.amount === 'string'
     ? parseInt(resolvedParams.amount, 10)
     : undefined;
   const initialAmount = rawAmount && rawAmount >= 500 && rawAmount <= 10_000_000
     ? rawAmount
     : undefined;
-  const isDonationSuccess = resolvedParams.donation === 'success';
-  // On Stripe redirect return, the amount is in the URL (server-rendered, zero flash).
-  // This is the primary source; sessionStorage and confirm API are fallbacks.
-  const confirmedAmountFromUrl = isDonationSuccess && rawAmount && rawAmount >= 500 && rawAmount <= 10_000_000
-    ? rawAmount
-    : undefined;
+
   const sessionId = typeof resolvedParams.session_id === 'string'
     ? resolvedParams.session_id
     : undefined;
   const paymentIntentId = typeof resolvedParams.payment_intent === 'string'
     ? resolvedParams.payment_intent
     : undefined;
+
+  // Any `?donation=` value means the visitor arrived from (or claims to have
+  // arrived from) the payment flow. What happened is decided by Stripe, never
+  // by the query string: `donation=success` with no verifiable id renders the
+  // pending state, and `donation=cancel` with a succeeded intent renders the
+  // receipt the donor is owed.
+  const donationParam = typeof resolvedParams.donation === 'string'
+    ? resolvedParams.donation
+    : undefined;
+
+  let returnState: DonationReturnState | undefined;
+  let confirmedAmount: number | undefined;
+
+  if (donationParam) {
+    if (sessionId || paymentIntentId) {
+      const verified = await verifyDonationReturn({
+        campaignId: campaign.id,
+        sessionId,
+        paymentIntentId,
+      });
+      returnState = verified.state;
+      // An amount is handed to the client only alongside a verified success.
+      // No other state may display a figure.
+      confirmedAmount = verified.state === 'succeeded'
+        ? verified.amountCents ?? undefined
+        : undefined;
+    } else if (CANCELLED_PARAMS.has(donationParam)) {
+      // Stripe sends no id on a cancel return, and there is nothing to look
+      // up. Tell the donor their payment did not go through instead of
+      // dropping them on a blank form.
+      returnState = 'failed';
+    } else {
+      // `donation=success` with nothing to verify. This is the hand-typed and
+      // link-shared case.
+      returnState = 'unverified';
+    }
+  }
 
   return (
     <DonatePageClient
@@ -90,8 +129,8 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
       goalAmount={campaign.goalAmount}
       donorCount={campaign.donorCount}
       initialAmount={initialAmount}
-      isDonationSuccess={isDonationSuccess}
-      confirmedAmount={confirmedAmountFromUrl}
+      returnState={returnState}
+      confirmedAmount={confirmedAmount}
       sessionId={sessionId}
       paymentIntentId={paymentIntentId}
     />

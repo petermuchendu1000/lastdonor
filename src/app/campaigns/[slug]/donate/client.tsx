@@ -5,8 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeftIcon } from '@heroicons/react/24/solid';
 import { DonationForm } from '@/components/campaign/DonationForm';
+import type { DonationStep } from '@/components/campaign/DonationForm';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { centsToDollarsWhole } from '@/lib/utils/currency';
+import { confirmDonation } from '@/lib/donations/confirm-client';
+import type { DonationReturnState } from '@/lib/donations/verify-return';
 
 interface DonatePageClientProps {
   campaignId: string;
@@ -16,11 +19,36 @@ interface DonatePageClientProps {
   goalAmount: number;
   donorCount: number;
   initialAmount?: number;
-  isDonationSuccess: boolean;
+  /** What Stripe said about this return, decided on the server. See docs/42. */
+  returnState?: DonationReturnState;
+  /** Cents from Stripe. Only ever set alongside returnState 'succeeded'. */
   confirmedAmount?: number;
   sessionId?: string;
   paymentIntentId?: string;
 }
+
+/** How a verified Stripe state is shown to the donor. */
+function stepForState(
+  state: DonationReturnState | undefined,
+): Exclude<DonationStep, 'payment'> | undefined {
+  switch (state) {
+    case 'succeeded':
+      return 'success';
+    case 'failed':
+      return 'declined';
+    case 'processing':
+    case 'unverified':
+      // Both render "we are confirming your payment". Unverified covers the
+      // hand-typed `?donation=success` URL, which must never see a receipt.
+      return 'pending';
+    default:
+      return undefined;
+  }
+}
+
+/** Re-checks while a payment is still settling, then gives up and leaves the pending copy. */
+const CONFIRM_ATTEMPTS = 3;
+const CONFIRM_RETRY_MS = 2500;
 
 export function DonatePageClient({
   campaignId,
@@ -30,36 +58,69 @@ export function DonatePageClient({
   goalAmount,
   donorCount,
   initialAmount,
-  isDonationSuccess,
-  confirmedAmount: confirmedAmountFromUrl,
+  returnState,
+  confirmedAmount: verifiedAmount,
   sessionId,
   paymentIntentId,
 }: DonatePageClientProps) {
   const router = useRouter();
   const confirmSent = useRef(false);
-  const [confirmedAmount, setConfirmedAmount] = useState<number>(confirmedAmountFromUrl ?? 0);
+  const [state, setState] = useState<DonationReturnState | undefined>(returnState);
+  const [confirmedAmount, setConfirmedAmount] = useState<number>(verifiedAmount ?? 0);
 
+  // Hand the return leg to the confirm route, which records the donation
+  // without waiting for the Stripe webhook (idempotently: the unique
+  // stripe_payment_id index is the replay guard) and answers with what Stripe
+  // currently says. A payment that has not settled yet is asked about again a
+  // few times. The server is always the one deciding; the client never
+  // promotes a payment on its own.
   useEffect(() => {
-    if (!isDonationSuccess || confirmSent.current) return;
-    // Handle both Checkout Session return and PaymentIntent return
-    if (sessionId || paymentIntentId) {
-      confirmSent.current = true;
-      const body = sessionId
-        ? { sessionId }
-        : { paymentIntentId };
-      fetch('/api/v1/donations/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-        .then((res) => res.json())
-        .then((json) => {
-          if (json.ok && json.amount) setConfirmedAmount(json.amount);
-        })
-        .catch(() => {});
-    }
+    if (confirmSent.current) return;
+    if (!returnState || returnState === 'failed') return;
+    if (!sessionId && !paymentIntentId) return;
+
+    confirmSent.current = true;
+    let cancelled = false;
+    // The page already rendered a verified receipt. A later answer may add
+    // nothing, but it must never take the receipt away.
+    const alreadyVerified = returnState === 'succeeded';
+
+    (async () => {
+      for (let attempt = 0; attempt < CONFIRM_ATTEMPTS && !cancelled; attempt += 1) {
+        const result = await confirmDonation({ campaignId, sessionId, paymentIntentId });
+        if (cancelled) return;
+
+        if (result.state === 'succeeded') {
+          if (result.amountCents) setConfirmedAmount(result.amountCents);
+          setState('succeeded');
+          // Pull the campaign totals again now that the donation is recorded.
+          router.refresh();
+          return;
+        }
+        if (alreadyVerified) return;
+        if (result.state === 'failed') {
+          setState('failed');
+          return;
+        }
+        if (attempt < CONFIRM_ATTEMPTS - 1) {
+          await new Promise((resolve) => setTimeout(resolve, CONFIRM_RETRY_MS));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [returnState, sessionId, paymentIntentId, campaignId, router]);
+
+  // Scrub the Stripe ids and any `donation=` flag off the address bar once the
+  // outcome is settled, so the URL in the donor's history is not a receipt
+  // someone can forward. A still-pending URL is left alone: a reload has to be
+  // able to re-verify.
+  useEffect(() => {
+    if (state !== 'succeeded' && state !== 'failed') return;
     window.history.replaceState({}, '', window.location.pathname);
-  }, [isDonationSuccess, sessionId, paymentIntentId]);
+  }, [state]);
 
 
 
@@ -118,7 +179,7 @@ export function DonatePageClient({
               campaignSlug={campaignSlug}
               embedded
               initialAmount={initialAmount}
-              initialStep={isDonationSuccess ? 'success' : undefined}
+              initialStep={stepForState(state)}
               initialConfirmedAmount={confirmedAmount}
               onDonationComplete={() => router.refresh()}
             />

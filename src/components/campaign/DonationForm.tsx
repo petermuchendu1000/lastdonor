@@ -11,8 +11,27 @@ import { Switch } from '@/components/ui/switch';
 import { centsToDollars, dollarsToCents } from '@/lib/utils/currency';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
+import { confirmDonation } from '@/lib/donations/confirm-client';
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
+const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
+
+/**
+ * `loadStripe('')` does not fail quietly: Stripe.js throws "Please call
+ * Stripe() with your publishable key", the returned promise rejects, and the
+ * payment step renders an empty box with no explanation. The Docker build
+ * defaults this variable to the empty string (`Dockerfile:95`), so an image
+ * built without it ships exactly that. Keep the promise null instead and say
+ * so where it matters.
+ */
+const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+
+/** The screens this form can show. */
+export type DonationStep = 'details' | 'payment' | 'pending' | 'declined' | 'success';
+
+const MIN_DONATION_CENTS = 500;
+const MAX_DONATION_CENTS = 10_000_000;
+
+const SUPPORT_EMAIL = 'support@lastdonor.org';
 
 // Client-side validation schema (mirrors server-side createIntentSchema)
 const donationFormSchema = z.object({
@@ -66,9 +85,13 @@ interface DonationFormProps {
   embedded?: boolean;
   /** Pre-select an amount in cents when the form mounts */
   initialAmount?: number;
-  /** Start the form in a specific step (e.g. 'success' after redirect return) */
-  initialStep?: 'details' | 'success';
-  /** Amount in cents confirmed from redirect return (used when initialStep='success') */
+  /**
+   * Start the form on a specific screen after the Stripe return leg. The
+   * caller must have had this verified server-side ('success' is a receipt);
+   * the form never decides it from the URL. See docs/42.
+   */
+  initialStep?: Exclude<DonationStep, 'payment'>;
+  /** Cents, from Stripe. Only meaningful with initialStep='success'. */
   initialConfirmedAmount?: number;
   /** Called when a donation completes successfully */
   onDonationComplete?: () => void;
@@ -87,6 +110,31 @@ function CheckoutStep({
   onComplete: () => void;
   onBack: () => void;
 }) {
+  if (!stripePromise) {
+    // Honest dead end instead of a blank frame. The donor can still reach a
+    // human, and the missing build variable is named for whoever is on call.
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4" role="alert">
+          <p className="text-sm font-semibold text-foreground">
+            Card payments are unavailable right now.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This is a problem on our side, not with your card, and nothing has been charged.
+            Please try again later or email {SUPPORT_EMAIL} so we can help you give.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          className="mx-auto block text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          &larr; Back
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <EmbeddedCheckoutProvider
@@ -160,8 +208,15 @@ function SuccessStep({ amount, campaignTitle, campaignSlug, embedded }: { amount
         Your{amount >= 500 ? <> <span className="font-semibold text-foreground">{centsToDollars(amount)}</span></> : null} donation to{' '}
         <span className="font-medium text-foreground">{campaignTitle}</span> is on its way.
       </motion.p>
+      {/* Substantiated: `processPaymentSuccess` fires `sendDonationReceipt`
+          (src/lib/services/payment-service.ts) for every donation row it
+          inserts, from "receipts@lastdonor.org" with subject
+          "Donation Receipt - <campaign title>". It is sent best-effort and a
+          signed-in donor who turned `emailDonationReceipts` off gets none, so
+          the copy promises a send and not an arrival. This step is only
+          reached when Stripe itself reported the payment as succeeded. */}
       <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-        A donation confirmation is being emailed to you now.
+        A receipt is on its way to the email address you gave us.
       </p>
 
       {/* Reciprocity amplification: encourage one share. Each share, on average,
@@ -259,6 +314,97 @@ function SuccessStep({ amount, campaignTitle, campaignSlug, embedded }: { amount
 }
 
 /* ─────────────────────────────────────────────
+   Return leg - payment not yet verified
+   ───────────────────────────────────────────── */
+
+/**
+ * Shown whenever the platform cannot prove the money moved: Stripe says the
+ * PaymentIntent is still processing, Stripe could not be reached, or the ids in
+ * the URL mean nothing (the hand-typed `?donation=success` case). It states
+ * what is and is not known and never names an amount.
+ */
+function PendingStep({ campaignSlug }: { campaignSlug?: string }) {
+  return (
+    <div className="py-2 text-center" role="status" aria-live="polite">
+      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+        <svg className="h-7 w-7 animate-spin text-muted-foreground" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      </div>
+
+      <h3 className="font-display text-2xl font-bold text-card-foreground">
+        We are confirming your payment
+      </h3>
+      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+        We have not been able to confirm this payment with our payment
+        processor yet, so we are not showing a receipt. If your card was
+        charged, your donation is recorded and a receipt follows by email.
+      </p>
+      <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">
+        Nothing is charged twice by reloading this page. If you see no receipt
+        within an hour, email {SUPPORT_EMAIL} and we will check it for you.
+      </p>
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+        {campaignSlug && (
+          <Link
+            href={`/campaigns/${campaignSlug}`}
+            className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+          >
+            Back to campaign
+          </Link>
+        )}
+        <Link
+          href="/campaigns"
+          className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+        >
+          Browse campaigns
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown when Stripe says the payment did not happen: declined, cancelled or
+ * abandoned. Previously this returned the donor to an empty form with no
+ * acknowledgement at all.
+ */
+function DeclinedStep({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="py-2 text-center" role="alert">
+      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+        <svg className="h-8 w-8 text-destructive" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+        </svg>
+      </div>
+
+      <h3 className="font-display text-2xl font-bold text-card-foreground">
+        Your donation was not completed
+      </h3>
+      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+        The payment was cancelled or declined, so you have not been charged and
+        no donation was recorded. Card issuers decline for ordinary reasons:
+        an expired card, a daily limit, or a fraud check on a new recipient.
+      </p>
+      <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">
+        You can try again with the same or a different card, or email{' '}
+        {SUPPORT_EMAIL} if it keeps failing.
+      </p>
+
+      <button
+        type="button"
+        onClick={onRetry}
+        className="btn-press mt-6 inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
    Main DonationForm - Step 1 (donor info + amount)
    ───────────────────────────────────────────── */
 
@@ -284,33 +430,36 @@ export function DonationForm({
     return '';
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [step, setStep] = useState<'details' | 'payment' | 'success'>(initialStep ?? 'details');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [step, setStep] = useState<DonationStep>(initialStep ?? 'details');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(null);
   const [confirmedAmount, setConfirmedAmount] = useState(initialConfirmedAmount ?? 0);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Recover the donation amount after Stripe Embedded Checkout's full-page redirect.
-  // sessionStorage is unavailable during SSR, so this MUST be in useEffect (client-only).
-  // Priority: sessionStorage (instant) > initialConfirmedAmount (async from confirm API).
-  useEffect(() => {
-    if (initialStep === 'success' && confirmedAmount === 0) {
-      try {
-        const stored = sessionStorage.getItem('lastdonor_donation_amount');
-        if (stored) {
-          sessionStorage.removeItem('lastdonor_donation_amount');
-          const parsed = parseInt(stored, 10);
-          if (parsed > 0) {
-            setConfirmedAmount(parsed);
-            return;
-          }
-        }
-      } catch {}
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /**
+   * Single-flight latch for the submit handler.
+   *
+   * `isSubmitting` cannot do this job: it is React state, so three clicks
+   * dispatched inside one task all read the pre-render value and all three
+   * fired a create-checkout POST (measured: 3 requests). A ref is written
+   * synchronously, so the second click sees the latch the first one set
+   * regardless of how React batches the re-render.
+   */
+  const submitInFlight = useRef(false);
 
-  // Sync confirmed amount when it arrives from the confirm API (authoritative backup)
+  // The old sessionStorage recovery lived here: it read back the amount this
+  // browser had written before paying and displayed it as the confirmed
+  // figure. Removed deliberately. A receipt amount comes from Stripe or it is
+  // not shown (docs/42).
+
+  // Follow the caller: the donate page re-checks a processing payment through
+  // the confirm route and raises the state when Stripe settles it.
+  useEffect(() => {
+    if (initialStep) setStep(initialStep);
+  }, [initialStep]);
+
   useEffect(() => {
     if (initialConfirmedAmount && initialConfirmedAmount > 0) {
       setConfirmedAmount(initialConfirmedAmount);
@@ -340,6 +489,11 @@ export function DonationForm({
   const isAnonymous = watch('isAnonymous');
   const isRecurring = watch('isRecurring');
   const currentAmount = watch('amount');
+  /** An amount the API would accept, so the CTA never quotes an impossible figure. */
+  const amountIsPayable =
+    Number.isInteger(currentAmount) &&
+    currentAmount >= MIN_DONATION_CENTS &&
+    currentAmount <= MAX_DONATION_CENTS;
 
   const handlePresetSelect = useCallback((amountCents: number) => {
     setSelectedPreset(amountCents);
@@ -376,7 +530,26 @@ export function DonationForm({
     return () => window.removeEventListener('donation-amount', handleDonationAmount);
   }, [setValue]);
 
+  /**
+   * Put the failure in front of the donor.
+   *
+   * Inline and synchronous first: it needs no network, it is what a screen
+   * reader announces, and it survives a failed chunk fetch. The toast is a
+   * bonus, so its dynamic import is no longer allowed to swallow the only
+   * signal the donor gets - that is how a declined submit came to render
+   * nothing at all.
+   */
+  const showSubmitError = useCallback((message: string) => {
+    setSubmitError(message);
+    import('sonner')
+      .then(({ toast }) => toast.error(message))
+      .catch(() => {});
+  }, []);
+
   async function onSubmit(data: DonationFormValues) {
+    if (submitInFlight.current) return;
+    submitInFlight.current = true;
+    setSubmitError(null);
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/v1/donations/create-checkout', {
@@ -394,24 +567,35 @@ export function DonationForm({
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
 
-      if (!json.ok) {
-        const { toast } = await import('sonner');
-        toast.error(json.error?.message || 'Something went wrong. Please try again.');
+      // The API answers validation failures with a specific, field-tagged
+      // message ("Minimum donation is $5.00", "Enter a valid email address").
+      // Show the donor what it said.
+      if (!json?.ok) {
+        showSubmitError(
+          typeof json?.error?.message === 'string' && json.error.message
+            ? json.error.message
+            : 'Something went wrong. Please try again.',
+        );
         return;
       }
 
-      setClientSecret(json.data.clientSecret);
-      setConfirmedAmount(data.amount);
-      // Persist amount across the full-page redirect that Stripe Embedded Checkout triggers.
-      // sessionStorage survives same-tab navigation but not new tabs - correct scope.
-      try { sessionStorage.setItem('lastdonor_donation_amount', String(data.amount)); } catch {}
+      const secret = json.data?.clientSecret;
+      if (typeof secret !== 'string' || !secret) {
+        showSubmitError('We could not open the payment form. Please try again.');
+        return;
+      }
+
+      setClientSecret(secret);
+      setCheckoutSessionId(typeof json.data?.sessionId === 'string' ? json.data.sessionId : null);
+      // No amount is recorded here. The confirmed figure comes from Stripe
+      // once the payment is verified, never from what was typed (docs/42).
       setStep('payment');
     } catch {
-      const { toast } = await import('sonner');
-      toast.error('Network error. Please check your connection and try again.');
+      showSubmitError('Network error. Please check your connection and try again.');
     } finally {
+      submitInFlight.current = false;
       setIsSubmitting(false);
     }
   }
@@ -421,11 +605,36 @@ export function DonationForm({
     ? cn('space-y-5', className)
     : cn('space-y-5 rounded-xl border border-border bg-card p-6', className);
 
-  /* ── Success state ── */
+  /* ── Success state (only ever reached from a Stripe-verified payment) ── */
   if (step === 'success') {
     return (
       <div className={wrapperClass}>
         <SuccessStep amount={confirmedAmount} campaignTitle={campaignTitle} campaignSlug={campaignSlug} embedded={embedded} />
+      </div>
+    );
+  }
+
+  /* ── Payment taken but not verified ── */
+  if (step === 'pending') {
+    return (
+      <div className={wrapperClass}>
+        <PendingStep campaignSlug={campaignSlug} />
+      </div>
+    );
+  }
+
+  /* ── Declined, cancelled or abandoned ── */
+  if (step === 'declined') {
+    return (
+      <div className={wrapperClass}>
+        <DeclinedStep
+          onRetry={() => {
+            setStep('details');
+            setClientSecret(null);
+            setCheckoutSessionId(null);
+            setConfirmedAmount(0);
+          }}
+        />
       </div>
     );
   }
@@ -437,12 +646,26 @@ export function DonationForm({
         <CheckoutStep
           clientSecret={clientSecret}
           onComplete={() => {
-            setStep('success');
+            // Stripe finished its part. That is not proof the money moved, so
+            // hold the donor on the pending screen and ask our server, which
+            // asks Stripe (docs/42).
+            setStep('pending');
             onDonationComplete?.();
+            confirmDonation({ campaignId, sessionId: checkoutSessionId ?? undefined })
+              .then((result) => {
+                if (result.state === 'succeeded') {
+                  if (result.amountCents) setConfirmedAmount(result.amountCents);
+                  setStep('success');
+                } else if (result.state === 'failed') {
+                  setStep('declined');
+                }
+              })
+              .catch(() => {});
           }}
           onBack={() => {
             setStep('details');
             setClientSecret(null);
+            setCheckoutSessionId(null);
           }}
         />
       </div>
@@ -657,14 +880,28 @@ export function DonationForm({
         )}
       </div>
 
+      {/* Whatever the server said, in the page. Not only in a toast. */}
+      {submitError && (
+        <p
+          id="donation-submit-error"
+          role="alert"
+          aria-live="assertive"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
+          {submitError}
+        </p>
+      )}
+
       {/* Submit -- dominant CTA with state feedback */}
       <motion.button
         type="submit"
-        disabled={isSubmitting || currentAmount < 500}
+        disabled={isSubmitting || !amountIsPayable}
+        aria-busy={isSubmitting}
+        aria-describedby={submitError ? 'donation-submit-error' : undefined}
         whileTap={{ scale: 0.97 }}
         className={cn(
           'btn-press w-full rounded-full py-4 text-base font-bold shadow-sm transition-all duration-200',
-          currentAmount >= 500
+          amountIsPayable
             ? 'bg-brand-amber text-white hover:shadow-[--shadow-amber] hover:-translate-y-0.5'
             : 'bg-primary text-primary-foreground',
           'disabled:cursor-not-allowed disabled:opacity-50 disabled:translate-y-0 disabled:shadow-none',
@@ -678,8 +915,13 @@ export function DonationForm({
             </svg>
             Processing...
           </span>
-        ) : currentAmount >= 500 ? (
+        ) : amountIsPayable ? (
+          // Only ever quote an amount this form will actually submit. It used
+          // to read "Donate $999,999,999.00" directly above the error saying
+          // the maximum is $100,000.
           `Donate ${centsToDollars(currentAmount)}`
+        ) : currentAmount > MAX_DONATION_CENTS ? (
+          `Enter an amount up to ${centsToDollars(MAX_DONATION_CENTS)}`
         ) : (
           'Select an amount to donate'
         )}

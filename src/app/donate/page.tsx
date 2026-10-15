@@ -1,9 +1,61 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { DonationForm } from '@/components/campaign/DonationForm';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
+import { db } from '@/db';
+import { campaigns } from '@/db/schema';
+import { and, eq, or } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { seoKeywords } from '@/lib/seo/keywords';
 import Link from 'next/link';
+
+/**
+ * ISR, same cadence as /campaigns. The only query here is the general fund
+ * existence check below, and a stale answer for five minutes is cheaper than
+ * a database round trip on every hit of a navbar link. Counted in the ISR
+ * page tally in docs/26 section 5.
+ */
+export const revalidate = 300;
+
+/**
+ * Does the general fund campaign actually exist, and will the donation API
+ * accept it?
+ *
+ * `GENERAL_FUND_CAMPAIGN_ID` is a hardcoded uuid whose own comment says it
+ * "must match the actual row in the campaigns table". On 2026-10-15 it did
+ * not: no campaigns row carried that id, so the orange navbar CTA rendered a
+ * complete donation form whose every submit got a 404 from
+ * POST /api/v1/donations/create-checkout ("Campaign not found or not
+ * accepting donations"). See docs/42.
+ *
+ * The predicate is deliberately identical to the one create-checkout uses
+ * (`id` + status in active / last_donor_zone). If this returns true and the
+ * API still refuses, the two have drifted apart and that is a bug in one of
+ * them, not a state the donor can be shown.
+ */
+async function generalFundIsDonatable(): Promise<boolean> {
+  try {
+    const [row] = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(
+        and(
+          eq(campaigns.id, GENERAL_FUND_CAMPAIGN_ID),
+          or(
+            eq(campaigns.status, 'active'),
+            eq(campaigns.status, 'last_donor_zone'),
+          ),
+        ),
+      )
+      .limit(1);
+
+    return Boolean(row);
+  } catch {
+    // A database fault is not evidence that the fund is missing, but it is
+    // also not evidence that a donation would work. Fail closed: the
+    // explanatory state points at campaigns that definitely can take money.
+    return false;
+  }
+}
 
 export const metadata: Metadata = {
   title: 'Donate to the General Fund',
@@ -26,7 +78,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function DonatePage() {
+export default async function DonatePage() {
+  const fundAcceptsDonations = await generalFundIsDonatable();
+
   const faqs = [
     {
       question: 'What does the LastDonor general fund support?',
@@ -108,9 +162,43 @@ export default function DonatePage() {
           before giving.
         </p>
 
-        <div className="mt-8 rounded-xl border border-border bg-card p-6">
-          <DonationForm campaignId={GENERAL_FUND_CAMPAIGN_ID} campaignTitle="General Fund" />
-        </div>
+        {fundAcceptsDonations ? (
+          <div className="mt-8 rounded-xl border border-border bg-card p-6">
+            <DonationForm campaignId={GENERAL_FUND_CAMPAIGN_ID} campaignTitle="General Fund" />
+          </div>
+        ) : (
+          /* No donation form is shown when there is nothing behind it. A form
+             that 404s on every submit is worse than no form. */
+          <div className="mt-8 rounded-xl border border-border bg-card p-6" role="status">
+            <h2 className="font-display text-xl font-bold text-card-foreground">
+              The general fund is not accepting donations right now
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              We are not able to take general fund donations at the moment, so
+              we are not going to show you a payment form that cannot complete.
+              Nothing is wrong with your card or your account.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Individual fundraisers are unaffected and can still receive
+              donations. If you came here to support the platform itself,
+              email support@lastdonor.org and we will tell you when the fund reopens.
+            </p>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/campaigns"
+                className="btn-press inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+              >
+                Browse active fundraisers
+              </Link>
+              <Link
+                href="/donor-faq"
+                className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+              >
+                Donor FAQ
+              </Link>
+            </div>
+          </div>
+        )}
 
         <section className="mt-10" aria-labelledby="general-fund-faq">
           <h2 id="general-fund-faq" className="font-display text-2xl font-bold text-foreground">

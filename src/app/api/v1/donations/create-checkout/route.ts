@@ -86,7 +86,9 @@ export async function POST(request: NextRequest) {
     };
 
     const origin = request.headers.get('origin') || 'https://lastdonor.org';
-    const returnPath = `/campaigns/${campaign.slug}/donate?donation=success&session_id={CHECKOUT_SESSION_ID}&amount=${data.amount}`;
+    // No `amount` here. The page decides the amount from Stripe, so an amount
+    // in the URL is at best ignored and at worst a forged receipt (docs/42).
+    const returnPath = `/campaigns/${campaign.slug}/donate?donation=success&session_id={CHECKOUT_SESSION_ID}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: data.isRecurring ? 'subscription' : 'payment',
@@ -138,10 +140,14 @@ export async function POST(request: NextRequest) {
       metadata: donationMetadata,
     });
 
-    const response: ApiResponse<{ clientSecret: string }> = {
+    // The session id goes back with the client secret (which embeds it
+    // anyway) so the client can ask POST /donations/confirm what Stripe says
+    // about this payment. No receipt is rendered without that answer.
+    const response: ApiResponse<{ clientSecret: string; sessionId: string }> = {
       ok: true,
       data: {
         clientSecret: session.client_secret!,
+        sessionId: session.id,
       },
     };
 

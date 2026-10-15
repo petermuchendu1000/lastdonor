@@ -1,68 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
+import { verifyDonationReturn } from '@/lib/donations/verify-return';
+import type { DonationReturnState } from '@/lib/donations/verify-return';
 import { processPaymentSuccess } from '@/lib/services/payment-service';
+import { logError } from '@/lib/errors';
+import { randomUUID } from 'crypto';
 
 /**
  * POST /api/v1/donations/confirm
  *
- * Client-initiated donation confirmation. Called immediately after
- * stripe.confirmPayment succeeds so that the donation is recorded
- * without waiting for the async Stripe webhook.
+ * Client-initiated donation confirmation. Called after Stripe Checkout
+ * completes so the donation is recorded without waiting for the async Stripe
+ * webhook. The webhook remains the durable backup; both paths are idempotent
+ * (unique index on stripe_payment_id + onConflictDoNothing).
  *
- * The webhook remains the durable backup - both paths are fully
- * idempotent (unique constraint on stripe_payment_id + onConflictDoNothing).
+ * It is also the only way the client is allowed to learn that a donation
+ * succeeded. The caller sends ids and the campaign the page belongs to; the
+ * server retrieves the Checkout Session / PaymentIntent from Stripe,
+ * checks the Stripe metadata names THIS campaign, and answers with Stripe's
+ * status and Stripe's amount. Nothing the caller sends is echoed back, so no
+ * request can talk this route into reporting a payment that did not happen.
  *
- * Security:
- *  - The client sends only the paymentIntentId.
- *  - The server retrieves the PaymentIntent from the Stripe API,
- *    so all data is authoritative - nothing is trusted from the client.
- *  - Processing is idempotent - duplicate calls are harmless.
+ * Route is public by design (`PUBLIC_API_PREFIXES`): guest donation is a core
+ * product requirement. The ids are the capability, and they are worthless
+ * unless Stripe confirms them.
  */
+
+interface ConfirmResponse {
+  ok: true;
+  state: DonationReturnState;
+  /** Cents, from Stripe. Null unless the payment is verified as succeeded. */
+  amount: number | null;
+}
+
 export async function POST(request: NextRequest) {
+  const requestId = randomUUID();
+
   try {
-    const body = await request.json();
-    const sessionId = body?.sessionId;
-    let paymentIntentId = body?.paymentIntentId;
+    const body = await request.json().catch(() => null);
+    const campaignId = typeof body?.campaignId === 'string' ? body.campaignId : undefined;
+    const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : undefined;
+    const paymentIntentId =
+      typeof body?.paymentIntentId === 'string' ? body.paymentIntentId : undefined;
 
-    // If a Checkout Session ID was provided, retrieve the underlying PaymentIntent
-    let sessionAmount: number | null = null;
-    if (sessionId && typeof sessionId === 'string') {
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-      sessionAmount = session.amount_total;
-      if (typeof session.payment_intent === 'string') {
-        paymentIntentId = session.payment_intent;
-      } else if (session.payment_intent?.id) {
-        paymentIntentId = session.payment_intent.id;
-      }
-    }
-
-    if (!paymentIntentId || typeof paymentIntentId !== 'string') {
-      // No PI yet (e.g. async payment method). Return session amount for display;
-      // the webhook will handle donation recording when the PI settles.
-      if (sessionAmount && sessionAmount > 0) {
-        return NextResponse.json({ ok: true, amount: sessionAmount });
-      }
+    if (!campaignId) {
       return NextResponse.json(
-        { ok: false, error: 'Missing paymentIntentId or sessionId' },
+        { ok: false, error: 'campaignId is required' },
         { status: 400 },
       );
     }
 
-    // Retrieve the authoritative PaymentIntent from Stripe
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-    if (paymentIntent.status === 'succeeded') {
-      // Process the donation immediately (idempotent - safe if webhook also fires)
-      await processPaymentSuccess(paymentIntent);
+    if (!sessionId && !paymentIntentId) {
+      return NextResponse.json(
+        { ok: false, error: 'Missing sessionId or paymentIntentId' },
+        { status: 400 },
+      );
     }
-    // else: PI is still processing - webhook will handle it. Return amount for display.
 
-    return NextResponse.json({
+    const verified = await verifyDonationReturn({ campaignId, sessionId, paymentIntentId });
+
+    // Record the donation now rather than waiting on the webhook. Idempotent:
+    // a duplicate insert is dropped by the unique stripe_payment_id index.
+    if (verified.state === 'succeeded' && verified.paymentIntent) {
+      await processPaymentSuccess(verified.paymentIntent);
+    }
+
+    const response: ConfirmResponse = {
       ok: true,
-      amount: paymentIntent.amount ?? sessionAmount,
-    });
+      state: verified.state,
+      amount: verified.state === 'succeeded' ? verified.amountCents : null,
+    };
+
+    return NextResponse.json(response);
   } catch (error) {
-    console.error('[POST /api/v1/donations/confirm] Error:', error);
+    logError(error, { requestId, route: 'POST /api/v1/donations/confirm' });
     return NextResponse.json(
       { ok: false, error: 'Failed to confirm donation' },
       { status: 500 },
