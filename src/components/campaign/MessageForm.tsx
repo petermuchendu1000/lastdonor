@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuthState } from '@/lib/auth-state';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,7 +19,9 @@ interface MessageFormProps {
 const MAX_CHARS = 500;
 
 export function MessageForm({ campaignSlug, className }: MessageFormProps) {
-  const { data: session, status } = useSession();
+  // `state` distinguishes "definitely signed out" from "could not tell". Only
+  // the first may be shown the sign-in prompt below. See docs/44.
+  const { state: authState, session } = useAuthState();
   const [message, setMessage] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -81,9 +83,13 @@ export function MessageForm({ campaignSlug, className }: MessageFormProps) {
     [canSubmit, campaignSlug, message, isAnonymous, session, addOptimisticMessage],
   );
 
-  // Auth gate
-  if (status === 'loading') return null;
-  if (!session?.user) {
+  // Auth gate.
+  //
+  // `unknown` renders nothing at all: an auth-gated empty state is a claim
+  // about the viewer, and a 429 or a failed session read is not evidence for
+  // it. Telling a signed-in user to sign in is the defect in docs/44.
+  if (authState === 'unknown') return null;
+  if (authState === 'anonymous' || !session?.user) {
     return (
       <div className={cn('rounded-lg border border-dashed border-border bg-card p-4 text-center', className)}>
         <p className="text-sm text-muted-foreground">

@@ -3,7 +3,7 @@
 import { useState, lazy, Suspense, type ComponentPropsWithoutRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useAuthState } from '@/lib/auth-state';
 import {
   Bars3Icon,
   ChevronDownIcon,
@@ -97,8 +97,16 @@ function SignInLink({ className, ...rest }: ComponentPropsWithoutRef<'a'>) {
 
 export function Navbar() {
   const pathname = usePathname();
-  const { status } = useSession();
-  const isAuthed = status === 'authenticated';
+  /*
+   * Three states, not two. `unknown` means the session read did not come back
+   * with a definite answer (429, 5xx, offline, or still in flight) and MUST
+   * render neither the signed-in header nor a "Sign in" link: rendering the
+   * anonymous header on an inconclusive read is what told logged-in users they
+   * were logged out. See docs/44 and `src/lib/auth-state.ts`.
+   */
+  const { state: authState } = useAuthState();
+  const isAuthed = authState === 'authenticated';
+  const isAnonymous = authState === 'anonymous';
   const [mobileView, setMobileView] = useState<'root' | 'campaigns' | 'about'>('root');
 
   const isCampaignsActive =
@@ -230,8 +238,12 @@ export function Navbar() {
         {/* ============ RIGHT ZONE: trust + conversion ============ */}
         <div className="hidden items-center gap-1 md:flex">
           {/* Auth - Sign in (text link, low visual weight) */}
-          {status === 'loading' ? (
-            <div className="h-9 w-9 animate-pulse rounded-full bg-muted" />
+          {authState === 'unknown' ? (
+            <div
+              className="h-9 w-9 rounded-full bg-muted"
+              aria-hidden="true"
+              data-testid="auth-indeterminate"
+            />
           ) : isAuthed ? (
             <>
               <Suspense fallback={<div className="h-9 w-9" />}>
@@ -366,7 +378,7 @@ export function Navbar() {
                         </Link>
                       </SheetClose>
 
-                      {!isAuthed && (
+                      {isAnonymous && (
                         <Suspense fallback={null}>
                           <SheetClose asChild>
                             <SignInLink className="block w-full rounded-full border border-border py-3.5 text-center text-sm font-semibold text-foreground transition-colors hover:bg-muted" />

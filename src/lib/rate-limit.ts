@@ -227,6 +227,14 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
         analytics: false,
         prefix: 'rl:lastdonor:users',
       }),
+      // See SESSION_READ_LIMIT below. Its own prefix, so the bucket is not
+      // shared with sign-in attempts.
+      session: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(SESSION_READ_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:session',
+      }),
       default: new Ratelimit({
         redis,
         limiter: Ratelimit.slidingWindow(60, '60 s'),
@@ -241,8 +249,53 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
   return distributedLimiters;
 }
 
-/** Map a pathname to its distributed limiter tier key. */
-function getLimiterTier(pathname: string): string {
+// ─── The session read is not a sign-in attempt (docs/44) ──────────────────
+/**
+ * `GET /api/auth/session` is NextAuth's read of the caller's own cookie. Every
+ * client-rendered page performs it once, so its request rate is the user's
+ * *browsing* rate, not an attack rate.
+ *
+ * Before docs/44 it fell into the `auth` tier (10 requests / 60 s, shared with
+ * password sign-in) because `getLimiterTier` matched the `/api/auth` prefix.
+ * Five page views were enough to exhaust it, and `fetchData` in
+ * `next-auth/lib/client.js` turns any non-2xx into `null`, which
+ * `SessionProvider` stores as "no session" - so the limiter logged real users
+ * out. The limit is keyed per IP, so one NAT shared the bucket.
+ *
+ * It gets its own tier rather than an exemption. The handler is NOT free: the
+ * `jwt` callback in `src/lib/auth.ts` re-reads the user's role from Postgres
+ * once per `ROLE_REVALIDATION_INTERVAL`, and that gate is keyed on
+ * `roleCheckedAt` *inside the presented token*, so replaying one stale cookie
+ * forces a database SELECT on every request. An unlimited path would therefore
+ * be a database amplifier. A large bucket keeps that bounded while sitting far
+ * above any plausible browsing rate.
+ */
+export const SESSION_READ_PATH = '/api/auth/session';
+
+/** Bucket for {@link SESSION_READ_PATH}: 120 reads / 60 s / IP. */
+export const SESSION_READ_LIMIT: RateLimitConfig = { maxRequests: 120, windowMs: 60_000 };
+
+/**
+ * True when this request is the cookie read described above.
+ *
+ * Deliberately GET/HEAD only. `POST /api/auth/session` is NextAuth's
+ * `update()`, which re-mints the token and can hit the database unconditionally;
+ * it stays in the `auth` tier.
+ */
+export function isSessionReadRequest(pathname: string, method: string): boolean {
+  if (pathname !== SESSION_READ_PATH) return false;
+  const upper = method.toUpperCase();
+  return upper === 'GET' || upper === 'HEAD';
+}
+
+/**
+ * Map a request to its distributed limiter tier key.
+ *
+ * Exported for `rate-limit.session.test.ts`, which asserts the session read is
+ * no longer in the `auth` tier.
+ */
+export function getLimiterTier(pathname: string, method: string = 'GET'): string {
+  if (isSessionReadRequest(pathname, method)) return 'session';
   if (pathname.startsWith('/api/v1/auth') || pathname.startsWith('/api/auth')) return 'auth';
   if (pathname.startsWith('/api/v1/newsletter')) return 'newsletter';
   if (pathname.startsWith('/api/v1/donations')) return 'donations';
@@ -258,6 +311,10 @@ interface RateLimitConfig {
 }
 
 const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
+  // Must come first: the in-memory fallback matches by prefix and in insertion
+  // order, and this path must not inherit a narrower /api/auth entry if one is
+  // ever added below.
+  [SESSION_READ_PATH]: SESSION_READ_LIMIT,
   '/api/v1/donations/create-intent': { maxRequests: 10, windowMs: 60_000 },
   '/api/v1/auth': { maxRequests: 10, windowMs: 60_000 },
   '/api/v1/newsletter': { maxRequests: 5, windowMs: 60_000 },
@@ -267,9 +324,13 @@ const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
   '/api/v1/admin': { maxRequests: 60, windowMs: 60_000 },
 };
 
-function getConfig(pathname: string): RateLimitConfig {
+function getConfig(pathname: string, method: string = 'GET'): RateLimitConfig {
   for (const [route, config] of Object.entries(ROUTE_LIMITS)) {
-    if (pathname.startsWith(route)) return config;
+    if (!pathname.startsWith(route)) continue;
+    // The generous session bucket is for the GET/HEAD cookie read only; see
+    // `isSessionReadRequest`.
+    if (route === SESSION_READ_PATH && !isSessionReadRequest(pathname, method)) continue;
+    return config;
   }
   return { maxRequests: 100, windowMs: 60_000 };
 }
@@ -331,13 +392,14 @@ export async function checkRateLimitAsync(request: NextRequest): Promise<NextRes
   if (pathname.includes('/webhook')) return null;
 
   const ip = getClientIp(request.headers);
-  const config = getConfig(pathname);
+  const method = request.method ?? 'GET';
+  const config = getConfig(pathname, method);
   const key = `${ip}:${pathname.split('/').slice(0, 5).join('/')}`;
 
   // ── Try distributed (Upstash) limiter first ──────────────────────────────
   const limiters = initDistributedLimiters();
   if (limiters) {
-    const tier = getLimiterTier(pathname);
+    const tier = getLimiterTier(pathname, method);
     const limiter = limiters[tier] ?? limiters.default;
     try {
       const result = await limiter.limit(key);
@@ -382,7 +444,7 @@ export function checkRateLimit(request: NextRequest): NextResponse | null {
   if (pathname.includes('/webhook')) return null;
 
   const ip = getClientIp(request.headers);
-  const config = getConfig(pathname);
+  const config = getConfig(pathname, request.method ?? 'GET');
   const key = `${ip}:${pathname.split('/').slice(0, 5).join('/')}`;
 
   return checkInMemory(key, config);
