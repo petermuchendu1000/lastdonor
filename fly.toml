@@ -56,7 +56,11 @@ kill_timeout = "30s"
     # Supabase project in this account.
     NEXT_PUBLIC_SUPABASE_URL = "https://vavxdjqufxrsbyohcwdh.supabase.co"
     # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_..."
-    # NEXT_PUBLIC_SENTRY_DSN = "https://...ingest.sentry.io/..."
+    # Sentry DSN is public by design (it is embedded in the client bundle on
+    # every site that uses Sentry); it identifies a project, it does not
+    # authorise reading anything. It is a build arg because NEXT_PUBLIC_* is
+    # inlined by the compiler — a Fly secret for it would be inert.
+    NEXT_PUBLIC_SENTRY_DSN = "https://4f46f08db83665f562cffc9ce28156b7@o4512221246521344.ingest.de.sentry.io/4512257598750800"
     # NEXT_PUBLIC_TAWK_PROPERTY_ID = ""
     # NEXT_PUBLIC_TAWK_WIDGET_ID = ""
 
