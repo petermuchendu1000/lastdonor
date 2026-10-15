@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
+import { Money } from '@/components/ui/Money';
 import { centsToDollarsWhole } from '@/lib/utils/currency';
 
 interface CampaignCardProps {
@@ -71,14 +72,31 @@ export function CampaignCard({
 
           {/* Row 3: Financial data */}
           <div className="mt-auto pt-4">
-            <div className="flex items-baseline justify-between">
-              <span className="font-mono text-lg font-bold tabular-nums text-foreground number-highlight">
-                {centsToDollarsWhole(raisedAmount)}{' '}<span className="font-sans text-sm font-medium text-muted-foreground">raised</span>
-              </span>
-              <span className="font-mono text-xs font-medium tabular-nums text-muted-foreground">
-                of {centsToDollarsWhole(goalAmount)}
-              </span>
-            </div>
+            {raisedAmount === 0 ? (
+              /*
+                An unfunded campaign leads with what it is asking for, not with
+                a "$0 raised" that reads as a dead page across a whole grid.
+                The goal is still shown in full — see docs/47.
+              */
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold text-foreground">
+                  Be the first to donate
+                </span>
+                <span className="shrink-0 font-sans text-xs font-medium tabular-nums text-muted-foreground">
+                  {centsToDollarsWhole(goalAmount)} goal
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-baseline justify-between">
+                <span className="text-lg font-bold text-foreground number-highlight">
+                  <Money cents={raisedAmount} />{' '}
+                  <span className="text-sm font-medium text-muted-foreground">raised</span>
+                </span>
+                <span className="font-sans text-xs font-medium tabular-nums text-muted-foreground">
+                  of {centsToDollarsWhole(goalAmount)}
+                </span>
+              </div>
+            )}
 
             <ProgressBar
               raisedAmount={raisedAmount}

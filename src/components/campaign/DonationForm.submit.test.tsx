@@ -46,7 +46,7 @@ function mockApi(responder: () => Promise<{ status: number; body: unknown }>) {
 }
 
 async function fillValidDonation() {
-  await userEvent.click(screen.getByRole('radio', { name: /\$25\.00/ }));
+  await userEvent.click(screen.getByRole('radio', { name: /^\$25\b/ }));
   await userEvent.type(screen.getByLabelText(/email address/i), 'donor@example.com');
 }
 

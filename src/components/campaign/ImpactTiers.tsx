@@ -2,7 +2,8 @@
 
 import { ArrowRightIcon } from '@heroicons/react/24/solid';
 import { cn } from '@/lib/utils';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { centsToDollarsWhole } from '@/lib/utils/currency';
 import type { ImpactTier } from '@/types';
 
 interface ImpactTiersProps {
@@ -26,13 +27,14 @@ export function ImpactTiers({ tiers, onSelectAmount, className }: ImpactTiersPro
             key={`${tier.amount}-${tier.label}`}
             type="button"
             onClick={() => onSelectAmount?.(tier.amount)}
-            aria-label={`Donate ${centsToDollars(tier.amount)}: ${tier.label}`}
+            aria-label={`Donate ${centsToDollarsWhole(tier.amount)}: ${tier.label}`}
             className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted"
           >
             <div className="flex min-w-0 items-baseline gap-3">
-              <span className="font-mono text-lg font-bold tabular-nums text-foreground">
-                {centsToDollars(tier.amount)}
-              </span>
+              <Money
+                cents={tier.amount}
+                className="text-lg font-bold text-foreground"
+              />
               <span className="truncate text-sm text-muted-foreground">
                 {tier.label}
               </span>

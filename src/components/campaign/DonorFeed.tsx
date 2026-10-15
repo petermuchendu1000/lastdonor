@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { formatRelativeTime } from '@/lib/utils/dates';
 import { cn } from '@/lib/utils';
 import { usePollingList } from '@/hooks/usePollingList';
@@ -81,9 +81,10 @@ export function DonorFeed({
                     <span className="text-sm font-medium text-card-foreground">
                       {displayName}
                     </span>
-                    <span className="shrink-0 font-mono text-sm font-semibold text-foreground">
-                      {centsToDollars(donor.amount)}
-                    </span>
+                    <Money
+                      cents={donor.amount}
+                      className="shrink-0 text-sm font-semibold text-foreground"
+                    />
                   </div>
 
                   <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">

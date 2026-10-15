@@ -29,9 +29,9 @@ describe('DonationForm', () => {
 
   it('renders all preset amount buttons', () => {
     render(<DonationForm {...defaultProps} />);
-    expect(screen.getByText('$25.00')).toBeInTheDocument();
-    expect(screen.getByText('$50.00')).toBeInTheDocument();
-    expect(screen.getByText('$100.00')).toBeInTheDocument();
+    expect(screen.getByText('$25')).toBeInTheDocument();
+    expect(screen.getByText('$50')).toBeInTheDocument();
+    expect(screen.getByText('$100')).toBeInTheDocument();
   });
 
   it('renders required form fields', () => {
@@ -55,14 +55,14 @@ describe('DonationForm', () => {
 
   it('selects a preset amount on click', async () => {
     render(<DonationForm {...defaultProps} />);
-    const fiftyButton = screen.getByRole('radio', { name: /\$50\.00/ });
+    const fiftyButton = screen.getByRole('radio', { name: /^\$50\b/ });
     await userEvent.click(fiftyButton);
     expect(fiftyButton).toHaveAttribute('aria-checked', 'true');
   });
 
   it('deselects preset when custom amount is entered', async () => {
     render(<DonationForm {...defaultProps} />);
-    const fiftyButton = screen.getByRole('radio', { name: /\$50\.00/ });
+    const fiftyButton = screen.getByRole('radio', { name: /^\$50\b/ });
     await userEvent.click(fiftyButton);
     expect(fiftyButton).toHaveAttribute('aria-checked', 'true');
 
@@ -86,7 +86,7 @@ describe('DonationForm', () => {
 
   it('shows amount in submit button after selection', async () => {
     render(<DonationForm {...defaultProps} />);
-    await userEvent.click(screen.getByText('$25.00'));
+    await userEvent.click(screen.getByText('$25'));
     expect(screen.getByRole('button', { name: /donate.*\$25\.00/i })).toBeInTheDocument();
   });
 

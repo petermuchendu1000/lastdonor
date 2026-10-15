@@ -567,6 +567,8 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 goalAmount={campaign.goalAmount}
                 donorCount={campaign.donorCount}
                 impactTiers={impactTiers}
+                shareUrl={canonicalUrl}
+                shareTitle={campaign.title}
               />
             ) : campaign.status === 'completed' ? (
               <div className="rounded-xl border border-border bg-card p-6 text-center">

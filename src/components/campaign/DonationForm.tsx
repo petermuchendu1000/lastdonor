@@ -8,7 +8,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import Link from 'next/link';
 import { Switch } from '@/components/ui/switch';
-import { centsToDollars, dollarsToCents } from '@/lib/utils/currency';
+import { centsToDollars, centsToDollarsWhole, dollarsToCents } from '@/lib/utils/currency';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
 import { confirmDonation } from '@/lib/donations/confirm-client';
@@ -63,7 +63,18 @@ type DonationFormValues = z.infer<typeof donationFormSchema>;
  * 7. Clear, human error messages
  */
 
-const PRESET_AMOUNTS = [2500, 5000, 10000, 25000, 50000, 100000] as const; // cents
+/**
+ * Presets in cents, highest first.
+ *
+ * The order is deliberate and mirrors GoFundMe, whose live donate form was
+ * observed on 2026-10-15 offering $1,000 / $500 / $350 / $100 / $50 in
+ * descending order. Leading with the largest figure anchors the choice set
+ * upward; leading with $25, as this form previously did, anchors it down.
+ * This is competitor-mirroring plus the anchoring literature, not a result we
+ * have measured ourselves — it is the A/B test this form most needs. See
+ * `docs/47-MONEY-TYPOGRAPHY-AND-ZERO-STATE-ADR.md`.
+ */
+const PRESET_AMOUNTS = [100000, 50000, 25000, 10000, 5000, 2500] as const; // cents
 
 // Impact labels make abstract dollar amounts concrete
 const IMPACT_HINTS: Record<number, string> = {
@@ -726,6 +737,12 @@ export function DonationForm({
             type="button"
             role="radio"
             aria-checked={selectedPreset === amount}
+            /*
+              Without this the accessible name concatenates the two child
+              spans into "$50Week of groceries", which a screen reader reads
+              as one run-on token.
+            */
+            aria-label={`${centsToDollarsWhole(amount)}, ${IMPACT_HINTS[amount]}`}
             onClick={() => handlePresetSelect(amount)}
             whileTap={{ scale: 0.95 }}
             className={cn(
@@ -736,7 +753,7 @@ export function DonationForm({
             )}
           >
             <span className="text-base font-bold tabular-nums">
-              {centsToDollars(amount)}
+              {centsToDollarsWhole(amount)}
             </span>
             <span className={cn(
               'mt-0.5 text-[10px] leading-tight',

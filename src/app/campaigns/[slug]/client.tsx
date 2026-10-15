@@ -18,6 +18,8 @@ interface CampaignSidebarClientProps {
   goalAmount: number;
   donorCount: number;
   impactTiers: ImpactTier[];
+  shareUrl: string;
+  shareTitle: string;
 }
 
 export function CampaignSidebarClient({
@@ -26,6 +28,8 @@ export function CampaignSidebarClient({
   goalAmount,
   donorCount,
   impactTiers,
+  shareUrl,
+  shareTitle,
 }: CampaignSidebarClientProps) {
   const router = useRouter();
   const donateHref = `/campaigns/${campaignSlug}/donate`;
@@ -37,6 +41,8 @@ export function CampaignSidebarClient({
         goalAmount={goalAmount}
         donorCount={donorCount}
         donateHref={donateHref}
+        shareUrl={shareUrl}
+        shareTitle={shareTitle}
       />
 
       {impactTiers.length > 0 && (
