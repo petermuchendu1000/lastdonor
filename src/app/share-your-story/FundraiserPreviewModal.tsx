@@ -248,13 +248,13 @@ export function FundraiserPreviewModal({
 
                   <div>
                     <p className="text-sm font-semibold text-foreground">
-                      LastDonor protects your donation
+                      Refunds and disputes
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      We guarantee a full refund for up to a year in the unlikely
-                      event that something goes wrong.{' '}
-                      <a href="/trust" className="text-primary underline">
-                        See our Giving Guarantee.
+                      Donors can request a refund by email, normally within 30
+                      days of giving. Requests are reviewed case by case.{' '}
+                      <a href="/refund-policy" className="text-primary underline">
+                        Read the refund policy.
                       </a>
                     </p>
                   </div>

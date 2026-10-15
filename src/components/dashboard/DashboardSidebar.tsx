@@ -234,15 +234,26 @@ export function DashboardSidebar({ hasCampaigns: _hasCampaigns, collapsed, onTog
               <span className="text-[12px] font-semibold text-[#111827]">Need help?</span>
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-[#6B7280]">
-              Visit our help center for guides and support.
+              Read the FAQ, or email us and a person will reply.
             </p>
+            {/* Was href="/help", which has never existed: a signed-in user
+                clicking "Help Center" got a 404. Both destinations below are
+                real: /donor-faq is a page, support@ is the address published
+                in /refund-policy. Do not reinstate a link to a page that is
+                not in src/app. */}
             <Link
-              href="/help"
+              href="/donor-faq"
               className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#0F766E] transition-colors hover:text-[#0D6B63]"
             >
-              Help Center
+              Read the FAQ
               <ArrowTopRightOnSquareIcon className="h-3 w-3" />
             </Link>
+            <a
+              href="mailto:support@lastdonor.org"
+              className="mt-1 block text-[11px] font-semibold text-[#0F766E] transition-colors hover:text-[#0D6B63]"
+            >
+              support@lastdonor.org
+            </a>
           </div>
         </div>
       )}
