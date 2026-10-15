@@ -2,15 +2,19 @@
 
 import { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  CheckCircleIcon,
+  XCircleIcon,
+  EnvelopeIcon,
+} from '@heroicons/react/24/outline';
 import { ShieldCheckIcon } from '@heroicons/react/24/solid';
 
 const registerSchema = z.object({
@@ -66,12 +70,40 @@ function safeCallbackUrl(raw: string | null): string {
   }
 }
 
+/* ---- Why this page does not sign you in (audit A4, docs/39) ---------------
+ *
+ * `POST /api/auth/register` answers a duplicate address with the SAME status
+ * and the SAME body as a creation (commit 9a14dc6), so that one HTTP request
+ * per address can no longer tell an anonymous caller whether a named person
+ * has an account on a platform that publishes medical and hardship appeals.
+ *
+ * This page used to defeat that from the client. It auto-signed-in after the
+ * 201 and branched on the result: a fresh address got a session and
+ * `router.push(callbackUrl)`, a registered address failed `authorize()` and
+ * got `router.push('/login?...')`. Submitting an address with a junk password
+ * and reading which screen came back was exactly the oracle the route had
+ * just given up — same information, one extra request.
+ *
+ * Any fix that reads the sign-in result IS the oracle, however the two
+ * branches are dressed up, so auto-sign-in is gone. Both outcomes now reach
+ * the same terminal screen below, and the thing that tells the two apart is
+ * sent to the submitted address instead (`notifyRegistrationOutcome`), where
+ * only the inbox owner can read it.
+ *
+ * The cost is one extra step for a genuinely new user: they sign in with the
+ * password they chose seconds ago, via the email or the button on that
+ * screen. Accepted deliberately — see docs/39 for the alternatives weighed.
+ *
+ * Validation failures (400) stay specific and are rendered as before: they
+ * describe the submitted input, not the state of someone else's account.
+ */
 function RegisterForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = safeCallbackUrl(searchParams.get('callbackUrl'));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Set once the API accepts the submission; the address is echoed back. */
+  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
   const {
     register,
@@ -104,23 +136,11 @@ function RegisterForm() {
         return;
       }
 
-      // Auto sign in after registration
-      const result = await signIn('credentials', {
-        email: data.email,
-        password: data.password,
-        redirect: false,
-      });
-
-      if (result?.error) {
-        // Registration succeeded but auto-login failed - send to login
-        // with callbackUrl preserved so the user returns to their flow
-        router.push(
-          `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`,
-        );
-      } else {
-        router.push(callbackUrl);
-        router.refresh();
-      }
+      // Accepted. Nothing here may depend on whether the address was free:
+      // the response deliberately cannot say, and probing for it (signing in,
+      // requesting a session, timing a second call) would rebuild the oracle.
+      // The outcome is identical for both, and the email carries the rest.
+      setSubmittedEmail(data.email);
     } catch {
       setError('An unexpected error occurred. Please try again.');
     } finally {
@@ -130,6 +150,70 @@ function RegisterForm() {
 
   async function handleGoogleSignIn() {
     await signIn('google', { callbackUrl });
+  }
+
+  const loginHref =
+    callbackUrl !== '/dashboard'
+      ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+      : '/login';
+
+  // The one terminal screen. Every word of it is fixed copy plus the address
+  // the visitor typed, so it is byte-identical whether or not that address was
+  // already registered — including the sign-in link, whose target comes from
+  // the URL and never from the response. Nothing here may become conditional
+  // on the API response body: it is the same body either way, and a branch on
+  // it would be a branch on nothing while looking like a feature.
+  if (submittedEmail) {
+    return (
+      <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center bg-muted/30 px-4 py-12">
+        <div className="w-full max-w-md">
+          <div
+            role="status"
+            className="rounded-2xl border border-border bg-card p-8 text-center shadow-[--shadow-elevation-2] sm:p-10"
+          >
+            <EnvelopeIcon
+              className="mx-auto h-10 w-10 text-brand-teal"
+              aria-hidden="true"
+            />
+            <h1 className="mt-4 font-display text-3xl font-bold tracking-tight text-card-foreground">
+              Check your email
+            </h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              We sent a message to{' '}
+              <strong className="font-semibold text-card-foreground">
+                {submittedEmail}
+              </strong>{' '}
+              with a link to sign in.
+            </p>
+            <p className="mt-3 text-sm text-muted-foreground">
+              If that address already had a LastDonor.org account, the email
+              explains how to get back into it. Either way, there is nothing
+              more to do on this page.
+            </p>
+
+            <Link
+              href={loginHref}
+              className={buttonVariants({
+                className: 'btn-press mt-6 h-10 w-full',
+              })}
+            >
+              Go to sign-in
+            </Link>
+
+            <p className="mt-4 text-xs text-muted-foreground">
+              Nothing after a few minutes? Check your spam folder, or{' '}
+              <Link
+                href="/login/forgot-password"
+                className="font-semibold text-primary hover:underline"
+              >
+                reset your password
+              </Link>
+              .
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -293,10 +377,7 @@ function RegisterForm() {
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link
-            href={callbackUrl !== '/dashboard' ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}` : '/login'}
-            className="font-semibold text-primary hover:underline"
-          >
+          <Link href={loginHref} className="font-semibold text-primary hover:underline">
             Log in
           </Link>
         </p>

@@ -730,3 +730,55 @@ export function withdrawalFailedEmail(p: {
     `),
   };
 }
+
+/* ---- Registration mail: the only place the two outcomes may differ --------
+ *
+ * `POST /api/auth/register` answers a duplicate address exactly as it answers
+ * a creation (audit A4, commit 9a14dc6), and `src/app/register/page.tsx` now
+ * renders one terminal "check your email" screen for both. The information
+ * "this address already had an account" therefore reaches exactly one party:
+ * whoever can open that inbox. Keep it that way — these two builders are the
+ * only existence-dependent branch left in the registration flow, and they are
+ * reached only by a send to the submitted address itself.
+ *
+ * Both are transactional: they answer an action the recipient's address was
+ * just used for, and the existing-account one is a security notice. Neither is
+ * gated on a notification preference (see `notifyRegistrationOutcome`).
+ */
+
+/** Sent when the submitted address was free and an account was created. */
+export function registrationWelcomeEmail(p: { name: string }) {
+  const signInUrl = `${BASE_URL}/login`;
+  return {
+    subject: 'Your LastDonor.org account is ready',
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Your account is ready</h1>
+      <p>Hi ${esc(p.name)},</p>
+      <p>Your LastDonor.org account has been created. Sign in with the email address and password you just chose.</p>
+      ${ctaButton(signInUrl, 'Sign in')}
+      <p style="color: #666; font-size: 14px;">If you forget your password you can set a new one at any time from <a href="${BASE_URL}/login/forgot-password" style="color: #0F766E;">the password reset page</a>.</p>
+      <p style="color: #666; font-size: 14px;">If you did not create this account, you can ignore this email and nothing further will happen.</p>
+    `),
+  };
+}
+
+/**
+ * Sent when the submitted address already had an account. Nothing was created
+ * and nothing was changed, so this is a notice, not a credential: it carries
+ * no token and grants no access. The recipient recovers the account through
+ * the normal reset flow, which mints its own token.
+ */
+export function registrationExistingAccountEmail() {
+  const signInUrl = `${BASE_URL}/login`;
+  return {
+    subject: 'You already have a LastDonor.org account',
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">You already have an account</h1>
+      <p>Someone just used this email address to sign up for LastDonor.org. You already have an account here, so we did not create a second one and we did not change anything.</p>
+      <p><strong>If that was you:</strong> sign in with your existing password.</p>
+      ${ctaButton(signInUrl, 'Sign in')}
+      <p><strong>If you have forgotten your password:</strong> <a href="${BASE_URL}/login/forgot-password" style="color: #0F766E;">reset it here</a>.</p>
+      <p style="color: #666; font-size: 14px;">If it was not you, there is nothing to do. Your password still works and whoever submitted the form was not told that this address is registered.</p>
+    `),
+  };
+}

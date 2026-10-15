@@ -58,6 +58,8 @@ const state = vi.hoisted(() => ({
   /** Queue of rows returned by successive `db.insert()...returning()` calls. */
   insertReturning: [] as unknown[][],
   deletes: 0,
+  /** Arguments of every `resend.emails.send()` the code under test made. */
+  emailSends: [] as Record<string, unknown>[],
   config: undefined as { providers: Array<{ authorize?: (c: unknown) => Promise<unknown> }> } | undefined,
 }));
 
@@ -159,6 +161,24 @@ vi.mock('@/lib/password', async (importOriginal) => {
   };
 });
 
+/**
+ * Registration now sends one transactional email on BOTH branches (docs/39),
+ * so the register route reaches `@/lib/resend`. Mocked here for the reason
+ * every other suite mocks it - the real client throws "Missing API key" with
+ * no key in the environment, and `retryWithBackoff` then slept through three
+ * attempts per registration test. The sends are captured instead, because
+ * their symmetry is part of the control being tested.
+ */
+vi.mock('@/lib/resend', () => {
+  const emails = {
+    send: async (args: Record<string, unknown>) => {
+      state.emailSends.push(args);
+      return { data: { id: 'sent' }, error: null };
+    },
+  };
+  return { resend: { emails }, getResend: () => ({ emails }) };
+});
+
 vi.mock('@sentry/nextjs', () => ({
   init: (options: Record<string, unknown>) => {
     sentry.options = options;
@@ -218,6 +238,7 @@ beforeEach(() => {
   state.inserts = [];
   state.insertReturning = [];
   state.deletes = 0;
+  state.emailSends = [];
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -423,6 +444,43 @@ describe('registration does not disclose whether an account exists (audit A4)', 
 
     expect(password.hash.mock.calls.length).toBe(onCreate);
     expect(onCreate).toBe(1);
+  });
+
+  it('sends exactly one email on each path, so the send cannot encode the outcome', async () => {
+    // The page can no longer tell the two outcomes apart (docs/39), so the
+    // mail is what distinguishes them. That only holds if the *send* is
+    // symmetric: one message to the submitted address either way, from the
+    // same helper, before the response - no second round trip and no
+    // suppressed send to time.
+    state.emailSends = [];
+    await postRegister(VALID_REGISTRATION, []);
+    const onCreate = state.emailSends.length;
+
+    state.emailSends = [];
+    await postRegister(VALID_REGISTRATION, [{ id: EXISTING_USER_ID }]);
+
+    expect(onCreate).toBe(1);
+    expect(state.emailSends).toHaveLength(1);
+    expect(state.emailSends[0].to).toBe('someone@example.com');
+  });
+
+  it('tells the inbox owner, and only the inbox owner, that the address was taken', async () => {
+    state.emailSends = [];
+    await postRegister(VALID_REGISTRATION, [{ id: EXISTING_USER_ID }]);
+    const duplicateMail = state.emailSends[0];
+
+    state.emailSends = [];
+    await postRegister(VALID_REGISTRATION, []);
+    const createdMail = state.emailSends[0];
+
+    // The body is the one place the outcome may be disclosed.
+    expect(duplicateMail.subject).not.toBe(createdMail.subject);
+    expect(String(duplicateMail.html)).toMatch(/already have an account/i);
+
+    // A notice, not a credential: nothing in it may let whoever submitted the
+    // form into the existing account. Recovery goes through the reset flow,
+    // which mints its own token for the owner.
+    expect(String(duplicateMail.html)).not.toMatch(/token=/);
   });
 
   it('keeps the real reason in the server log only', async () => {

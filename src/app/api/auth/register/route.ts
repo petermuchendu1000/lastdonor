@@ -8,6 +8,7 @@ import {
   hashPassword,
 } from '@/lib/password';
 import { registerSchema } from '@/lib/validators/user';
+import { notifyRegistrationOutcome } from '@/lib/notifications';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 
@@ -24,12 +25,18 @@ import type { ApiError } from '@/types/api';
  * body shape as a real creation, spends the SAME bcrypt work, and records the
  * real reason only in the server log.
  *
- * Residual gap, deliberately left to the owner of `src/app/register/page.tsx`
- * (not this file): that page auto-signs-in after a 201, so a duplicate address
- * fails the subsequent `signIn` and lands on /login while a fresh address lands
- * on the callback URL. The page already treats "created but auto-login failed"
- * the same way, so the fix there is to stop branching on the sign-in result —
- * but it cannot be done from this route.
+ * The page-level half of this is CLOSED as of 2026-10-15 (docs/39).
+ * `src/app/register/page.tsx` used to auto-sign-in after the 201 and branch on
+ * the result, so a duplicate address landed on /login while a fresh one landed
+ * on the callback URL — the client handed back the oracle this route had just
+ * given up. Auto-sign-in is gone; the page renders one terminal "check your
+ * email" screen for both outcomes. Which outcome it actually was is now told
+ * only to the submitted address, by the email sent below.
+ *
+ * Both branches therefore send exactly one email through the same helper, with
+ * no in-app notification and no DB write on the duplicate path, so the send
+ * adds no response-time or side-effect difference between them. Do not make
+ * either send conditional, and do not move one of them after the response.
  */
 
 /** Server-side-only reason a registration attempt did not create a row. */
@@ -111,6 +118,11 @@ export async function POST(request: NextRequest) {
     if (existing) {
       logRegisterFailure('email_taken', email);
 
+      // The one channel allowed to distinguish the two outcomes: the inbox of
+      // the address that was submitted. Tells the real owner that someone
+      // tried to sign up as them, and how to get back in. Carries no token.
+      await notifyRegistrationOutcome({ email, name, created: false });
+
       // Indistinguishable from a creation: same status, same body shape. The
       // `id` is a fresh random UUID, never the existing user's — echoing the
       // real id would both restore the oracle and leak an internal identifier
@@ -131,6 +143,11 @@ export async function POST(request: NextRequest) {
         role: 'donor',
       })
       .returning({ id: users.id, email: users.email, name: users.name });
+
+    // Same helper, same shape, same place in the request as the duplicate
+    // path above: the page can no longer tell the user which happened, so the
+    // email is the only thing that does.
+    await notifyRegistrationOutcome({ email, name, created: true });
 
     return NextResponse.json(
       { ok: true, data: { id: newUser.id, email: newUser.email, name: newUser.name } },

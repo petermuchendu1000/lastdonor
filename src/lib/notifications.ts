@@ -39,6 +39,8 @@ import {
   verificationRejectedCreatorEmail,
   withdrawalCompletedEmail,
   withdrawalFailedEmail,
+  registrationWelcomeEmail,
+  registrationExistingAccountEmail,
 } from '@/lib/email-templates';
 import {
   adaptiveDonationReceiptEmail,
@@ -145,6 +147,44 @@ async function sendEmailOnly(p: { to: string; subject: string; html: string }) {
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
+
+/**
+ * Tell the submitted address what happened to a registration attempt.
+ *
+ * Called on BOTH branches of `POST /api/auth/register` — the one that creates
+ * an account and the one that finds the address already registered — because
+ * the two branches must be indistinguishable to the caller (audit A4). The
+ * only difference is the message body, and that reaches only the inbox owner.
+ * Keep the call shape identical on both paths: one `sendEmailOnly`, no DB
+ * write, no extra round trip, so response time does not encode the outcome.
+ *
+ * Deliberately NOT `createAndEmail`:
+ *
+ *  1. `createAndEmail` INSERTs a notification row. On the duplicate path that
+ *     would write to an account the caller does not control, at the caller's
+ *     request, from an unauthenticated endpoint — and it would make the two
+ *     paths differ by one INSERT.
+ *  2. `createAndEmail` gates the send on the `emailNotifications` preference.
+ *     This is transactional auth mail: the welcome message is the receipt for
+ *     an account someone just created, and the other is a security notice
+ *     about an attempt on an existing account. Neither is commercial mail
+ *     (15 U.S.C. 7702(2)(B)), so neither carries the List-Unsubscribe
+ *     machinery added for bulk sends in 224e069, and neither is suppressed by
+ *     a notification preference. A user who has switched notification email
+ *     off must still be told that their address was used to sign up.
+ */
+export async function notifyRegistrationOutcome(p: {
+  email: string;
+  name: string;
+  /** True when this attempt created the account; false when it already existed. */
+  created: boolean;
+}) {
+  const emailContent = p.created
+    ? registrationWelcomeEmail({ name: p.name || 'there' })
+    : registrationExistingAccountEmail();
+
+  await sendEmailOnly({ to: p.email, ...emailContent });
+}
 
 /**
  * Notify a donor that their donation has been refunded (or refund reversed).
