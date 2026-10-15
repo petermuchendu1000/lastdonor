@@ -53,6 +53,21 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/**
+ * Mints a v4 UUID for the withdrawal idempotency key.
+ * crypto.randomUUID() is unavailable in non-secure contexts, so there is a
+ * Math.random fallback: a weak key is still a key, and a missing one means the
+ * request is rejected outright.
+ */
+export function newIdempotencyKey(): string {
+  const c: Crypto | undefined = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = Math.trunc(Math.random() * 16);
+    return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // ─── Status Config ───────────────────────────────────────────────────
 
 const WD_STATUS: Record<string, { label: string; className: string }> = {
@@ -89,8 +104,18 @@ export default function FinancesClient({
 
   // Withdraw form state
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
+  // One idempotency key per campaign per form-fill. Minted when the amount is
+  // first typed, NOT per click: a double-clicked Withdraw button must send the
+  // same key twice so the server dedups it instead of transferring twice. The
+  // key is discarded only after the withdrawal is accepted.
+  const [withdrawKeys, setWithdrawKeys] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
+
+  const setWithdrawAmount = useCallback((campaignId: string, value: string) => {
+    setWithdrawAmounts((prev) => ({ ...prev, [campaignId]: value }));
+    setWithdrawKeys((prev) => (prev[campaignId] ? prev : { ...prev, [campaignId]: newIdempotencyKey() }));
+  }, []);
 
   // Computed totals
   const totalRaised = campaigns.reduce((s, c) => s + c.raisedAmount, 0);
@@ -148,12 +173,16 @@ export default function FinancesClient({
       }
       const cents = Math.round(dollars * 100);
 
+      // The server requires this key; omitting it 400s every withdrawal.
+      const idempotencyKey = withdrawKeys[campaignId] ?? newIdempotencyKey();
+      setWithdrawKeys((prev) => (prev[campaignId] ? prev : { ...prev, [campaignId]: idempotencyKey }));
+
       setLoading(`withdraw-${campaignId}`);
       try {
         const res = await fetch(`/api/v1/user-campaigns/${campaignId}/withdraw`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: cents }),
+          body: JSON.stringify({ amount: cents, idempotencyKey }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -162,6 +191,12 @@ export default function FinancesClient({
         }
         toast.success(`Withdrawal of ${fmt(cents)} initiated`);
         setWithdrawAmounts((prev) => ({ ...prev, [campaignId]: '' }));
+        // Only now is the key spent: a new form-fill gets a new one.
+        setWithdrawKeys((prev) => {
+          const next = { ...prev };
+          delete next[campaignId];
+          return next;
+        });
         router.refresh();
       } catch {
         toast.error('Something went wrong. Please try again.');
@@ -169,7 +204,7 @@ export default function FinancesClient({
         setLoading(null);
       }
     },
-    [withdrawAmounts, router],
+    [withdrawAmounts, withdrawKeys, router],
   );
 
   // ─── Empty state: no campaigns ────────────────────────────────────
@@ -377,9 +412,7 @@ export default function FinancesClient({
                         max={campaign.availableBalance / 100}
                         placeholder="0.00"
                         value={withdrawAmounts[campaign.id] ?? ''}
-                        onChange={(e) =>
-                          setWithdrawAmounts((prev) => ({ ...prev, [campaign.id]: e.target.value }))
-                        }
+                        onChange={(e) => setWithdrawAmount(campaign.id, e.target.value)}
                         className="w-24 rounded-md border border-green-300 bg-white px-2 py-1.5 text-sm font-mono focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-green-950 dark:text-green-100"
                         aria-label={`Withdrawal amount for ${campaign.title}`}
                       />

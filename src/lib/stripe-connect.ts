@@ -10,6 +10,11 @@
 import { stripe } from '@/lib/stripe';
 import type Stripe from 'stripe';
 
+// The payout-currency invariant lives in the validator module, which has no
+// server-only dependencies, so clients and route handlers can share it.
+export { PLATFORM_PAYOUT_CURRENCY, isSupportedPayoutCurrency } from '@/lib/validators/payout';
+import { isSupportedPayoutCurrency as currencySupported } from '@/lib/validators/payout';
+
 // ─── Platform Availability Check ─────────────────────────────────────────────
 
 let _connectAvailable: boolean | null = null;
@@ -140,16 +145,24 @@ export interface ConnectAccountInfo {
   status: ConnectAccountStatus;
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
+  transfersCapability: string | null;
   defaultCurrency: string | null;
   currentlyDue: string[];
   disabledReason: string | null;
+  /**
+   * True when the account settles in a currency the ledger cannot pay out in.
+   * Surfaced here so onboarding/status can warn, rather than the creator
+   * discovering it at the moment of transfer.
+   */
+  unsupportedCurrency: boolean;
 }
 
 /**
  * Retrieves a Stripe account and maps it to our internal status model.
  *
  * Status mapping:
- *   verified    = charges_enabled AND payouts_enabled AND no currently_due requirements
+ *   verified    = payouts_enabled AND capabilities.transfers === 'active'
+ *                 AND no currently_due requirements
  *   restricted  = has disabled_reason or past_due requirements
  *   pending_verification = has currently_due requirements but no disabled_reason
  *   rejected    = explicitly disabled with 'rejected' reason
@@ -170,6 +183,7 @@ export function mapAccountToStatus(
 ): ConnectAccountInfo {
   const chargesEnabled = account.charges_enabled ?? false;
   const payoutsEnabled = account.payouts_enabled ?? false;
+  const transfersCapability = account.capabilities?.transfers ?? null;
   const currentlyDue = account.requirements?.currently_due ?? [];
   const pastDue = account.requirements?.past_due ?? [];
   const disabledReason = account.requirements?.disabled_reason ?? null;
@@ -183,7 +197,15 @@ export function mapAccountToStatus(
     status = 'rejected';
   } else if (disabledReason || pastDue.length > 0) {
     status = 'restricted';
-  } else if (chargesEnabled && payoutsEnabled && currentlyDue.length === 0) {
+  } else if (payoutsEnabled && transfersCapability === 'active' && currentlyDue.length === 0) {
+    // `charges_enabled` is deliberately NOT part of this predicate.
+    // createExpressAccount() requests the `transfers` capability only, and
+    // never `card_payments`, so charges_enabled can legitimately stay false
+    // forever on these accounts. Gating 'verified' on it meant the status
+    // could never be reached and withdrawals were rejected permanently - the
+    // platform collects the money, the connected account only receives
+    // transfers. The capability this platform actually needs is `transfers`,
+    // so that is what is checked.
     status = 'verified';
   } else if (currentlyDue.length > 0) {
     status = 'pending_verification';
@@ -192,13 +214,17 @@ export function mapAccountToStatus(
     status = 'onboarding_started';
   }
 
+  const defaultCurrency = account.default_currency ?? null;
+
   return {
     status,
     chargesEnabled,
     payoutsEnabled,
-    defaultCurrency: account.default_currency ?? null,
+    transfersCapability,
+    defaultCurrency,
     currentlyDue,
     disabledReason,
+    unsupportedCurrency: !currencySupported(defaultCurrency),
   };
 }
 

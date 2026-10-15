@@ -300,4 +300,64 @@ describe('POST /api/v1/stripe-connect/webhook - transfer.reversed', () => {
     expect(world.withdrawal.status).toBe('failed');
     expect(world.campaign.totalWithdrawnAmount).toBe(30_000);
   });
+
+  /**
+   * Reversal-first ordering.
+   *
+   * The guard used to be `status <> 'failed'`, which also matched a row still
+   * in 'processing'. Stripe does not guarantee event ordering, so a
+   * transfer.reversed can arrive before its transfer.created: that guard then
+   * flipped the row and debited a counter nothing had ever incremented,
+   * freeing balance for money that had in fact been paid out.
+   *
+   * handleTransferCreated is the ONLY writer that increments
+   * total_withdrawn_amount, so only a row that reached 'completed' may debit
+   * it.
+   */
+  it('does not debit totalWithdrawnAmount when the reversal arrives before transfer.created', async () => {
+    world.withdrawal.status = 'processing';
+    // Credited by other, genuinely completed withdrawals. A wrong debit here
+    // is visible rather than clamped to zero by GREATEST.
+    world.campaign.totalWithdrawnAmount = 50_000;
+    const POST = await loadRoute();
+
+    constructEvent.mockReturnValue(transferEvent('transfer.reversed', 'evt_reversal_first'));
+    await POST(request());
+
+    // Terminal state is still recorded...
+    expect(world.withdrawal.status).toBe('failed');
+    // ...but the counter is untouched: nothing was ever added for this row.
+    expect(world.campaign.totalWithdrawnAmount).toBe(50_000);
+  });
+
+  it.each([['requested'], ['approved'], ['rejected']])(
+    'does not debit totalWithdrawnAmount for a reversal on a %s withdrawal',
+    async (status) => {
+      world.withdrawal.status = status;
+      world.campaign.totalWithdrawnAmount = 50_000;
+      const POST = await loadRoute();
+
+      constructEvent.mockReturnValue(transferEvent('transfer.reversed', `evt_rev_${status}`));
+      await POST(request());
+
+      expect(world.withdrawal.status).toBe('failed');
+      expect(world.campaign.totalWithdrawnAmount).toBe(50_000);
+    },
+  );
+
+  it('does not credit the counter when transfer.created lands after a reversal has already failed the row', async () => {
+    world.withdrawal.status = 'processing';
+    world.campaign.totalWithdrawnAmount = 50_000;
+    const POST = await loadRoute();
+
+    constructEvent.mockReturnValue(transferEvent('transfer.reversed', 'evt_rev_then_create_1'));
+    await POST(request());
+    constructEvent.mockReturnValue(transferEvent('transfer.created', 'evt_rev_then_create_2'));
+    await POST(request());
+
+    // The money left and came back, so the net effect on the counter is zero.
+    expect(world.withdrawal.status).toBe('failed');
+    expect(world.campaign.totalWithdrawnAmount).toBe(50_000);
+    expect(notifyWithdrawalCompleted).not.toHaveBeenCalled();
+  });
 });

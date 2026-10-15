@@ -156,6 +156,12 @@ async function handleTransferCreated(transfer: Stripe.Transfer) {
   // matches no row the withdrawal was already settled, so totalWithdrawnAmount
   // must not be incremented a second time and the creator must not be emailed
   // again.
+  //
+  // 'failed' is excluded as well, because Stripe does not guarantee event
+  // ordering: a transfer.reversed can arrive before its transfer.created. The
+  // reversal marks the row failed without touching the counter (nothing had
+  // been added for it yet), so a late transfer.created must not then add the
+  // amount to totalWithdrawnAmount for money that has already come back.
   const settled = await db.transaction(async (tx) => {
     const claimed = await tx
       .update(campaignWithdrawals)
@@ -163,7 +169,11 @@ async function handleTransferCreated(transfer: Stripe.Transfer) {
         status: 'completed',
         processedAt: new Date(),
       })
-      .where(and(eq(campaignWithdrawals.id, withdrawalId), ne(campaignWithdrawals.status, 'completed')))
+      .where(and(
+        eq(campaignWithdrawals.id, withdrawalId),
+        ne(campaignWithdrawals.status, 'completed'),
+        ne(campaignWithdrawals.status, 'failed'),
+      ))
       .returning({ id: campaignWithdrawals.id });
 
     if (claimed.length === 0) return false;
@@ -234,27 +244,50 @@ async function handleTransferReversed(transfer: Stripe.Transfer) {
     return;
   }
 
-  // Same durable guard as transfer.created: only the delivery that actually
-  // flips the row out of its current state may move the money counter.
+  // Only a withdrawal that reached 'completed' has had its amount ADDED to
+  // campaigns.total_withdrawn_amount (handleTransferCreated is the only writer
+  // of that counter), so only a 'completed' row may debit it.
+  //
+  // The previous guard was `status <> 'failed'`, which also matched a row still
+  // in 'processing'. Stripe does not guarantee event ordering, so a
+  // transfer.reversed can arrive before its transfer.created: that guard then
+  // flipped a 'processing' row and decremented a counter nothing had ever
+  // incremented, freeing balance for money that had in fact been paid out.
+  //
+  // So: debit only on a completed -> failed transition. Any other ordering
+  // still marks the withdrawal failed (it is terminal, and the funds stay
+  // released rather than reserved) but leaves the counter alone.
   await db.transaction(async (tx) => {
-    const claimed = await tx
+    const reversedAfterCompletion = await tx
       .update(campaignWithdrawals)
       .set({
         status: 'failed',
         failureReason: 'Transfer reversed',
         processedAt: new Date(),
       })
-      .where(and(eq(campaignWithdrawals.id, withdrawalId), ne(campaignWithdrawals.status, 'failed')))
+      .where(and(eq(campaignWithdrawals.id, withdrawalId), eq(campaignWithdrawals.status, 'completed')))
       .returning({ id: campaignWithdrawals.id });
 
-    if (claimed.length === 0) return;
+    if (reversedAfterCompletion.length > 0) {
+      await tx
+        .update(campaigns)
+        .set({
+          totalWithdrawnAmount: sql`GREATEST(0, ${campaigns.totalWithdrawnAmount} - ${transfer.amount})`,
+        })
+        .where(eq(campaigns.id, campaignId));
+      return;
+    }
 
+    // Reversal-first (or an already-failed row): record the terminal state
+    // WITHOUT touching the money counter.
     await tx
-      .update(campaigns)
+      .update(campaignWithdrawals)
       .set({
-        totalWithdrawnAmount: sql`GREATEST(0, ${campaigns.totalWithdrawnAmount} - ${transfer.amount})`,
+        status: 'failed',
+        failureReason: 'Transfer reversed',
+        processedAt: new Date(),
       })
-      .where(eq(campaigns.id, campaignId));
+      .where(and(eq(campaignWithdrawals.id, withdrawalId), ne(campaignWithdrawals.status, 'failed')));
   });
 
   // Logged via Sentry structured logging (no console.log in production)

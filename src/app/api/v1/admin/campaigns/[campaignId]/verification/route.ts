@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { campaigns, verificationDocuments, infoRequests, auditLogs, users } from '@/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { campaigns, donations, verificationDocuments, infoRequests, auditLogs, users } from '@/db/schema';
+import { eq, desc, sql } from 'drizzle-orm';
 import { requireRole } from '@/lib/auth';
 import { adminVerificationReviewSchema } from '@/lib/validators/verification';
 import {
@@ -92,7 +92,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         id: campaigns.id,
         creatorId: campaigns.creatorId,
         verificationStatus: campaigns.verificationStatus,
-        raisedAmount: campaigns.raisedAmount,
+        // raisedAmount is deliberately NOT read here: it is a blended
+        // real+seed figure and must never be used as the release basis. The
+        // released amount is computed from `donations` inside the UPDATE.
         title: campaigns.title,
         slug: campaigns.slug,
       })
@@ -161,15 +163,80 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       updatedAt: now,
     };
 
-    // Lump-sum release: on full verification, release the entire raised amount
+    // ── Lump-sum release on full verification ───────────────────────────────
+    //
+    // This must NOT be campaigns.raised_amount. raised_amount is a BLENDED
+    // figure: the simulation engine increments the same column for donations
+    // written with source = 'seed', which are fabricated and carry no money.
+    // Releasing it meant a campaign showing $40,000 of which $38,000 was
+    // seeded released $40,000 of real platform money to the creator.
+    //
+    // So release exactly the real, un-refunded donations, summed in the
+    // UPDATE itself so the figure is computed under the same transaction and
+    // row lock that sets verification_status - never from the unlocked read
+    // above, which a concurrent donation or refund can already have staled.
+    //
+    // LEAST(..., raised_amount) keeps the campaigns_released_lte_raised CHECK
+    // satisfied: a partially-failed bulk refund zeroes raised_amount while
+    // leaving some donations un-refunded, and an aborted transaction here
+    // would leave verification un-recorded.
     if (action === 'approve_t2') {
-      updateFields.totalReleasedAmount = campaign.raisedAmount;
+      updateFields.totalReleasedAmount = sql`LEAST((
+        SELECT COALESCE(SUM(${donations.amount}), 0)::int
+        FROM ${donations}
+        WHERE ${donations.campaignId} = ${campaignId}
+          AND ${donations.source} = 'real'
+          AND ${donations.refunded} = false
+      ), ${campaigns.raisedAmount})`;
     }
 
-    await db
-      .update(campaigns)
-      .set(updateFields as typeof campaigns.$inferInsert)
-      .where(eq(campaigns.id, campaignId));
+    // The release and the status change are one transaction: a campaign must
+    // never end up fully_verified with the wrong released amount, or with
+    // money released and the status un-recorded. The row lock also stops two
+    // concurrent approvals both releasing.
+    const applied = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ verificationStatus: campaigns.verificationStatus })
+        .from(campaigns)
+        .where(eq(campaigns.id, campaignId))
+        .for('update')
+        .limit(1);
+
+      if (!locked) return { ok: false as const, reason: 'not_found' as const };
+
+      // Re-validate under the lock: the unlocked check above can be stale.
+      if (!validTransitions[action].includes(locked.verificationStatus)) {
+        return { ok: false as const, reason: 'conflict' as const, status: locked.verificationStatus };
+      }
+
+      const [updated] = await tx
+        .update(campaigns)
+        .set(updateFields as typeof campaigns.$inferInsert)
+        .where(eq(campaigns.id, campaignId))
+        .returning({
+          totalReleasedAmount: campaigns.totalReleasedAmount,
+          raisedAmount: campaigns.raisedAmount,
+        });
+
+      return {
+        ok: true as const,
+        releasedAmount: updated?.totalReleasedAmount ?? null,
+        raisedAmount: updated?.raisedAmount ?? null,
+      };
+    });
+
+    if (!applied.ok) {
+      if (applied.reason === 'not_found') {
+        return NextResponse.json(
+          { ok: false, error: { code: 'NOT_FOUND', message: 'Campaign not found', requestId } } satisfies ApiError,
+          { status: 404 },
+        );
+      }
+      return NextResponse.json(
+        { ok: false, error: { code: 'CONFLICT', message: `Cannot ${action} from status: ${applied.status}`, requestId } } satisfies ApiError,
+        { status: 409 },
+      );
+    }
 
     // If requesting info, create an info request record
     if (action === 'request_info' && campaign.creatorId) {
@@ -208,6 +275,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         newStatus,
         notes: notes || null,
         deadline: deadline || null,
+        // Both figures, because they differ whenever a campaign carries seed
+        // donations: only the released figure is real money.
+        releasedAmount: action === 'approve_t2' ? applied.releasedAmount : null,
+        blendedRaisedAmount: action === 'approve_t2' ? applied.raisedAmount : null,
       },
       severity: action === 'reject' ? 'warning' : 'info',
     });

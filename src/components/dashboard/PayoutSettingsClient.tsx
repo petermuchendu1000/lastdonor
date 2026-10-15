@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+// Zod-only module: safe in a client component, unlike @/lib/stripe-connect.
+import { PLATFORM_PAYOUT_CURRENCY, isSupportedPayoutCurrency } from '@/lib/validators/payout';
 import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
@@ -75,8 +77,26 @@ const STATUS_CONFIG: Record<string, { label: string; variant: 'default' | 'secon
   pending_verification: { label: 'Pending Verification', variant: 'secondary' },
   verified: { label: 'Verified', variant: 'default' },
   restricted: { label: 'Pending Review', variant: 'secondary' },
-  rejected: { label: 'Needs Attention', variant: 'secondary' },
+  // Stripe rejects an account outright (fraud, ToS, sanctions list). It can
+  // never be used again and the API returns 409 forever once an account id is
+  // stored, so 'Needs Attention' with no button was a dead end.
+  rejected: { label: 'Account Cannot Be Used', variant: 'destructive' },
 };
+
+/**
+ * Mints a v4 UUID for the withdrawal idempotency key.
+ * crypto.randomUUID() is unavailable in non-secure contexts, so there is a
+ * Math.random fallback: a weak key is still a key, and a missing one means the
+ * request is rejected outright.
+ */
+export function newIdempotencyKey(): string {
+  const c: Crypto | undefined = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = Math.trunc(Math.random() * 16);
+    return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 const WITHDRAWAL_STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   requested: { label: 'Requested', className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' },
@@ -93,6 +113,16 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
+  // One idempotency key per campaign per form-fill. Minted when the amount is
+  // first typed, NOT per click: a double-clicked Withdraw button must send the
+  // same key twice so the server dedups it instead of transferring twice. The
+  // key is discarded only after the withdrawal is accepted.
+  const [withdrawKeys, setWithdrawKeys] = useState<Record<string, string>>({});
+
+  const setWithdrawAmount = useCallback((campaignId: string, value: string) => {
+    setWithdrawAmounts((prev) => ({ ...prev, [campaignId]: value }));
+    setWithdrawKeys((prev) => (prev[campaignId] ? prev : { ...prev, [campaignId]: newIdempotencyKey() }));
+  }, []);
 
   const handleSetupAccount = useCallback(async (country?: string) => {
     setLoading('setup');
@@ -144,12 +174,16 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
     }
     const cents = Math.round(dollars * 100);
 
+    // The server requires this key; omitting it 400s every withdrawal.
+    const idempotencyKey = withdrawKeys[campaignId] ?? newIdempotencyKey();
+    setWithdrawKeys((prev) => (prev[campaignId] ? prev : { ...prev, [campaignId]: idempotencyKey }));
+
     setLoading(`withdraw-${campaignId}`);
     try {
       const res = await fetch(`/api/v1/user-campaigns/${campaignId}/withdraw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: cents }),
+        body: JSON.stringify({ amount: cents, idempotencyKey }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -158,16 +192,28 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
       }
       toast.success(`Withdrawal of ${centsToDollars(cents)} initiated`);
       setWithdrawAmounts((prev) => ({ ...prev, [campaignId]: '' }));
+      // Only now is the key spent: a new form-fill gets a new one.
+      setWithdrawKeys((prev) => {
+        const next = { ...prev };
+        delete next[campaignId];
+        return next;
+      });
       router.refresh();
     } catch {
       toast.error('Something went wrong. Please try again.');
     } finally {
       setLoading(null);
     }
-  }, [withdrawAmounts, router]);
+  }, [withdrawAmounts, withdrawKeys, router]);
 
   const statusInfo = STATUS_CONFIG[connectStatus.status] ?? STATUS_CONFIG.not_started;
   const isVerified = connectStatus.status === 'verified';
+  const isRejected = connectStatus.status === 'rejected';
+  // Surfaced here, at account level, rather than at the moment of transfer:
+  // the ledger is USD cents and nothing in the platform converts currency, so
+  // a non-USD settlement currency blocks every withdrawal on this account.
+  const currencyUnsupported = !isSupportedPayoutCurrency(connectStatus.payoutCurrency);
+  const canWithdraw = isVerified && !currencyUnsupported;
 
   return (
     <div className="space-y-8">
@@ -230,6 +276,66 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
               </p>
             )}
 
+            {isRejected && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-800/50 dark:bg-red-900/20">
+                <div className="flex items-start gap-3">
+                  <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                      This payout account cannot be used
+                    </p>
+                    <p className="text-sm text-red-700 dark:text-red-400">
+                      Stripe has declined this connected account, and that decision cannot be
+                      changed from here or by starting the setup again. Until a replacement account
+                      is connected for you, withdrawals are unavailable, and any funds already
+                      released stay in your balance and are not lost.
+                    </p>
+                    <p className="text-sm text-red-700 dark:text-red-400">
+                      Email{' '}
+                      <a
+                        href="mailto:support@lastdonor.org?subject=Payout%20account%20declined"
+                        className="font-medium underline underline-offset-2 hover:no-underline"
+                      >
+                        support@lastdonor.org
+                      </a>{' '}
+                      to have your payout account reviewed and reconnected. Stripe may also have
+                      emailed you with its reason.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currencyUnsupported && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
+                <div className="flex items-start gap-3">
+                  <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                      Withdrawals are blocked on this account&apos;s currency
+                    </p>
+                    <p className="text-sm text-amber-700 dark:text-amber-400">
+                      Your payout account settles in{' '}
+                      {connectStatus.payoutCurrency?.toUpperCase()}, but donations are collected
+                      and tracked in {PLATFORM_PAYOUT_CURRENCY.toUpperCase()} and we do not convert
+                      between currencies. Paying out as-is would send you the wrong amount, so
+                      withdrawals are blocked rather than risked.
+                    </p>
+                    <p className="text-sm text-amber-700 dark:text-amber-400">
+                      Email{' '}
+                      <a
+                        href="mailto:support@lastdonor.org?subject=Payout%20currency%20mismatch"
+                        className="font-medium underline underline-offset-2 hover:no-underline"
+                      >
+                        support@lastdonor.org
+                      </a>{' '}
+                      to arrange your payout. Your released balance is unaffected.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-3">
               {(connectStatus.status === 'onboarding_started' || connectStatus.status === 'pending_verification' || connectStatus.status === 'restricted') && (
                 <Button
@@ -290,7 +396,7 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
                       </p>
                     </div>
 
-                    {isVerified && campaign.availableBalance > 0 && (
+                    {canWithdraw && campaign.availableBalance > 0 && (
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
@@ -300,12 +406,7 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
                           placeholder="Amount"
                           aria-label="Withdrawal amount"
                           value={withdrawAmounts[campaign.id] ?? ''}
-                          onChange={(e) =>
-                            setWithdrawAmounts((prev) => ({
-                              ...prev,
-                              [campaign.id]: e.target.value,
-                            }))
-                          }
+                          onChange={(e) => setWithdrawAmount(campaign.id, e.target.value)}
                           className="w-28 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-mono focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                         />
                         <Button
