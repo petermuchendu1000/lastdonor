@@ -142,6 +142,55 @@ describe('docs/29 §5: headers already assessed as sound must not regress', () =
     expect(pp).toContain('microphone=()');
     expect(pp).toContain('geolocation=()');
   });
+
+  /**
+   * The wallet buttons (Apple Pay / Google Pay) run the Payment Request API
+   * inside Stripe's cross-origin iframe, not in our document, so
+   * `payment=(self)` alone disables them and the console logs
+   * "payment is not allowed in this document". See docs/46.
+   */
+  describe('Permissions-Policy payment allowlist', () => {
+    function paymentAllowlist(): string {
+      const pp = headerValue('Permissions-Policy') ?? '';
+      const match = /payment=\(([^)]*)\)/.exec(pp);
+      expect(match, `expected a payment directive in "${pp}"`).not.toBeNull();
+      return match![1];
+    }
+
+    it('allows our own origin and the Stripe.js iframe origin', () => {
+      const allowed = paymentAllowlist();
+      expect(allowed).toContain('self');
+      expect(allowed).toContain('"https://js.stripe.com"');
+    });
+
+    it('allows no origin beyond self and js.stripe.com', () => {
+      const tokens = paymentAllowlist().split(/\s+/).filter(Boolean);
+      expect(tokens.sort()).toEqual(['"https://js.stripe.com"', 'self']);
+    });
+
+    it('is the only directive that is widened', () => {
+      const pp = headerValue('Permissions-Policy') ?? '';
+      const widened = [...pp.matchAll(/([a-z-]+)=\(([^)]*)\)/g)]
+        .filter(([, , allowlist]) => allowlist.trim() !== '')
+        .map(([, feature]) => feature);
+      expect(widened).toEqual(['payment']);
+    });
+
+    it('keeps the camera, microphone and geolocation allowlists empty', () => {
+      const pp = headerValue('Permissions-Policy') ?? '';
+      for (const feature of ['camera', 'microphone', 'geolocation']) {
+        const match = new RegExp(`${feature}=\\(([^)]*)\\)`).exec(pp);
+        expect(match, `expected a ${feature} directive in "${pp}"`).not.toBeNull();
+        expect(match![1].trim(), feature).toBe('');
+      }
+    });
+
+    it('names the same Stripe origin the CSP frames', () => {
+      // A payment allowlist pointing at an origin the CSP will not let us
+      // frame would be dead config, and vice versa.
+      expect(csp.get('frame-src') ?? []).toContain('https://js.stripe.com');
+    });
+  });
 });
 
 describe('image optimiser keeps its own hardened CSP', () => {

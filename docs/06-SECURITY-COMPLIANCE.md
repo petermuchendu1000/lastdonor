@@ -257,8 +257,24 @@ Content-Security-Policy: default-src 'self'; script-src 'self' js.stripe.com pla
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 Referrer-Policy: strict-origin-when-cross-origin
-Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(self)
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(self "https://js.stripe.com")
 ```
+
+**Amended 2026-10-15 (docs/46):** the `payment` directive read `payment=(self)`
+until this date. That is too narrow to be correct: the Payment Request API that
+renders Apple Pay and Google Pay runs inside Stripe's cross-origin
+`js.stripe.com` iframe, not in our document, so `(self)` disabled the wallet
+buttons and the browser console logged `Potential permissions policy violation:
+payment is not allowed in this document` on every page loading Stripe.js
+(observed live 2026-10-15). `camera`, `microphone` and `geolocation` are
+unchanged and still denied to every origin including our own. The emitted value
+is pinned by `test/security/csp-headers.test.ts`. **Not verified end to end:**
+the deployed publishable key is empty, so no wallet payment has been exercised
+against this header.
+
+The `Content-Security-Policy` line above is also the original 2026 design, not
+what ships; the live value is in `next.config.ts` and is pinned by the same
+test file.
 
 ### 7.3 Secret Management
 

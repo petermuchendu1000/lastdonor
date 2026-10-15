@@ -51,13 +51,52 @@ function safeCallbackUrl(raw: string | null): string {
 }
 
 /**
- * The only credentials failure we distinguish. `src/lib/auth.ts` emits exactly
- * two codes - `invalid_credentials` and `password_reset_required` - because
- * distinct messages for locked / unknown / OAuth-only accounts turned this form
- * into an account-existence oracle (docs/32). Do not reintroduce them.
+ * Credential-failure copy. Read this before editing either string.
+ *
+ * `src/lib/auth.ts` emits exactly two codes of its own -
+ * `invalid_credentials` and `password_reset_required` - because distinct
+ * messages for locked / unknown / OAuth-only accounts turned this form into an
+ * account-existence oracle (docs/32). Do not reintroduce them.
+ *
+ * But "one code from authorize()" is not "one outcome at the client".
+ * `signIn()` reads `code` out of the callback URL
+ * (node_modules/next-auth/react.js:175), and @auth/core also sends its own
+ * default code `credentials` whenever `authorize` returns null or the
+ * provider itself fails - which is what a database outage looks like. Those
+ * two must not share one message: observed live 2026-10-15, a wrong password
+ * and a dead database rendered the identical string, so the sign-in form told
+ * a user who mistyped that the site was broken, and a user whose password was
+ * correct to check their password. Opposite instructions from one sentence.
+ *
+ * So there are two messages, split on transient-vs-not, NOT on anything about
+ * the account:
+ *
+ *   - `invalid_credentials` -> INVALID_CREDENTIALS_MESSAGE. Covers unknown
+ *     address, wrong password, OAuth-only account and lockout alike, because
+ *     `authorize()` collapses all four into this one code. "Incorrect email
+ *     or password" is true of every one of them and names neither.
+ *   - anything else -> TRANSIENT_FAILURE_MESSAGE. Says retry, claims nothing
+ *     about the credentials, and does not blame the user for a server fault.
+ *
+ * Neither string is reached by a different path, at a different time or with a
+ * different status depending on whether the account exists; the split is on
+ * the server's own failure mode, which an enumerator cannot steer per address.
+ * See docs/46 and `src/lib/auth.enumeration.test.ts`.
  */
-const SIGNIN_FAILED_MESSAGE =
-  "We couldn't sign you in. Check your email and password, or continue with Google.";
+const INVALID_CREDENTIALS_MESSAGE =
+  'Incorrect email or password. Check both, or continue with Google.';
+
+const TRANSIENT_FAILURE_MESSAGE =
+  "We couldn't sign you in right now. Please try again shortly.";
+
+/**
+ * Plain-text twin of the forced-reset block rendered below. The inline path
+ * renders that case with a real link; the `?error=` redirect path has only a
+ * string to work with, so it points at the "Forgot password?" link that the
+ * form already shows.
+ */
+const PASSWORD_RESET_REQUIRED_MESSAGE =
+  'For your security, you must reset your password before logging in. Use the "Forgot password?" link below.';
 
 /**
  * Copy for NextAuth's `?error=` codes. Without this the OAuth failure path
@@ -77,16 +116,31 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
     'Google sign-in was declined or cancelled. Try again, or sign in with your email and password below.',
   Verification:
     'That sign-in link has expired or was already used. Try again, or sign in with your email and password below.',
-  // Only reachable on the redirect path (the form posts with redirect: false),
-  // but it must stay as non-disclosing as an inline failure.
-  CredentialsSignin: SIGNIN_FAILED_MESSAGE,
 };
 
 const OAUTH_ERROR_FALLBACK =
   "We couldn't complete that sign-in. Try again, or sign in with your email and password below.";
 
-function oauthErrorMessage(code: string | null): string | null {
+/**
+ * Copy for a credentials failure that arrived on the redirect path rather than
+ * inline. `?error=CredentialsSignin` always travels with `?code=`, so the same
+ * split used inline applies here: only `invalid_credentials` may say the
+ * credentials were wrong.
+ */
+function credentialsErrorMessage(credentialsCode: string | null | undefined): string {
+  if (credentialsCode === 'invalid_credentials') return INVALID_CREDENTIALS_MESSAGE;
+  if (credentialsCode === 'password_reset_required') return PASSWORD_RESET_REQUIRED_MESSAGE;
+  return TRANSIENT_FAILURE_MESSAGE;
+}
+
+function oauthErrorMessage(
+  code: string | null,
+  credentialsCode?: string | null,
+): string | null {
   if (!code) return null;
+  // Only reachable on the redirect path (the form posts with redirect: false),
+  // but it must stay as non-disclosing as an inline failure.
+  if (code === 'CredentialsSignin') return credentialsErrorMessage(credentialsCode);
   return OAUTH_ERROR_MESSAGES[code] ?? OAUTH_ERROR_FALLBACK;
 }
 
@@ -94,7 +148,10 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = safeCallbackUrl(searchParams.get('callbackUrl'));
-  const oauthError = oauthErrorMessage(searchParams.get('error'));
+  const oauthError = oauthErrorMessage(
+    searchParams.get('error'),
+    searchParams.get('code'),
+  );
   const registerHref = callbackUrl !== '/dashboard'
     ? `/register?callbackUrl=${encodeURIComponent(callbackUrl)}`
     : '/register';
@@ -122,15 +179,26 @@ function LoginForm() {
 
       if (result?.error) {
         const code = (result as { code?: string }).code;
-        // Everything other than a forced reset collapses to one neutral
-        // message. See SIGNIN_FAILED_MESSAGE.
-        setError(code === 'password_reset_required' ? code : 'signin_failed');
+        // Three outcomes, split on the server's failure mode and never on
+        // anything about the account. See INVALID_CREDENTIALS_MESSAGE.
+        if (code === 'password_reset_required') {
+          setError('password_reset_required');
+        } else if (code === 'invalid_credentials') {
+          setError('invalid_credentials');
+        } else {
+          // @auth/core's own default code (`credentials`), a missing code, or
+          // anything it adds later. A provider-level fault, not the user's
+          // typing - a database outage lands here.
+          setError('signin_transient');
+        }
       } else {
         router.push(callbackUrl);
         router.refresh();
       }
     } catch {
-      setError('signin_failed');
+      // The sign-in POST itself never completed, so nothing is known about the
+      // credentials. Transient by definition.
+      setError('signin_transient');
     } finally {
       setIsSubmitting(false);
     }
@@ -166,14 +234,18 @@ function LoginForm() {
                   </Link>
                 </>
               )}
-              {error === 'signin_failed' && (
+              {error === 'invalid_credentials' && (
                 <>
-                  {SIGNIN_FAILED_MESSAGE}{' '}
+                  {INVALID_CREDENTIALS_MESSAGE}{' '}
                   <Link href="/login/forgot-password" className="font-semibold underline">
                     Reset your password
                   </Link>
                 </>
               )}
+              {/* No reset link here: the password is not the problem, and
+                  sending a user to Forgot password during an outage costs
+                  them a reset they did not need. */}
+              {error === 'signin_transient' && <>{TRANSIENT_FAILURE_MESSAGE}</>}
               {!error && oauthError}
             </div>
           )}

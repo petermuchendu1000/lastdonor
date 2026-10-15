@@ -923,10 +923,23 @@ describe('Login failure UI is reachable (audit: dead error branches)', () => {
     expect(loginSource).not.toContain('An unexpected error occurred');
   });
 
-  it('renders one non-disclosing message for every other failure', () => {
+  /**
+   * Updated 2026-10-15 (docs/46). The page used to render ONE message for
+   * every failure other than a forced reset. That collapsed two opposite
+   * instructions into one sentence: observed live, a wrong password and a
+   * database outage produced the identical string. The split is now on the
+   * server's failure mode (`invalid_credentials` vs anything else), never on
+   * anything about the account, so the enumeration control in docs/32 is
+   * untouched - see `src/lib/auth.enumeration.test.ts`.
+   */
+  it('renders a credential message and a distinct transient message', () => {
     expect(loginSource).toContain(
-      "We couldn't sign you in. Check your email and password, or continue with Google.",
+      'Incorrect email or password. Check both, or continue with Google.',
     );
+    expect(loginSource).toContain(
+      "We couldn't sign you in right now. Please try again shortly.",
+    );
+    expect(loginSource).toContain("code === 'invalid_credentials'");
     expect(loginSource).toContain("code === 'password_reset_required'");
   });
 
@@ -939,15 +952,21 @@ describe('Login failure UI is reachable (audit: dead error branches)', () => {
 describe('OAuth error codes render an explanation', () => {
   const loginSource = readFileSync(resolve(ROOT, 'src/app/login/page.tsx'), 'utf-8');
 
-  function loadOauthErrorMessage(): (code: string | null) => string | null {
+  function loadOauthErrorMessage(): (
+    code: string | null,
+    credentialsCode?: string | null,
+  ) => string | null {
     const map = loginSource.match(
-      /^const SIGNIN_FAILED_MESSAGE[\s\S]*?^function oauthErrorMessage\([\s\S]*?^}/m,
+      /^const INVALID_CREDENTIALS_MESSAGE[\s\S]*?^function oauthErrorMessage\([\s\S]*?^}/m,
     );
     if (!map) throw new Error('oauthErrorMessage not found in login page');
     const js = transformSync(`${map[0]}\nreturn oauthErrorMessage;`, {
       loader: 'ts',
     }).code;
-    return new Function(js)() as (code: string | null) => string | null;
+    return new Function(js)() as (
+      code: string | null,
+      credentialsCode?: string | null,
+    ) => string | null;
   }
 
   const oauthErrorMessage = loadOauthErrorMessage();
@@ -964,8 +983,17 @@ describe('OAuth error codes render an explanation', () => {
   });
 
   it('keeps the credentials-redirect path non-disclosing too', () => {
+    // The redirect path carries ?error=CredentialsSignin&code=<code>, so it
+    // gets the same two-way split as the inline path.
+    expect(oauthErrorMessage('CredentialsSignin', 'invalid_credentials')).toBe(
+      'Incorrect email or password. Check both, or continue with Google.',
+    );
+    expect(oauthErrorMessage('CredentialsSignin', 'credentials')).toBe(
+      "We couldn't sign you in right now. Please try again shortly.",
+    );
+    // No code at all is a provider fault, not a typo.
     expect(oauthErrorMessage('CredentialsSignin')).toBe(
-      "We couldn't sign you in. Check your email and password, or continue with Google.",
+      "We couldn't sign you in right now. Please try again shortly.",
     );
   });
 

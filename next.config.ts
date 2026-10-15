@@ -208,8 +208,40 @@ const nextConfig: NextConfig = {
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         {
+          /**
+           * Permissions-Policy.
+           *
+           * `camera`, `microphone` and `geolocation` are denied to every
+           * origin, including ours: nothing in `src/` requests them, so the
+           * empty allowlist costs nothing and removes the prompt surface.
+           *
+           * `payment` is the exception, and it needs an explicit third-party
+           * origin. The Payment Request API — which is what renders the Apple
+           * Pay and Google Pay buttons — does not run in our document. Stripe
+           * mounts it inside a cross-origin iframe from `js.stripe.com`
+           * (`frame-src https://js.stripe.com` in the CSP below is the same
+           * iframe). A bare `payment=(self)` allowlists our origin only, so
+           * the wallet iframe is refused the feature and the browser logs
+           * `Potential permissions policy violation: payment is not allowed in
+           * this document` on every page that loads Stripe.js. Observed live
+           * 2026-10-15.
+           *
+           * `payment=(self "https://js.stripe.com")` is the structured-header
+           * allowlist form: a space-separated list of `self` and
+           * double-quoted serialised origins (W3C Permissions Policy, §
+           * "Allowlists"; checked 2026-10-15). It widens `payment` to exactly
+           * one third-party origin and nothing else.
+           *
+           * NOT VERIFIED END TO END: the deployed `NEXT_PUBLIC_STRIPE_*`
+           * publishable key is an empty string, so no wallet button can
+           * render here and no real Apple Pay / Google Pay payment has been
+           * exercised against this header. What is verified is the emitted
+           * header value, pinned by `test/security/csp-headers.test.ts`. See
+           * docs/46.
+           */
           key: "Permissions-Policy",
-          value: "camera=(), microphone=(), geolocation=(), payment=(self)",
+          value:
+            'camera=(), microphone=(), geolocation=(), payment=(self "https://js.stripe.com")',
         },
         {
           key: "Strict-Transport-Security",
