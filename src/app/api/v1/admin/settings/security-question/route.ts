@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
+import { verifyPassword } from '@/lib/password';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 
@@ -106,7 +107,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(error, { status: 400 });
   }
 
-  const passwordValid = await bcrypt.compare(currentPassword, user.passwordHash);
+  // `passwordHash` is bcrypt over HMAC-SHA256(PASSWORD_PEPPER, password) — see
+  // `src/lib/password.ts`, where the pepper is mandatory in production. A bare
+  // bcrypt compare of the RAW password against that hash therefore compared two
+  // different inputs and could only ever be false, so every admin was told
+  // "Current password is incorrect" when it was correct, and no admin could set
+  // a security question at all.
+  //
+  // Note the asymmetry with `verify-security/route.ts`, which is correct as it
+  // stands: that one compares the security ANSWER against `securityAnswerHash`,
+  // which is written below with a bare `bcrypt.hash` of the normalised answer.
+  // Answer hashes are unpeppered on both sides, so they are self-consistent.
+  const passwordValid = await verifyPassword(currentPassword, user.passwordHash);
   if (!passwordValid) {
     const error: ApiError = {
       ok: false,

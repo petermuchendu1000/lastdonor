@@ -63,7 +63,25 @@ export async function POST(request: NextRequest) {
       expires,
     });
 
-    // Send email
+    // Send email.
+    //
+    // The token and the address travel in the query string because
+    // `/login/reset-password` reads them from `useSearchParams`. A URL is the
+    // leakiest place to put a credential — it reaches `Referer` headers,
+    // browser history, server access logs, and any client-side telemetry that
+    // captures `window.location`. Two of those are closed deliberately and
+    // must stay closed:
+    //
+    //   1. `src/instrumentation-client.ts` strips `token` and `email` from
+    //      every event, transaction and breadcrumb before Sentry sends it.
+    //      Without that hook, `replaysOnErrorSampleRate: 1.0` uploaded a live
+    //      account-takeover credential on any error on that page.
+    //   2. `src/app/login/reset-password/layout.tsx` is `robots: { index:
+    //      false }`.
+    //
+    // Moving the token into a POST body or a one-time-exchange cookie would
+    // remove the class of problem rather than mitigating it, but that needs a
+    // change to the reset page as well, so it is left as follow-up.
     const resetUrl = `${process.env.NEXTAUTH_URL || 'https://lastdonor.org'}/login/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
 
     const { error: sendError } = await retryWithBackoff(
