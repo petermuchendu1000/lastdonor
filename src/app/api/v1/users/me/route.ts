@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
-import { users, donations, campaigns, campaignMessages, donorCampaignSubscriptions, supportConversations, auditLogs } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { users, donations, campaigns, campaignMessages, donorCampaignSubscriptions, newsletterSubscribers, supportConversations, auditLogs } from '@/db/schema';
+import { eq, or } from 'drizzle-orm';
+import { DELETED_DONOR_PLACEHOLDER, DELETED_DONOR_NAME } from '@/lib/constants';
 import { updateProfileSchema } from '@/lib/validators/user';
 import { resend } from '@/lib/resend';
 import { retryWithBackoff } from '@/lib/utils/retry';
@@ -130,8 +131,8 @@ export async function DELETE(request: NextRequest) {
       await tx
         .update(donations)
         .set({
-          donorName: 'Deleted User',
-          donorEmail: 'deleted@lastdonor.org',
+          donorName: DELETED_DONOR_NAME,
+          donorEmail: DELETED_DONOR_PLACEHOLDER,
           message: null,
           userId: null,
         })
@@ -140,14 +141,55 @@ export async function DELETE(request: NextRequest) {
       // Null out campaign messages FK
       await tx
         .update(campaignMessages)
-        .set({ userId: null, donorName: 'Deleted User' })
+        .set({ userId: null, donorName: DELETED_DONOR_NAME })
         .where(eq(campaignMessages.userId, userId));
 
-      // Null out donor subscriptions FK
+      // Erase campaign-update subscriptions outright.
+      //
+      // Nulling `userId` here (what this did before) left `donor_email`
+      // holding the deleted person's REAL address in a table that mail is
+      // sent to: `bulk-email-recipients.ts` resolves the `subscribed_donors`
+      // filter straight off `donor_campaign_subscriptions.donor_email`, and
+      // the campaign-update digest reads the same rows. So a user who
+      // deleted their account kept receiving campaign email at the address
+      // they had just asked us to forget.
+      //
+      // Deleted rather than scrubbed to the `deleted@lastdonor.org`
+      // placeholder: `idx_donor_subs_email_campaign` is UNIQUE on
+      // (donor_email, campaign_id), so two deleted users who both followed
+      // the same campaign would collide and abort the transaction. Deletion
+      // is also the honest reading of an erasure request.
+      //
+      // Matched on userId OR the address, because a row can carry the email
+      // with a null userId (a guest donor who later registered).
       await tx
-        .update(donorCampaignSubscriptions)
-        .set({ userId: null })
-        .where(eq(donorCampaignSubscriptions.userId, userId));
+        .delete(donorCampaignSubscriptions)
+        .where(
+          userEmail
+            ? or(
+                eq(donorCampaignSubscriptions.userId, userId),
+                eq(donorCampaignSubscriptions.donorEmail, userEmail),
+              )
+            : eq(donorCampaignSubscriptions.userId, userId),
+        );
+
+      // Erase the newsletter subscription.
+      //
+      // Previously untouched by account deletion, so a deleted user's row
+      // kept `unsubscribed_at IS NULL` and the weekly newsletter cron kept
+      // mailing them indefinitely. There is no userId on this table, so the
+      // address is the only join.
+      //
+      // Trade-off accepted: deleting the row leaves no suppression record,
+      // so the same address could be subscribed again later. That would be a
+      // fresh, affirmative opt-in, which is the correct outcome for someone
+      // who asked to be forgotten; keeping a durable record of them in order
+      // to honour the erasure would defeat it.
+      if (userEmail) {
+        await tx
+          .delete(newsletterSubscribers)
+          .where(eq(newsletterSubscribers.email, userEmail));
+      }
 
       // Null out support conversations FK
       await tx

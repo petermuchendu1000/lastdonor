@@ -25,6 +25,8 @@ const state = vi.hoisted(() => ({
   audits: [] as Row[],
   /** Predicate text captured per select, for assertions about the predicate. */
   calls: [] as string[],
+  /** Conditions passed to `.where()`, per table, for predicate assertions. */
+  wheres: [] as { table: string; cond: unknown }[],
 }));
 
 vi.mock('@/db/schema', () => ({
@@ -38,6 +40,7 @@ vi.mock('@/db/schema', () => ({
 vi.mock('drizzle-orm', () => ({
   and: (...parts: unknown[]) => ({ op: 'and', parts }),
   eq: (col: unknown, value: unknown) => ({ op: 'eq', col, value }),
+  ne: (col: unknown, value: unknown) => ({ op: 'ne', col, value }),
   desc: (col: unknown) => ({ op: 'desc', col }),
   inArray: (col: unknown, values: unknown[]) => ({ op: 'inArray', col, values }),
   sql: (strings: TemplateStringsArray, ...vals: unknown[]) => ({ op: 'sql', strings, vals }),
@@ -52,7 +55,10 @@ vi.mock('@/db', () => {
       state.calls.push(table);
       return c;
     };
-    c.where = () => c;
+    c.where = (cond: unknown) => {
+      state.wheres.push({ table, cond });
+      return c;
+    };
     c.orderBy = () => c;
     c.limit = async () => rowsFor(table);
     c.then = (resolve: (v: unknown) => unknown) =>
@@ -95,6 +101,7 @@ beforeEach(() => {
   state.users = [];
   state.audits = [];
   state.calls = [];
+  state.wheres = [];
 });
 
 afterEach(() => {
@@ -264,4 +271,44 @@ describe('filter persistence via the audit trail', () => {
     expect(isRecipientFilter('nope')).toBe(false);
     expect(isRecipientFilter(undefined)).toBe(false);
   });
+});
+
+describe('the account-deletion tombstone is never a recipient', () => {
+  /**
+   * Account deletion scrubs `donations.donor_email` to
+   * DELETED_DONOR_PLACEHOLDER, so every deleted user's donations collapse onto
+   * one synthetic address. Resolving it as a recipient would mail an address
+   * that belongs to nobody, cannot consent, and hard-bounces - which is how a
+   * sending domain gets blocked. Verified absent before the 2026-10-15 fix.
+   *
+   * The `@/db` mock's `where` does not apply predicates to the fixture rows, so
+   * this asserts the predicate was built rather than its effect on rows. That
+   * is the honest limit of this layer; the effect is Postgres's job.
+   */
+  function flattenConds(cond: unknown, out: Record<string, unknown>[] = []) {
+    if (!cond || typeof cond !== 'object') return out;
+    const c = cond as { op?: string; parts?: unknown[] };
+    if (c.op === 'and' && Array.isArray(c.parts)) {
+      for (const p of c.parts) flattenConds(p, out);
+    } else {
+      out.push(cond as Record<string, unknown>);
+    }
+    return out;
+  }
+
+  it.each(['all_donors', 'registered_donors', 'guest_donors', 'refunded_donors'] as const)(
+    'excludes the tombstone address for the %s filter',
+    async (filter) => {
+      state.donations = [];
+      await countBulkEmailRecipients(filter, null);
+
+      const donationWheres = state.wheres.filter((w) => w.table === 'donations');
+      expect(donationWheres.length).toBeGreaterThan(0);
+
+      const conds = donationWheres.flatMap((w) => flattenConds(w.cond));
+      expect(
+        conds.some((c) => c.op === 'ne' && c.value === 'deleted@lastdonor.org'),
+      ).toBe(true);
+    },
+  );
 });

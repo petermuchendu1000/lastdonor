@@ -151,3 +151,36 @@ per §1 nothing is seeded, so the question remains live and cheap to settle.
 
 Any future change to this should amend this document rather than add a
 contradicting one, per `CLAUDE.md`.
+
+---
+
+## 8. Amendment 2026-10-15 — the question is still open, and the engine now fails closed
+
+**The decision in §2 and the engineering position in §3 both stand unchanged.**
+Nothing below reverses, softens or supersedes either, and §7's status is still
+**Open**.
+
+What changed is only the *default*. §3's refusal rested on nothing but
+`SETTING_DEFAULTS['simulation.enabled']` being `false` plus the absence of a
+scheduler — one admin-UI checkbox and one Vercel deploy away from fabricated
+donations appearing in public campaign totals, since `vercel.json` shipped a
+quarter-hourly schedule for the job. As of commit `df87a9b`:
+
+- `/api/v1/cron/simulate-donations` returns **403** ahead of the overlap lock,
+  the settings reads and every write, unless the deployment environment carries
+  `SEED_DONATIONS_OPT_IN=fabricated-donations-acknowledged`;
+- the `simulate-donations` entry was removed from `vercel.json`;
+- seed donations no longer mint `pi_`-shaped payment identifiers, which could
+  collide with a real Stripe PaymentIntent in the UNIQUE index that is the
+  platform's only webhook replay protection;
+- `scripts/seed-new-campaign-donations.ts` is marked ⛔ DO NOT RUN.
+
+The gate is environmental rather than an admin setting because the only party
+who can accept the decision in §2 is the one who controls the deployment, and a
+UI toggle was judged too cheap a trigger for publishing fabricated money.
+
+**Full reasoning, rejected alternatives and the known weakness (the gate sits at
+the route, not inside the write path) are in
+`docs/41-JOURNEY-REMEDIATION-ADR.md` §4.** Options 1, 2, 3 and 4 in §6 above
+remain available and unbuilt; setting the environment variable is how the owner
+exercises §2 without any further code change.

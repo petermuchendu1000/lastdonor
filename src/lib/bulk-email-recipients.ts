@@ -29,7 +29,8 @@
  */
 import { db } from '@/db';
 import { donations, donorCampaignSubscriptions, newsletterSubscribers, users, auditLogs } from '@/db/schema';
-import { and, eq, desc, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { DELETED_DONOR_PLACEHOLDER } from '@/lib/constants';
 import { RECIPIENT_FILTERS } from '@/lib/validators/verification';
 
 export type RecipientFilter = (typeof RECIPIENT_FILTERS)[number];
@@ -105,6 +106,14 @@ async function resolveCandidates(
   const conditions = [
     eq(donations.source, 'real'),
     eq(donations.refunded, filter === 'refunded_donors'),
+    // Never mail the deletion placeholder. Account deletion scrubs
+    // `donations.donor_email` to DELETED_DONOR_PLACEHOLDER
+    // (`users/me/route.ts`), so without this every deleted user's donations
+    // collapse onto one synthetic address that is then resolved as a real
+    // recipient. It belongs to nobody, it cannot consent, and repeatedly
+    // sending bulk mail to an address that hard-bounces is what gets a
+    // sending domain blocked.
+    ne(donations.donorEmail, DELETED_DONOR_PLACEHOLDER),
   ];
 
   if (campaignId) conditions.push(eq(donations.campaignId, campaignId));
