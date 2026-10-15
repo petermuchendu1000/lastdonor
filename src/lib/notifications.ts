@@ -368,9 +368,21 @@ export async function notifyAdminsCampaignSubmitted(p: {
 
 /**
  * Fetch subscribers for a campaign. Returns subscribed donors (both registered and guest).
+ *
+ * `opts.respectCampaignUpdatesPreference` additionally drops registered users
+ * whose `preferences.emailCampaignUpdates` is `false`. That toggle has existed
+ * in the account UI since launch and was read nowhere (audit 2026-10-15), so
+ * the digest mailed people who had switched it off. It is applied only to the
+ * update/thank-you digests: campaign *status* changes (paused, suspended,
+ * resumed) concern money the donor has already given and are not suppressed by
+ * a campaign-updates preference. Guest subscribers have no user row, so their
+ * opt-out remains `donor_campaign_subscriptions.subscribed`.
  */
-async function getSubscribedDonors(campaignId: string) {
-  return db
+async function getSubscribedDonors(
+  campaignId: string,
+  opts: { respectCampaignUpdatesPreference?: boolean } = {},
+) {
+  const rows = await db
     .select({
       donorEmail: donorCampaignSubscriptions.donorEmail,
       userId: donorCampaignSubscriptions.userId,
@@ -382,6 +394,24 @@ async function getSubscribedDonors(campaignId: string) {
         eq(donorCampaignSubscriptions.subscribed, true),
       ),
     );
+
+  if (!opts.respectCampaignUpdatesPreference) return rows;
+
+  const userIds = [...new Set(rows.map((r) => r.userId).filter((v): v is string => Boolean(v)))];
+  if (userIds.length === 0) return rows;
+
+  const prefRows = await db
+    .select({ id: users.id, preferences: users.preferences })
+    .from(users)
+    .where(inArray(users.id, userIds));
+
+  const optedOut = new Set(
+    prefRows
+      .filter((row) => (row.preferences as Record<string, unknown> | null)?.emailCampaignUpdates === false)
+      .map((row) => row.id),
+  );
+
+  return rows.filter((row) => !row.userId || !optedOut.has(row.userId));
 }
 
 /** Helper: resolve a donor name from the user record or donation record. */
@@ -1322,7 +1352,9 @@ export async function notifyCampaignUpdateDigest(p: {
   raisedCents: number;
   goalCents: number;
 }) {
-  const subscribers = await getSubscribedDonors(p.campaignId);
+  const subscribers = await getSubscribedDonors(p.campaignId, {
+    respectCampaignUpdatesPreference: true,
+  });
   const nameMap = await resolveDonorNames(subscribers.map((s) => s.donorEmail));
 
   for (const sub of subscribers) {
@@ -1365,7 +1397,9 @@ export async function notifyCreatorThankYouUpdate(p: {
   thankYouMessage: string;
   progressPercent: number;
 }) {
-  const subscribers = await getSubscribedDonors(p.campaignId);
+  const subscribers = await getSubscribedDonors(p.campaignId, {
+    respectCampaignUpdatesPreference: true,
+  });
   const nameMap = await resolveDonorNames(subscribers.map((s) => s.donorEmail));
 
   for (const sub of subscribers) {

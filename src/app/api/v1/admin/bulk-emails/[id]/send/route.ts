@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { bulkEmails, donations, auditLogs } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { bulkEmails, auditLogs } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { resend } from '@/lib/resend';
+import { retryWithBackoff } from '@/lib/utils/retry';
 import { bulkOpSemaphore } from '@/lib/concurrency-limiter';
+import {
+  resolveBulkEmailRecipients,
+  loadPersistedRecipientFilter,
+  bulkEmailRecipientCeiling,
+  isRecipientFilter,
+  type BulkEmailRecipient,
+  type RecipientFilter,
+} from '@/lib/bulk-email-recipients';
+import { unsubscribeMechanism, mailingPostalAddress } from '@/lib/unsubscribe-tokens';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import type { UserRole } from '@/types';
@@ -110,14 +120,62 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Mark as sending
+    const body = (await request.json().catch(() => null)) as
+      | { confirmAllDonors?: unknown; recipientFilter?: unknown }
+      | null;
+
+    // ── Blast radius gate (P0) ───────────────────────────────────────────
+    // `campaignId` is optional on a draft, and the old resolver simply
+    // omitted the campaign predicate when it was absent — so one POST, with
+    // no second confirmation and no cap, mailed every donor who had ever
+    // donated. An unscoped send now needs an explicit flag.
+    if (!email.campaignId && body?.confirmAllDonors !== true) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'This draft is not scoped to a campaign, so sending it would mail the entire donor base. Re-send with { "confirmAllDonors": true } to confirm.', requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+
+    // ── Recipient filter (P0) ────────────────────────────────────────────
+    // The filter the admin chose at draft time is persisted in
+    // `audit_logs.details` (there is no `bulk_emails.recipient_filter`
+    // column and migrations are frozen — CLAUDE.md). Fail closed when it
+    // cannot be recovered: guessing a default is what made the preview count
+    // and the actual audience unrelated.
+    const bodyFilter = body?.recipientFilter;
+    const persistedFilter = await loadPersistedRecipientFilter(id);
+    const effectiveFilter: RecipientFilter | null =
+      persistedFilter ?? (isRecipientFilter(bodyFilter) ? bodyFilter : null);
+
+    if (!effectiveFilter) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'The recipient filter for this draft could not be recovered from the audit trail. Re-create the draft, or re-send with an explicit "recipientFilter".', requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+
+    // ── Sender identity (CAN-SPAM) ───────────────────────────────────────
+    const postalAddress = mailingPostalAddress();
+
+    // Resolve unique recipients with the same helper that produced the
+    // preview count, minus everyone who has opted out (newsletter
+    // unsubscribes, per-campaign unsubscribes, and user preferences).
+    const recipients = await resolveBulkEmailRecipients(effectiveFilter, email.campaignId);
+
+    // ── Hard ceiling ─────────────────────────────────────────────────────
+    const ceiling = bulkEmailRecipientCeiling();
+    if (recipients.length > ceiling) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: `This send would reach ${recipients.length} recipients, above the ${ceiling} hard ceiling. Narrow the filter or scope it to a campaign.`, requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+
+    // Mark as sending (only once every gate above has passed)
     await db.update(bulkEmails).set({
       status: 'sending',
       startedAt: new Date(),
     }).where(eq(bulkEmails.id, id));
-
-    // Resolve unique recipients
-    const recipients = await resolveRecipients(email.campaignId);
 
     // Acquire semaphore to prevent pool exhaustion from concurrent bulk sends
     const releaseSemaphore = await bulkOpSemaphore.acquire();
@@ -130,15 +188,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Collect results in memory, persist in batches.
       for (const recipient of recipients) {
         const interpolatedSubject = interpolate(email.subject, recipient);
-        const interpolatedBody = interpolate(email.bodyHtml, recipient);
+        const unsub = unsubscribeMechanism(recipient.subscriberId);
+        const interpolatedBody =
+          interpolate(email.bodyHtml, recipient) + unsubscribeFooter(unsub.url, postalAddress);
 
         try {
-          const { error: sendError } = await resend.emails.send({
-            from: FROM_ADDRESS,
-            to: recipient.email,
-            subject: interpolatedSubject,
-            html: interpolatedBody,
-          });
+          const { error: sendError } = await retryWithBackoff(
+            () => resend.emails.send({
+              from: FROM_ADDRESS,
+              to: recipient.email,
+              subject: interpolatedSubject,
+              html: interpolatedBody,
+              headers: unsub.headers,
+            }),
+            // Resend resolves { data: null, error } rather than throwing.
+            { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
+          );
 
           if (sendError) {
             failedCount++;
@@ -146,8 +211,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           } else {
             sentCount++;
           }
-        } catch {
+        } catch (err) {
           failedCount++;
+          console.error(`[bulk-email] Threw while sending to ${recipient.email}:`, err);
         }
 
         // Update progress periodically (every 25 emails) - brief DB touch
@@ -176,7 +242,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       targetType: 'bulk_email',
       targetId: id,
       severity: 'info',
-      details: { sentCount, failedCount, recipientCount: recipients.length },
+      details: {
+        sentCount,
+        failedCount,
+        recipientCount: recipients.length,
+        recipientFilter: effectiveFilter,
+        campaignId: email.campaignId,
+        allDonorsConfirmed: !email.campaignId,
+        postalAddressPresent: Boolean(postalAddress),
+      },
     });
 
     return NextResponse.json({
@@ -200,51 +274,39 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-type EmailRecipient = {
-  email: string;
-  name: string;
-  donationAmount?: number;
-  campaignTitle?: string;
-};
+/**
+ * Compliance footer appended to every bulk message.
+ *
+ * The body was previously shipped exactly as the admin typed it: no
+ * unsubscribe link, no List-Unsubscribe header, no sender address. The postal
+ * address line is omitted entirely when `MAILING_POSTAL_ADDRESS` is unset —
+ * never substituted with a placeholder (see `mailingPostalAddress`).
+ */
+function unsubscribeFooter(unsubUrl: string, postalAddress: string | null): string {
+  const addressLine = postalAddress
+    ? `<p style="margin:0 0 6px">${escapeHtml(postalAddress)}</p>`
+    : '';
+  return `
+<hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0"/>
+<div style="font-size:12px;color:#6B7280;text-align:center">
+  <p style="margin:0 0 6px">You are receiving this because you donated on LastDonor.org.</p>
+  ${addressLine}
+  <p style="margin:0"><a href="${escapeHtml(unsubUrl)}" style="color:#0F766E">Unsubscribe</a></p>
+</div>`;
+}
 
-/** Resolve unique recipients from campaign donations. */
-async function resolveRecipients(campaignId: string | null): Promise<EmailRecipient[]> {
-  const conditions = [
-    eq(donations.source, 'real'),
-    eq(donations.refunded, false),
-  ];
-
-  if (campaignId) {
-    conditions.push(eq(donations.campaignId, campaignId));
-  }
-
-  const rows = await db
-    .select({
-      donorEmail: donations.donorEmail,
-      donorName: donations.donorName,
-      amount: donations.amount,
-    })
-    .from(donations)
-    .where(and(...conditions));
-
-  // Deduplicate by email, keeping the largest donation for display
-  const byEmail = new Map<string, EmailRecipient>();
-  for (const row of rows) {
-    const existing = byEmail.get(row.donorEmail);
-    if (!existing || (row.amount > (existing.donationAmount ?? 0))) {
-      byEmail.set(row.donorEmail, {
-        email: row.donorEmail,
-        name: row.donorName || 'Donor',
-        donationAmount: row.amount,
-      });
-    }
-  }
-
-  return Array.from(byEmail.values());
+/** Minimal HTML escaping for values interpolated into email markup. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /** Replace {{variable}} placeholders with recipient-specific values. */
-function interpolate(template: string, recipient: EmailRecipient): string {
+function interpolate(template: string, recipient: BulkEmailRecipient): string {
   return template
     .replace(/\{\{donor_name\}\}/gi, recipient.name)
     .replace(/\{\{donation_amount\}\}/gi, recipient.donationAmount ? `$${(recipient.donationAmount / 100).toFixed(2)}` : '')

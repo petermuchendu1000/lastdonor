@@ -57,10 +57,25 @@ export const updateProfileSchema = z.object({
   ).optional(),
 });
 
+/**
+ * Preferences a user may set. `z.object` strips unknown keys, so a key missing
+ * from this schema can never be written by `PUT /api/v1/users/settings` — the
+ * toggle silently does nothing.
+ *
+ * Audit notes, 2026-10-15:
+ *  - `emailNotifications` was READ by `src/lib/notifications.ts` (the sole gate
+ *    on ~20 transactional emails) but was absent here, so no user could ever
+ *    turn notification email off. Added.
+ *  - `emailNewCampaigns` was written by the UI and read nowhere, and nothing in
+ *    `src/` sends a new-campaign alert. Removed rather than left as a toggle
+ *    that records consent it cannot act on. Restore it together with the send
+ *    site, not before.
+ */
 export const userPreferencesSchema = z.object({
+  /** Global gate on notification email (`src/lib/notifications.ts:wantsEmail`). */
+  emailNotifications: z.boolean().optional(),
   emailDonationReceipts: z.boolean().optional(),
   emailCampaignUpdates: z.boolean().optional(),
-  emailNewCampaigns: z.boolean().optional(),
   emailNewsletter: z.boolean().optional(),
   showProfilePublicly: z.boolean().optional(),
   showDonationsPublicly: z.boolean().optional(),

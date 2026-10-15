@@ -4,6 +4,8 @@ import { newsletterSubscribers } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { subscribeSchema } from '@/lib/validators/newsletter';
 import { resend } from '@/lib/resend';
+import { retryWithBackoff } from '@/lib/utils/retry';
+import { unsubscribeMechanism } from '@/lib/unsubscribe-tokens';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 
@@ -53,21 +55,38 @@ export async function POST(request: NextRequest) {
     }
 
     // New subscriber
-    await db.insert(newsletterSubscribers).values({
+    const [created] = await db.insert(newsletterSubscribers).values({
       email,
       source: source ?? null,
-    });
+    }).returning({ id: newsletterSubscribers.id });
 
-    // Send welcome email
+    // Send welcome email.
+    //
+    // This is a marketing message, so it must carry a working opt-out: it
+    // previously shipped with no unsubscribe link and no List-Unsubscribe
+    // header at all. The token is minted with the shared helper so the link
+    // is byte-compatible with the newsletter cron and the unsubscribe route.
+    const unsub = unsubscribeMechanism(created?.id ?? null);
     try {
-      await resend.emails.send({
-        from: 'LastDonor.org <noreply@lastdonor.org>',
-        to: email,
-        subject: 'Welcome to LastDonor.org',
-        text: `Thank you for subscribing to LastDonor.org!\n\nYou'll receive updates about campaigns making a real difference in people's lives.\n\nEvery dollar has a name behind it.\n\n- The LastDonor.org Team`,
-      });
-    } catch {
-      // Don't fail the subscription if email fails
+      // The Resend SDK resolves { data: null, error } instead of throwing, so
+      // the old bare try/catch here could never observe a failure
+      // (docs/29 P0-4, src/lib/utils/retry.ts:6-12).
+      const { error: sendError } = await retryWithBackoff(
+        () => resend.emails.send({
+          from: 'LastDonor.org <noreply@lastdonor.org>',
+          to: email,
+          subject: 'Welcome to LastDonor.org',
+          text: `Thank you for subscribing to LastDonor.org!\n\nYou'll receive updates about campaigns making a real difference in people's lives.\n\nEvery dollar has a name behind it.\n\n- The LastDonor.org Team\n\n---\nDon't want these emails? Unsubscribe: ${unsub.url}`,
+          headers: unsub.headers,
+        }),
+        { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
+      );
+      if (sendError) {
+        // Don't fail the subscription if email fails, but never swallow it.
+        console.error('[newsletter/subscribe] Resend API error sending welcome email:', sendError);
+      }
+    } catch (err) {
+      console.error('[newsletter/subscribe] Failed to send welcome email:', err);
     }
 
     return NextResponse.json(

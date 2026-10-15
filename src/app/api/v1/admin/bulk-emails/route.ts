@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { bulkEmails, donations, donorCampaignSubscriptions, auditLogs } from '@/db/schema';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { bulkEmails, auditLogs } from '@/db/schema';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { createBulkEmailSchema, bulkEmailQuerySchema } from '@/lib/validators/verification';
+import {
+  countBulkEmailRecipients,
+  bulkEmailRecipientCeiling,
+} from '@/lib/bulk-email-recipients';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import type { UserRole } from '@/types';
@@ -89,8 +93,18 @@ export async function POST(request: NextRequest) {
 
     const { templateName, campaignId, subject, bodyHtml, recipientFilter } = parsed.data;
 
-    // Count recipients based on filter
-    const recipientCount = await countRecipients(recipientFilter, campaignId);
+    // Count recipients with the SAME helper the send uses, so the number the
+    // confirmation dialog shows is the number that will actually be mailed.
+    // (Previously the count used one predicate and the send used another.)
+    const recipientCount = await countBulkEmailRecipients(recipientFilter, campaignId ?? null);
+
+    const ceiling = bulkEmailRecipientCeiling();
+    if (recipientCount > ceiling) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: `This filter matches ${recipientCount} recipients, above the ${ceiling} hard ceiling for a single bulk email. Narrow the filter or scope it to a campaign.`, requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
 
     const [bulkEmail] = await db.insert(bulkEmails).values({
       sentBy: session.user?.id ?? '',
@@ -101,6 +115,11 @@ export async function POST(request: NextRequest) {
       campaignId: campaignId ?? null,
     }).returning();
 
+    // `audit_logs.details.recipientFilter` is the ONLY durable home for the
+    // chosen filter: `bulk_emails` has no `recipient_filter` column and
+    // migrations are frozen (CLAUDE.md). The send route reads it back via
+    // `loadPersistedRecipientFilter` and refuses to send when it is absent,
+    // so this write is load-bearing, not decorative.
     await db.insert(auditLogs).values({
       eventType: 'bulk_email.created',
       actorId: session.user?.id ?? null,
@@ -111,7 +130,10 @@ export async function POST(request: NextRequest) {
       details: { templateName, campaignId, recipientFilter, recipientCount },
     });
 
-    return NextResponse.json({ ok: true, data: bulkEmail }, { status: 201 });
+    return NextResponse.json(
+      { ok: true, data: { ...bulkEmail, recipientFilter } },
+      { status: 201 },
+    );
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required', requestId } } satisfies ApiError, { status: 401 });
@@ -122,54 +144,4 @@ export async function POST(request: NextRequest) {
     console.error('[POST /api/v1/admin/bulk-emails]', error);
     return NextResponse.json({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to create bulk email', requestId } } satisfies ApiError, { status: 500 });
   }
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-async function countRecipients(
-  filter: string,
-  campaignId?: string,
-): Promise<number> {
-  // Base: all real, un-refunded donations for this campaign (or all campaigns)
-  const conditions = [
-    eq(donations.source, 'real'),
-    eq(donations.refunded, false),
-  ];
-
-  if (campaignId) {
-    conditions.push(eq(donations.campaignId, campaignId));
-  }
-
-  if (filter === 'refunded_donors') {
-    // Override: refunded donations
-    conditions[1] = eq(donations.refunded, true);
-  }
-
-  if (filter === 'subscribed_donors' && campaignId) {
-    // Count from subscriptions table instead
-    const [{ total }] = await db
-      .select({ total: count() })
-      .from(donorCampaignSubscriptions)
-      .where(
-        and(
-          eq(donorCampaignSubscriptions.campaignId, campaignId),
-          eq(donorCampaignSubscriptions.subscribed, true),
-        ),
-      );
-    return total;
-  }
-
-  if (filter === 'registered_donors') {
-    conditions.push(sql`${donations.userId} IS NOT NULL`);
-  } else if (filter === 'guest_donors') {
-    conditions.push(sql`${donations.userId} IS NULL`);
-  }
-
-  // Count unique emails to avoid duplicates
-  const [{ total }] = await db
-    .select({ total: sql<number>`count(DISTINCT ${donations.donorEmail})` })
-    .from(donations)
-    .where(and(...conditions));
-
-  return Number(total);
 }

@@ -13,6 +13,13 @@ import { logError } from '@/lib/errors';
 import { verifyCronAuth } from '@/lib/cron-auth';
 import crypto from 'crypto';
 import { acquireCronLock, CRON_LOCKS, lockSkipPayload } from '@/lib/locks';
+import { retryWithBackoff } from '@/lib/utils/retry';
+import {
+  createUnsubscribeToken,
+  unsubscribeUrlForToken,
+  mailingPostalAddress,
+  MISSING_POSTAL_ADDRESS_REASON,
+} from '@/lib/unsubscribe-tokens';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -40,6 +47,25 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // ── CAN-SPAM sender identity gate (P0) ───────────────────────────────
+    // The footer used to hardcode a placeholder street address and present it
+    // as ours. There is no default: with no configured address we refuse the
+    // whole run rather than send a message carrying a false postal address.
+    const postalAddress = mailingPostalAddress();
+    if (!postalAddress) {
+      console.error('[cron/send-newsletter]', MISSING_POSTAL_ADDRESS_REASON);
+      await db.insert(auditLogs).values({
+        eventType: 'cron.send_newsletter',
+        severity: 'warning',
+        details: { skipped: true, sent: 0, reason: MISSING_POSTAL_ADDRESS_REASON },
+      }).catch(() => {});
+
+      return NextResponse.json({
+        ok: true,
+        data: { skipped: true, sent: 0, reason: MISSING_POSTAL_ADDRESS_REASON },
+      });
+    }
+
     // Find the hottest active campaign (most recent with most donations)
     const [featuredCampaign] = await db
       .select()
@@ -110,6 +136,7 @@ export async function GET(request: NextRequest) {
 
     // Send via Resend in batches
     let sent = 0;
+    let failed = 0;
     const batchSize = 50;
 
     for (let i = 0; i < subscribers.length; i += batchSize) {
@@ -118,21 +145,36 @@ export async function GET(request: NextRequest) {
       for (const subscriber of batch) {
         // Create signed unsubscribe token
         const unsubToken = createUnsubscribeToken(subscriber.id);
-        const unsubUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://lastdonor.org'}/api/v1/newsletter/unsubscribe?token=${unsubToken}`;
+        const unsubUrl = unsubscribeUrlForToken(unsubToken);
 
         try {
-          await resend.emails.send({
-            from: 'LastDonor.org <newsletter@lastdonor.org>',
-            to: subscriber.email,
-            subject: content.subject,
-            html: buildNewsletterHtml(content, unsubUrl),
-            headers: {
-              'List-Unsubscribe': `<${unsubUrl}>`,
-              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-            },
-          });
-          sent++;
+          // The Resend SDK never throws: it resolves { data: null, error } for
+          // every non-2xx *and* from inside its own catch block. The previous
+          // code incremented `sent` straight after the await, so a wholly
+          // failed run logged a 100% success rate and the catch below was
+          // unreachable (docs/29 P0-4, src/lib/utils/retry.ts:6-12).
+          const { error: sendError } = await retryWithBackoff(
+            () => resend.emails.send({
+              from: 'LastDonor.org <newsletter@lastdonor.org>',
+              to: subscriber.email,
+              subject: content.subject,
+              html: buildNewsletterHtml(content, unsubUrl, postalAddress),
+              headers: {
+                'List-Unsubscribe': `<${unsubUrl}>`,
+                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+              },
+            }),
+            { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
+          );
+
+          if (sendError) {
+            failed++;
+            console.error(`[cron/send-newsletter] Resend API error for ${subscriber.email}:`, sendError);
+          } else {
+            sent++;
+          }
         } catch (error) {
+          failed++;
           console.error(`Failed to send to ${subscriber.email}:`, error);
         }
       }
@@ -140,16 +182,17 @@ export async function GET(request: NextRequest) {
 
     await db.insert(auditLogs).values({
       eventType: 'cron.send_newsletter',
-      severity: 'info',
+      severity: failed > 0 ? 'warning' : 'info',
       details: {
         sent,
+        failed,
         totalSubscribers: subscriberCount,
         subject: content.subject,
         featuredCampaign: featuredCampaign.slug,
       },
     });
 
-    return NextResponse.json({ ok: true, data: { sent, totalSubscribers: subscriberCount } });
+    return NextResponse.json({ ok: true, data: { sent, failed, totalSubscribers: subscriberCount } });
   } catch (error) {
     const requestId = crypto.randomUUID();
     logError(error, { requestId, route: '/api/v1/cron/send-newsletter', method: 'GET' });
@@ -169,18 +212,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function createUnsubscribeToken(subscriberId: string): string {
-  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-  if (!secret) {
-    throw new Error('NEWSLETTER_UNSUBSCRIBE_SECRET is not set - cannot generate unsubscribe tokens. Do not reuse NEXTAUTH_SECRET for this purpose.');
-  }
-  const hmac = crypto.createHmac('sha256', secret);
-  hmac.update(subscriberId);
-  const signature = hmac.digest('hex');
-  return `${subscriberId}.${signature}`;
-}
-
-function buildNewsletterHtml(content: NewsletterContent, unsubUrl: string): string {
+function buildNewsletterHtml(
+  content: NewsletterContent,
+  unsubUrl: string,
+  postalAddress: string,
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -223,10 +259,20 @@ function buildNewsletterHtml(content: NewsletterContent, unsubUrl: string): stri
     <hr class="divider"/>
     <div class="footer">
       <p>LastDonor.org - Every campaign has a last donor. Will it be you?</p>
-      <p>1234 Main St, Suite 100, Washington, DC 20001</p>
+      <p>${escapeHtml(postalAddress)}</p>
       <p><a href="${unsubUrl}">Unsubscribe</a></p>
     </div>
   </div>
 </body>
 </html>`;
+}
+
+/** Minimal HTML escaping for operator-supplied text interpolated into email. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

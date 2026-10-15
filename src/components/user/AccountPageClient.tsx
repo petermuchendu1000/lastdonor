@@ -39,9 +39,12 @@ const AVATAR_ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/a
 const AVATAR_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
 
 const DEFAULT_PREFERENCES: UserPreferences = {
+  // `emailNotifications` is the global gate every transactional email already
+  // checks (src/lib/notifications.ts:wantsEmail). It was missing from both the
+  // schema and this UI, so no user could switch notification email off.
+  emailNotifications: true,
   emailDonationReceipts: true,
   emailCampaignUpdates: true,
-  emailNewCampaigns: false,
   emailNewsletter: false,
   showProfilePublicly: true,
   showDonationsPublicly: false,
@@ -293,7 +296,7 @@ function SettingRow({
 
 /* ─── Preferences Section ────────────────────────────────────────────────── */
 
-function PreferencesSection() {
+function PreferencesSection({ email }: { email: string }) {
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [loading, setLoading] = useState(true);
 
@@ -335,10 +338,38 @@ function PreferencesSection() {
     }
   }, []);
 
+  /**
+   * Mirror the newsletter toggle onto the `newsletter_subscribers` list.
+   *
+   * `preferences.emailNewsletter` is read by nothing that sends mail — the
+   * newsletter cron reads `newsletter_subscribers` — so storing the flag alone
+   * left the toggle inert. Writing through to the list is what makes it real.
+   */
+  const syncNewsletterList = useCallback(async (enabled: boolean) => {
+    if (!email) return;
+    try {
+      const res = await fetch(
+        enabled ? '/api/v1/newsletter/subscribe' : '/api/v1/newsletter/unsubscribe',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enabled ? { email, source: 'newsletter' } : { email }),
+        },
+      );
+      const json = await res.json().catch(() => null);
+      if (!res.ok || json?.ok === false) {
+        toast.error(json?.error?.message ?? 'Saved, but updating the newsletter list failed.');
+      }
+    } catch {
+      toast.error('Saved, but updating the newsletter list failed.');
+    }
+  }, [email]);
+
   function updatePref(key: keyof UserPreferences, value: boolean) {
     const updated = { ...preferences, [key]: value };
     setPreferences(updated);
     savePreferences(updated);
+    if (key === 'emailNewsletter') void syncNewsletterList(value);
   }
 
   if (loading) {
@@ -361,6 +392,13 @@ function PreferencesSection() {
         </CardHeader>
         <CardContent className="divide-y divide-border">
           <SettingRow
+            id="emailNotifications"
+            label="Account and activity emails"
+            description="Refunds, campaign status changes, verification and withdrawal notices. Switching this off stops every notification email."
+            checked={preferences.emailNotifications ?? true}
+            onCheckedChange={(v) => updatePref('emailNotifications', v)}
+          />
+          <SettingRow
             id="emailDonationReceipts"
             label="Donation receipts"
             description="Receive an email confirmation after each donation"
@@ -373,13 +411,6 @@ function PreferencesSection() {
             description="Get notified when campaigns you've donated to post updates or share impact reports"
             checked={preferences.emailCampaignUpdates ?? true}
             onCheckedChange={(v) => updatePref('emailCampaignUpdates', v)}
-          />
-          <SettingRow
-            id="emailNewCampaigns"
-            label="New campaign alerts"
-            description="Be the first to know when new reviewed campaigns go live"
-            checked={preferences.emailNewCampaigns ?? false}
-            onCheckedChange={(v) => updatePref('emailNewCampaigns', v)}
           />
           <SettingRow
             id="emailNewsletter"
@@ -511,7 +542,7 @@ export default function AccountPageClient({ profile }: { profile: ProfileData })
         </CardContent>
       </Card>
 
-      <PreferencesSection />
+      <PreferencesSection email={profile.email} />
 
       <Separator />
 

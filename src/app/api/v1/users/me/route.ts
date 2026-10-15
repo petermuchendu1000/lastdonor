@@ -5,6 +5,7 @@ import { users, donations, campaigns, campaignMessages, donorCampaignSubscriptio
 import { eq } from 'drizzle-orm';
 import { updateProfileSchema } from '@/lib/validators/user';
 import { resend } from '@/lib/resend';
+import { retryWithBackoff } from '@/lib/utils/retry';
 import { randomUUID } from 'crypto';
 import type { ApiError, ApiResponse } from '@/types/api';
 
@@ -181,17 +182,29 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  // Send confirmation email
+  // Send confirmation email.
+  //
+  // This is the only signal a user gets that their account was deleted — if it
+  // was not them, it is the only chance to raise it. The Resend SDK resolves
+  // { data: null, error } rather than throwing, so the previous bare try/catch
+  // could not observe a failed send at all (docs/29 P0-4,
+  // src/lib/utils/retry.ts:6-12). The deletion still succeeds either way.
   if (userEmail) {
     try {
-      await resend.emails.send({
-        from: 'LastDonor.org <noreply@lastdonor.org>',
-        to: userEmail,
-        subject: 'Your LastDonor.org account has been deleted',
-        text: 'Your account has been permanently deleted and your donation records have been anonymized. If you did not request this, please contact support@lastdonor.org immediately.',
-      });
-    } catch {
-      // Don't fail the deletion if email fails
+      const { error: sendError } = await retryWithBackoff(
+        () => resend.emails.send({
+          from: 'LastDonor.org <noreply@lastdonor.org>',
+          to: userEmail,
+          subject: 'Your LastDonor.org account has been deleted',
+          text: 'Your account has been permanently deleted and your donation records have been anonymized. If you did not request this, please contact support@lastdonor.org immediately.',
+        }),
+        { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
+      );
+      if (sendError) {
+        console.error('[DELETE /api/v1/users/me] Resend API error sending deletion confirmation:', sendError);
+      }
+    } catch (err) {
+      console.error('[DELETE /api/v1/users/me] Failed to send deletion confirmation:', err);
     }
   }
 

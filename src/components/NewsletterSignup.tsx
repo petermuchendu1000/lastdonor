@@ -13,6 +13,23 @@ import { cn } from '@/lib/utils';
 
 type NewsletterVariant = 'inline' | 'hero' | 'footer';
 
+/**
+ * Only a brand-new subscription triggers a welcome email, so only that case may
+ * tell the reader to check their inbox. `already_subscribed` and `resubscribed`
+ * send nothing — the component used to promise mail for all three.
+ */
+const SUCCESS_MESSAGE = {
+  subscribed: "You're subscribed! Check your inbox.",
+  resubscribed: "You're subscribed again. Welcome back!",
+  already_subscribed: "You're already subscribed.",
+} as const;
+
+const SUCCESS_TOAST = {
+  subscribed: 'Welcome! Check your inbox for a confirmation.',
+  resubscribed: 'Welcome back! Your subscription is active again.',
+  already_subscribed: 'You are already subscribed.',
+} as const;
+
 interface NewsletterSignupProps {
   source: 'homepage' | 'campaign' | 'blog' | 'footer';
   /** Visual variant: inline (default), hero (homepage section), footer (dark bg). */
@@ -22,6 +39,8 @@ interface NewsletterSignupProps {
 
 export function NewsletterSignup({ source, variant = 'inline', className }: NewsletterSignupProps) {
   const [subscribed, setSubscribed] = useState(false);
+  /** Which API outcome produced the success panel; only 'subscribed' sends mail. */
+  const [outcome, setOutcome] = useState<'subscribed' | 'resubscribed' | 'already_subscribed'>('subscribed');
   const {
     register,
     handleSubmit,
@@ -39,18 +58,25 @@ export function NewsletterSignup({ source, variant = 'inline', className }: News
       body: JSON.stringify(data),
     });
 
-    if (!res.ok) {
-      if (res.status === 409) {
-        setSubscribed(true);
-        return;
-      }
-      const body = await res.json().catch(() => null);
+    const body = await res.json().catch(() => null);
+
+    if (!res.ok || body?.ok === false) {
+      // Note: the API never answers 409 — the old `res.status === 409` branch
+      // was dead code. Already-subscribed is a 200 with status
+      // 'already_subscribed'.
       toast.error(body?.error?.message ?? 'Subscription failed. Please try again.');
       return;
     }
 
+    // Only a brand-new subscription sends a welcome email. Telling an existing
+    // or re-activated subscriber to check their inbox promises mail that is
+    // never sent (cf. src/app/newsletter/form.tsx, which branches correctly).
+    const status: string | undefined = body?.data?.status;
+    const resolved =
+      status === 'already_subscribed' || status === 'resubscribed' ? status : 'subscribed';
+    setOutcome(resolved);
     setSubscribed(true);
-    toast.success('Welcome! Check your inbox for a confirmation.');
+    toast.success(SUCCESS_TOAST[resolved]);
     reset();
   }
 
@@ -60,9 +86,9 @@ export function NewsletterSignup({ source, variant = 'inline', className }: News
       : 'flex items-center gap-2 text-brand-teal font-medium';
 
     return (
-      <div className={cn(successClass, className)}>
+      <div className={cn(successClass, className)} role="status" aria-live="polite">
         {variant !== 'footer' && <EnvelopeIcon className="h-5 w-5" />}
-        <p>You&apos;re subscribed! Check your inbox.</p>
+        <p>{SUCCESS_MESSAGE[outcome]}</p>
       </div>
     );
   }
