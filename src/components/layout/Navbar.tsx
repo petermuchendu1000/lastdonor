@@ -52,11 +52,15 @@ const ABOUT_ITEMS = [
 /*  Shared style constants                                            */
 /* ------------------------------------------------------------------ */
 
-const NAV_LINK = 'rounded-md px-3 py-2 text-sm font-semibold transition-colors hover:bg-muted hover:text-foreground';
+/*
+ * py-2.5 gives a 40px control. Measured 2026-10-15: these were 36px against
+ * GoFundMe's 40px, the smallest hit area in either header. See docs/48.
+ */
+const NAV_LINK = 'rounded-md px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-muted hover:text-foreground';
 const NAV_LINK_ACTIVE = 'text-primary';
 const NAV_LINK_IDLE = 'text-muted-foreground';
 const DROPDOWN_TRIGGER =
-  'flex items-center gap-1 rounded-md px-3 py-2 text-sm font-semibold transition-colors hover:bg-muted hover:text-foreground focus:outline-none';
+  'flex items-center gap-1 rounded-md px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-muted hover:text-foreground focus:outline-none';
 
 /* ------------------------------------------------------------------ */
 /*  Sign-in link (context-preserving)                                 */
@@ -277,8 +281,24 @@ export function Navbar() {
           </Link>
         </div>
 
-        {/* ============ MOBILE: avatar + hamburger ============ */}
-        <div className="flex items-center gap-2 md:hidden">
+        {/* ============ MOBILE: search + avatar + hamburger ============ */}
+        <div className="flex items-center gap-1 md:hidden">
+          {/*
+            Search is a top-level action on desktop, so hiding it behind the
+            hamburger on mobile made the primary discovery task cost two taps
+            on the device most people browse from. Measured 2026-10-15: the
+            mobile header carried the logo and the hamburger and nothing else,
+            while GoFundMe keeps a persistent 40x40 search control. See
+            docs/48.
+          */}
+          <Link
+            href="/campaigns"
+            aria-label="Search campaigns"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <MagnifyingGlassIcon className="h-6 w-6" />
+          </Link>
+
           {isAuthed && (
             <>
               <Suspense fallback={<div className="h-9 w-9" />}>
@@ -292,7 +312,9 @@ export function Navbar() {
               <button
                 type="button"
                 aria-label="Open menu"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                /* 44x44: the hamburger was 36x36, the smallest control in
+                   either product's header. */
+                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <Bars3Icon className="h-6 w-6" />
               </button>
