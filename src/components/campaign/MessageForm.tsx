@@ -88,7 +88,7 @@ export function MessageForm({ campaignSlug, className }: MessageFormProps) {
       <div className={cn('rounded-lg border border-dashed border-border bg-card p-4 text-center', className)}>
         <p className="text-sm text-muted-foreground">
           <a
-            href={`/login?redirect=/campaigns/${encodeURIComponent(campaignSlug)}`}
+            href={`/login?callbackUrl=${encodeURIComponent(`/campaigns/${campaignSlug}`)}`}
             className="font-medium text-primary hover:underline"
           >
             Sign in

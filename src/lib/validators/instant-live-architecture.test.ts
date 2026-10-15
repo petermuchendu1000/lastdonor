@@ -11,7 +11,8 @@
  *
  * @vitest-environment node
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { transformSync } from 'esbuild';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
@@ -758,6 +759,61 @@ describe('Open redirect protection', () => {
   const loginSource = readFileSync(resolve(ROOT, 'src/app/login/page.tsx'), 'utf-8');
   const registerSource = readFileSync(resolve(ROOT, 'src/app/register/page.tsx'), 'utf-8');
 
+  const ORIGIN = 'https://lastdonor.org';
+
+  /**
+   * `safeCallbackUrl` is duplicated in the login and register pages (both are
+   * client components and neither exports it), so rather than assert on source
+   * text we lift the real function out of each file, compile it and exercise
+   * it. Source-text assertions are what let the backslash bypass survive: the
+   * old tests checked that `startsWith('/')` and `startsWith('//')` appeared,
+   * and both of those checks pass `/\evil.com`.
+   */
+  function loadSafeCallbackUrl(file: string): (raw: string | null) => string {
+    const source = readFileSync(resolve(ROOT, file), 'utf-8');
+    const fn = source.match(/^function safeCallbackUrl\([\s\S]*?^}/m);
+    if (!fn) throw new Error(`safeCallbackUrl not found in ${file}`);
+    const js = transformSync(`${fn[0]}\nreturn safeCallbackUrl;`, {
+      loader: 'ts',
+    }).code;
+    return new Function(js)() as (raw: string | null) => string;
+  }
+
+  const implementations = [
+    ['login', loadSafeCallbackUrl('src/app/login/page.tsx')],
+    ['register', loadSafeCallbackUrl('src/app/register/page.tsx')],
+  ] as const;
+
+  /**
+   * Payloads that a browser resolves OFF our origin. `/\evil.com` is the one
+   * that shipped: it starts with '/', does not start with '//', and
+   * `new URL('/\\evil.com', 'https://lastdonor.org').href` is
+   * `https://evil.com/`.
+   */
+  const OFF_ORIGIN_PAYLOADS = [
+    '/\\evil.com',
+    '/\\/evil.com',
+    '\\\\evil.com',
+    '//evil.com',
+    '///evil.com',
+    '/\\\\evil.com',
+    'https://evil.com/x',
+    'http://evil.com',
+    '//evil.com/dashboard',
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+  ];
+
+  beforeEach(() => {
+    (globalThis as { window?: unknown }).window = {
+      location: { origin: ORIGIN },
+    };
+  });
+
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+  });
+
   it('login page uses safeCallbackUrl to sanitize redirect', () => {
     expect(loginSource).toContain('safeCallbackUrl');
   });
@@ -766,12 +822,211 @@ describe('Open redirect protection', () => {
     expect(registerSource).toContain('safeCallbackUrl');
   });
 
-  it('safeCallbackUrl blocks absolute URLs', () => {
-    expect(loginSource).toMatch(/startsWith\(['"]\/['"]\)/);
+  for (const [name, safeCallbackUrl] of implementations) {
+    describe(`${name} page safeCallbackUrl()`, () => {
+      it.each(OFF_ORIGIN_PAYLOADS)('rejects %j', (payload) => {
+        // Sanity check the payload really is dangerous before the assertion,
+        // so a browser-behaviour change cannot quietly make this vacuous.
+        let resolved: URL | null = null;
+        try {
+          resolved = new URL(payload, ORIGIN);
+        } catch {
+          resolved = null;
+        }
+        if (resolved) expect(resolved.origin).not.toBe(ORIGIN);
+
+        expect(safeCallbackUrl(payload)).toBe('/dashboard');
+      });
+
+      it('never returns a value that resolves off this origin', () => {
+        const probes = [
+          ...OFF_ORIGIN_PAYLOADS,
+          'https:evil.com',
+          'HTTPS://EVIL.COM',
+          '/dashboard',
+          '',
+          null,
+        ];
+        for (const probe of probes) {
+          const out = safeCallbackUrl(probe);
+          expect(new URL(out, ORIGIN).origin).toBe(ORIGIN);
+        }
+      });
+
+      it('treats a scheme-only absolute URL as a same-origin path', () => {
+        // `https:evil.com` resolves to https://lastdonor.org/evil.com, which is
+        // harmless, but it must not escape the origin.
+        expect(new URL(safeCallbackUrl('https:evil.com'), ORIGIN).origin).toBe(ORIGIN);
+      });
+
+      it('preserves a same-origin path with its query string and hash', () => {
+        expect(safeCallbackUrl('/dashboard/campaigns?status=active&page=3')).toBe(
+          '/dashboard/campaigns?status=active&page=3',
+        );
+        expect(safeCallbackUrl('/dashboard/campaigns?a=1#top')).toBe(
+          '/dashboard/campaigns?a=1#top',
+        );
+      });
+
+      it('allows an absolute URL on our own origin, reduced to a path', () => {
+        expect(safeCallbackUrl(`${ORIGIN}/dashboard/supported?x=1`)).toBe(
+          '/dashboard/supported?x=1',
+        );
+      });
+
+      it('falls back to /dashboard for empty input', () => {
+        expect(safeCallbackUrl(null)).toBe('/dashboard');
+        expect(safeCallbackUrl('')).toBe('/dashboard');
+      });
+
+      it('is safe when there is no window (SSR)', () => {
+        delete (globalThis as { window?: unknown }).window;
+        expect(safeCallbackUrl('/\\evil.com')).toBe('/dashboard');
+        expect(safeCallbackUrl('https://evil.com/x')).toBe('/dashboard');
+        expect(safeCallbackUrl('/dashboard?page=2')).toBe('/dashboard?page=2');
+      });
+    });
+  }
+
+  it('does not rely on string-prefix checks alone', () => {
+    for (const source of [loginSource, registerSource]) {
+      const fn = source.match(/^function safeCallbackUrl\([\s\S]*?^}/m)![0];
+      expect(fn).toContain('new URL(');
+      expect(fn).toContain('.origin');
+    }
+  });
+});
+
+describe('Login failure UI is reachable (audit: dead error branches)', () => {
+  const loginSource = readFileSync(resolve(ROOT, 'src/app/login/page.tsx'), 'utf-8');
+  const authSource = readFileSync(resolve(ROOT, 'src/lib/auth.ts'), 'utf-8');
+
+  /** Every code `src/lib/auth.ts` can actually throw. */
+  const emittedCodes = [
+    ...authSource.matchAll(/code\s*=\s*'([a-z_]+)'/g),
+  ].map((m) => m[1]);
+
+  it('auth.ts emits exactly invalid_credentials and password_reset_required', () => {
+    expect([...new Set(emittedCodes)].sort()).toEqual([
+      'invalid_credentials',
+      'password_reset_required',
+    ]);
   });
 
-  it('safeCallbackUrl blocks protocol-relative URLs (//evil.com)', () => {
-    expect(loginSource).toMatch(/startsWith\(['"]\/\/['"]\)/);
+  it('login page branches on no code that auth.ts cannot emit', () => {
+    // These four were removed from auth.ts as an enumeration oracle (docs/32);
+    // the login page kept switching on them, so every real failure fell
+    // through to the "unexpected error" branch.
+    for (const dead of ['no_account', 'oauth_only', 'invalid_password', 'account_locked']) {
+      expect(loginSource).not.toContain(dead);
+    }
+    expect(loginSource).not.toContain('An unexpected error occurred');
+  });
+
+  it('renders one non-disclosing message for every other failure', () => {
+    expect(loginSource).toContain(
+      "We couldn't sign you in. Check your email and password, or continue with Google.",
+    );
+    expect(loginSource).toContain("code === 'password_reset_required'");
+  });
+
+  it('keeps the password-reset route and the Google button on the failure path', () => {
+    expect(loginSource).toContain('/login/forgot-password');
+    expect(loginSource).toContain('handleGoogleSignIn');
+  });
+});
+
+describe('OAuth error codes render an explanation', () => {
+  const loginSource = readFileSync(resolve(ROOT, 'src/app/login/page.tsx'), 'utf-8');
+
+  function loadOauthErrorMessage(): (code: string | null) => string | null {
+    const map = loginSource.match(
+      /^const SIGNIN_FAILED_MESSAGE[\s\S]*?^function oauthErrorMessage\([\s\S]*?^}/m,
+    );
+    if (!map) throw new Error('oauthErrorMessage not found in login page');
+    const js = transformSync(`${map[0]}\nreturn oauthErrorMessage;`, {
+      loader: 'ts',
+    }).code;
+    return new Function(js)() as (code: string | null) => string | null;
+  }
+
+  const oauthErrorMessage = loadOauthErrorMessage();
+
+  it('reads the error param, not only callbackUrl', () => {
+    expect(loginSource).toContain("searchParams.get('error')");
+  });
+
+  it('explains OAuthAccountNotLinked instead of rendering a blank page', () => {
+    const message = oauthErrorMessage('OAuthAccountNotLinked');
+    expect(message).toBe(
+      'This email already has a LastDonor password. Sign in with your password below.',
+    );
+  });
+
+  it('keeps the credentials-redirect path non-disclosing too', () => {
+    expect(oauthErrorMessage('CredentialsSignin')).toBe(
+      "We couldn't sign you in. Check your email and password, or continue with Google.",
+    );
+  });
+
+  it('returns actionable copy for every other NextAuth error code', () => {
+    for (const code of [
+      'OAuthCallbackError',
+      'AccessDenied',
+      'Verification',
+      'OAuthSignin',
+      'Configuration',
+      'SomethingNextAuthAddsLater',
+    ]) {
+      const message = oauthErrorMessage(code);
+      expect(message, code).toBeTruthy();
+      expect(message!.length, code).toBeGreaterThan(20);
+      // Actionable: always names a way forward.
+      expect(message!.toLowerCase(), code).toMatch(/try again|password/);
+    }
+  });
+
+  it('returns nothing when there is no error param', () => {
+    expect(oauthErrorMessage(null)).toBeNull();
+  });
+
+  it('does not enable allowDangerousEmailAccountLinking as the cure', () => {
+    const authSource = readFileSync(resolve(ROOT, 'src/lib/auth.ts'), 'utf-8');
+    expect(authSource).not.toContain('allowDangerousEmailAccountLinking');
+  });
+});
+
+describe('callbackUrl is carried from every sign-in entry point', () => {
+  const middlewareSource = readFileSync(resolve(ROOT, 'src/middleware.ts'), 'utf-8');
+  const navbarSource = readFileSync(resolve(ROOT, 'src/components/layout/Navbar.tsx'), 'utf-8');
+  const messageFormSource = readFileSync(
+    resolve(ROOT, 'src/components/campaign/MessageForm.tsx'),
+    'utf-8',
+  );
+
+  it('middleware preserves the query string in callbackUrl', () => {
+    // `pathname` alone turned /dashboard/campaigns?status=active&page=3 into
+    // /dashboard/campaigns.
+    const redirect = middlewareSource.match(
+      /const callbackTarget[\s\S]{0,400}?NextResponse\.redirect\([\s\S]*?\);/,
+    );
+    expect(redirect).not.toBeNull();
+    expect(redirect![0]).toContain('request.nextUrl.search');
+    expect(middlewareSource).not.toContain('encodeURIComponent(pathname)');
+  });
+
+  it('the navbar sign-in links carry pathname and search', () => {
+    expect(navbarSource).toContain('useSearchParams');
+    expect(navbarSource).toContain('callbackUrl=');
+    // Only one bare sign-in link is left: the Suspense prerender fallback.
+    const bare = [...navbarSource.matchAll(/<Link\s+href="\/login"/g)];
+    expect(bare.length).toBe(1);
+    expect(navbarSource).toContain('<SignInLink');
+  });
+
+  it('MessageForm uses callbackUrl, the only param the login page reads', () => {
+    expect(messageFormSource).not.toContain('/login?redirect=');
+    expect(messageFormSource).toContain('/login?callbackUrl=');
   });
 });
 

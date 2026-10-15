@@ -41,11 +41,29 @@ export default function RegisterPage() {
   );
 }
 
-/** Prevent open-redirect: only allow relative paths on the same origin. */
+/**
+ * Prevent open-redirect: only allow targets that resolve back to this origin.
+ *
+ * Prefix checks are NOT sufficient. `/\evil.com` starts with '/' and does not
+ * start with '//', yet browsers normalise the backslash to a slash, so it
+ * resolves to https://evil.com/ and the App Router performs a real
+ * cross-origin navigation. The only reliable test is to resolve the candidate
+ * against our own origin and compare origins. Kept byte-identical to the copy
+ * in `src/app/login/page.tsx`.
+ */
 function safeCallbackUrl(raw: string | null): string {
   if (!raw) return '/dashboard';
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/dashboard';
-  return raw;
+  // During SSR there is no window; a reserved sentinel origin still resolves
+  // relative paths identically while rejecting anything with an authority.
+  const origin =
+    typeof window === 'undefined' ? 'https://ssr.invalid' : window.location.origin;
+  try {
+    const url = new URL(raw, origin);
+    if (url.origin !== origin) return '/dashboard';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/dashboard';
+  }
 }
 
 function RegisterForm() {

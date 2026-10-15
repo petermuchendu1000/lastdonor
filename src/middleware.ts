@@ -220,8 +220,12 @@ export default auth(async function middleware(request) {
         { status: 401 },
       );
     }
+    // Keep the query string: `pathname` alone turns
+    // /dashboard/campaigns?status=active&page=3 into /dashboard/campaigns and
+    // drops whatever the user was actually looking at.
+    const callbackTarget = `${pathname}${request.nextUrl.search}`;
     return NextResponse.redirect(
-      new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, request.url),
+      new URL(`/login?callbackUrl=${encodeURIComponent(callbackTarget)}`, request.url),
     );
   }
 

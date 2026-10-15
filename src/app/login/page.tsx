@@ -26,18 +26,75 @@ export default function LoginPage() {
   );
 }
 
-/** Prevent open-redirect: only allow relative paths on the same origin. */
+/**
+ * Prevent open-redirect: only allow targets that resolve back to this origin.
+ *
+ * Prefix checks are NOT sufficient. `/\evil.com` starts with '/' and does not
+ * start with '//', yet browsers normalise the backslash to a slash, so it
+ * resolves to https://evil.com/ and the App Router performs a real
+ * cross-origin navigation. The only reliable test is to resolve the candidate
+ * against our own origin and compare origins.
+ */
 function safeCallbackUrl(raw: string | null): string {
   if (!raw) return '/dashboard';
-  // Block protocol-relative URLs (//evil.com) and absolute URLs
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/dashboard';
-  return raw;
+  // During SSR there is no window; a reserved sentinel origin still resolves
+  // relative paths identically while rejecting anything with an authority.
+  const origin =
+    typeof window === 'undefined' ? 'https://ssr.invalid' : window.location.origin;
+  try {
+    const url = new URL(raw, origin);
+    if (url.origin !== origin) return '/dashboard';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/dashboard';
+  }
+}
+
+/**
+ * The only credentials failure we distinguish. `src/lib/auth.ts` emits exactly
+ * two codes - `invalid_credentials` and `password_reset_required` - because
+ * distinct messages for locked / unknown / OAuth-only accounts turned this form
+ * into an account-existence oracle (docs/32). Do not reintroduce them.
+ */
+const SIGNIN_FAILED_MESSAGE =
+  "We couldn't sign you in. Check your email and password, or continue with Google.";
+
+/**
+ * Copy for NextAuth's `?error=` codes. Without this the OAuth failure path
+ * renders a blank login page: @auth/core sends SignInError subclasses to
+ * `pages.signIn` (verified in node_modules/@auth/core/index.js: pageKind =
+ * error.kind, and SignInError.kind === 'signIn'), so a user who registered
+ * with a password and then clicks "Continue with Google" lands on
+ * /login?error=OAuthAccountNotLinked with no explanation and loops forever.
+ * `allowDangerousEmailAccountLinking` is deliberately NOT enabled - it would
+ * let anyone controlling a Google account with a victim's address take over
+ * the password account.
+ */
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  OAuthAccountNotLinked:
+    'This email already has a LastDonor password. Sign in with your password below.',
+  AccessDenied:
+    'Google sign-in was declined or cancelled. Try again, or sign in with your email and password below.',
+  Verification:
+    'That sign-in link has expired or was already used. Try again, or sign in with your email and password below.',
+  // Only reachable on the redirect path (the form posts with redirect: false),
+  // but it must stay as non-disclosing as an inline failure.
+  CredentialsSignin: SIGNIN_FAILED_MESSAGE,
+};
+
+const OAUTH_ERROR_FALLBACK =
+  "We couldn't complete that sign-in. Try again, or sign in with your email and password below.";
+
+function oauthErrorMessage(code: string | null): string | null {
+  if (!code) return null;
+  return OAUTH_ERROR_MESSAGES[code] ?? OAUTH_ERROR_FALLBACK;
 }
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = safeCallbackUrl(searchParams.get('callbackUrl'));
+  const oauthError = oauthErrorMessage(searchParams.get('error'));
   const registerHref = callbackUrl !== '/dashboard'
     ? `/register?callbackUrl=${encodeURIComponent(callbackUrl)}`
     : '/register';
@@ -65,23 +122,15 @@ function LoginForm() {
 
       if (result?.error) {
         const code = (result as { code?: string }).code;
-        if (
-          code === 'no_account' ||
-          code === 'oauth_only' ||
-          code === 'invalid_password' ||
-          code === 'account_locked' ||
-          code === 'password_reset_required'
-        ) {
-          setError(code);
-        } else {
-          setError('generic');
-        }
+        // Everything other than a forced reset collapses to one neutral
+        // message. See SIGNIN_FAILED_MESSAGE.
+        setError(code === 'password_reset_required' ? code : 'signin_failed');
       } else {
         router.push(callbackUrl);
         router.refresh();
       }
     } catch {
-      setError('generic');
+      setError('signin_failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -104,41 +153,11 @@ function LoginForm() {
             </p>
           </div>
 
-          {error && (
+          {(error ?? oauthError) && (
             <div
               role="alert"
               className="mt-6 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             >
-              {error === 'no_account' && (
-                <>
-                  No account found for this email.{' '}
-                  <Link href={registerHref} className="font-semibold underline">
-                    Create an account
-                  </Link>
-                </>
-              )}
-              {error === 'oauth_only' && (
-                <>
-                  This account uses Google sign-in.{' '}
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    className="font-semibold underline"
-                  >
-                    Continue with Google
-                  </button>
-                </>
-              )}
-              {error === 'invalid_password' && (
-                <>
-                  Incorrect password.{' '}
-                  <Link href="/login/forgot-password" className="font-semibold underline">
-                    Reset your password
-                  </Link>
-                </>
-              )}
-              {error === 'account_locked' &&
-                'Account temporarily locked. Try again in 15 minutes.'}
               {error === 'password_reset_required' && (
                 <>
                   For your security, you must reset your password before logging in.{' '}
@@ -147,8 +166,15 @@ function LoginForm() {
                   </Link>
                 </>
               )}
-              {error === 'generic' &&
-                'An unexpected error occurred. Please try again.'}
+              {error === 'signin_failed' && (
+                <>
+                  {SIGNIN_FAILED_MESSAGE}{' '}
+                  <Link href="/login/forgot-password" className="font-semibold underline">
+                    Reset your password
+                  </Link>
+                </>
+              )}
+              {!error && oauthError}
             </div>
           )}
 

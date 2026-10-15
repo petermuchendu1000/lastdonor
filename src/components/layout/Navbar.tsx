@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense, type ComponentPropsWithoutRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
   Bars3Icon,
@@ -57,6 +57,39 @@ const NAV_LINK_ACTIVE = 'text-primary';
 const NAV_LINK_IDLE = 'text-muted-foreground';
 const DROPDOWN_TRIGGER =
   'flex items-center gap-1 rounded-md px-3 py-2 text-sm font-semibold transition-colors hover:bg-muted hover:text-foreground focus:outline-none';
+
+/* ------------------------------------------------------------------ */
+/*  Sign-in link (context-preserving)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Build a /login href that sends the user back where they were. A bare
+ * href="/login" drops their context and lands them on /dashboard after
+ * signing in. The login page sanitises `callbackUrl` against its own origin.
+ */
+function loginHref(target: string): string {
+  if (!target || target === '/' || target.startsWith('/login')) return '/login';
+  return `/login?callbackUrl=${encodeURIComponent(target)}`;
+}
+
+/**
+ * Sign-in link carrying the current pathname AND query string.
+ *
+ * Reads `useSearchParams`, so every call site wraps it in a Suspense boundary:
+ * the navbar lives in the root layout, and without a boundary Next cannot
+ * statically prerender any page that embeds it.
+ */
+function SignInLink({ className, ...rest }: ComponentPropsWithoutRef<'a'>) {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  const target = `${pathname}${search ? `?${search}` : ''}`;
+
+  return (
+    <Link {...rest} href={loginHref(target)} className={className}>
+      Sign in
+    </Link>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                         */
@@ -207,15 +240,20 @@ export function Navbar() {
               <UserNav />
             </>
           ) : (
-            <Link
-              href="/login"
-              className={cn(
-                NAV_LINK,
-                pathname === '/login' ? NAV_LINK_ACTIVE : NAV_LINK_IDLE,
-              )}
+            <Suspense
+              fallback={
+                <Link href="/login" className={cn(NAV_LINK, NAV_LINK_IDLE)}>
+                  Sign in
+                </Link>
+              }
             >
-              Sign in
-            </Link>
+              <SignInLink
+                className={cn(
+                  NAV_LINK,
+                  pathname === '/login' ? NAV_LINK_ACTIVE : NAV_LINK_IDLE,
+                )}
+              />
+            </Suspense>
           )}
 
           {/* Donate CTA - isolated far-right, recency effect */}
@@ -329,14 +367,11 @@ export function Navbar() {
                       </SheetClose>
 
                       {!isAuthed && (
-                        <SheetClose asChild>
-                          <Link
-                            href="/login"
-                            className="block w-full rounded-full border border-border py-3.5 text-center text-sm font-semibold text-foreground transition-colors hover:bg-muted"
-                          >
-                            Sign in
-                          </Link>
-                        </SheetClose>
+                        <Suspense fallback={null}>
+                          <SheetClose asChild>
+                            <SignInLink className="block w-full rounded-full border border-border py-3.5 text-center text-sm font-semibold text-foreground transition-colors hover:bg-muted" />
+                          </SheetClose>
+                        </Suspense>
                       )}
 
                       <div className="flex items-center justify-between pt-1">

@@ -138,11 +138,25 @@ describe('MessageForm', () => {
     expect(screen.getByRole('switch')).toBeInTheDocument();
   });
 
-  it('sign-in link includes redirect to campaign page', () => {
+  // The login page reads `callbackUrl` and nothing else, so `?redirect=` was
+  // silently dropped and signing in to leave a message landed on /dashboard.
+  it('sign-in link returns to the campaign page via callbackUrl', () => {
     mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     render(<MessageForm campaignSlug="my-campaign" />);
 
     const link = screen.getByText('Sign in');
-    expect(link).toHaveAttribute('href', '/login?redirect=/campaigns/my-campaign');
+    expect(link).toHaveAttribute(
+      'href',
+      '/login?callbackUrl=%2Fcampaigns%2Fmy-campaign',
+    );
+  });
+
+  it('percent-encodes the campaign slug in the callbackUrl', () => {
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
+    render(<MessageForm campaignSlug="help/../evil?x=1" />);
+
+    const href = screen.getByText('Sign in').getAttribute('href')!;
+    const value = new URL(href, 'https://lastdonor.org').searchParams.get('callbackUrl');
+    expect(value).toBe('/campaigns/help/../evil?x=1');
   });
 });
