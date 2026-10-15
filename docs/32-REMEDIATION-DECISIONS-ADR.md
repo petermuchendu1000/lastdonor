@@ -247,6 +247,47 @@ interstitial page outside this change's scope, and the failure direction
 side (`app/unsubscribe/client.tsx`) land. Ship in the same release — this is a
 CAN-SPAM/GDPR exposure.
 
+### 7a. One module owns newsletter token logic (amended 2026-10-15)
+
+**Decided.** `src/lib/unsubscribe-tokens.ts` (added 224e069) is now the only
+place newsletter unsubscribe tokens are signed or checked. The private
+`verifyUnsubscribeToken` + `hexEquals` in
+`src/app/api/v1/newsletter/unsubscribe/route.ts` are deleted and the route
+imports the shared verifier. **Verified 2026-10-15** by reading both: same
+algorithm (HMAC-SHA256), same signed input (the bare
+`newsletter_subscribers.id`, no purpose or version prefix, no expiry claim),
+same hex digest, same `lastIndexOf('.')` framing, same env var
+(`NEWSLETTER_UNSUBSCRIBE_SECRET`), same timing-safe compare, same fail-closed
+behaviour on an unset secret. The wire format is unchanged, so this is a
+deletion, not a migration.
+
+**One difference, and the compatibility window it opens.** The shared module
+reads the secret as `?.trim() || null`; the deleted route copy — and the cron
+minter before 224e069 — used `process.env.…` raw. With a cleanly set secret the
+two are bit-identical. If the deployed secret ever carried surrounding
+whitespace (a `fly secrets set` from a pipe), links minted before 224e069 are
+signed under the raw value and would now 400. `verifyUnsubscribeToken`
+therefore accepts a signature under **either normalisation of the operator's
+own secret**, verify-only; minting always uses the trimmed key.
+
+**Rejected:** (a) keeping a separately-exported "legacy" verifier — there is
+only one token kind, so a second entry point would imply a format difference
+that does not exist; (b) dropping the `.trim()` to match the old route exactly
+— that would instead break links minted *after* 224e069 and re-admit a
+whitespace-only secret as a signing key; (c) folding in the campaign-unsubscribe
+format from `api/v1/campaigns/[slug]/subscribe/route.ts`. (c) stays separate on
+purpose: its `campaign-unsubscribe:v1:<campaignId>:<email>` message and
+`CAMPAIGN_UNSUBSCRIBE_SECRET` are what domain-separate the two flows when the
+newsletter secret is used as its fallback. Tests in
+`src/lib/unsubscribe-tokens.test.ts` pin cross-kind rejection in both
+directions.
+
+**Trade-off accepted.** Verification can compute two HMACs instead of one, but
+only while a whitespace-padded secret is configured; the branch is dead for a
+clean secret. A whitespace-only secret is treated as unset (stricter than the
+deleted copy, which would have signed with it) — safe because the mint side
+throws under that config, so no such link can exist.
+
 ---
 
 ## 8. Generic auth failure, and closing the timing oracle too (A4)

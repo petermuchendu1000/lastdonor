@@ -60,6 +60,9 @@ vi.mock('@/db', () => {
 });
 
 const { GET, POST, DELETE } = await import('./route');
+const { createCampaignUnsubscribeToken, campaignUnsubscribeUrl } = await import(
+  '@/lib/unsubscribe-tokens'
+);
 
 const params = { params: Promise.resolve({ slug: 'a-campaign' }) };
 const freshParams = () => ({ params: Promise.resolve({ slug: 'a-campaign' }) });
@@ -305,5 +308,109 @@ describe('GET subscription status is unchanged and discloses nothing', () => {
     );
 
     expect(await response.json()).toEqual({ ok: true, data: { subscribed: true } });
+  });
+});
+
+/**
+ * The dead-link regression (2026-10-15).
+ *
+ * The verifier used to be private to this route, so no send site could mint
+ * the token it demands: the campaign-update footers in
+ * `src/lib/email-adaptive.ts` shipped with no `token` and every one-click
+ * unsubscribe already in a donor's inbox answered 403. The hand-rolled
+ * `unsubscribeToken` helper above pins the wire format; these tests pin that
+ * the shared minter in `@/lib/unsubscribe-tokens` and this route actually
+ * interoperate, which is the property that was missing.
+ */
+describe('DELETE accepts what the email footer now mints (the 403 regression)', () => {
+  const EMAIL = 'subscriber@example.com';
+
+  it('mints, through the shared module, exactly what this route verifies', () => {
+    expect(createCampaignUnsubscribeToken(CAMPAIGN_ID, EMAIL)).toBe(
+      unsubscribeToken(CAMPAIGN_ID, EMAIL),
+    );
+  });
+
+  it('succeeds with a module-minted token and NO session', async () => {
+    state.rows = [CAMPAIGN_ROW];
+    sessionMock.auth.mockResolvedValue(null);
+
+    const response = await DELETE(
+      jsonRequest('DELETE', '/api/v1/campaigns/a-campaign/subscribe', {
+        email: EMAIL,
+        token: createCampaignUnsubscribeToken(CAMPAIGN_ID, EMAIL),
+      }),
+      freshParams(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data: { subscribed: false } });
+    expect(state.updates).toHaveLength(1);
+    expect(state.updates[0]).toMatchObject({ subscribed: false });
+  });
+
+  it('succeeds for the token carried in the real footer link, with NO session', async () => {
+    // Exactly what `campaignUnsubscribeFooter` puts in the mail, then what
+    // `src/app/unsubscribe/client.tsx` forwards out of the query string.
+    const url = campaignUnsubscribeUrl({
+      campaignId: CAMPAIGN_ID,
+      campaignSlug: 'a-campaign',
+      email: EMAIL,
+      baseUrl: 'https://lastdonor.org',
+    });
+    expect(url).not.toBeNull();
+
+    const query = new URL(url!).searchParams;
+    state.rows = [CAMPAIGN_ROW];
+    sessionMock.auth.mockResolvedValue(null);
+
+    const response = await DELETE(
+      jsonRequest('DELETE', '/api/v1/campaigns/a-campaign/subscribe', {
+        email: query.get('email'),
+        token: query.get('token'),
+      }),
+      freshParams(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.updates).toHaveLength(1);
+  });
+
+  it('still refuses the same request with the token stripped out, with NO session', async () => {
+    // The pre-fix footer link, verbatim: email + campaign, no token.
+    state.rows = [CAMPAIGN_ROW];
+    sessionMock.auth.mockResolvedValue(null);
+
+    const response = await DELETE(
+      jsonRequest('DELETE', '/api/v1/campaigns/a-campaign/subscribe', { email: EMAIL }),
+      freshParams(),
+    );
+
+    expect(response.status).toBe(403);
+    expect(state.updates).toEqual([]);
+  });
+
+  it('refuses a footer-shaped token minted for another campaign, with NO session', async () => {
+    const url = campaignUnsubscribeUrl({
+      campaignId: '99999999-9999-9999-9999-999999999999',
+      campaignSlug: 'a-campaign',
+      email: EMAIL,
+      baseUrl: 'https://lastdonor.org',
+    });
+    const query = new URL(url!).searchParams;
+
+    state.rows = [CAMPAIGN_ROW];
+    sessionMock.auth.mockResolvedValue(null);
+
+    const response = await DELETE(
+      jsonRequest('DELETE', '/api/v1/campaigns/a-campaign/subscribe', {
+        email: query.get('email'),
+        token: query.get('token'),
+      }),
+      freshParams(),
+    );
+
+    expect(response.status).toBe(403);
+    expect(state.updates).toEqual([]);
   });
 });

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { randomUUID } from 'crypto';
 import { db } from '@/db';
 import { newsletterSubscribers } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { auth } from '@/lib/auth';
+import { verifyUnsubscribeToken } from '@/lib/unsubscribe-tokens';
 import type { ApiError } from '@/types/api';
 
 /**
@@ -30,6 +31,15 @@ import type { ApiError } from '@/types/api';
  *    working, for GET). Unsubscribing must not require a login: CAN-SPAM
  *    §316.5 requires the mechanism in the message to function, and GDPR Art. 7(3)
  *    requires withdrawal to be as easy as consent.
+ *
+ *    Verification is `verifyUnsubscribeToken` from `@/lib/unsubscribe-tokens`.
+ *    This file carried its own private copy until 2026-10-15, with a note that
+ *    extracting it needed a new `src/lib/` module; that module exists (224e069)
+ *    and now owns every mint and every check of this token. The copy removed
+ *    here signed over byte-identical input with the same algorithm, digest
+ *    encoding, framing and env var, so the wire format did not change — see the
+ *    module header for the one difference (secret trimming) and how links
+ *    minted under an untrimmed secret stay verifiable.
  * 2. **Session ownership** — a signed-in user unsubscribing their own address.
  *
  * Anything else is refused. The address in the body is never trusted on its own.
@@ -64,43 +74,6 @@ function errorResponse(
 ): NextResponse {
   const body: ApiError = { ok: false, error: { code, message, requestId, ...(field ? { field } : {}) } };
   return NextResponse.json(body, { status });
-}
-
-function hexEquals(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Verify `<subscriberId>.<signature>` and return the subscriber id.
- *
- * Must stay identical to `createUnsubscribeToken` in
- * `src/app/api/v1/cron/send-newsletter/route.ts`. Duplicated rather than
- * shared because extracting it needs a new `src/lib/` module, which is outside
- * this change's ownership — see the follow-up note in the handover.
- */
-function verifyUnsubscribeToken(token: string | null | undefined): string | null {
-  if (!token) return null;
-
-  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-  if (!secret) {
-    // Fail closed. A missing secret must never degrade into "accept anything".
-    console.error('[newsletter/unsubscribe] NEWSLETTER_UNSUBSCRIBE_SECRET is not set; rejecting all tokens.');
-    return null;
-  }
-
-  const separator = token.lastIndexOf('.');
-  if (separator <= 0 || separator === token.length - 1) return null;
-
-  const subscriberId = token.slice(0, separator);
-  const signature = token.slice(separator + 1);
-
-  const expected = createHmac('sha256', secret).update(subscriberId).digest('hex');
-  return hexEquals(signature, expected) ? subscriberId : null;
 }
 
 /** Mark a subscriber unsubscribed by primary key. Idempotent. */

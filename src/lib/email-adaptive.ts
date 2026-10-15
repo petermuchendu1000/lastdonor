@@ -30,6 +30,8 @@
  * - Max width: 600px
  */
 
+import { campaignUnsubscribeMechanism } from '@/lib/unsubscribe-tokens';
+
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://lastdonor.org';
 
 /** Escape user-controlled strings to prevent HTML injection in email templates. */
@@ -40,6 +42,47 @@ function esc(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * The opt-out line for campaign-update mail.
+ *
+ * ## Why this is a function and not an inline link
+ *
+ * Both campaign-update templates used to inline
+ * `${BASE_URL}/unsubscribe?email=...&campaign=<slug>` with **no token**, while
+ * `DELETE /api/v1/campaigns/[slug]/subscribe` has required an HMAC token (or a
+ * matching session) since the P1-6 fix. Every such link already in a donor's
+ * inbox answered 403 unless the donor happened to be signed in as that
+ * address, which makes the one-click path dead: a CAN-SPAM 16 CFR 316.5 and
+ * GDPR Art. 7(3) defect, not a cosmetic one.
+ *
+ * The token signs over the campaign **UUID**, not the slug, which is why both
+ * payload types now carry `campaignId`. The id is passed in by the caller
+ * (`src/lib/notifications.ts` already holds it); this layer deliberately does
+ * not look it up, because email templates must stay pure string builders.
+ *
+ * Without a signing secret, `campaignUnsubscribeMechanism` returns a `mailto:`
+ * to the published support mailbox rather than a link that promises one-click
+ * unsubscribe and then fails. `oneClick` is false for both branches: the
+ * `/unsubscribe` page is a browser page, not an RFC 8058 POST endpoint, so the
+ * branch is detected by inspecting the scheme.
+ */
+function campaignUnsubscribeFooter(p: {
+  campaignId: string;
+  campaignSlug: string;
+  donorEmail: string;
+}): string {
+  const mechanism = campaignUnsubscribeMechanism({
+    campaignId: p.campaignId,
+    campaignSlug: p.campaignSlug,
+    email: p.donorEmail,
+    baseUrl: BASE_URL,
+  });
+  const signed = !mechanism.url.startsWith('mailto:');
+  const label = signed ? 'Unsubscribe from updates' : 'Email us to unsubscribe';
+
+  return `<p style="color: #666; font-size: 14px;">You're receiving this because you subscribed to this campaign. <a href="${mechanism.url}" style="color: #999;">${label}</a></p>`;
 }
 
 // ─── Shared Layout ──────────────────────────────────────────────────────────
@@ -992,6 +1035,8 @@ export function creatorThankYouUpdateEmail(p: {
   creatorName: string;
   campaignTitle: string;
   campaignSlug: string;
+  /** Campaigns table UUID. Required: the unsubscribe token signs over it. */
+  campaignId: string;
   thankYouMessage: string;
   progressPercent: number;
 }) {
@@ -1011,7 +1056,7 @@ export function creatorThankYouUpdateEmail(p: {
       </div>
       <p>The campaign is currently <strong>${p.progressPercent}%</strong> funded.</p>
       ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign')}
-      <p style="color: #666; font-size: 14px;">You're receiving this because you subscribed to this campaign. <a href="${BASE_URL}/unsubscribe?email=${encodeURIComponent(p.donorEmail)}&campaign=${encodeURIComponent(p.campaignSlug)}" style="color: #999;">Unsubscribe from updates</a></p>
+      ${campaignUnsubscribeFooter({ campaignId: p.campaignId, campaignSlug: p.campaignSlug, donorEmail: p.donorEmail })}
     `),
   };
 }
@@ -1026,6 +1071,8 @@ export function campaignUpdateDigestEmail(p: {
   donorEmail: string;
   campaignTitle: string;
   campaignSlug: string;
+  /** Campaigns table UUID. Required: the unsubscribe token signs over it. */
+  campaignId: string;
   updateTitle: string;
   updateExcerpt: string;
   progressPercent: number;
@@ -1052,7 +1099,7 @@ export function campaignUpdateDigestEmail(p: {
         <p style="margin: 8px 0 0; color: #666; font-size: 14px;">${formatCents(p.raisedCents)} of ${formatCents(p.goalCents)} raised (${p.progressPercent}%)</p>
       </div>
       ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Read Full Update')}
-      <p style="color: #666; font-size: 14px;">You're receiving this because you subscribed to this campaign. <a href="${BASE_URL}/unsubscribe?email=${encodeURIComponent(p.donorEmail)}&campaign=${encodeURIComponent(p.campaignSlug)}" style="color: #999;">Unsubscribe from updates</a></p>
+      ${campaignUnsubscribeFooter({ campaignId: p.campaignId, campaignSlug: p.campaignSlug, donorEmail: p.donorEmail })}
     `),
   };
 }

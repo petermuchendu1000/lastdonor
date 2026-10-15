@@ -4,7 +4,8 @@ import { donorCampaignSubscriptions, campaigns, users } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { subscribeCampaignSchema } from '@/lib/validators/verification';
 import { auth } from '@/lib/auth';
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { randomUUID } from 'crypto';
+import { verifyCampaignUnsubscribeToken } from '@/lib/unsubscribe-tokens';
 import type { ApiError } from '@/types/api';
 
 type RouteParams = { params: Promise<{ slug: string }> };
@@ -49,17 +50,25 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * other flow. A dedicated `CAMPAIGN_UNSUBSCRIBE_SECRET` is still preferred.
  *
  * Not single-use (persisting redemption needs a migration, and migrations are
- * frozen — see CLAUDE.md); replay is harmless because unsubscribing is
+ * frozen - see CLAUDE.md); replay is harmless because unsubscribing is
  * idempotent and terminal, and the token grants nothing else. Not expiring,
  * because an unsubscribe link that stops working is itself a compliance defect.
  *
- * ⚠️ The links in `src/lib/email-adaptive.ts` and the page at
- * `src/app/unsubscribe/` do not carry this token yet, and both are outside
- * this change's ownership. Until they are updated, campaign unsubscribe from
- * an email link answers 403. See the handover notes.
+ * ## Where the token lives now (2026-10-15)
+ *
+ * Mint and verify are in `src/lib/unsubscribe-tokens.ts`, which owns both
+ * unsubscribe token formats. This route imported the verifier and deleted its
+ * private copy; the format did not change, so tokens minted either side of
+ * that move verify identically.
+ *
+ * Keeping the verifier private here was the cause of a live defect: no send
+ * site could mint the token this route demands, so the campaign-update footer
+ * links in `src/lib/email-adaptive.ts` carried no `token` at all and every
+ * one-click unsubscribe already in a donor's inbox answered 403. Those links
+ * are minted through `campaignUnsubscribeMechanism` as of 2026-10-15, and
+ * `src/app/unsubscribe/` forwards the `token` query parameter into this
+ * request. Both are fixed; do not re-privatise the crypto.
  */
-
-const TOKEN_VERSION = 'campaign-unsubscribe:v1';
 
 function errorResponse(
   code: ApiError['error']['code'],
@@ -69,48 +78,6 @@ function errorResponse(
 ): NextResponse {
   const body: ApiError = { ok: false, error: { code, message, requestId } };
   return NextResponse.json(body, { status });
-}
-
-function hexEquals(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
-function unsubscribeSecret(): string | null {
-  return (
-    process.env.CAMPAIGN_UNSUBSCRIBE_SECRET?.trim() ||
-    process.env.NEWSLETTER_UNSUBSCRIBE_SECRET?.trim() ||
-    null
-  );
-}
-
-/** Verify a campaign-unsubscribe token against (campaignId, email). */
-function verifyCampaignUnsubscribeToken(
-  token: string | null | undefined,
-  campaignId: string,
-  email: string,
-): boolean {
-  if (!token) return false;
-
-  const secret = unsubscribeSecret();
-  if (!secret) {
-    // Fail closed. A missing secret must never degrade into "accept anything".
-    console.error(
-      '[campaigns/subscribe] neither CAMPAIGN_UNSUBSCRIBE_SECRET nor ' +
-      'NEWSLETTER_UNSUBSCRIBE_SECRET is set; rejecting all unsubscribe tokens.',
-    );
-    return false;
-  }
-
-  const expected = createHmac('sha256', secret)
-    .update(`${TOKEN_VERSION}:${campaignId}:${email}`)
-    .digest('hex');
-
-  return hexEquals(token.trim(), expected);
 }
 
 async function resolveCampaignId(idOrSlug: string): Promise<string | null> {

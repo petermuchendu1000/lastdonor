@@ -7,10 +7,34 @@ import { BellSlashIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicon
 
 type State = 'loading' | 'success' | 'error' | 'missing-params';
 
+/**
+ * Published support mailbox. Hardcoded rather than imported from
+ * `@/lib/unsubscribe-tokens` because that module imports node `crypto` and
+ * this is a client component; the same literal appears across the app's
+ * client surfaces.
+ */
+const SUPPORT_MAILBOX = 'support@lastdonor.org';
+
 export function UnsubscribeClient() {
   const searchParams = useSearchParams();
   const email = searchParams.get('email');
   const campaignSlug = searchParams.get('campaign');
+  /**
+   * The HMAC token minted by the email footer
+   * (`campaignUnsubscribeMechanism` in `@/lib/unsubscribe-tokens`).
+   *
+   * `DELETE /api/v1/campaigns/[slug]/subscribe` authorises on this token OR a
+   * session owning the address, so it must be forwarded or the email-link
+   * flow answers 403. It is sent in the JSON body; the route's `readToken`
+   * accepts either, and the body is where `email` already travels.
+   *
+   * Its absence is deliberately NOT treated as `missing-params`: links minted
+   * before this fix carry no token, and a signed-in donor can still
+   * unsubscribe through the session path. The attempt is made either way, and
+   * a genuine failure lands in the error state, which offers the support
+   * mailbox.
+   */
+  const token = searchParams.get('token');
   const [state, setState] = useState<State>('loading');
 
   const unsubscribe = useCallback(async () => {
@@ -23,14 +47,14 @@ export function UnsubscribeClient() {
       const res = await fetch(`/api/v1/campaigns/${encodeURIComponent(campaignSlug)}/subscribe`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify(token ? { email, token } : { email }),
       });
       const json = await res.json();
       setState(json.ok ? 'success' : 'error');
     } catch {
       setState('error');
     }
-  }, [email, campaignSlug]);
+  }, [email, campaignSlug, token]);
 
   useEffect(() => {
     unsubscribe();
@@ -70,7 +94,8 @@ export function UnsubscribeClient() {
           </div>
           <h1 className="text-lg font-bold text-foreground">Something went wrong</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            We could not process your unsubscribe request. Please try again or contact support.
+            We could not process your unsubscribe request. Try again, or email us and we will
+            stop these campaign updates for you.
           </p>
           <button
             type="button"
@@ -79,6 +104,18 @@ export function UnsubscribeClient() {
           >
             Try Again
           </button>
+          <p className="mt-4 text-sm text-muted-foreground">
+            <a
+              href={`mailto:${SUPPORT_MAILBOX}?subject=${encodeURIComponent(
+                campaignSlug
+                  ? `Unsubscribe from campaign updates: ${campaignSlug}`
+                  : 'Unsubscribe from campaign updates',
+              )}`}
+              className="text-primary underline underline-offset-4"
+            >
+              {SUPPORT_MAILBOX}
+            </a>
+          </p>
         </>
       )}
 
@@ -89,7 +126,18 @@ export function UnsubscribeClient() {
           </div>
           <h1 className="text-lg font-bold text-foreground">Invalid Link</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            This unsubscribe link appears to be incomplete. Please use the link from your email.
+            This unsubscribe link appears to be incomplete. Use the link from your email, or
+            email us and we will stop these campaign updates for you.
+          </p>
+          <p className="mt-4 text-sm text-muted-foreground">
+            <a
+              href={`mailto:${SUPPORT_MAILBOX}?subject=${encodeURIComponent(
+                'Unsubscribe from campaign updates',
+              )}`}
+              className="text-primary underline underline-offset-4"
+            >
+              {SUPPORT_MAILBOX}
+            </a>
           </p>
           <Link
             href="/"

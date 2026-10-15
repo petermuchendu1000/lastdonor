@@ -1364,6 +1364,8 @@ export async function notifyCampaignUpdateDigest(p: {
       donorEmail: sub.donorEmail,
       campaignTitle: p.campaignTitle,
       campaignSlug: p.campaignSlug,
+      // Needed to mint the unsubscribe token, which signs over the UUID.
+      campaignId: p.campaignId,
       updateTitle: p.updateTitle,
       updateExcerpt: p.updateExcerpt,
       progressPercent: p.progressPercent,
@@ -1410,6 +1412,8 @@ export async function notifyCreatorThankYouUpdate(p: {
       creatorName: p.creatorName,
       campaignTitle: p.campaignTitle,
       campaignSlug: p.campaignSlug,
+      // Needed to mint the unsubscribe token, which signs over the UUID.
+      campaignId: p.campaignId,
       thankYouMessage: p.thankYouMessage,
       progressPercent: p.progressPercent,
     });
