@@ -209,11 +209,16 @@ function resolver(op: Op): unknown[] {
     }
 
     case 'update:donations': {
+      // Returns the rows it actually matched, which is what makes the
+      // conditional refund claim (`WHERE refunded = false ... RETURNING`)
+      // observable: a second concurrent claim matches nothing and gets [].
+      const updated: Row[] = [];
       for (const d of world.donations) {
         if (!evalWhere(op.where, d)) continue;
         applySet(d, op.set);
+        updated.push({ ...d });
       }
-      return [];
+      return updated;
     }
 
     case 'update:campaigns': {

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { refundBatches, refundRecords, donations, campaigns, auditLogs } from '@/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { stripe } from '@/lib/stripe';
+import { applyRefundInTx } from '@/lib/services/payment-service';
 import { bulkOpSemaphore } from '@/lib/concurrency-limiter';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
@@ -190,7 +191,13 @@ export async function PATCH(_request: NextRequest, { params }: RouteParams) {
         }
 
         try {
-          const refund = await stripe.refunds.create({ payment_intent: record.stripePaymentId });
+          // Idempotency key: a retry of a retry must not create a second
+          // refund. Keyed on the donation, so it matches the key the original
+          // bulk-refund attempt used for the same donation.
+          const refund = await stripe.refunds.create(
+            { payment_intent: record.stripePaymentId },
+            { idempotencyKey: `refund:${record.donationId}` },
+          );
           retryResults.push({
             recordId: record.id,
             donationId: record.donationId,
@@ -232,14 +239,23 @@ export async function PATCH(_request: NextRequest, { params }: RouteParams) {
           }
         }
 
-        // Mark all successful donations as refunded in one UPDATE
-        const refundedDonationIds = retryResults
-          .filter((r) => r.status === 'completed')
-          .map((r) => r.donationId);
-        if (refundedDonationIds.length > 0) {
-          await tx.update(donations)
-            .set({ refunded: true })
-            .where(sql`${donations.id} IN ${refundedDonationIds}`);
+        // Mark the successfully retried donations as refunded AND adjust the
+        // campaign ledger, through the single refund writer, in THIS
+        // transaction.
+        //
+        // This used to flip `donations.refunded = true` and never touch
+        // `campaigns`. The `charge.refunded` webhook that Stripe then
+        // delivered found `refunded` already true, returned early, and the
+        // campaign totals were never corrected: the money left Stripe and the
+        // ledger still counted it as raised, for good.
+        for (const result of retryResults) {
+          if (result.status !== 'completed') continue;
+          await applyRefundInTx(tx, {
+            donationId: result.donationId,
+            actorId: session.user.id,
+            actorRole: 'admin',
+            auditDetails: { via: 'admin:refund-batch-retry', batchId: id },
+          });
         }
 
         // Update batch counters

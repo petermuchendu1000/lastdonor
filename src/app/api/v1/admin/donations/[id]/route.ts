@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { donations, campaigns, auditLogs } from '@/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { donations, campaigns } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { notifyDonationRefund } from '@/lib/notifications';
 import { stripe } from '@/lib/stripe';
+import { applyRefund } from '@/lib/services/payment-service';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import type { UserRole } from '@/types';
@@ -146,7 +147,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Issue actual Stripe refund when marking as refunded
     if (body.refunded && donation.stripePaymentId) {
       try {
-        await stripe.refunds.create({ payment_intent: donation.stripePaymentId });
+        // Idempotency key: on a retry (the admin clicking twice, or a retry
+        // after the ledger write failed) Stripe returns the SAME refund
+        // instead of creating a second one or answering
+        // `charge_already_refunded`.
+        await stripe.refunds.create(
+          { payment_intent: donation.stripePaymentId },
+          { idempotencyKey: `refund:${donation.id}` },
+        );
       } catch (stripeErr: unknown) {
         const msg = stripeErr instanceof Error ? stripeErr.message : 'Unknown Stripe error';
         console.error('[admin/donations] Stripe refund failed:', msg);
@@ -157,36 +165,26 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    await db.transaction(async (tx) => {
-      await tx.update(donations).set({ refunded: body.refunded }).where(eq(donations.id, id));
-
-      // Update campaign raised amount and donor count
-      if (donation.source === 'real') {
-        const amountDelta = body.refunded ? -donation.amount : donation.amount;
-        const countDelta = body.refunded ? -1 : 1;
-
-        await tx.update(campaigns).set({
-          raisedAmount: sql`GREATEST(${campaigns.raisedAmount} + ${amountDelta}, 0)`,
-          donorCount: sql`GREATEST(${campaigns.donorCount} + ${countDelta}, 0)`,
-          updatedAt: new Date(),
-        }).where(eq(campaigns.id, donation.campaignId));
-      }
-
-      await tx.insert(auditLogs).values({
-        eventType: 'donation.refunded',
-        actorId: session.user?.id ?? null,
-        actorRole: session.user?.role as UserRole,
-        targetType: 'donation',
-        targetId: id,
-        severity: 'warning',
-        details: {
-          amount: donation.amount,
-          donorEmail: donation.donorEmail,
-          campaignId: donation.campaignId,
-          source: donation.source,
-        },
-      });
+    // Single writer of donations.refunded. It claims the row conditionally and
+    // clamps total_released_amount in the same UPDATE that lowers
+    // raised_amount. The previous inline version lowered raised_amount only:
+    // on a fully-verified campaign (released == raised) that violated the
+    // `campaigns_released_lte_raised` CHECK, the transaction rolled back AFTER
+    // Stripe had refunded the donor, and the retry got
+    // `charge_already_refunded`.
+    const applied = await applyRefund({
+      donationId: id,
+      actorId: session.user?.id ?? null,
+      actorRole: session.user?.role as UserRole,
+      auditDetails: { via: 'admin:donation-patch' },
     });
+
+    if (!applied) {
+      // Another writer (the charge.refunded webhook, or a concurrent admin)
+      // already claimed it. The Stripe refund above was idempotent, so there
+      // is nothing left to do and nothing was double-counted.
+      return NextResponse.json({ ok: true, data: { id, refunded: true, changed: false } });
+    }
 
     // Notify the donor (fire-and-forget - never block the admin response)
     const [cam] = await db

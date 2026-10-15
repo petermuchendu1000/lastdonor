@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { campaigns, donations, auditLogs, refundBatches, refundRecords } from '@/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { cancelCampaignSchema } from '@/lib/validators/verification';
 import { notifyBulkRefundCompleted } from '@/lib/notifications';
@@ -10,6 +10,7 @@ import { campaignCancelledRefundEmail } from '@/lib/email-templates';
 import { findSimilarCampaigns } from '@/lib/utils/similar-campaigns';
 import { resend } from '@/lib/resend';
 import { stripe } from '@/lib/stripe';
+import { applyRefundInTx } from '@/lib/services/payment-service';
 import { randomUUID } from 'crypto';
 import { bulkOpSemaphore } from '@/lib/concurrency-limiter';
 import type { ApiError } from '@/types/api';
@@ -216,7 +217,13 @@ async function _processBulkRefundInner(p: {
 
     if (donation.stripePaymentId) {
       try {
-        const refund = await stripe.refunds.create({ payment_intent: donation.stripePaymentId });
+        // Idempotency key: if this batch is re-run (admin retry, or the HTTP
+        // request timing out mid-loop) Stripe returns the SAME refund rather
+        // than refunding the donor twice.
+        const refund = await stripe.refunds.create(
+          { payment_intent: donation.stripePaymentId },
+          { idempotencyKey: `refund:${donation.id}` },
+        );
         stripeRefundId = refund.id;
       } catch (err: unknown) {
         errorMessage = err instanceof Error ? err.message : 'Unknown Stripe error';
@@ -246,34 +253,57 @@ async function _processBulkRefundInner(p: {
       })),
     );
 
-    // Mark all successful donations as refunded in one UPDATE
-    const refundedIds = refundResults.filter((r) => r.status === 'completed').map((r) => r.donationId);
-    if (refundedIds.length > 0) {
-      await tx.update(donations)
-        .set({ refunded: true })
-        .where(sql`${donations.id} IN ${refundedIds}`);
+    // Mark the successfully refunded donations as refunded AND adjust the
+    // campaign ledger, one donation at a time, through the single refund
+    // writer.
+    //
+    // This used to be `raisedAmount: 0, donorCount: 0` under an
+    // `if (refundedCount > 0)` guard. Two bugs, both of them money bugs:
+    //
+    //   1. No `total_released_amount` clamp. On a fully-verified campaign
+    //      (released == raised) zeroing raised violated the
+    //      `campaigns_released_lte_raised` CHECK, which aborted this whole
+    //      transaction - rolling back every refund_record and every
+    //      `refunded` flag for potentially hundreds of donors whose money
+    //      Stripe had ALREADY sent back.
+    //   2. It zeroed the totals even on partial success. With 3 of 10 refunds
+    //      through, the ledger claimed the campaign had raised nothing while
+    //      7 donors' money was still held.
+    //
+    // Decrementing per successful donation fixes both: the sum removed is
+    // exactly the sum actually refunded, and each decrement clamps released
+    // in the same statement.
+    for (const result of refundResults) {
+      if (result.status !== 'completed') continue;
+      await applyRefundInTx(tx, {
+        donationId: result.donationId,
+        actorId: p.adminId || null,
+        actorRole: 'admin',
+        auditDetails: { via: 'admin:bulk-refund', batchId: batch.id, reason: p.reason },
+      });
     }
 
-    // Update batch totals + zero out campaign amounts
+    // Update batch totals
     await tx.update(refundBatches).set({
       refundedCount,
       failedCount,
       status: failedCount === 0 ? 'completed' : 'partial_failure',
       completedAt: new Date(),
     }).where(eq(refundBatches.id, batch.id));
-
-    if (refundedCount > 0) {
-      await tx.update(campaigns).set({
-        raisedAmount: 0,
-        donorCount: 0,
-        updatedAt: new Date(),
-      }).where(eq(campaigns.id, p.campaignId));
-    }
   });
+
+  // Only donors whose refund actually succeeded get told their money is on its
+  // way back. Passing every eligible donation told the donors whose Stripe
+  // refund FAILED that they had been refunded - a false statement about their
+  // money, and one that makes the failure invisible to the only person who
+  // would notice it.
+  const refundedDonationIds = new Set(
+    refundResults.filter((r) => r.status === 'completed').map((r) => r.donationId),
+  );
 
   // Send per-donor refund notification emails with similar campaign recommendations
   sendDonorRefundEmails({
-    eligibleDonations,
+    eligibleDonations: eligibleDonations.filter((d) => refundedDonationIds.has(d.id)),
     campaignTitle: p.campaignTitle,
     campaignCategory: p.campaignCategory,
     campaignLocation: p.campaignLocation,

@@ -514,6 +514,161 @@ async function sendDonationNotifications({
   }
 }
 
+// ─── Refund Accounting (single writer) ──────────────────────────────────────
+
+/** The transaction handle `db.transaction` hands its callback. */
+export type RefundTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export interface AppliedRefund {
+  donationId: string;
+  campaignId: string;
+  amount: number;
+  source: 'real' | 'seed';
+  stripePaymentId: string | null;
+  donorEmail: string;
+  /** Null when the campaign ledger was deliberately not adjusted (seed money). */
+  raisedAmountAfter: number | null;
+  totalReleasedAmountAfter: number | null;
+  /** Released funds clawed back below what was already paid out: a cash shortfall. */
+  releasedBelowWithdrawn: boolean;
+}
+
+export interface ApplyRefundParams {
+  donationId: string;
+  actorId?: string | null;
+  actorRole?: (typeof auditLogs.$inferInsert)['actorRole'];
+  /** Extra audit detail; merged over the computed ledger details. */
+  auditDetails?: Record<string, unknown>;
+  /**
+   * Force the campaign-ledger adjustment on or off. Default: adjust for every
+   * source except `seed`, which never contributed real money.
+   */
+  adjustCampaign?: boolean;
+}
+
+/**
+ * Claim one donation for refund and correct the campaign ledger, in the
+ * caller's transaction.
+ *
+ * This is the SOLE writer of `donations.refunded`. Four independent
+ * implementations of refund accounting had drifted apart (admin single refund,
+ * bulk cancel, batch retry, the `charge.refunded` webhook); three of them moved
+ * money at Stripe and then either violated the
+ * `campaigns_released_lte_raised` CHECK or never touched `campaigns` at all.
+ *
+ * Two invariants are enforced here and nowhere else:
+ *
+ * 1. **The claim is the first statement.** `WHERE refunded = false` plus
+ *    `RETURNING` makes the flip atomic: of two concurrent webhook deliveries
+ *    (Stripe retries; the in-process `processedEvents` set is per-instance)
+ *    exactly one gets a row back and so exactly one decrements the campaign.
+ *    Reading `refunded` outside the transaction and then writing it
+ *    unconditionally let a $5 refund remove $10 and two donors. Modelled on
+ *    `stripe-connect/webhook/route.ts`'s withdrawal claim.
+ * 2. **`total_released_amount` is clamped in the same UPDATE** that lowers
+ *    `raised_amount`. Both SET expressions read the pre-UPDATE
+ *    `raised_amount`, which is what makes the clamp exact: released is pulled
+ *    down only as far as the new raised figure, never below zero and never
+ *    further than necessary. Without it the CHECK aborts the transaction
+ *    *after* Stripe has already paid the donor back (audit docs/29 P0-3).
+ *
+ * @returns the applied refund, or `null` if the donation was already refunded
+ *          (in which case nothing was written).
+ */
+export async function applyRefundInTx(
+  tx: RefundTx,
+  params: ApplyRefundParams,
+): Promise<AppliedRefund | null> {
+  // 1. Claim the row. This MUST be the first statement of the transaction.
+  const claimed = await tx
+    .update(donations)
+    .set({ refunded: true })
+    .where(and(eq(donations.id, params.donationId), eq(donations.refunded, false)))
+    .returning({
+      id: donations.id,
+      campaignId: donations.campaignId,
+      amount: donations.amount,
+      source: donations.source,
+      stripePaymentId: donations.stripePaymentId,
+      donorEmail: donations.donorEmail,
+    });
+
+  if (claimed.length === 0) return null; // Already refunded - replay, no-op.
+
+  const row = claimed[0];
+  const adjustCampaign = params.adjustCampaign ?? row.source !== 'seed';
+
+  let raisedAmountAfter: number | null = null;
+  let totalReleasedAmountAfter: number | null = null;
+  let releasedBelowWithdrawn = false;
+
+  if (adjustCampaign) {
+    // 2. Lower raised_amount and clamp released in the SAME statement.
+    const newRaisedAmount = sql`GREATEST(${campaigns.raisedAmount} - ${row.amount}, 0)`;
+
+    const [totals] = await tx
+      .update(campaigns)
+      .set({
+        raisedAmount: newRaisedAmount,
+        totalReleasedAmount: sql`LEAST(${campaigns.totalReleasedAmount}, ${newRaisedAmount})`,
+        donorCount: sql`GREATEST(${campaigns.donorCount} - 1, 0)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(campaigns.id, row.campaignId))
+      .returning({
+        raisedAmount: campaigns.raisedAmount,
+        totalReleasedAmount: campaigns.totalReleasedAmount,
+        totalWithdrawnAmount: campaigns.totalWithdrawnAmount,
+      });
+
+    raisedAmountAfter = totals?.raisedAmount ?? null;
+    totalReleasedAmountAfter = totals?.totalReleasedAmount ?? null;
+    releasedBelowWithdrawn =
+      totals != null && totals.totalReleasedAmount < totals.totalWithdrawnAmount;
+  }
+
+  await tx.insert(auditLogs).values({
+    eventType: 'donation.refunded',
+    actorId: params.actorId ?? null,
+    ...(params.actorRole ? { actorRole: params.actorRole } : {}),
+    targetType: 'donation',
+    targetId: row.id,
+    severity: 'warning',
+    details: {
+      amount: row.amount,
+      campaignId: row.campaignId,
+      donorEmail: row.donorEmail,
+      source: row.source,
+      stripePaymentId: row.stripePaymentId,
+      campaignAdjusted: adjustCampaign,
+      raisedAmountAfter,
+      totalReleasedAmountAfter,
+      // Released funds clawed back below what has already been paid out to the
+      // creator leave a real cash shortfall. Recorded so reconciliation can
+      // find it; nothing here can undo a completed transfer.
+      releasedBelowWithdrawn,
+      ...(params.auditDetails ?? {}),
+    },
+  });
+
+  return {
+    donationId: row.id,
+    campaignId: row.campaignId,
+    amount: row.amount,
+    source: row.source,
+    stripePaymentId: row.stripePaymentId,
+    donorEmail: row.donorEmail,
+    raisedAmountAfter,
+    totalReleasedAmountAfter,
+    releasedBelowWithdrawn,
+  };
+}
+
+/** `applyRefundInTx` in a transaction of its own. */
+export async function applyRefund(params: ApplyRefundParams): Promise<AppliedRefund | null> {
+  return db.transaction((tx) => applyRefundInTx(tx, params));
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
@@ -542,7 +697,12 @@ export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent)
       { requestId: paymentIntent.id, route: 'webhook/payment-service' },
     );
     try {
-      await stripe.refunds.create({ payment_intent: paymentIntent.id });
+      // Idempotency key: a retried delivery of the same PaymentIntent must not
+      // create a second refund object at Stripe.
+      await stripe.refunds.create(
+        { payment_intent: paymentIntent.id },
+        { idempotencyKey: `refund:auto:${paymentIntent.id}` },
+      );
     } catch (refundError) {
       logError(refundError, { requestId: paymentIntent.id, route: 'webhook/auto-refund' });
     }
@@ -582,54 +742,26 @@ export async function processRefund(charge: Stripe.Charge) {
 
   if (!paymentIntentId) return;
 
-  const [donation] = await db.select().from(donations).where(eq(donations.stripePaymentId, paymentIntentId)).limit(1);
-  if (!donation || donation.refunded) return;
+  const [donation] = await db
+    .select({ id: donations.id, campaignId: donations.campaignId })
+    .from(donations)
+    .where(eq(donations.stripePaymentId, paymentIntentId))
+    .limit(1);
 
-  await db.transaction(async (tx) => {
-    await tx.update(donations).set({ refunded: true }).where(eq(donations.id, donation.id));
+  if (!donation) return;
 
-    // A refund reduces raised_amount, so total_released_amount must be clamped
-    // in the SAME statement or the campaigns_released_lte_raised CHECK
-    // (migration 0027:18) aborts the whole transaction - leaving refunded =
-    // false while Stripe has already paid the donor back (audit docs/29 P0-3).
-    //
-    // Both SET expressions read the pre-UPDATE raised_amount, which is what
-    // makes the clamp exact: released is pulled down only as far as the new
-    // raised figure, never below zero, and never further than necessary.
-    const newRaisedAmount = sql`GREATEST(${campaigns.raisedAmount} - ${donation.amount}, 0)`;
-
-    const [totals] = await tx.update(campaigns).set({
-      raisedAmount: newRaisedAmount,
-      totalReleasedAmount: sql`LEAST(${campaigns.totalReleasedAmount}, ${newRaisedAmount})`,
-      donorCount: sql`GREATEST(${campaigns.donorCount} - 1, 0)`,
-      updatedAt: new Date(),
-    })
-      .where(eq(campaigns.id, donation.campaignId))
-      .returning({
-        raisedAmount: campaigns.raisedAmount,
-        totalReleasedAmount: campaigns.totalReleasedAmount,
-        totalWithdrawnAmount: campaigns.totalWithdrawnAmount,
-      });
-
-    await tx.insert(auditLogs).values({
-      eventType: 'donation.refunded',
-      targetType: 'donation',
-      targetId: donation.id,
-      details: {
-        amount: donation.amount,
-        campaignId: donation.campaignId,
-        stripePaymentId: paymentIntentId,
-        raisedAmountAfter: totals?.raisedAmount ?? null,
-        totalReleasedAmountAfter: totals?.totalReleasedAmount ?? null,
-        // Released funds clawed back below what has already been paid out to
-        // the creator leave a real cash shortfall. Recorded so reconciliation
-        // can find it; nothing here can undo a completed transfer.
-        releasedBelowWithdrawn:
-          totals != null && totals.totalReleasedAmount < totals.totalWithdrawnAmount,
-      },
-      severity: 'warning',
-    });
+  // Deliberately NO pre-flight `refunded` check here. Reading the flag outside
+  // the transaction and then writing it unconditionally is a race: Stripe
+  // retries `charge.refunded`, and the in-process `processedEvents` set that
+  // guards the webhook route is explicitly per-instance, so two deliveries
+  // both passed the read and both decremented the campaign. The conditional
+  // claim inside `applyRefund` is the only durable dedup.
+  const applied = await applyRefund({
+    donationId: donation.id,
+    auditDetails: { via: 'webhook:charge.refunded' },
   });
+
+  if (!applied) return; // Replay: another delivery already claimed this donation.
 
   const [campaign] = await db.select({ slug: campaigns.slug }).from(campaigns).where(eq(campaigns.id, donation.campaignId)).limit(1);
   if (campaign) {

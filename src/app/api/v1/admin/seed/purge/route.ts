@@ -41,6 +41,11 @@ export async function POST(_request: NextRequest) {
     await db.execute(sql`
       UPDATE campaigns SET
         raised_amount = sub.total_amount,
+        -- Clamped in the SAME statement. Without this a single fully-verified
+        -- campaign (total_released_amount == raised_amount) trips the
+        -- campaigns_released_lte_raised CHECK and 500s the entire purge,
+        -- because this is one batch UPDATE over every campaign.
+        total_released_amount = LEAST(campaigns.total_released_amount, sub.total_amount),
         donor_count = sub.donor_count,
         updated_at = NOW()
       FROM (

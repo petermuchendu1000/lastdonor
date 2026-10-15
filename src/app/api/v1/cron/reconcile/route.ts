@@ -84,10 +84,17 @@ export async function GET(request: NextRequest) {
             },
           });
 
-          // Auto-correct the campaign total
+          // Auto-correct the campaign total. total_released_amount MUST be
+          // clamped in the same statement: if the corrected figure lands below
+          // what has already been released, the
+          // `campaigns_released_lte_raised` CHECK fires and the UPDATE throws.
           await db
             .update(campaigns)
-            .set({ raisedAmount: expectedTotal, updatedAt: new Date() })
+            .set({
+              raisedAmount: expectedTotal,
+              totalReleasedAmount: sql`LEAST(${campaigns.totalReleasedAmount}, ${expectedTotal})`,
+              updatedAt: new Date(),
+            })
             .where(eq(campaigns.id, campaign.id));
         }
       } catch (error) {
@@ -165,26 +172,38 @@ export async function GET(request: NextRequest) {
       HAVING c.raised_amount != COALESCE(SUM(d.amount) FILTER (WHERE d.refunded = false), 0)::int
     `);
 
+    // Per-row try/catch, same as step 1. Without it a single failing row threw
+    // out of this loop, 500'd the whole job and meant step 5 never ran - every
+    // run, on the same row, for good. The clamp below is what used to throw.
     for (const row of activeCampaignDrifts) {
-      results.activeCampaignDrifts++;
+      try {
+        results.activeCampaignDrifts++;
 
-      await db.insert(auditLogs).values({
-        eventType: 'reconcile.integrity_drift',
-        targetType: 'campaign',
-        targetId: row.id,
-        severity: 'critical',
-        details: {
-          slug: row.slug,
-          storedRaisedAmount: row.stored,
-          derivedRaisedAmount: row.derived,
-          drift: Math.abs(row.stored - row.derived),
-        },
-      });
+        await db.insert(auditLogs).values({
+          eventType: 'reconcile.integrity_drift',
+          targetType: 'campaign',
+          targetId: row.id,
+          severity: 'critical',
+          details: {
+            slug: row.slug,
+            storedRaisedAmount: row.stored,
+            derivedRaisedAmount: row.derived,
+            drift: Math.abs(row.stored - row.derived),
+          },
+        });
 
-      // Auto-correct
-      await db.update(campaigns)
-        .set({ raisedAmount: row.derived, updatedAt: new Date() })
-        .where(eq(campaigns.id, row.id));
+        // Auto-correct, clamping released so the corrected raised figure can
+        // never fall below it and trip `campaigns_released_lte_raised`.
+        await db.update(campaigns)
+          .set({
+            raisedAmount: row.derived,
+            totalReleasedAmount: sql`LEAST(${campaigns.totalReleasedAmount}, ${row.derived})`,
+            updatedAt: new Date(),
+          })
+          .where(eq(campaigns.id, row.id));
+      } catch (error) {
+        results.errors.push(`Drift correction error for campaign ${row.id}: ${String(error)}`);
+      }
     }
 
     // 5. Echo Column Drift: Reconcile pre-computed counter columns
