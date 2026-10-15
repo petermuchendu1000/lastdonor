@@ -99,12 +99,28 @@ export function CampaignFilters({
     [localQuery, updateParams],
   );
 
+  // ── Clear everything ──
+  const clearAll = useCallback(() => {
+    setLocalQuery('');
+    setLocalLocation('');
+    startTransition(() => {
+      router.push('/campaigns');
+    });
+  }, [router, startTransition]);
+
   // Active filter count for the "Filters" badge
   const activeFilterCount =
     (activeCategory ? 1 : 0) +
     (activeSort !== 'most_funded' ? 1 : 0) +
     (activeCloseToTarget ? 1 : 0) +
     (activeLocation ? 1 : 0);
+
+  /**
+   * Anything at all narrowing or reordering the list, including the search
+   * term. The Reset button used to live only inside the Filters drawer, so a
+   * zero-result URL had no visible exit but the browser Back button.
+   */
+  const hasAnyFilter = activeFilterCount > 0 || Boolean(searchQuery);
 
   // ── Helper: category display label ──
   const categoryLabel = activeCategory
@@ -274,11 +290,7 @@ export function CampaignFilters({
             <SheetFooter className="flex-row gap-3 border-t border-border px-6 py-5">
               <button
                 type="button"
-                onClick={() => {
-                  updateParams({ category: null, sort: null, close_to_target: null, q: null, location: null });
-                  setLocalQuery('');
-                  setLocalLocation('');
-                }}
+                onClick={clearAll}
                 className="flex-1 rounded-full border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
               >
                 Reset
@@ -456,6 +468,18 @@ export function CampaignFilters({
         >
           Close to target
         </button>
+
+        {/* Clear filters - visible on the bar itself, not only in the drawer */}
+        {hasAnyFilter && (
+          <button
+            type="button"
+            onClick={clearAll}
+            className="inline-flex items-center gap-1 rounded-full border border-border px-4 py-1.5 text-sm font-semibold text-primary transition-colors hover:bg-muted"
+          >
+            <XMarkIcon className="h-4 w-4" aria-hidden="true" />
+            Clear filters
+          </button>
+        )}
 
         {/* Loading indicator */}
         {isPending && (

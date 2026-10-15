@@ -7,9 +7,11 @@ import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { CampaignFilters } from './filters';
+import { FilterNotice } from './filter-notice';
+import { resolveBrowseParams } from './browse-params';
+import { campaignSearchCondition } from '@/lib/campaign-search';
 import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
-import type { CampaignCategory } from '@/types';
 
 export const metadata: Metadata = {
   title: 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns | LastDonor',
@@ -35,17 +37,10 @@ export const metadata: Metadata = {
 
 export const revalidate = 300; // ISR: refresh every 5 minutes
 
-const VALID_CATEGORIES: CampaignCategory[] = [
-  'medical', 'memorial', 'emergency', 'charity', 'education', 'animal',
-  'environment', 'business', 'community', 'competition', 'creative', 'event',
-  'faith', 'family', 'sports', 'travel', 'volunteer', 'wishes',
-  // Legacy values (kept for backward compatibility)
-  'military', 'veterans', 'first-responders', 'disaster', 'essential-needs',
-];
-
-const VALID_SORTS = ['newest', 'most_funded', 'least_funded', 'closing_soon'] as const;
-type SortOption = (typeof VALID_SORTS)[number];
-
+/**
+ * Param validation, the alias table and the "not applied" rules live in
+ * `./browse-params` because `/search` forwards the same params here.
+ */
 interface PageProps {
   searchParams: Promise<{
     category?: string;
@@ -53,6 +48,7 @@ interface PageProps {
     q?: string;
     location?: string;
     close_to_target?: string;
+    status?: string;
   }>;
 }
 
@@ -84,26 +80,18 @@ const faqs = [
 export default async function CampaignsPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
-  // Validate category filter
-  const categoryFilter = VALID_CATEGORIES.includes(params.category as CampaignCategory)
-    ? (params.category as CampaignCategory)
-    : null;
+  const {
+    category: categoryFilter,
+    sort,
+    searchQuery,
+    location: locationFilter,
+    closeToTarget,
+    filtersActive,
+    unapplied,
+    completedRequested,
+  } = resolveBrowseParams(params);
 
   const categoryContent = categoryFilter ? getCategoryContent(categoryFilter) : null;
-
-  // Validate sort
-  const sort: SortOption = VALID_SORTS.includes(params.sort as SortOption)
-    ? (params.sort as SortOption)
-    : 'most_funded';
-
-  // Validate search query
-  const searchQuery = typeof params.q === 'string' ? params.q.trim().slice(0, 100) : '';
-
-  // Validate location filter
-  const locationFilter = typeof params.location === 'string' ? params.location.trim().slice(0, 100) : '';
-
-  // Validate close-to-target toggle
-  const closeToTarget = params.close_to_target === '1';
 
   // Build query conditions
   const statusFilter = or(
@@ -117,16 +105,11 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
     filterParts.push(eq(campaigns.category, categoryFilter));
   }
 
-  if (searchQuery) {
-    const pattern = `%${searchQuery}%`;
-    filterParts.push(
-      or(
-        ilike(campaigns.title, pattern),
-        ilike(campaigns.subjectName, pattern),
-        ilike(campaigns.location, pattern),
-        ilike(campaigns.subjectHometown, pattern),
-      )!,
-    );
+  // One shared predicate (title, name, location, hometown, story prose,
+  // category) so this page and the API cannot drift. See docs/45.
+  const keywordCondition = campaignSearchCondition(searchQuery);
+  if (keywordCondition) {
+    filterParts.push(keywordCondition);
   }
 
   if (locationFilter) {
@@ -165,8 +148,11 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
     }
   })();
 
-  // Fetch campaigns + counts in parallel. Counts drive the social-proof header.
-  const [results, activeCountRow, completedCountRow] = await Promise.all([
+  // Fetch campaigns + counts in parallel. The unfiltered counts drive the
+  // status tabs; `matchedCountRow` is what the header above the list reports,
+  // because printing the unfiltered total above a filtered list contradicted
+  // the list itself (docs/45).
+  const [results, activeCountRow, completedCountRow, matchedCountRow] = await Promise.all([
     db
       .select({
         id: campaigns.id,
@@ -198,10 +184,14 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
       .select({ count: sql<number>`COUNT(*)` })
       .from(campaigns)
       .where(or(eq(campaigns.status, 'completed'), eq(campaigns.status, 'archived'))),
+    filtersActive
+      ? db.select({ count: sql<number>`COUNT(*)` }).from(campaigns).where(conditions)
+      : Promise.resolve(null),
   ]);
 
   const activeCount = Number(activeCountRow[0]?.count ?? 0);
   const completedCount = Number(completedCountRow[0]?.count ?? 0);
+  const matchedCount = filtersActive ? Number(matchedCountRow?.[0]?.count ?? 0) : activeCount;
 
   const hasMore = results.length > PAGE_SIZE;
   const displayedCampaigns = hasMore ? results.slice(0, PAGE_SIZE) : results;
@@ -228,6 +218,13 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
       {categoryContent && <CategoryHeroSection content={categoryContent} />}
 
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* A param we could not apply is reported, never dropped in silence. */}
+        <FilterNotice
+          unapplied={unapplied}
+          completedRequested={completedRequested}
+          filtersActive={filtersActive}
+        />
+
         {categoryContent ? (
           <h2 className="mb-6 font-display text-xl font-bold text-foreground sm:text-2xl">
             Browse {categoryContent.label.toLowerCase()} fundraisers
@@ -242,9 +239,18 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
               </h1>
               <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
                 <ShieldCheckIcon className="h-4 w-4 text-brand-teal" aria-hidden="true" />
-                <span>
-                  <span className="font-semibold text-foreground tabular-nums">{activeCount.toLocaleString('en-US')}</span>{' '}active {activeCount === 1 ? 'campaign' : 'campaigns'}
-                </span>
+                {filtersActive ? (
+                  <span>
+                    <span className="font-semibold text-foreground tabular-nums">{matchedCount.toLocaleString('en-US')}</span>
+                    {' '}of{' '}
+                    <span className="font-semibold text-foreground tabular-nums">{activeCount.toLocaleString('en-US')}</span>
+                    {' '}active {activeCount === 1 ? 'campaign' : 'campaigns'} match these filters
+                  </span>
+                ) : (
+                  <span>
+                    <span className="font-semibold text-foreground tabular-nums">{activeCount.toLocaleString('en-US')}</span>{' '}active {activeCount === 1 ? 'campaign' : 'campaigns'}
+                  </span>
+                )}
                 <span aria-hidden="true" className="text-border">·</span>
                 <span>Each one reviewed before going live</span>
               </p>
@@ -278,17 +284,19 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
                 </span>
               </Link>
             </div>
-
-            {/* Filters & sort - search page only */}
-            <CampaignFilters
-              activeCategory={categoryFilter}
-              activeSort={sort}
-              activeCloseToTarget={closeToTarget}
-              searchQuery={searchQuery}
-              activeLocation={locationFilter}
-            />
           </>
         )}
+
+        {/* Filters & sort. Rendered in BOTH branches: when a category resolved,
+            this bar was omitted entirely, which left a filtered URL with no
+            visible way back out (docs/45). */}
+        <CampaignFilters
+          activeCategory={categoryFilter}
+          activeSort={sort}
+          activeCloseToTarget={closeToTarget}
+          searchQuery={searchQuery}
+          activeLocation={locationFilter}
+        />
 
         {/* Campaign grid with client-side "Load More" */}
         <CampaignGrid
@@ -301,6 +309,17 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
           searchQuery={searchQuery}
           locationFilter={locationFilter}
           closeToTarget={closeToTarget}
+          emptyMessage={filtersActive ? 'No campaigns match these filters.' : undefined}
+          emptyAction={
+            filtersActive ? (
+              <Link
+                href="/campaigns"
+                className="mt-4 inline-block rounded-full border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+              >
+                Clear filters
+              </Link>
+            ) : undefined
+          }
         />
 
         <section className="mt-12 border-t border-border pt-10" aria-labelledby="campaigns-faq">

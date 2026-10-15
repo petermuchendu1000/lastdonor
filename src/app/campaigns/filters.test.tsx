@@ -376,6 +376,64 @@ describe('CampaignFilters', () => {
   });
 
   // ────────────────────────────────────────────────────────
+  //  CLEAR FILTERS (docs/45)
+  //
+  //  Reset used to live only inside the Filters drawer, so a zero-result
+  //  filter URL had no visible exit but the browser Back button.
+  // ────────────────────────────────────────────────────────
+
+  describe('Clear filters', () => {
+    it('is absent when nothing is filtered', () => {
+      render(<CampaignFilters {...defaultProps} />);
+      expect(screen.queryByRole('button', { name: /Clear filters/ })).not.toBeInTheDocument();
+    });
+
+    it('appears on the filter bar itself when a filter is active', () => {
+      render(<CampaignFilters {...defaultProps} activeCloseToTarget />);
+      const clear = screen.getByRole('button', { name: /Clear filters/ });
+      expect(clear).toBeInTheDocument();
+      expect(clear).toHaveAttribute('type', 'button');
+    });
+
+    it('appears for a search term with no other filter', () => {
+      render(<CampaignFilters {...defaultProps} searchQuery="fire" />);
+      expect(screen.getByRole('button', { name: /Clear filters/ })).toBeInTheDocument();
+    });
+
+    it('navigates to the unfiltered listing', async () => {
+      const user = userEvent.setup();
+      mockSearchParams = new URLSearchParams('q=fire&category=medical&close_to_target=1');
+      render(
+        <CampaignFilters
+          {...defaultProps}
+          activeCategory={'medical' as CampaignCategory}
+          activeCloseToTarget
+          searchQuery="fire"
+          activeLocation="Memphis"
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /Clear filters/ }));
+
+      expect(getLastPushedUrl()).toBe('/campaigns');
+    });
+
+    it('clears the search and location inputs it owns', async () => {
+      const user = userEvent.setup();
+      render(<CampaignFilters {...defaultProps} searchQuery="fire" activeLocation="Memphis" />);
+
+      const search = screen.getByPlaceholderText(
+        'Search campaigns by name, person, or location',
+      ) as HTMLInputElement;
+      expect(search.value).toBe('fire');
+
+      await user.click(screen.getByRole('button', { name: /Clear filters/ }));
+
+      expect(search.value).toBe('');
+    });
+  });
+
+  // ────────────────────────────────────────────────────────
   //  LOADING STATE
   // ────────────────────────────────────────────────────────
 

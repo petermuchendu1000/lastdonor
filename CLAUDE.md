@@ -56,6 +56,7 @@ transcript or a commit message is lost.
 | `42-DONATION-RECEIPT-VERIFICATION-ADR.md` | **Why a donation receipt is rendered only from a Stripe-verified state (never from `?donation=success&amount=`), why `/donate` hides the form when the general fund row is missing, and why submit is guarded by a `useRef` latch. Read before touching the donate pages, the confirm route or `create-checkout`'s return URL.** |
 | `46-LOGIN-ERRORS-SITEMAP-WALLET-POLICY-ADR.md` | **Why a wrong password and a database outage now render different messages (without reopening the docs/32 enumeration oracle), why `src/app/sitemap.ts` needs `revalidate` at all, and why `payment=(self "https://js.stripe.com")`. Read before touching login failure copy, the sitemap, or the security headers.** |
 | `45-BROWSE-FILTER-HONESTY-ADR.md` | **Why `/search` forwards its params, why an unrecognised filter value is reported instead of silently widening the list, the category label/value alias table, and why keyword search strips HTML in SQL. Read before touching `/campaigns` browse params, `src/lib/campaign-search.ts` or the listing API's `q` match.** |
+| `44-SESSION-READ-RATE-LIMIT-ADR.md` | **Why `GET /api/auth/session` has its own limiter tier (120/60s) instead of the 10/60s sign-in tier, why `SessionProvider` is seeded with `session={null}` behind `SessionBootstrap` (a bare mount costs two session reads, not one), and why a 429 must render as "unknown" and never as signed out. Read before touching `src/lib/rate-limit.ts` tiers, `src/components/Providers.tsx` or anything that branches on `useSession().status`.** |
 | `43-CAMPAIGN-PAGE-STALE-MESSAGES-AND-UNKNOWN-SLUG-ADR.md` | **Why the message wall re-reads its API on mount, and why an unresolved campaign lookup is a 5xx and never a 404. Read before touching `src/app/campaigns/[slug]/page.tsx`, `src/hooks/usePollingList.ts` or anything that decides 404 vs 5xx from a DB error.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
@@ -94,6 +95,14 @@ These exist for a reason; changing them has consequences beyond the local file.
   `PUBLIC_API_PREFIXES` in `src/middleware.ts`. Add to that list deliberately.
 - **Cron routes authenticate via `verifyCronAuth`** (timing-safe Bearer compare).
   Every new cron route must call it.
+- **The client session is read once, through `SessionBootstrap`.** Resolved
+  2026-10-15, see `docs/44-SESSION-READ-RATE-LIMIT-ADR.md`. The outer
+  `SessionProvider` is deliberately seeded with `session={null}`: that is what
+  stops it fetching on mount and echoing its own BroadcastChannel announcement
+  back into a second `GET /api/auth/session`. Do not remove that prop and do not
+  mount a bare `SessionProvider`. Components that branch on being signed in use
+  `useAuthState()` from `src/lib/auth-state.ts`, not `useSession().status`:
+  a 429 or a failed read must render as **unknown**, never as signed out.
 - **Migrations: one baseline, two inert directories.** Resolved 2026-10-14, see
   `docs/34-MIGRATION-BASELINE-ADR.md`. `drizzle.config.ts` points at
   `src/db/migrations-v2/`, which holds a single baseline generated from

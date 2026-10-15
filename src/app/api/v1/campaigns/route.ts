@@ -5,6 +5,7 @@ import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
 import { createCampaignSchema } from '@/lib/validators/campaign';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { withApiHandler } from '@/lib/api-handler';
+import { campaignSearchCondition } from '@/lib/campaign-search';
 import {
   parsePagination,
   paginatedResponse,
@@ -39,17 +40,11 @@ export const GET = withApiHandler(async (request, { requestId: _requestId }) => 
     filterParts.push(eq(campaigns.category, categoryParam));
   }
 
-  const qParam = searchParams.get('q')?.trim().slice(0, 100);
-  if (qParam) {
-    const pattern = `%${qParam}%`;
-    filterParts.push(
-      or(
-        ilike(campaigns.title, pattern),
-        ilike(campaigns.subjectName, pattern),
-        ilike(campaigns.location, pattern),
-        ilike(campaigns.subjectHometown, pattern),
-      )!,
-    );
+  // Same shared predicate the /campaigns page uses, so "Load More" cannot
+  // return a different result set than the first page. See docs/45.
+  const keywordCondition = campaignSearchCondition(searchParams.get('q'));
+  if (keywordCondition) {
+    filterParts.push(keywordCondition);
   }
 
   const locationParam = searchParams.get('location')?.trim().slice(0, 100);
