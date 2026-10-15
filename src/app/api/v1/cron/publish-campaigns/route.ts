@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
 
     let published = 0;
     let volumeLimited = 0;
+    /** Per-item volume-guard refusals. Reported, never counted as failures. */
+    const rateLimited: string[] = [];
     const errors: string[] = [];
 
     // Shared state across the batch for anti-repetition
@@ -86,11 +88,19 @@ export async function GET(request: NextRequest) {
           published++;
         } else if (result.error.code === 'VOLUME_LIMIT') {
           // A volume guard refused (daily limit / max concurrent / phase-out).
-          // Recorded, and the batch stops: every remaining item would hit the
-          // same guard, and re-asking is three more aggregate queries each.
+          // For a job that runs every 30 minutes against a daily limit this is
+          // the expected steady state, not a fault, so it is reported on its
+          // own axis and kept out of `errors` - which also keeps the audit row
+          // at severity 'info' instead of warning on every rate-limited run.
+          //
+          // The batch does NOT abort. The guards are checked before the
+          // article fetch and every AI call (`campaign-publisher.ts` step 1b),
+          // so each remaining item costs three aggregate queries and no AI
+          // spend; in exchange every candidate gets an outcome in the summary
+          // rather than the tail being silently dropped. `max_concurrent` can
+          // also free up mid-run, which a `break` could never notice.
           volumeLimited++;
-          errors.push(`${item.title}: ${result.error.message}`);
-          break;
+          rateLimited.push(`${item.title}: ${result.error.message}`);
         } else {
           // ALREADY_CREATED and DUPLICATE_SUBJECT are expected dedup outcomes, not errors
           if (result.error.code !== 'ALREADY_CREATED' && result.error.code !== 'DUPLICATE_SUBJECT') {
@@ -105,12 +115,24 @@ export async function GET(request: NextRequest) {
     await db.insert(auditLogs).values({
       eventType: 'cron.publish_campaigns',
       severity: errors.length > 0 ? 'warning' : 'info',
-      details: { qualifiedItems: qualifiedItems.length, published, volumeLimited, errors },
+      details: {
+        qualifiedItems: qualifiedItems.length,
+        published,
+        volumeLimited,
+        rateLimited,
+        errors,
+      },
     });
 
     return NextResponse.json({
       ok: true,
-      data: { qualifiedItems: qualifiedItems.length, published, volumeLimited, errors },
+      data: {
+        qualifiedItems: qualifiedItems.length,
+        published,
+        volumeLimited,
+        rateLimited,
+        errors,
+      },
     });
   } catch (error) {
     logError(error, { requestId, route: '/api/v1/cron/publish-campaigns', method: 'GET' });

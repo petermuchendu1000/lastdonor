@@ -21,6 +21,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   NewspaperIcon,
+  InformationCircleIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { toast } from 'sonner';
 
@@ -92,6 +94,17 @@ export function NewsFeedMonitor({ items, sources, categories, counts }: NewsFeed
   /* Create-campaign state */
   const [createdItems, setCreatedItems] = useState<Set<string>>(new Set());
   const [publishingItems, setPublishingItems] = useState<Set<string>>(new Set());
+
+  /*
+   * A volume guard refused the last create (HTTP 429 / RATE_LIMITED).
+   *
+   * Kept out of the error path on purpose: the daily campaign limit,
+   * `simulation.max_concurrent` and the phase-out floor are settings working
+   * as configured, not failures. The server's message carries the limit, the
+   * current count and when it lifts, so it is shown verbatim in an
+   * explanatory banner instead of a red "failed to create campaign" toast.
+   */
+  const [volumeLimit, setVolumeLimit] = useState<string | null>(null);
 
   /* ── Filtering ── */
   const filtered = useMemo(() => {
@@ -177,11 +190,20 @@ export function NewsFeedMonitor({ items, sources, categories, counts }: NewsFeed
 
       const body = await res.json();
 
+      if (res.status === 429 || body.error?.code === 'RATE_LIMITED') {
+        const message = body.error?.message
+          ?? 'A campaign volume limit is in effect, so no new campaign was created.';
+        setVolumeLimit(message);
+        toast.info(message);
+        return;
+      }
+
       if (!res.ok || !body.ok) {
         toast.error(body.error?.message ?? 'Failed to create campaign');
         return;
       }
 
+      setVolumeLimit(null);
       setCreatedItems((prev) => new Set(prev).add(itemId));
       toast.success(`Campaign created: ${body.data.campaignTitle}`, {
         action: {
@@ -206,6 +228,29 @@ export function NewsFeedMonitor({ items, sources, categories, counts }: NewsFeed
 
   return (
     <div className="space-y-4">
+
+      {/* ── Volume limit notice (HTTP 429, not an error) ── */}
+      {volumeLimit && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <InformationCircleIcon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div className="space-y-1">
+            <p className="font-medium">No campaign created - a volume limit is in effect</p>
+            <p className="text-amber-700 dark:text-amber-300">{volumeLimit}</p>
+            <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
+              Nothing failed and no AI generation was spent. The news item is unchanged and
+              can be published once the limit lifts.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setVolumeLimit(null)}
+            className="ml-auto shrink-0 rounded p-0.5 text-amber-700 transition-colors duration-100 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900"
+            aria-label="Dismiss volume limit notice"
+          >
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* ── Status tiles ── */}
       <div className="flex flex-wrap gap-2">
