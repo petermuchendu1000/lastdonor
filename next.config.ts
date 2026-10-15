@@ -341,7 +341,16 @@ export default withSentryConfig(nextConfig, {
   silent: !process.env.CI,
   widenClientFileUpload: true,
   disableLogger: true,
-  tunnelRoute: "/monitoring",
+  // tunnelRoute is DISABLED deliberately. Verified live 2026-10-15: the client
+  // bundle carried `globalThis._sentryRewritesTunnelPath="/monitoring"`, so the
+  // SDK POSTed every envelope to /monitoring — and that path returned 404 on
+  // both GET and POST, with no rewrite in the built output and no route under
+  // `.next/server/app`. Net effect: every client-side error was silently
+  // dropped, which is worse than no Sentry at all, because the dashboard looks
+  // healthy. Without it the SDK posts straight to ingest.de.sentry.io, which
+  // works; the only thing lost is ad-blocker evasion. Re-enable only after
+  // confirming a rewrite actually appears in routes-manifest.json for the
+  // standalone build. See docs/38.
   sourcemaps: {
     disable: true,
   },
