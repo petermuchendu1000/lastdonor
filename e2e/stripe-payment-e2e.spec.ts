@@ -54,7 +54,7 @@ test.describe('Stripe Donation E2E', () => {
     await expect(page.getByText('Make a Donation')).toBeVisible({ timeout: 15_000 });
 
     // Step 2: Select $25 preset amount
-    await page.getByRole('radio', { name: '$25.00' }).click();
+    await page.getByRole('radio', { name: /^\$25,/ }).click();
 
     // Step 3: Fill donor details
     await page.getByLabel('Your name').fill('Stripe Test Donor');
@@ -94,7 +94,7 @@ test.describe('Stripe Donation E2E', () => {
     await expect(page.getByText('Make a Donation')).toBeVisible({ timeout: 15_000 });
 
     // Select $50
-    await page.getByRole('radio', { name: '$50.00' }).click();
+    await page.getByRole('radio', { name: /^\$50,/ }).click();
 
     // Fill donor details
     await page.getByLabel('Your name').fill('Campaign Test Donor');
@@ -120,7 +120,7 @@ test.describe('Stripe Donation E2E', () => {
     await expect(page.getByText('Make a Donation')).toBeVisible({ timeout: 15_000 });
 
     // Fill form
-    await page.getByRole('radio', { name: '$25.00' }).click();
+    await page.getByRole('radio', { name: /^\$25,/ }).click();
     await page.getByLabel('Your name').fill('Decline Test');
     await page.getByLabel('Email address').fill('decline@test.com');
 
@@ -144,7 +144,7 @@ test.describe('Stripe Donation E2E', () => {
     await page.goto('/donate');
     await expect(page.getByText('Make a Donation')).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole('radio', { name: '$100.00' }).click();
+    await page.getByRole('radio', { name: /^\$100,/ }).click();
     await page.getByLabel('Your name').fill('Back Test');
     await page.getByLabel('Email address').fill('back@test.com');
 

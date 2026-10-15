@@ -41,7 +41,7 @@ test.describe('Donate Button E2E', () => {
     await goToDonate(page);
 
     // Click the $50 preset
-    const fiftyButton = page.getByRole('radio', { name: '$50.00' });
+    const fiftyButton = page.getByRole('radio', { name: /^\$50,/ });
     await fiftyButton.click();
     await expect(fiftyButton).toHaveAttribute('aria-checked', 'true');
 
@@ -49,7 +49,7 @@ test.describe('Donate Button E2E', () => {
     await expect(page.getByRole('button', { name: /\$50\.00/ })).toBeVisible();
 
     // Switch to $25
-    const twentyFiveButton = page.getByRole('radio', { name: '$25.00' });
+    const twentyFiveButton = page.getByRole('radio', { name: /^\$25,/ });
     await twentyFiveButton.click();
     await expect(twentyFiveButton).toHaveAttribute('aria-checked', 'true');
     await expect(fiftyButton).toHaveAttribute('aria-checked', 'false');
@@ -60,7 +60,7 @@ test.describe('Donate Button E2E', () => {
     await goToDonate(page);
 
     // First select a preset
-    await page.getByRole('radio', { name: '$100.00' }).click();
+    await page.getByRole('radio', { name: /^\$100,/ }).click();
     await expect(page.getByRole('button', { name: /\$100\.00/ })).toBeVisible();
 
     // Now type a custom amount - should deselect preset
@@ -69,14 +69,14 @@ test.describe('Donate Button E2E', () => {
 
     await expect(page.getByRole('button', { name: /\$75\.00/ })).toBeVisible();
     // Preset should be deselected
-    await expect(page.getByRole('radio', { name: '$100.00' })).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByRole('radio', { name: /^\$100,/ })).toHaveAttribute('aria-checked', 'false');
   });
 
   test('form validation shows errors for empty required fields', async ({ page }) => {
     await goToDonate(page);
 
     // Select amount so submit is enabled
-    await page.getByRole('radio', { name: '$25.00' }).click();
+    await page.getByRole('radio', { name: /^\$25,/ }).click();
 
     // Try to submit without filling name/email
     await page.getByRole('button', { name: /Donate/i }).click();
@@ -108,7 +108,7 @@ test.describe('Donate Button E2E', () => {
     await goToDonate(page);
 
     // 1. Select $50 preset
-    await page.getByRole('radio', { name: '$50.00' }).click();
+    await page.getByRole('radio', { name: /^\$50,/ }).click();
 
     // 2. Fill donor details
     await page.getByLabel(/your name/i).fill('Jane Doe');
@@ -158,7 +158,7 @@ test.describe('Donate Button E2E', () => {
 
     await goToDonate(page);
 
-    await page.getByRole('radio', { name: '$50.00' }).click();
+    await page.getByRole('radio', { name: /^\$50,/ }).click();
     await page.getByLabel(/your name/i).fill('Test User');
     await page.getByLabel(/email address/i).fill('test@example.com');
     await page.getByRole('button', { name: /Donate/i }).click();
@@ -174,7 +174,7 @@ test.describe('Donate Button E2E', () => {
 
     await goToDonate(page);
 
-    await page.getByRole('radio', { name: '$25.00' }).click();
+    await page.getByRole('radio', { name: /^\$25,/ }).click();
     await page.getByLabel(/your name/i).fill('Test');
     await page.getByLabel(/email address/i).fill('test@test.com');
     await page.getByRole('button', { name: /Donate/i }).click();
@@ -210,7 +210,7 @@ test.describe('Campaign Donate Button', () => {
     await expect(page.getByText('Make a Donation')).toBeVisible({ timeout: 10000 });
 
     // Preset buttons should work
-    await page.getByRole('radio', { name: '$50.00' }).click();
+    await page.getByRole('radio', { name: /^\$50,/ }).click();
     await expect(page.getByRole('button', { name: /\$50\.00/ })).toBeVisible();
   });
 });
