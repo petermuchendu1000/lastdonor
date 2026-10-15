@@ -35,6 +35,11 @@ const SEVERE_EVENTS = new Set([
 
 /**
  * Fetch active severe weather alerts from NWS.
+ *
+ * THROWS on transport or HTTP failure, for the same reason as
+ * `fetchFemaDeclarations` - see the note there. An empty array means "fetched
+ * successfully, no severe events active", which is the common case and must
+ * stay distinguishable from a dead source.
  */
 export async function fetchWeatherAlerts(): Promise<NormalizedNewsItem[]> {
   try {
@@ -47,8 +52,7 @@ export async function fetchWeatherAlerts(): Promise<NormalizedNewsItem[]> {
     });
 
     if (!response.ok) {
-      console.error(`NWS API error: ${response.status}`);
-      return [];
+      throw new Error(`NWS API returned HTTP ${response.status}`);
     }
 
     const data = (await response.json()) as {
@@ -78,6 +82,6 @@ export async function fetchWeatherAlerts(): Promise<NormalizedNewsItem[]> {
     return items;
   } catch (error) {
     console.error('NWS API fetch error:', error);
-    return [];
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }

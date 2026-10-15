@@ -76,6 +76,15 @@ vi.mock('@/lib/news/fetch-article-body', () => ({
   fetchArticleBody: mockFetchArticleBody,
 }));
 
+type GuardOutcome =
+  | { allowed: true }
+  | { allowed: false; guard: string; reason: string };
+
+const mockCheckCampaignVolumeGuards = vi.fn<() => Promise<GuardOutcome>>();
+vi.mock('@/lib/news/volume-guards', () => ({
+  checkCampaignVolumeGuards: () => mockCheckCampaignVolumeGuards(),
+}));
+
 vi.mock('@/lib/news/image-resolver', () => ({
   resolveHeroImageEnhanced: vi.fn().mockResolvedValue({
     url: '/images/fallback.jpg',
@@ -125,7 +134,7 @@ vi.mock('openai', () => ({
 
 // ── Import under test (AFTER all mocks) ─────────────────────────────────────
 
-const { publishCampaignFromNewsItem } = await import('./campaign-publisher');
+const { publishCampaignFromNewsItem, selectBalancedCandidates } = await import('./campaign-publisher');
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -186,6 +195,8 @@ function setupSuccessPath() {
 describe('publishCampaignFromNewsItem', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Volume guards allow by default; the guard tests below override this.
+    mockCheckCampaignVolumeGuards.mockResolvedValue({ allowed: true });
   });
 
   it('returns NOT_FOUND when news item does not exist', async () => {
@@ -360,5 +371,177 @@ describe('publishCampaignFromNewsItem', () => {
     });
 
     expect(patterns.length).toBeGreaterThan(0);
+  });
+
+  // ── Volume guards ─────────────────────────────────────────────────────────
+  //
+  // Regression lock for the defect behind "four manual publish-campaigns runs
+  // created 12 campaigns past a daily limit of 10 and a max_concurrent of 10":
+  // runNewsPipeline enforced those limits, this shared publisher did not, and
+  // both the cron batch and the admin Create button go through here.
+  describe('volume guards', () => {
+    it('refuses with VOLUME_LIMIT when the daily limit is reached', async () => {
+      mockCheckCampaignVolumeGuards.mockResolvedValue({
+        allowed: false,
+        guard: 'daily_limit',
+        reason: 'Daily campaign creation limit reached (10/10 automated campaigns published today).',
+      });
+      mockLimit.mockResolvedValueOnce([MOCK_NEWS_ITEM]);
+
+      const result = await publishCampaignFromNewsItem('news-1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('VOLUME_LIMIT');
+        expect(result.error.message).toContain('Daily campaign creation limit');
+      }
+    });
+
+    it('refuses with VOLUME_LIMIT when max_concurrent is reached', async () => {
+      mockCheckCampaignVolumeGuards.mockResolvedValue({
+        allowed: false,
+        guard: 'max_concurrent',
+        reason: 'Max concurrent simulated campaigns reached (10/10 active).',
+      });
+      mockLimit.mockResolvedValueOnce([MOCK_NEWS_ITEM]);
+
+      const result = await publishCampaignFromNewsItem('news-1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('VOLUME_LIMIT');
+    });
+
+    it('refuses with VOLUME_LIMIT when the phase-out floor is reached', async () => {
+      mockCheckCampaignVolumeGuards.mockResolvedValue({
+        allowed: false,
+        guard: 'phase_out',
+        reason: 'Phase-out threshold reached.',
+      });
+      mockLimit.mockResolvedValueOnce([MOCK_NEWS_ITEM]);
+
+      const result = await publishCampaignFromNewsItem('news-1');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('VOLUME_LIMIT');
+    });
+
+    it('spends no AI calls and writes nothing when a guard refuses', async () => {
+      mockCheckCampaignVolumeGuards.mockResolvedValue({
+        allowed: false,
+        guard: 'daily_limit',
+        reason: 'limit',
+      });
+      mockLimit.mockResolvedValueOnce([MOCK_NEWS_ITEM]);
+
+      await publishCampaignFromNewsItem('news-1');
+
+      expect(mockCallAI).not.toHaveBeenCalled();
+      expect(mockFetchArticleBody).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it('is checked on the default path, so both callers inherit it', async () => {
+      setupSuccessPath();
+
+      await publishCampaignFromNewsItem('news-1');
+
+      expect(mockCheckCampaignVolumeGuards).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the guards entirely under bypassVolumeGuards (admin override)', async () => {
+      mockCheckCampaignVolumeGuards.mockResolvedValue({
+        allowed: false,
+        guard: 'daily_limit',
+        reason: 'limit',
+      });
+      setupSuccessPath();
+
+      const result = await publishCampaignFromNewsItem('news-1', {
+        bypassVolumeGuards: true,
+      });
+
+      expect(mockCheckCampaignVolumeGuards).not.toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+    });
+  });
+});
+
+// ── Batch slot filling ──────────────────────────────────────────────────────
+
+describe('selectBalancedCandidates', () => {
+  type Item = { id: string; military: boolean };
+  const isMilitary = (i: Item) => i.military;
+
+  function items(spec: string): Item[] {
+    // "mmoooo" -> 2 military then 4 others, in that order
+    return [...spec].map((c, idx) => ({ id: `${c}${idx}`, military: c === 'm' }));
+  }
+
+  const OPTS = { isMilitary, maxTotal: 5, maxMilitary: 2 };
+
+  // The regression this function exists for: the old expression was
+  // `[...military.slice(0,2), ...other.slice(0,3)].slice(0,5)`, which capped
+  // OTHERS at 3 independently of the military cap. With 1 military candidate
+  // it could only ever return 4; with 0, only 3. The seed set had exactly one
+  // military item, and four runs yielded 4+3+3+2 = 12 campaigns rather than
+  // 5+5+2.
+  it('fills all 5 slots when there is exactly 1 military candidate', () => {
+    const picked = selectBalancedCandidates(items('moooooooo'), OPTS);
+    expect(picked).toHaveLength(5);
+    expect(picked.filter(isMilitary)).toHaveLength(1);
+  });
+
+  it('fills all 5 slots when there are no military candidates', () => {
+    const picked = selectBalancedCandidates(items('oooooooo'), OPTS);
+    expect(picked).toHaveLength(5);
+  });
+
+  it('fills all 5 slots when military candidates are plentiful', () => {
+    const picked = selectBalancedCandidates(items('mmmmmoooooo'), OPTS);
+    expect(picked).toHaveLength(5);
+    expect(picked.filter(isMilitary)).toHaveLength(2);
+  });
+
+  it('never exceeds the military ceiling, even with empty slots left over', () => {
+    // 3 military, 0 others: the cap is a ceiling on source imbalance, so the
+    // remaining slots stay empty rather than being backfilled with military.
+    const picked = selectBalancedCandidates(items('mmm'), OPTS);
+    expect(picked).toHaveLength(2);
+    expect(picked.every(isMilitary)).toBe(true);
+  });
+
+  it('returns everything available when candidates are fewer than the slots', () => {
+    expect(selectBalancedCandidates(items('mo'), OPTS)).toHaveLength(2);
+    expect(selectBalancedCandidates([], OPTS)).toHaveLength(0);
+  });
+
+  it('never returns more than maxTotal', () => {
+    for (let military = 0; military <= 6; military++) {
+      for (let other = 0; other <= 8; other++) {
+        const picked = selectBalancedCandidates(
+          items('m'.repeat(military) + 'o'.repeat(other)),
+          OPTS,
+        );
+        expect(picked.length).toBeLessThanOrEqual(5);
+        expect(picked.filter(isMilitary).length).toBeLessThanOrEqual(2);
+        // And it must fill every slot it legitimately can.
+        const fillable = Math.min(5, Math.min(military, 2) + other);
+        expect(picked).toHaveLength(fillable);
+      }
+    }
+  });
+
+  it('preserves relevance order, military picks first', () => {
+    const picked = selectBalancedCandidates(items('ommooo'), OPTS);
+    expect(picked.map((p) => p.id)).toEqual(['m1', 'm2', 'o0', 'o3', 'o4']);
+  });
+
+  it('keeps the military cap below the total cap when asked for more', () => {
+    const picked = selectBalancedCandidates(items('mmmmm'), {
+      isMilitary,
+      maxTotal: 2,
+      maxMilitary: 5,
+    });
+    expect(picked).toHaveLength(2);
   });
 });

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runSimulation } from '@/lib/seed/simulation-engine';
+import {
+  runSimulation,
+  seedDonationsOptedIn,
+  SEED_DONATIONS_REFUSAL_REASON,
+} from '@/lib/seed/simulation-engine';
 import { calculateAutoVolume } from '@/lib/seed/phase-out';
 import { db } from '@/db';
 import { auditLogs } from '@/db/schema';
@@ -15,6 +19,28 @@ export const maxDuration = 120;
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request.headers.get('authorization'))) {
     return NextResponse.json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid cron authorization.' } }, { status: 401 });
+  }
+
+  // ── Structural refusal (docs/33) ────────────────────────────────
+  // This job fabricates donation rows that are deliberately indistinguishable
+  // from real ones in public campaign totals. docs/33 §3 records that it was
+  // not built, over an owner instruction to build it; what actually stopped it
+  // was a default-false setting and a missing scheduler, both of which an
+  // admin-UI toggle or a Vercel deploy could supply.
+  //
+  // So the refusal is enforced here, ahead of the lock, the settings reads and
+  // every DB write: nothing an admin can click is sufficient. 403 rather than
+  // 200-with-skipped, because a deployment that schedules this job without the
+  // environment opt-in is misconfigured and should be noticed, not quietly
+  // no-op for months.
+  if (!seedDonationsOptedIn()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: 'FORBIDDEN', message: SEED_DONATIONS_REFUSAL_REASON },
+      },
+      { status: 403 },
+    );
   }
 
   // ── Overlap guard (P1-11, docs/26 §4) ──────────────────────────────────

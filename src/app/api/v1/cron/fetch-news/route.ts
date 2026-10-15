@@ -8,7 +8,19 @@ import { randomUUID } from 'crypto';
 import { acquireCronLock, CRON_LOCKS, lockSkipPayload } from '@/lib/locks';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+/**
+ * 300, raised from 120 on 2026-10-15.
+ *
+ * Despite the name this route runs the FULL pipeline (`runNewsPipeline`), and
+ * in `fetch-rss` mode it reads 125 feeds rather than `ingest-news`'s 3 API
+ * sources - strictly more work than `ingest-news`, which was already budgeted
+ * 300. At 120 a run that got as far as classification was being killed
+ * mid-flight, after the article bodies had been paid for and written.
+ *
+ * `CRON_LOCKS['fetch-news'].maxDurationSeconds` mirrors this number and
+ * `locks.test.ts:232` asserts they match, so the two cannot drift.
+ */
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const requestId = randomUUID();

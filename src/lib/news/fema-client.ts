@@ -15,6 +15,16 @@ type FemaDeclaration = {
 
 /**
  * Fetch recent FEMA disaster declarations (last 30 days, US only).
+ *
+ * THROWS on transport or HTTP failure. Until 2026-10-15 this caught everything
+ * and returned `[]`, which made the "all news sources failed" critical alert in
+ * `news-pipeline.ts` unreachable: the pipeline derives `allFailed` from
+ * `Promise.allSettled` rejections, and a client that never rejects can never be
+ * counted as failed. A total news blackout therefore surfaced as HTTP 200 with
+ * severity 'info' and `fetched: 0`.
+ *
+ * An empty array still means "fetched successfully, nothing matched" - that
+ * distinction is the whole point of throwing here.
  */
 export async function fetchFemaDeclarations(): Promise<NormalizedNewsItem[]> {
   const thirtyDaysAgo = new Date();
@@ -34,8 +44,7 @@ export async function fetchFemaDeclarations(): Promise<NormalizedNewsItem[]> {
     });
 
     if (!response.ok) {
-      console.error(`FEMA API error: ${response.status}`);
-      return [];
+      throw new Error(`FEMA API returned HTTP ${response.status}`);
     }
 
     const data = (await response.json()) as {
@@ -65,6 +74,6 @@ export async function fetchFemaDeclarations(): Promise<NormalizedNewsItem[]> {
     return items;
   } catch (error) {
     console.error('FEMA API fetch error:', error);
-    return [];
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }

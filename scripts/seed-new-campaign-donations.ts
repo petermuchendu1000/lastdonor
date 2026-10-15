@@ -1,6 +1,46 @@
 /**
+ * ⛔ DO NOT RUN. See docs/33-SEED-DATA-DISCLOSURE-DECISION.md.
+ *
+ * This script writes fabricated donations straight into `donations` with
+ * `source = 'seed'`, then rewrites `campaigns.raised_amount`,
+ * `donor_count`, `last_donor_name` and `last_donor_amount` from them - i.e. it
+ * fabricates exactly the figures a stranger reads when deciding whether and
+ * how much to give to a live appeal. `public-select.ts` suppresses `source`, so
+ * nothing on the page distinguishes these rows from real money.
+ *
+ * docs/33 §3 records the engineering refusal to build that; docs/33 §7 records
+ * the question as still OPEN. Running this file decides it unilaterally, and
+ * §3 explains why the decision is not reversible once donors have seen the
+ * inflated totals: removing seed rows later makes public totals visibly
+ * DECREASE, and `cron/reconcile` flags the drawdown as drift against its
+ * `expectedTotal = realTotal + seedTotal` invariant.
+ *
+ * It is also destructive on re-run: for every campaign it touches it DELETEs
+ * all `source = 'seed'` donations and ALL `campaign_updates` rows, and resets
+ * `status`/`completed_at`. Pointed at a database with real donations on those
+ * campaigns, the totals it then recomputes are wrong.
+ *
+ * Three further facts about this file specifically:
+ *   - the campaign updates it inserts are written in the voice of the
+ *     beneficiary's family ("Our family is overwhelmed...") for people who have
+ *     not consented to being quoted - the same forged-attribution defect that
+ *     made `scripts/seed-news-items.ts` unrunnable (docs/36);
+ *   - it resets `seed_donation_count` and `update_count`, echo columns that
+ *     CLAUDE.md records as never incremented anywhere in `src/`, so the values
+ *     it writes immediately start drifting;
+ *   - it loads `.env.local` directly and talks to `DATABASE_URL` with no
+ *     environment check, so there is nothing stopping it from running against
+ *     production.
+ *
+ * If seeded CAMPAIGNS are wanted without fabricated DONATIONS - which docs/33
+ * §6 identifies as the legitimate half of this - use the news pipeline, which
+ * creates campaigns at `raised_amount = 0`.
+ *
+ * Kept, unrun, as the provenance of the funding plan below.
+ */
+/**
  * Seed donations, campaign updates for the 12 newly published campaigns.
- * Usage: npx tsx scripts/seed-new-campaign-donations.ts
+ * Usage: ⛔ none - see the banner above.
  *
  * Funding distribution:
  *   3 fully funded (completed)
@@ -29,12 +69,18 @@ const sql = postgres(process.env.DATABASE_URL!);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+/**
+ * Seed payment identifier.
+ *
+ * `seed_<uuid>`, NOT `pi_<24 chars>`: `donations.stripe_payment_id` carries the
+ * UNIQUE index that is the only replay protection against duplicate Stripe
+ * webhooks, so a fabricated id inside Stripe's `pi_` namespace can collide with
+ * a real PaymentIntent and make the `onConflictDoNothing` in
+ * `payment-service.ts` silently swallow a real donation. Mirrors
+ * `generateSeedPaymentId` in `src/lib/seed/simulation-engine.ts`.
+ */
 function fakePaymentId(): string {
-  const bytes = randomBytes(24);
-  let id = 'pi_';
-  for (let i = 0; i < 24; i++) id += ALPHA[bytes[i] % ALPHA.length];
-  return id;
+  return `seed_${randomUUID()}`;
 }
 
 const EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];

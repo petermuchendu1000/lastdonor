@@ -72,8 +72,10 @@ vi.mock('@/lib/settings.server', () => ({
 import { generateSeedAmount, validAmountsForTier } from '@/lib/seed/amount-generator';
 import { generateSeedDonor, NAME_POOL_SIZE } from '@/lib/seed/name-generator';
 import {
-  generateRealisticPaymentId,
+  generateSeedPaymentId,
+  isSeedPaymentId,
   generateRealisticEmail,
+  SEED_PAYMENT_ID_PREFIX,
   EMAIL_DOMAINS,
 } from '@/lib/seed/simulation-engine';
 import type { AmountTier } from '@/lib/seed/trajectory-profiles';
@@ -139,28 +141,45 @@ describe('Statistical Donation Analysis', () => {
     });
   });
 
-  describe('Stripe Payment ID Format', () => {
-    it('all IDs match ^pi_[A-Za-z0-9]{24}$ format', () => {
-      const pattern = /^pi_[A-Za-z0-9]{24}$/;
+  describe('Seed Payment ID Namespace', () => {
+    // `donations.stripe_payment_id` carries the UNIQUE index that is the only
+    // replay protection against a duplicated Stripe webhook. Seed ids share
+    // that column, so they must share the uniqueness guarantee WITHOUT sharing
+    // Stripe's namespace: a seed row occupying a real PaymentIntent id would
+    // make `onConflictDoNothing` (payment-service.ts) drop a real
+    // donation, leaving Stripe with the money and the DB with no row.
+    it('never mints an ID inside Stripe\'s pi_ namespace', () => {
       for (let i = 0; i < SAMPLE_SIZE; i++) {
-        const id = generateRealisticPaymentId();
-        expect(id).toMatch(pattern);
+        const id = generateSeedPaymentId();
+        expect(id.startsWith('pi_'), `seed id collided with Stripe namespace: ${id}`).toBe(false);
       }
     });
 
-    it('IDs are unique across 500 samples', () => {
+    it('all IDs are prefixed seed_ and greppable as fabricated', () => {
+      for (let i = 0; i < SAMPLE_SIZE; i++) {
+        const id = generateSeedPaymentId();
+        expect(id.startsWith(SEED_PAYMENT_ID_PREFIX)).toBe(true);
+        expect(isSeedPaymentId(id)).toBe(true);
+      }
+    });
+
+    it('all IDs match ^seed_<uuid v4>$ format', () => {
+      const pattern = /^seed_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      for (let i = 0; i < SAMPLE_SIZE; i++) {
+        expect(generateSeedPaymentId()).toMatch(pattern);
+      }
+    });
+
+    it('IDs are unique across 500 samples (UNIQUE index must hold)', () => {
       const ids = new Set<string>();
       for (let i = 0; i < SAMPLE_SIZE; i++) {
-        ids.add(generateRealisticPaymentId());
+        ids.add(generateSeedPaymentId());
       }
       expect(ids.size).toBe(SAMPLE_SIZE);
     });
 
-    it('IDs have high entropy (no repeating patterns)', () => {
-      const id1 = generateRealisticPaymentId();
-      const id2 = generateRealisticPaymentId();
-      // The 24-char suffix should differ
-      expect(id1.slice(3)).not.toBe(id2.slice(3));
+    it('does not classify a real Stripe ID as a seed ID', () => {
+      expect(isSeedPaymentId('pi_3QxYzAbCdEfGhIjKlMnOpQrS')).toBe(false);
     });
   });
 

@@ -23,6 +23,7 @@ import { generateTrajectoryProfile } from '@/lib/seed/trajectory-profiles';
 import { generateOrganizerIdentity } from '@/lib/seed/organizer-generator';
 import { cleanStoryHtml, validateStory } from '@/lib/ai/prompts/story-validation';
 import { resolveHeroImageEnhanced } from '@/lib/news/image-resolver';
+import { checkCampaignVolumeGuards } from '@/lib/news/volume-guards';
 import { getWordRange, scoreContextRichness } from '@/lib/ai/prompts/story-structures';
 import type { StoryPattern } from '@/lib/ai/prompts/story-structures';
 import type { CampaignCategory } from '@/types';
@@ -40,6 +41,12 @@ export type PublishError =
   | { code: 'INVALID_ENTITY'; message: string }
   | { code: 'DUPLICATE_SUBJECT'; message: string; campaignId: string }
   | { code: 'STORY_FAILED'; message: string }
+  /**
+   * A volume guard refused: the phase-out floor, the daily campaign-creation
+   * limit, or `simulation.max_concurrent`. Expected, not exceptional - callers
+   * should treat it like a dedup outcome rather than an error.
+   */
+  | { code: 'VOLUME_LIMIT'; message: string; guard: string }
   | { code: 'INTERNAL_ERROR'; message: string };
 
 export type PublishOutcome =
@@ -55,6 +62,7 @@ export type PublishOutcome =
  *
  * Steps:
  * 1. Validate news item exists and hasn't already created a campaign
+ * 1b. Volume guards (daily limit / max concurrent / phase-out) unless bypassed
  * 2. Resolve effective category (adminOverrideCategory takes precedence)
  * 3. Check slug-based dedup
  * 4. Fetch full article body (if not already cached)
@@ -78,6 +86,16 @@ export async function publishCampaignFromNewsItem(
     recentTitles?: string[];
     /** Audit event type override (to distinguish cron vs. admin trigger) */
     auditEventType?: string;
+    /**
+     * Skip the volume guards in `@/lib/news/volume-guards`.
+     *
+     * For a deliberate admin override only - an operator who has read the
+     * current counts and wants one more campaign anyway. Nothing sets this by
+     * default, and no automated path should: the guards exist because
+     * `publish-campaigns` and the admin button were observed creating 12
+     * campaigns past a limit of 10 (see volume-guards.ts).
+     */
+    bypassVolumeGuards?: boolean;
   } = {},
 ): Promise<PublishOutcome> {
   const recentStoryPatterns = options.recentStoryPatterns ?? [];
@@ -104,6 +122,25 @@ export async function publishCampaignFromNewsItem(
         campaignId: item.campaignId ?? '',
       },
     };
+  }
+
+  // ── Step 1b: Volume guards ────────────────────────────────────────────
+  //
+  // Placed after the two free checks above (so NOT_FOUND / ALREADY_CREATED
+  // still report accurately) but before the article-body fetch and every AI
+  // call, which is where this function starts spending money.
+  if (!options.bypassVolumeGuards) {
+    const guard = await checkCampaignVolumeGuards();
+    if (!guard.allowed) {
+      return {
+        ok: false,
+        error: {
+          code: 'VOLUME_LIMIT',
+          message: guard.reason,
+          guard: guard.guard,
+        },
+      };
+    }
   }
 
   // ── Step 2: Resolve effective category ────────────────────────────────
@@ -467,4 +504,59 @@ async function generateStoryWithValidation(
     promptType: 'generate-story',
   });
   return cleanStoryHtml(fallbackRaw);
+}
+
+// ── Batch candidate selection ───────────────────────────────────────────────
+
+/**
+ * Pick which news items a batch run should publish, honouring both a total
+ * slot count and a cap on how many of those slots military-sourced items may
+ * take.
+ *
+ * ── The bug this replaces ─────────────────────────────────────────────────
+ *
+ * `publish-campaigns/route.ts` used to compute:
+ *
+ *   [...military.slice(0, 2), ...other.slice(0, 3)].slice(0, 5)
+ *
+ * whose comment said "max 5 total" but whose code also hard-capped *others* at
+ * 3. The military cap is a ceiling, not a quota, so with 0 or 1 military
+ * candidates the run could only ever publish 3 or 4 - it could never fill 5
+ * slots. Observed: a candidate set with exactly 1 military item produced
+ * 4 + 3 + 3 + 2 = 12 campaigns over four runs, where 5 + 5 + 2 was expected.
+ *
+ * The fix is to take the military picks FIRST and then fill the remainder from
+ * the others, so the military cap bounds the military share without shrinking
+ * the batch.
+ *
+ * Order within each group is preserved (callers pass items already sorted by
+ * relevance), and military picks lead the result, as before.
+ */
+export function selectBalancedCandidates<T>(
+  items: readonly T[],
+  opts: {
+    isMilitary: (item: T) => boolean;
+    /** Total slots to fill. */
+    maxTotal: number;
+    /** Ceiling on how many of those slots military items may occupy. */
+    maxMilitary: number;
+  },
+): T[] {
+  const maxTotal = Math.max(0, opts.maxTotal);
+  const maxMilitary = Math.max(0, Math.min(opts.maxMilitary, maxTotal));
+
+  const military: T[] = [];
+  const other: T[] = [];
+  for (const item of items) {
+    (opts.isMilitary(item) ? military : other).push(item);
+  }
+
+  const militaryPicks = military.slice(0, maxMilitary);
+  const otherPicks = other.slice(0, maxTotal - militaryPicks.length);
+
+  // The military ceiling is NOT relaxed when `other` cannot fill the
+  // remainder: a batch of 5 military items would be exactly the source
+  // imbalance the cap exists to prevent, so those slots stay empty and the
+  // items wait for the next run.
+  return [...militaryPicks, ...otherPicks];
 }

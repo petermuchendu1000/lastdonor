@@ -20,6 +20,50 @@ export type SimulationResult = {
   errors: string[];
 };
 
+/**
+ * ── Structural opt-in for fabricated donations ────────────────────────────
+ *
+ * `docs/33` records an owner decision to run seed donations indistinguishably
+ * from real ones, and an engineering refusal to implement it. Until 2026-10-15
+ * that refusal rested on nothing but `SETTING_DEFAULTS['simulation.enabled']`
+ * being `false` (`src/lib/settings.ts:122`) plus the absence of a scheduler -
+ * i.e. one admin-UI checkbox, writable from `/api/v1/admin/simulation/settings`,
+ * stood between a live deployment and fabricated money-shaped rows appearing in
+ * public campaign totals. `vercel.json` shipped a quarter-hourly schedule for
+ * it, so any Vercel deploy would have supplied the missing scheduler.
+ *
+ * The gate below is deliberately NOT a setting: it cannot be flipped from the
+ * admin UI, by an API call, or by a compromised admin session - only by whoever
+ * controls the deployment environment, who is the only party able to accept the
+ * decision in docs/33 §2.
+ *
+ * It is also deliberately not a boolean. `=true` is the value someone copies in
+ * by reflex while pattern-matching other flags (`BLOG_PIPELINE_ENABLED=false`);
+ * the sentinel has to be typed on purpose and names what it switches on.
+ */
+export const SEED_DONATIONS_OPT_IN_ENV = 'SEED_DONATIONS_OPT_IN';
+
+/** The only accepted value of `SEED_DONATIONS_OPT_IN`. */
+export const SEED_DONATIONS_OPT_IN_SENTINEL = 'fabricated-donations-acknowledged';
+
+/**
+ * Whether this deployment has explicitly opted in to writing fabricated
+ * donations. Read at call time, never cached, so a misconfiguration cannot be
+ * frozen into a warm process.
+ */
+export function seedDonationsOptedIn(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env[SEED_DONATIONS_OPT_IN_ENV]?.trim() === SEED_DONATIONS_OPT_IN_SENTINEL;
+}
+
+/** Human-readable refusal reason, for the cron response and the audit row. */
+export const SEED_DONATIONS_REFUSAL_REASON =
+  `Refused: fabricated donations write to donations.stripe_payment_id and into public ` +
+  `campaign totals. This deployment has not opted in. Set ` +
+  `${SEED_DONATIONS_OPT_IN_ENV}=${SEED_DONATIONS_OPT_IN_SENTINEL} to override ` +
+  `(see docs/33). The simulation.enabled setting alone is not sufficient.`;
+
 /** 15-minute cron window in milliseconds. */
 const CYCLE_WINDOW_MS = 15 * 60 * 1000;
 
@@ -254,7 +298,7 @@ async function commitSeedDonation(write: SeedDonationWrite): Promise<boolean> {
       .insert(schema.donations)
       .values({
         campaignId: write.campaignId,
-        stripePaymentId: generateRealisticPaymentId(),
+        stripePaymentId: generateSeedPaymentId(),
         amount: write.amountCents,
         donorName: write.donorName,
         donorEmail: write.donorEmail,
@@ -286,16 +330,44 @@ async function commitSeedDonation(write: SeedDonationWrite): Promise<boolean> {
 
 // â”€â”€ Realistic seed-data generators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+/**
+ * Prefix for seed-donation payment identifiers.
+ *
+ * `donations.stripe_payment_id` carries a UNIQUE index
+ * (`idx_donations_stripe_payment_id` in the migrations-v2 baseline) and
+ * `payment-service.ts` relies on it via
+ * `onConflictDoNothing({ target: donations.stripePaymentId })`. That index is
+ * the ONLY replay protection against a duplicated Stripe webhook, so the
+ * namespace it governs belongs to Stripe alone.
+ *
+ * Until 2026-10-15 the simulation minted `pi_` + 24 random alphanumerics into
+ * that column, which put fabricated rows inside Stripe's own id space. A
+ * collision there is silent and unrecoverable in the worst direction: the
+ * `onConflictDoNothing` would swallow a REAL PaymentIntent whose id already sat
+ * in the table as a seed row, leaving Stripe holding the money and the database
+ * holding no donation. (`0014_dual_campaign_system.sql:77-79`, in the inert
+ * `migrations/` directory, had deliberately rewritten `seed_` ids INTO `pi_`
+ * form for realism; that is the change being reversed here.)
+ *
+ * `seed_<uuid>` instead:
+ *   - still satisfies the UNIQUE constraint (v4 UUID collision is ~2^-122);
+ *   - cannot collide with a Stripe id, since Stripe ids are `pi_`-prefixed;
+ *   - makes every fabricated row greppable in SQL (`LIKE 'seed_%'`), which the
+ *     purge/launch-gate options in docs/33 §6 need.
+ */
+export const SEED_PAYMENT_ID_PREFIX = 'seed_';
 
-/** @internal Exported for testing. Generate a Stripe-like payment intent ID (pi_ + 24 alphanumeric chars). */
-export function generateRealisticPaymentId(): string {
-  const bytes = crypto.randomBytes(24);
-  let id = 'pi_';
-  for (let i = 0; i < 24; i++) {
-    id += ALPHANUMERIC[bytes[i] % ALPHANUMERIC.length];
-  }
-  return id;
+/**
+ * @internal Exported for testing. Mint a payment identifier for a SEED
+ * donation. Deliberately NOT Stripe-shaped - see `SEED_PAYMENT_ID_PREFIX`.
+ */
+export function generateSeedPaymentId(): string {
+  return `${SEED_PAYMENT_ID_PREFIX}${crypto.randomUUID()}`;
+}
+
+/** True when `id` was minted by the simulation rather than by Stripe. */
+export function isSeedPaymentId(id: string): boolean {
+  return id.startsWith(SEED_PAYMENT_ID_PREFIX);
 }
 
 export const EMAIL_DOMAINS = [

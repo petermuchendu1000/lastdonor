@@ -311,10 +311,14 @@ export const CRON_LOCKS: Record<CronJobName, CronLockSpec> = {
     'for nothing.',
   ),
   'fetch-news': spec(
-    'fetch-news', 120, 'skip',
+    // Raised 120 -> 300 on 2026-10-15 together with the route's own
+    // `maxDuration`; it does strictly more work than `ingest-news` (125 RSS
+    // feeds vs. 3 API sources) and was the only AI job budgeted below 300.
+    'fetch-news', 300, 'skip',
     'Despite the name this runs the full pipeline after the RSS fetch, ' +
-    'including per-article AI classification (news-pipeline.ts:221), so ' +
-    'overlap is a real cost. Fail closed like the other AI jobs.',
+    'including a body fetch and an AI classification for every new article ' +
+    '(capped at MAX_NEW_ARTICLES_PER_RUN), so overlap is a real cost. Fail ' +
+    'closed like the other AI jobs.',
   ),
   reconcile: spec(
     'reconcile', 300, 'run',

@@ -35,6 +35,10 @@ import type { StoryPattern } from '@/lib/ai/prompts/story-structures';
 import { getWordRange, scoreContextRichness } from '@/lib/ai/prompts/story-structures';
 import type { CampaignCategory } from '@/types';
 import { getSetting } from '@/lib/settings.server';
+import {
+  DEFAULT_CAMPAIGN_DAILY_LIMIT,
+  DEFAULT_MAX_CONCURRENT_SIMULATED,
+} from '@/lib/news/volume-guards';
 
 export type PipelineResult = {
   fetched: number;
@@ -42,7 +46,15 @@ export type PipelineResult = {
   extracted: number;
   published: number;
   retained: number;
+  /**
+   * New articles left for a later run by `MAX_NEW_ARTICLES_PER_RUN`. Not an
+   * error: they were never inserted, so the next run re-fetches them.
+   */
+  deferred: number;
+  /** Bounded by `MAX_PIPELINE_ERRORS` - see `pushError`. */
   errors: string[];
+  /** How many error strings were dropped once the cap was reached. */
+  errorsOmitted: number;
 };
 
 /** Max age in days for articles to be eligible for ingestion. */
@@ -52,11 +64,58 @@ const FRESHNESS_CUTOFF_DAYS = 14;
 const CLASSIFY_CONCURRENCY = 5;
 
 /**
+ * Hard cap on NEW articles carried past dedup in a single run.
+ *
+ * `fetch-rss` mode reads `RSS_FEEDS` - 125 configured feeds - at up to
+ * `MAX_ITEMS_PER_FEED = 25` each (`rss-parser.ts:307`), so the first run
+ * against an empty `news_items` table has an upper bound of ~3,125 articles and
+ * nothing between that number and the work that follows: one full article-body
+ * HTTP GET each (batches of 5), then one AI classification call each. The
+ * `callAI` breaker trips long before the end, every throw appends a string to
+ * `result.errors`, and the whole array is then written into one
+ * `audit_logs.details` JSONB row.
+ *
+ * 40 is chosen to fit the route budget rather than the feed list: 40 bodies at
+ * 5-wide plus 40 classifications at 5-wide is 16 sequential waves, which fits
+ * `maxDuration = 300` with headroom. The remainder is NOT inserted, so it is
+ * still undeduplicated next run and simply arrives then - the schedule is
+ * every 6 hours, so a backlog drains at ~160/day.
+ */
+export const MAX_NEW_ARTICLES_PER_RUN = 40;
+
+/**
+ * Cap on `result.errors`.
+ *
+ * The array goes verbatim into `audit_logs.details` (JSONB). With a tripped AI
+ * breaker it would otherwise hold one string per article, each carrying a
+ * stringified error - megabytes in a single row, from a route whose failure
+ * mode is "everything failed identically". 20 is enough to see the pattern;
+ * `errorsOmitted` preserves the magnitude.
+ */
+export const MAX_PIPELINE_ERRORS = 20;
+
+/**
+ * Append an error, or count it as omitted once the cap is reached.
+ *
+ * Every error path in this pipeline goes through here rather than
+ * `result.errors.push`, so a new call site cannot reintroduce the unbounded
+ * growth.
+ */
+function pushError(result: PipelineResult, message: string): void {
+  if (result.errors.length < MAX_PIPELINE_ERRORS) {
+    result.errors.push(message);
+  } else {
+    result.errorsOmitted++;
+  }
+}
+
+/**
  * Full news ingestion pipeline:
  * 1. Fetch from GNews + RSS + FEMA + NWS
  * 1b. Balance sources (military ≤ 40%)
  * 1c. Freshness hard filter (articles must be ≤ 14 days old)
  * 2. Deduplicate against existing news_items (indexed IN query)
+ * 2b. Cap the run at MAX_NEW_ARTICLES_PER_RUN (before the insert)
  * 3. Batch-insert new articles
  * 3b. Fetch full article body (before classification for accuracy)
  * 4. Classify in parallel (batches of 5) using full body text
@@ -76,7 +135,9 @@ export async function runNewsPipeline(
     extracted: 0,
     published: 0,
     retained: 0,
+    deferred: 0,
     errors: [],
+    errorsOmitted: 0,
   };
 
   // ── Step 1: Fetch articles ────────────────────────────────────────────
@@ -109,7 +170,7 @@ export async function runNewsPipeline(
           nws: nwsAlerts.status === 'rejected' ? String(nwsAlerts.reason) : null,
         },
       });
-      result.errors.push('All news sources failed - admin alerted');
+      pushError(result, 'All news sources failed - admin alerted');
       return result;
     }
 
@@ -125,10 +186,25 @@ export async function runNewsPipeline(
         severity: 'warning',
         details: { failures: sourceFailures },
       });
-      result.errors.push(...sourceFailures);
+      for (const failure of sourceFailures) pushError(result, failure);
     }
   } else {
     articles = await fetchAllRssFeeds();
+
+    // `fetchAllRssFeeds` settles each of the 125 feeds and silently drops the
+    // rejections, so a total RSS blackout is indistinguishable from a quiet
+    // news day by return value alone - except that zero articles from 125
+    // feeds is not a quiet news day. Same alert as the ingest-mode blackout,
+    // so neither path can fail at severity 'info'.
+    if (articles.length === 0) {
+      await db.insert(schema.auditLogs).values({
+        eventType: 'pipeline.all_sources_failed',
+        severity: 'critical',
+        details: { mode, rss: 'every configured RSS feed returned no items' },
+      });
+      pushError(result, 'All RSS feeds returned no items - admin alerted');
+      return result;
+    }
   }
 
   result.fetched = articles.length;
@@ -147,8 +223,16 @@ export async function runNewsPipeline(
   if (articles.length === 0) return result;
 
   // ── Step 2: Deduplicate via indexed IN query ─────────────────────────
-  const newArticles = await deduplicateArticles(articles);
-  if (newArticles.length === 0) return result;
+  const deduped = await deduplicateArticles(articles);
+  if (deduped.length === 0) return result;
+
+  // ── Step 2b: Cap the run ─────────────────────────────────────────────
+  // Applied BEFORE the insert, not after, so the overflow is still absent
+  // from `news_items` and therefore still "new" to the next run's dedup.
+  // Capping after the insert would strand rows with no body and no
+  // relevance score that dedup would then skip forever.
+  const newArticles = deduped.slice(0, MAX_NEW_ARTICLES_PER_RUN);
+  result.deferred = deduped.length - newArticles.length;
 
   // ── Step 3: Batch-insert all new articles in one statement ───────────
   try {
@@ -167,7 +251,7 @@ export async function runNewsPipeline(
       )
       .onConflictDoNothing();
   } catch (error) {
-    result.errors.push(`Batch insert error: ${String(error)}`);
+    pushError(result, `Batch insert error: ${String(error)}`);
     return result;
   }
 
@@ -193,7 +277,7 @@ export async function runNewsPipeline(
     );
     for (const r of results) {
       if (r.status === 'rejected') {
-        result.errors.push(`Body fetch error: ${String(r.reason)}`);
+        pushError(result, `Body fetch error: ${String(r.reason)}`);
       }
     }
   }
@@ -244,7 +328,7 @@ export async function runNewsPipeline(
           qualified.push(settlement.value);
         }
       } else {
-        result.errors.push(`Classify error: ${String(settlement.reason)}`);
+        pushError(result, `Classify error: ${String(settlement.reason)}`);
       }
     }
   }
@@ -260,7 +344,11 @@ export async function runNewsPipeline(
     .from(schema.siteSettings)
     .where(eq(schema.siteSettings.key, 'campaign_creation_daily_limit'));
 
-  const dailyLimit = dailyLimitSetting ? Number(dailyLimitSetting.value) : 10;
+  // Default shared with `volume-guards.ts`, which enforces the same limit on
+  // the `publishCampaignFromNewsItem` path, so the two cannot drift.
+  const dailyLimit = dailyLimitSetting
+    ? Number(dailyLimitSetting.value)
+    : DEFAULT_CAMPAIGN_DAILY_LIMIT;
 
   // Max concurrent simulated campaigns guard
   const [activeSim] = await db
@@ -273,13 +361,13 @@ export async function runNewsPipeline(
       ),
     );
   const maxConcurrentSetting = await getSetting('simulation.max_concurrent');
-  const maxConcurrent = maxConcurrentSetting ?? 10;
+  const maxConcurrent = maxConcurrentSetting ?? DEFAULT_MAX_CONCURRENT_SIMULATED;
 
   // Phase-out guard: stop creating new simulated campaigns if volume is 0
   const { calculateAutoVolume } = await import('@/lib/seed/phase-out');
   const autoVolume = await calculateAutoVolume();
   if (autoVolume === 0) {
-    result.errors.push('Phase-out threshold reached - no new simulated campaigns');
+    pushError(result, 'Phase-out threshold reached - no new simulated campaigns');
     return result;
   }
 
@@ -338,13 +426,13 @@ export async function runNewsPipeline(
 
       // Step 5b: Validate entity name - reject garbage before creating campaigns
       if (!isValidEntityName(entity.name, article.title)) {
-        result.errors.push(`Skipped "${article.title}": invalid entity name "${entity.name}"`);
+        pushError(result, `Skipped "${article.title}": invalid entity name "${entity.name}"`);
         continue;
       }
 
       // Reject low-confidence extractions
       if (entity.confidence < 30) {
-        result.errors.push(`Skipped "${article.title}": low extraction confidence (${entity.confidence})`);
+        pushError(result, `Skipped "${article.title}": low extraction confidence (${entity.confidence})`);
         continue;
       }
 
@@ -395,7 +483,7 @@ export async function runNewsPipeline(
         return normalized.length > 3 && titleNorm.includes(normalized);
       });
       if (isCrossSourceDup) {
-        result.errors.push(`Skipped "${article.title}": cross-source duplicate for "${entity.name}"`);
+        pushError(result, `Skipped "${article.title}": cross-source duplicate for "${entity.name}"`);
         continue;
       }
 
@@ -406,7 +494,7 @@ export async function runNewsPipeline(
         (lc) => lc.category === entity.category && lc.location === entityLocationNorm,
       );
       if (isSameEventInBatch) {
-        result.errors.push(`Skipped "${article.title}": same location+category already in batch ("${entity.hometown}" / ${entity.category})`);
+        pushError(result, `Skipped "${article.title}": same location+category already in batch ("${entity.hometown}" / ${entity.category})`);
         continue;
       }
 
@@ -424,19 +512,19 @@ export async function runNewsPipeline(
         )
         .limit(1);
       if (recentSameLocation.length > 0) {
-        result.errors.push(`Skipped "${article.title}": campaign already exists for ${entity.hometown} / ${entity.category}`);
+        pushError(result, `Skipped "${article.title}": campaign already exists for ${entity.hometown} / ${entity.category}`);
         continue;
       }
 
       // Rate limit: skip campaign creation if daily limit exceeded
       if (todayCount.count + campaignsCreatedThisRun >= dailyLimit) {
-        result.errors.push(`Rate limited: daily campaign creation limit (${dailyLimit}) reached, skipping "${entity.name}"`);
+        pushError(result, `Rate limited: daily campaign creation limit (${dailyLimit}) reached, skipping "${entity.name}"`);
         continue;
       }
 
       // Max concurrent simulated campaigns check
       if ((activeSim?.count ?? 0) + campaignsCreatedThisRun >= maxConcurrent) {
-        result.errors.push(`Max concurrent simulated campaigns (${maxConcurrent}) reached, skipping "${entity.name}"`);
+        pushError(result, `Max concurrent simulated campaigns (${maxConcurrent}) reached, skipping "${entity.name}"`);
         continue;
       }
 
@@ -459,7 +547,7 @@ export async function runNewsPipeline(
       ]);
 
       if (storyResult.status === 'rejected') {
-        result.errors.push(`Story generation failed for "${entity.name}": ${String(storyResult.reason)}`);
+        pushError(result, `Story generation failed for "${entity.name}": ${String(storyResult.reason)}`);
         continue;
       }
 
@@ -586,7 +674,7 @@ export async function runNewsPipeline(
         },
       });
     } catch (error) {
-      result.errors.push(`Processing error for "${article.title}": ${String(error)}`);
+      pushError(result, `Processing error for "${article.title}": ${String(error)}`);
     }
   }
 
@@ -609,7 +697,7 @@ export async function runNewsPipeline(
 
     result.retained = deleted.length;
   } catch (error) {
-    result.errors.push(`Retention cleanup error: ${String(error)}`);
+    pushError(result, `Retention cleanup error: ${String(error)}`);
   }
 
   return result;

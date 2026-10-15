@@ -3,7 +3,6 @@
   "crons": [
     { "path": "/api/v1/cron/ingest-news", "schedule": "*/30 * * * *" },
     { "path": "/api/v1/cron/update-phases", "schedule": "*/5 * * * *" },
-    { "path": "/api/v1/cron/simulate-donations", "schedule": "*/15 * * * *" },
     { "path": "/api/v1/cron/reconcile", "schedule": "0 4 * * *" },
     { "path": "/api/v1/cron/fetch-news", "schedule": "0 */6 * * *" },
     { "path": "/api/v1/cron/send-newsletter", "schedule": "0 14 * * 4" },

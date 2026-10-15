@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { newsItems, campaigns, auditLogs } from '@/db/schema';
 import { eq, and, gte, desc } from 'drizzle-orm';
-import { publishCampaignFromNewsItem } from '@/lib/news/campaign-publisher';
+import {
+  publishCampaignFromNewsItem,
+  selectBalancedCandidates,
+} from '@/lib/news/campaign-publisher';
 import { logError } from '@/lib/errors';
 import { verifyCronAuth } from '@/lib/cron-auth';
 import { randomUUID } from 'crypto';
@@ -28,9 +31,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Find high-scoring news items that haven't created campaigns yet
-    // Balance: max 2 military out of 5 slots (40%)
+    // Find high-scoring news items that haven't created campaigns yet.
+    // Balance: at most 2 of the 5 slots go to military-sourced items (40%).
     const MILITARY_SOURCES = ['DVIDS', 'Defense.gov', 'Stars and Stripes', 'Military Times'];
+    const MAX_PER_RUN = 5;
+    const MAX_MILITARY_PER_RUN = 2;
 
     const allCandidates = await db
       .select()
@@ -44,20 +49,19 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(newsItems.relevanceScore))
       .limit(20);
 
-    const military = allCandidates.filter(
-      (i) => MILITARY_SOURCES.includes(i.source) || i.category === 'military',
-    );
-    const other = allCandidates.filter(
-      (i) => !MILITARY_SOURCES.includes(i.source) && i.category !== 'military',
-    );
-
-    // Take up to 2 military, fill rest with others, max 5 total
-    const qualifiedItems = [
-      ...military.slice(0, 2),
-      ...other.slice(0, 3),
-    ].slice(0, 5);
+    // Take up to 2 military, then fill the REMAINING slots from the others.
+    // The previous expression capped others at 3 independently, so a candidate
+    // set with 0 or 1 military item could only ever publish 3 or 4 - see
+    // `selectBalancedCandidates` for the observed consequence.
+    const qualifiedItems = selectBalancedCandidates(allCandidates, {
+      isMilitary: (i) =>
+        MILITARY_SOURCES.includes(i.source) || i.category === 'military',
+      maxTotal: MAX_PER_RUN,
+      maxMilitary: MAX_MILITARY_PER_RUN,
+    });
 
     let published = 0;
+    let volumeLimited = 0;
     const errors: string[] = [];
 
     // Shared state across the batch for anti-repetition
@@ -80,6 +84,13 @@ export async function GET(request: NextRequest) {
 
         if (result.ok) {
           published++;
+        } else if (result.error.code === 'VOLUME_LIMIT') {
+          // A volume guard refused (daily limit / max concurrent / phase-out).
+          // Recorded, and the batch stops: every remaining item would hit the
+          // same guard, and re-asking is three more aggregate queries each.
+          volumeLimited++;
+          errors.push(`${item.title}: ${result.error.message}`);
+          break;
         } else {
           // ALREADY_CREATED and DUPLICATE_SUBJECT are expected dedup outcomes, not errors
           if (result.error.code !== 'ALREADY_CREATED' && result.error.code !== 'DUPLICATE_SUBJECT') {
@@ -94,12 +105,12 @@ export async function GET(request: NextRequest) {
     await db.insert(auditLogs).values({
       eventType: 'cron.publish_campaigns',
       severity: errors.length > 0 ? 'warning' : 'info',
-      details: { qualifiedItems: qualifiedItems.length, published, errors },
+      details: { qualifiedItems: qualifiedItems.length, published, volumeLimited, errors },
     });
 
     return NextResponse.json({
       ok: true,
-      data: { qualifiedItems: qualifiedItems.length, published, errors },
+      data: { qualifiedItems: qualifiedItems.length, published, volumeLimited, errors },
     });
   } catch (error) {
     logError(error, { requestId, route: '/api/v1/cron/publish-campaigns', method: 'GET' });
