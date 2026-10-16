@@ -152,6 +152,14 @@ quantity and lead with the ask:
 | Sidebar count | "0 donors" | *(suppressed)* |
 | Card figure | `$0 raised` / `of $5,000` | "Be the first to donate" / `$5,000 goal` |
 
+> **Amended 2026-10-16 (see docs/62).** This decision was taken by evaluating
+> a card in isolation. On the homepage, six cards in a column repeat "Be the
+> first to donate" six times, and the aggregate reads as *"nobody has donated
+> to anything here"* rather than as an invitation. The card hierarchy has
+> **not** been changed - trust copy is an owner's decision, not a layout fix -
+> but docs/62 records the evidence and the minimal change if it is wanted:
+> swap the hierarchy on the card only, leaving the sidebar as specified here.
+
 The goal is still shown in full, and the progress bar still renders at 0%.
 Nothing is concealed; only the hierarchy changes. Once `raisedAmount > 0` the
 funded layout returns, now with an explicit funded percentage, which the
