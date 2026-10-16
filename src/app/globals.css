@@ -292,6 +292,33 @@ button:focus-visible {
   animation: fade-in-up 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
 
+/* Hero body, CTAs and trust chips: same reasoning as .hero-h1, extended to
+   the rest of the above-the-fold content after a measured regression.
+
+   These were framer-motion elements with `hidden: { opacity: 0 }`, so they
+   stayed invisible until React hydrated. That was survivable while the
+   preloaded hero image was the LCP element. Once the image was removed from
+   phones (docs/53) the largest element became this paragraph, and mobile LCP
+   went from 712ms to ~1,800ms: the metric was gated on hydration.
+
+   A CSS animation runs at parse time, so the text paints immediately and
+   animates afterwards. Same effect, no JavaScript in the critical path.
+   See docs/53 section 6. */
+.hero-reveal {
+  animation: fade-in-up 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+.hero-reveal-1 { animation-delay: 0.06s; }
+.hero-reveal-2 { animation-delay: 0.12s; }
+.hero-reveal-3 { animation-delay: 0.18s; }
+
+/* Honour a reduced-motion preference: show the content, skip the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-h1,
+  .hero-reveal {
+    animation: none;
+  }
+}
+
 /* Card hover lift - controlled, not bouncy */
 .card-hover-lift {
   transition: transform 200ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;

@@ -1,10 +1,11 @@
-'use client';
-
+/*
+ * Server component. It was 'use client' only for framer-motion, which the
+ * CSS reveals in globals.css replaced; nothing here uses a hook or a
+ * handler, so none of it needs to ship to the browser.
+ */
 import Image from 'next/image';
 import Link from 'next/link';
-import { motion } from 'motion/react';
 import { CheckBadgeIcon } from '@heroicons/react/24/solid';
-import { fadeInUp, staggerContainer } from '@/lib/animations';
 
 export function HeroSection() {
   return (
@@ -64,12 +65,7 @@ export function HeroSection() {
 
       {/* Text content - left column on desktop, full-width on mobile */}
       <div className="relative order-1 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={staggerContainer}
-          className="py-12 sm:py-16 lg:w-1/2 lg:py-28 xl:py-32"
-        >
+        <div className="py-12 sm:py-16 lg:w-1/2 lg:py-28 xl:py-32">
           {/*
             "LastDonor" was the first line of this heading, 8px below a logo
             that already says it. Removing it drops the heading from 73
@@ -89,13 +85,10 @@ export function HeroSection() {
             site, only from the hero: it ran to six lines on a phone and
             pushed the CTAs past the fold.
           */}
-          <motion.p
-            variants={fadeInUp}
-            className="hero-summary mt-6 max-w-lg text-xl leading-relaxed text-muted-foreground"
-          >
+          <p className="hero-summary hero-reveal hero-reveal-1 mt-6 max-w-lg text-xl leading-relaxed text-muted-foreground">
             Support real people through medical, emergency, and disaster
             relief campaigns, each one reviewed before it goes live.
-          </motion.p>
+          </p>
 
           {/* CTAs - primary (amber) + secondary (teal outlined) */}
           {/*
@@ -104,10 +97,7 @@ export function HeroSection() {
             primary is the standard mobile affordance with the largest
             possible tap target.
           */}
-          <motion.div
-            variants={fadeInUp}
-            className="mt-10 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4"
-          >
+          <div className="hero-reveal hero-reveal-2 mt-10 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
             {/*
               Both buttons carry `border-2` so they are the same height. The
               filled one had no border and measured 48px against the outlined
@@ -127,7 +117,7 @@ export function HeroSection() {
             >
               Share Your Story
             </Link>
-          </motion.div>
+          </div>
 
           {/*
             Zero-Knowledge Proof strip: pre-empts the top objections at the
@@ -138,10 +128,7 @@ export function HeroSection() {
             discrete chips: each claim is its own object, legible at 13px, and
             the wrap is deliberate rather than accidental.
           */}
-          <motion.ul
-            variants={fadeInUp}
-            className="mt-6 flex flex-wrap gap-2"
-          >
+          <ul className="hero-reveal hero-reveal-3 mt-6 flex flex-wrap gap-2">
             {[
               'No signup to donate',
               'Human-reviewed campaigns',
@@ -158,8 +145,8 @@ export function HeroSection() {
                 {claim}
               </li>
             ))}
-          </motion.ul>
-        </motion.div>
+          </ul>
+        </div>
       </div>
     </section>
   );
