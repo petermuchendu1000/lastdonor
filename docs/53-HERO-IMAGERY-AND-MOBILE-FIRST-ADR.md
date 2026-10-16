@@ -108,22 +108,50 @@ recorded here because the reasoning still stands and may come up again:
 
 **A real photograph removes the tension entirely.** Prefer one.
 
-### The composition constraint it introduced
+### Integrating it: mask the image, do not paint over it
 
-In this photograph the father's face sits between roughly **18% and 48%** of
-the frame. The previous gradient washed the left 55% of the image, which
-would have desaturated both faces - the entire reason the image is there.
+The first attempt laid a `muted` linear gradient on top of the photograph.
+That greys pixels rather than removing them, so the left edge read as a hazy
+band with a visible step where the photo's dark tree canopy met the flat
+section background. The owner's verdict - "the fade is catastrophic" - was
+correct.
 
-The fade is now a **seam, not a wash**: `from-muted from-0% via-muted/80
-via-5% to-transparent to-17%`. Verified by cropping the boundary out of a
-screenshot at 2x: at the first setting (`via-muted/35 via-8%`) the image's
-dark tree edge stepped visibly against the flat background; holding near-full
-opacity for the first 5% and clearing by 17% dissolves it and still finishes
-before the face.
+**The fix is to mask the image's own alpha** so it genuinely dissolves, with
+nothing sitting on top of it. `.hero-photo` in `globals.css`:
 
-**Whoever changes this image next must re-check that number.** The correct
-fade depends on where the subject sits in the frame, not on a value worth
-copying.
+| Value | Why |
+|---|---|
+| mask stops `0% / 13% / 33%` | the ramp completes before the father's face |
+| `scale(1.1) translateX(7%)` | pushes the subject right, off the seam, and crops the dark tree that caused the step |
+| `object-position: 62% 34%` | keeps **both** faces in frame on wide screens |
+| `lg:min-h-[760px]` on the section | without it the hero's height is whatever the text needs; at 1920 that is short and wide, and a portrait photo cropped into a short wide box loses one of the two faces |
+
+**None of these were guessed.** Seven treatments were rendered against the
+real compiled CSS and compared: overlay gradients at three strengths, a
+masked version at three pan/zoom settings, and an inset rounded panel. The
+seam was then inspected at 2x magnification, and the chosen setting was
+re-rendered at **1024, 1280, 1440 and 1920** because the mask percentages are
+relative to the image box and the crop changes with viewport width. Two
+earlier candidates failed only at 1920 - one clipped the child's head, the
+other the father's.
+
+A `@supports not (mask-image: ...)` fallback restores the overlay gradient
+for the ~3% of browsers without mask support, so they get a soft edge rather
+than a hard crop.
+
+**Changing the photograph invalidates all four values.** They encode where
+this particular subject sits in this particular frame. Re-derive them; do not
+copy them.
+
+### A process note worth keeping
+
+The first version of the comparison harness used arbitrary Tailwind classes
+(`[mask-image:...]`) that do not appear anywhere in the real source. Tailwind
+only compiles classes it finds in the source, so those classes were absent
+from the bundle and **silently did nothing** - the harness rendered an
+unstyled page that looked like a hard-edged failure. Any throwaway harness
+that reuses the compiled CSS must express variant-specific styling as inline
+styles, or it is testing nothing.
 
 ## 4. Other mobile-first changes
 

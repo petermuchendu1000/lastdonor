@@ -10,7 +10,14 @@ import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 export function HeroSection() {
   return (
     <section
-      className="relative flex flex-col overflow-hidden bg-muted lg:block"
+      /*
+        `lg:min-h-[760px]` is load-bearing, not decoration. Without it the
+        hero's height is whatever the text happens to need, which on a 1920
+        screen is short and wide - and a portrait photograph cropped into a
+        short, wide box loses one of the two faces. 760px keeps both in
+        frame from 1024 through 1920, verified at each.
+      */
+      className="relative flex flex-col overflow-hidden bg-muted lg:min-h-[760px] lg:flex-row lg:items-center"
       aria-label="Welcome"
     >
       {/*
@@ -45,23 +52,22 @@ export function HeroSection() {
         hydration mismatch; this stays server-rendered and `priority`
         preloads it.
       */}
-      <div className="absolute inset-y-0 right-0 hidden w-[55%] lg:block">
+      <div className="absolute inset-y-0 right-0 hidden w-[55%] overflow-hidden lg:block">
         <Image
           src="/images/hero-hope.webp"
           alt="A father lifting his laughing young daughter above his head in a park at sunset"
           fill
           priority
           sizes="(max-width: 1023px) 16px, 55vw"
-          className="object-cover object-center"
+          /* Framing and the dissolve both live in `.hero-photo`; see the
+             long note in globals.css for how its three values were derived
+             and why changing the photograph invalidates them. */
+          className="hero-photo object-cover"
         />
-        {/*
-          Seam only, not a wash. In this photograph the father's face sits
-          between roughly 18% and 48% of the frame, so any gradient reaching
-          across the left half desaturates the two faces that are the entire
-          reason the image is here. The fade is held to the first fifth: just
-          enough to dissolve the hard edge against the text column.
-        */}
-        <div className="absolute inset-0 bg-gradient-to-r from-muted from-0% via-muted/80 via-5% to-transparent to-17%" />
+        <div
+          aria-hidden="true"
+          className="hero-photo-fallback pointer-events-none absolute inset-0"
+        />
       </div>
 
       {/* Text content - left column on desktop, full-width on mobile */}

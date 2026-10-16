@@ -319,6 +319,46 @@ button:focus-visible {
   }
 }
 
+/* Hero photograph: dissolve the image itself, do not paint over it.
+
+   The previous treatment laid a `muted` gradient on top of the photo. That
+   greys the pixels rather than removing them, so the left edge read as a
+   hazy band with a visible step where the photo's dark tree canopy met the
+   flat section background - "catastrophic" was fair.
+
+   Masking fades the image's own alpha instead, so it genuinely dissolves
+   into the background with nothing sitting on top of it.
+
+   The three values below were derived by rendering the real photo against
+   the real CSS at 1024/1280/1440/1920 and inspecting the seam at 2x, not
+   guessed:
+     - stops 0% / 13% / 33% clear the ramp before the father's face
+     - scale(1.1) translateX(7%) pushes the subject right, off the seam, and
+       crops the dark tree that caused the step
+     - object-position 62% 34% keeps BOTH faces in frame on wide screens,
+       where the hero box is short and this portrait photo crops hard
+
+   Changing the photograph invalidates all three. Re-derive them. */
+.hero-photo {
+  object-position: 62% 34%;
+  transform: scale(1.1) translateX(7%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.3) 13%, #000 33%);
+  mask-image: linear-gradient(to right, transparent 0%, rgba(0, 0, 0, 0.3) 13%, #000 33%);
+}
+
+/* ~3% of browsers have no mask-image. Fall back to the overlay approach so
+   they get a soft edge rather than a hard crop. */
+@supports not (mask-image: linear-gradient(#000, #000)) {
+  .hero-photo-fallback {
+    background: linear-gradient(
+      to right,
+      var(--color-muted) 0%,
+      color-mix(in srgb, var(--color-muted) 70%, transparent) 12%,
+      transparent 34%
+    );
+  }
+}
+
 /* Card hover lift - controlled, not bouncy */
 .card-hover-lift {
   transition: transform 200ms ease-out, box-shadow 200ms ease-out, border-color 200ms ease-out;
