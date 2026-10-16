@@ -171,3 +171,57 @@ impossible — every campaign is at zero), an impact calculator on the donate
 form, and a share-preview the organizer can see before posting. Those make
 the page feel alive because something is actually happening, rather than
 because something is spinning.
+
+---
+
+## 6. A regression this change caused, and the fix
+
+**Removing the mobile hero image made mobile LCP worse before it made it
+better, and the first version of this change shipped that.**
+
+Measured on production, three consecutive runs: **LCP 1,656ms / 1,936ms /
+1,732ms**, against 712ms before. Not a cold start. The LCP element had
+become `p.hero-summary`.
+
+### Cause
+
+The hero's paragraph, CTA row and trust chips were `motion.*` elements using
+the `fadeInUp` variant, whose `hidden` state is `{ opacity: 0, y: 24 }`.
+They were invisible until React hydrated and framer-motion ran.
+
+That was survivable while the preloaded hero image was the LCP element — the
+image painted at 712ms and the hydration-gated text never mattered. Removing
+the image from phones promoted that text to LCP, and with it the hydration
+dependency that had been hiding behind the image all along.
+
+The H1 was already exempt: `globals.css` carried a `.hero-h1` CSS animation
+with a comment explaining that JS-gated opacity keeps text out of the DOM
+for crawlers. **The codebase had already diagnosed this problem for one
+element and not generalised it.**
+
+### Fix
+
+`.hero-reveal` plus three stagger delays, replacing the motion wrappers.
+A CSS animation runs at parse time, so the text paints immediately and
+animates afterwards — visually identical, no JavaScript in the critical
+path. The new rule also honours `prefers-reduced-motion`, which the existing
+`.hero-h1` animation did not.
+
+With no motion left, `HeroSection` uses no hook and no handler, so it drops
+`'use client'` and renders on the server.
+
+### Verified
+
+| | Before image removal | Regression | After fix | GoFundMe |
+|---|---|---|---|---|
+| Mobile LCP | 712ms | 1,656–1,936ms | **728ms** | 884ms |
+| Mobile CLS | 0 | 0 | **0** | 0 |
+| LCP element | hero image | `p.hero-summary` | `span.text-primary` (H1) | hero image |
+| Mobile hero image bytes | 18KB (2 requests) | 0 | **0** | — |
+
+### The generalisable lesson
+
+An LCP that depends on hydration is invisible for as long as something
+faster happens to be the largest element. Removing an image is enough to
+expose it. **Before changing what the largest element on a page is, check
+whether the next candidate is gated on JavaScript.**
