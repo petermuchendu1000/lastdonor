@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ChevronDownIcon } from '@/components/ui/icon';
 import { ShareYourStoryForm } from './ShareYourStoryForm';
 import { seoKeywords } from '@/lib/seo/keywords';
 
@@ -67,18 +68,40 @@ export default function ShareYourStoryPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
       />
       <ShareYourStoryForm />
-      <section className="mx-auto max-w-4xl px-6 py-12 lg:px-8" aria-labelledby="start-fundraiser-faq">
+      {/*
+        Collapsed, and the same `<details>` shape docs/61 settled on for the
+        homepage.
+
+        All four answers used to render expanded, which put 170 words and
+        roughly 500px of reference text under an unfinished form, on every
+        one of the six wizard screens. The `FAQPage` JSON-LD above is what
+        earns the rich result - a closed `<details>` keeps its answer in the
+        DOM either way - so collapsing changes what a person scrolls past,
+        not what a crawler reads.
+
+        None is open by default, unlike the homepage. There the FAQ is the
+        section a reader arrived at; here it sits below a task in progress,
+        and an answer expanded by default is one more thing between the
+        visitor and the Continue button. See docs/75.
+      */}
+      <section className="mx-auto max-w-3xl px-6 py-12 lg:px-8" aria-labelledby="start-fundraiser-faq">
         <h2 id="start-fundraiser-faq" className="font-display text-2xl font-bold text-foreground">
-          Start a Fundraiser FAQ
+          Questions about starting a fundraiser
         </h2>
-        <dl className="mt-5 grid gap-5 md:grid-cols-2">
+        <div className="mt-5 divide-y divide-border">
           {faqs.map((faq) => (
-            <div key={faq.question}>
-              <dt className="font-semibold text-foreground">{faq.question}</dt>
-              <dd className="mt-2 text-sm leading-relaxed text-muted-foreground">{faq.answer}</dd>
-            </div>
+            <details key={faq.question} className="group py-4">
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-4 text-left">
+                <h3 className="text-base font-semibold text-foreground">{faq.question}</h3>
+                <ChevronDownIcon
+                  className="mt-0.5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
+                  aria-hidden="true"
+                />
+              </summary>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{faq.answer}</p>
+            </details>
           ))}
-        </dl>
+        </div>
       </section>
     </>
   );

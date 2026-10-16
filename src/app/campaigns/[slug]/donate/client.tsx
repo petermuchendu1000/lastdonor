@@ -132,13 +132,13 @@ export function DonatePageClient({
 
   return (
     /*
-      `data-checkout` suppresses the sitewide navbar and footer for this page
+      `data-focus-flow` suppresses the sitewide navbar and footer for this page
       (the `:has()` rule in globals.css). Measured 2026-10-16 at 390px, they
       were 1,095px of the page's 2,155px - more than half of it, all of it
       below the pay button, and 25 links competing with one action.
       GoFundMe's donate page carries neither.
     */
-    <div data-checkout className="min-h-[100dvh] bg-muted/30">
+    <div data-focus-flow className="min-h-[100dvh] bg-muted/30">
       {/*
         The one bar this page gets, replacing both the sitewide navbar and
         the old back-only strip. Same two jobs GoFundMe's checkout header

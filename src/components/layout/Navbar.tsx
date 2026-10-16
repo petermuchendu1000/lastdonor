@@ -117,7 +117,7 @@ export function Navbar() {
 
   return (
     // `data-site-chrome` marks this as sitewide furniture that a checkout
-    // page suppresses. See the `:has([data-checkout])` rule in globals.css.
+    // page suppresses. See the `:has([data-focus-flow])` rule in globals.css.
     <header data-site-chrome="navbar" className="sticky top-0 z-40 w-full border-b border-border bg-card shadow-sm dark:bg-[#0F1A19] dark:border-white/10 dark:shadow-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 

@@ -666,13 +666,18 @@ button:focus-visible {
 }
 
 /*
-  A checkout page carries no sitewide chrome.
+  A focused flow carries no sitewide chrome.
 
-  Measured 2026-10-16 at 390px: our donate page was 2,155px tall and 1,095px
+  Two pages use this: the donate page and the create-campaign wizard. Both
+  exist to carry one task to completion, and sitewide navigation below the
+  primary control is 25 links inviting the visitor to do something else.
+
+  Measured 2026-10-16 at 390px. The donate page was 2,155px tall and 1,095px
   of that - 51% - was the newsletter strip and the footer, sitting BELOW the
-  pay button with 25 links competing with the single action on the page.
-  GoFundMe's donate page is 1,593px with no footer at all and a header of
-  exactly two controls (back, sign in).
+  pay button. The wizard's first screen was 2,715px against GoFundMe's 844px,
+  which fits one viewport and scrolls not at all. Neither of GoFundMe's
+  equivalents has a footer; their create header is a back arrow, the
+  wordmark and "Sign in".
 
   Done in CSS rather than by moving routes into a layout group. The navbar
   and footer are mounted in the ROOT layout, so the alternatives were to read
@@ -685,6 +690,6 @@ button:focus-visible {
   `:has()` is Baseline (Chrome 105, Safari 15.4, Firefox 121). A browser
   without it simply shows the footer, which is the pre-existing behaviour.
 */
-body:has([data-checkout]) [data-site-chrome] {
+body:has([data-focus-flow]) [data-site-chrome] {
   display: none;
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,14 +13,17 @@ import { computeStartingGoal } from '@/lib/compute-starting-goal';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STEPS = [
-  'Fundraiser Type',
-  'Set Your Goal',
-  'Add Media',
-  'Category',
-  'Tell Their Story',
-  'Review & Submit',
-] as const;
+/*
+  There used to be a `STEPS` array here naming all six screens
+  ('Fundraiser Type', 'Set Your Goal', 'Add Media', …). Nothing rendered a
+  single one of those strings — every use of the array was `STEPS.length`.
+  It was a third parallel naming of the six screens, after `STEP_HERO` and
+  the per-step headings inside the form, and the three had already drifted
+  apart ('Category' vs 'Help us categorize your campaign' vs the h2 the step
+  actually showed). One source of truth for the copy, one number for the
+  count. See docs/75.
+*/
+const STEP_COUNT = 6;
 
 const CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'medical', label: 'Medical' },
@@ -47,14 +51,28 @@ const CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'wishes', label: 'Wishes' },
 ];
 
-const STEP_HERO = [
-  { title: "Tell us who you're raising funds for", subtitle: 'This information helps us understand the beneficiary and fundraising need.' },
-  { title: "Tell us how much you'd like to raise", subtitle: 'You can always change your goal as your campaign progresses.' },
-  { title: 'Add media', subtitle: 'Using a bright and clear photo helps people connect to your fundraiser instantly.' },
-  { title: 'Help us categorize your campaign', subtitle: 'This ensures donors who care about your cause can find you.' },
-  { title: 'Every story deserves to be heard', subtitle: 'A compelling story helps donors connect with your cause and give generously.' },
-  { title: "You're almost there", subtitle: 'Review your campaign and submit it for editorial review before publication.' },
-] as const;
+/*
+  One heading per screen, and it is the question being asked.
+
+  This is the whole copy budget for the top of each screen, and it is now
+  the ONLY heading on it: each step used to restate its own title as an `h2`
+  a few hundred pixels below (screen 1 asked "Who are you fundraising for?"
+  three times before the two buttons that answer it), under a marketing
+  `h1` that repeated on all six.
+
+  Subtitles earn their place or they are gone. 'This information helps us
+  understand the beneficiary and fundraising need' told the visitor nothing
+  they could act on; `undefined` renders nothing at all. The ones that
+  remain each say something the person does not already know.
+*/
+const STEP_HERO: ReadonlyArray<{ title: string; subtitle?: string }> = [
+  { title: 'Who are you fundraising for?' },
+  { title: 'How much do you want to raise?', subtitle: 'You can change this later.' },
+  { title: 'Add photos', subtitle: 'The cover photo is the first thing a donor sees.' },
+  { title: 'What is this fundraiser for?', subtitle: 'Donors browse by category and by place.' },
+  { title: 'Tell the story', subtitle: 'What happened, and what the money will do.' },
+  { title: 'Review and submit', subtitle: 'A person reads every campaign before it goes live.' },
+];
 
 const RELATIONS = [
   { value: 'self', label: 'Myself' },
@@ -321,7 +339,7 @@ export function ShareYourStoryForm() {
           fields.beneficiaryRelation = 'self';
         }
         setForm((prev) => ({ ...prev, ...fields }));
-        if (typeof _step === 'number' && _step >= 0 && _step < STEPS.length) {
+        if (typeof _step === 'number' && _step >= 0 && _step < STEP_COUNT) {
           setStep(_step);
         }
         setDraftRestored(true);
@@ -462,7 +480,7 @@ export function ShareYourStoryForm() {
 
   function goNext() {
     if (!validateStep(step)) return;
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+    setStep((s) => Math.min(s + 1, STEP_COUNT - 1));
   }
 
   function goBack() {
@@ -648,7 +666,17 @@ export function ShareYourStoryForm() {
   const showBeneficiaryConsent = form.beneficiaryRelation && form.beneficiaryRelation !== 'self';
 
   return (
-    <div className="flex min-h-[calc(100dvh-4rem)] flex-col lg:flex-row">
+    /*
+      `data-focus-flow` suppresses the sitewide navbar and footer (the
+      `:has()` rule in globals.css). Measured at 390px, screen 1 of this
+      wizard was 2,715px against GoFundMe's 844px, and roughly 1,500px of
+      ours was the footer, the newsletter strip and a four-answer FAQ sitting
+      under a form the visitor had not finished. The sticky Continue bar was
+      a casualty of the same thing: with that much page below the panel, it
+      parked over the second option card instead of at the foot of the form.
+      See docs/75.
+    */
+    <div data-focus-flow className="flex min-h-[100dvh] flex-col lg:flex-row">
       {/* Fundraiser preview modal */}
       {showPreview && (
         <FundraiserPreviewModal
@@ -716,14 +744,25 @@ export function ShareYourStoryForm() {
         <div className="flex flex-1 flex-col justify-center px-8 pb-28">
           <div>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand-teal">
-              Step {step + 1} of {STEPS.length}
+              Step {step + 1} of {STEP_COUNT}
             </p>
-            <p className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground lg:text-4xl">
+            {/*
+              The page's `h1`. It used to be a `<p>`, with the real `h1`
+              spent on "Start a fundraiser on LastDonor" in the form panel -
+              so the largest text on screen was not a heading, and the
+              heading was not what the screen was about. This is also the
+              desktop copy of the same heading the mobile bar renders; only
+              one is ever visible, which `lg:hidden` / `hidden lg:flex`
+              guarantee.
+            */}
+            <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-foreground lg:text-4xl">
               {STEP_HERO[step].title}
-            </p>
-            <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-              {STEP_HERO[step].subtitle}
-            </p>
+            </h1>
+            {STEP_HERO[step].subtitle && (
+              <p className="mt-4 text-base leading-relaxed text-muted-foreground">
+                {STEP_HERO[step].subtitle}
+              </p>
+            )}
           </div>
 
           {/* Reciprocity: surface what the platform gives back, so the effort of filling
@@ -751,31 +790,57 @@ export function ShareYourStoryForm() {
         </div>
       </aside>
 
-      {/* Mobile hero (compact, visible < lg) */}
-      <div className="px-6 py-8 lg:hidden">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-brand-teal">
-          Step {step + 1} of {STEPS.length}
-        </p>
-        <p className="font-display text-2xl font-bold tracking-tight text-foreground">
-          {STEP_HERO[step].title}
-        </p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {STEP_HERO[step].subtitle}
-        </p>
+      {/*
+        Mobile chrome (< lg). With the sitewide navbar suppressed, this is
+        the only bar a phone gets, so it carries the two things GoFundMe's
+        create header carries: whose site this is, and a way out that does
+        not lose the draft. Everything is saved to localStorage on change,
+        so "Save & exit" is a plain link, not a confirm dialog.
+      */}
+      <div className="lg:hidden">
+        <div className="flex items-center justify-between border-b border-border px-6 py-3">
+          <Link
+            href="/"
+            className="font-display text-base font-bold tracking-tight text-foreground"
+          >
+            Last<span className="text-primary">Donor</span>
+            <span className="text-accent">.</span>
+          </Link>
+          <Link
+            href="/"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Save &amp; exit
+          </Link>
+        </div>
+        <div className="px-6 pb-6 pt-7">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-brand-teal">
+            Step {step + 1} of {STEP_COUNT}
+          </p>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+            {STEP_HERO[step].title}
+          </h1>
+          {STEP_HERO[step].subtitle && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {STEP_HERO[step].subtitle}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Right Panel - Form */}
       <div className="flex flex-1 flex-col bg-stone-50 dark:bg-gray-900/40">
         <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10 lg:px-12 lg:py-16">
-          <header className="mb-8">
-            <h1 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              Start a fundraiser on LastDonor
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-              Create a reviewed campaign for medical bills, emergencies, memorial costs,
-              disaster relief, family needs, education, pets, veterans, or community support.
-            </p>
-          </header>
+          {/*
+            A marketing header used to sit here - "Start a fundraiser on
+            LastDonor" plus a 30-word sentence listing nine categories - and
+            it rendered on ALL SIX screens, between the step heading and the
+            step's own fields. On a phone that put two large headings and a
+            four-line paragraph in front of every question. Its job was SEO,
+            and the page's `<title>`, meta description and FAQ JSON-LD
+            already do that job; its `h1` has moved to the step heading,
+            which is what the screen is actually about. See docs/75.
+          */}
           {/* Draft restored notice */}
           {draftRestored && step === 0 && (
             <div className="mb-8 flex items-center justify-between rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 dark:border-teal-900 dark:bg-teal-950/30">
@@ -801,7 +866,13 @@ export function ShareYourStoryForm() {
           {/* ── Step 0: Who are you raising funds for? ──────────────── */}
           {step === 0 && (
             <div className="space-y-8">
-              <h2 className="text-2xl font-bold text-foreground">Who are you fundraising for?</h2>
+              {/*
+                The `h2` that was here read "Who are you fundraising for?" -
+                the step heading, word for word, a few hundred pixels below
+                itself. With the marketing header gone the heading is the
+                nearest thing above these buttons, so the question is asked
+                once.
+              */}
               {errors.fundraisingFor && <p className="text-sm text-red-500">{errors.fundraisingFor}</p>}
               <div className="space-y-4" role="radiogroup" aria-label="Who are you fundraising for?">
                 {[
@@ -2050,12 +2121,12 @@ export function ShareYourStoryForm() {
           <div className="h-1 w-full bg-border/40">
             <div
               className="h-full bg-primary transition-all duration-500 ease-out"
-              style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
+              style={{ width: `${((step + 1) / STEP_COUNT) * 100}%` }}
               role="progressbar"
               aria-valuenow={step + 1}
               aria-valuemin={1}
-              aria-valuemax={STEPS.length}
-              aria-label={`Step ${step + 1} of ${STEPS.length}`}
+              aria-valuemax={STEP_COUNT}
+              aria-label={`Step ${step + 1} of ${STEP_COUNT}`}
             />
           </div>
           <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
@@ -2084,7 +2155,7 @@ export function ShareYourStoryForm() {
                   Skip for now
                 </button>
               )}
-              {step < STEPS.length - 1 ? (
+              {step < STEP_COUNT - 1 ? (
                 <Button onClick={goNext} type="button" className="rounded-full px-8">
                   Continue
                 </Button>
