@@ -79,46 +79,51 @@ not animate, so there is nothing for `prefers-reduced-motion` to suppress.
 
 ---
 
-## 3. The desktop hero image is AI-generated, and that needs saying
+## 3. The desktop hero image is an owner-supplied photograph
 
-`public/images/hero-hope.webp` was generated on **Cloudflare Workers AI**,
-model `@cf/black-forest-labs/flux-1-schnell`, 2026-10-16, then resized to
-1600×1600 and encoded to WebP at q78 (108KB source; Next serves smaller
-per-breakpoint variants).
+`public/images/hero-hope.webp` is a photograph supplied by the owner on
+2026-10-16: a father lifting his laughing daughter overhead in a park at
+sunset. Processed with sharp - 5% cropped off the bottom to drop empty grass,
+resized to 1600x1684 to match the slot, WebP q82, 157KB source (Next serves
+smaller per-breakpoint variants).
 
-It replaces a close crop of a visibly distressed woman with her hand over her
-mouth — the problem raised in `docs/49` §3.1. The two images make opposite
-appeals: the old one said *someone here is suffering*, the new one says
-*this works*.
+It replaces the close crop of a visibly distressed woman flagged in
+`docs/49` §3.1. The two images make opposite appeals: the old one said
+*someone here is suffering*, this one says *this works*.
 
-### The risk, stated plainly
+### Why it is not the AI-generated one
 
-**This platform's entire positioning is that it does not fabricate.** `docs/33`
-gates seeded donations fail-closed; `docs/36` records a sanitization incident
-over forged press attribution and invented quotes. Putting synthetic humans
-in the hero of that platform is a tension worth naming even though the image
-is decorative and depicts no real campaign or beneficiary.
+Four candidates were generated on Cloudflare Workers AI
+(`@cf/black-forest-labs/flux-1-schnell`) and the best was shipped briefly.
+**The owner rejected it as visibly AI-generated, and was right to.** It is
+recorded here because the reasoning still stands and may come up again:
 
-Mitigations applied:
+- A synthetic human in the hero sits badly with a platform whose entire
+  positioning is that it does not fabricate. `docs/33` gates seeded
+  donations fail-closed; `docs/36` records a sanitization incident over
+  forged press attribution. The generated image was defensible as decoration
+  but was never free of that tension.
+- One of the four candidates rendered the father with two heads. Generated
+  imagery needs the same review as any other asset.
 
-- The `alt` text describes the scene plainly and claims nothing about it
-  being a real LastDonor campaign or donor.
-- It is brand imagery in the hero only. It is **not** used on any campaign
-  page, in any campaign card, or anywhere a reader could take it for
-  documentary evidence of a beneficiary.
+**A real photograph removes the tension entirely.** Prefer one.
 
-**Four candidates were generated.** `d-father-child` was discarded outright —
-the model rendered the father with two heads. A faceless alternative
-(`b-hands`, two pairs of hands clasped across a table) was generated and
-kept in the session scratchpad: **if the synthetic-people question is ever
-decided against, that is the zero-risk swap**, since an image with no faces
-cannot be mistaken for a person.
+### The composition constraint it introduced
 
-**Recommended follow-up:** replace with a licensed photograph of real people,
-with a release, when budget allows. AI imagery is the right call for today,
-not the right call forever, on this particular platform.
+In this photograph the father's face sits between roughly **18% and 48%** of
+the frame. The previous gradient washed the left 55% of the image, which
+would have desaturated both faces - the entire reason the image is there.
 
----
+The fade is now a **seam, not a wash**: `from-muted from-0% via-muted/80
+via-5% to-transparent to-17%`. Verified by cropping the boundary out of a
+screenshot at 2x: at the first setting (`via-muted/35 via-8%`) the image's
+dark tree edge stepped visibly against the flat background; holding near-full
+opacity for the first 5% and clearing by 17% dissolves it and still finishes
+before the face.
+
+**Whoever changes this image next must re-check that number.** The correct
+fade depends on where the subject sits in the frame, not on a value worth
+copying.
 
 ## 4. Other mobile-first changes
 

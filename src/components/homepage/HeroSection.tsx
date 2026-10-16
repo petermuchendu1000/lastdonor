@@ -48,19 +48,20 @@ export function HeroSection() {
       <div className="absolute inset-y-0 right-0 hidden w-[55%] lg:block">
         <Image
           src="/images/hero-hope.webp"
-          alt="A grandmother and her granddaughter holding each other on a sunlit porch"
+          alt="A father lifting his laughing young daughter above his head in a park at sunset"
           fill
           priority
           sizes="(max-width: 1023px) 16px, 55vw"
           className="object-cover object-center"
         />
         {/*
-          Fade the left edge into the text column, then get out of the way.
-          A wash spread evenly across the full 55% desaturated the faces,
-          which are the entire reason this image is here. The stops hold it
-          to the left third.
+          Seam only, not a wash. In this photograph the father's face sits
+          between roughly 18% and 48% of the frame, so any gradient reaching
+          across the left half desaturates the two faces that are the entire
+          reason the image is here. The fade is held to the first fifth: just
+          enough to dissolve the hard edge against the text column.
         */}
-        <div className="absolute inset-0 bg-gradient-to-r from-muted from-0% via-muted/45 via-22% to-transparent to-55%" />
+        <div className="absolute inset-0 bg-gradient-to-r from-muted from-0% via-muted/80 via-5% to-transparent to-17%" />
       </div>
 
       {/* Text content - left column on desktop, full-width on mobile */}
