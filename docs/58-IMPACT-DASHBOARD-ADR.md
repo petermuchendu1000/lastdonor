@@ -154,7 +154,50 @@ The route is **not** in `PUBLIC_API_ROUTES`, so middleware default-deny covers
 it in addition to its own `auth()` check. `middleware.public-routes.test.ts`
 confirms this in both directions and passes unchanged.
 
-### 5. Deliberately NOT built, with reasons
+### 5. "You gave X and brought in Y" (spec, verbatim)
+
+> "Not only will you be able to see the amount you donated, but you'll also
+> be able to see how many other donations you brought to the fundraiser!"
+
+Found on a second, line-by-line pass over the article, after the first build
+was already committed. Gave-and-brought together is the whole claim a sharer
+can make about a campaign, and either number alone understates it.
+
+`getOwnGivingByCampaign` is a **separate query**, not another join on
+`getImpactByCampaign`. *Rejected: folding it in*, because the two aggregates
+share nothing but a campaign id, and folding a second independent aggregate
+into that query is precisely how the visit count got multiplied (§Defect 1).
+
+Keyed on `donations.user_id`, not on the sharer's own links: a gift counts
+whether or not it happened to arrive through their own link.
+
+Shown only when they actually gave. *Rejected: rendering "You gave $0"* for
+the many sharers who have not donated — that is a reproach, not information,
+and this surface exists to encourage sharing, including by people who cannot
+give money.
+
+Verified against the live database on 2026-10-16 inside `BEGIN … ROLLBACK`:
+a sharer with $50 + $99 (refunded) on one campaign and $25 on another, plus a
+$77 donation from somebody else, reports **$50 and $25**. Both exclusions
+hold.
+
+### 6. Placement: the global account menu, not only the dashboard
+
+The article's navigation steps are explicit: *"Go to the menu in the top right
+corner, and select 'Your impact'."*
+
+Ours was reachable only from the `/dashboard` sidebar. That is the wrong
+place, and not for reasons of parity: someone who has just shared a campaign
+is **on the campaign page**, and making them go via `/dashboard` means the
+one moment a sharer most wants to check their link is the moment the page is
+hardest to find.
+
+It is now in both — `UserNav`'s account dropdown (global, matching GFM) and
+the dashboard sidebar's primary nav. *Rejected: moving it out of the sidebar*
+to avoid duplication; the two menus serve different moments, and a sharer
+already inside the dashboard should not have to reach up to the avatar.
+
+### 7. Deliberately NOT built, with reasons
 
 - **The first-attributed-donation email (spec item 6).** Their article is
   explicit that organizers and beneficiaries get none, and our transactional
@@ -238,3 +281,29 @@ reproducible rather than remembered.
 | `src/components/dashboard/ImpactLinkRow.tsx` | One link, its numbers, its honest reading. |
 | `src/app/api/v1/campaigns/[slug]/share-link/route.ts` | Mint from any share surface. |
 | `src/components/campaign/SidebarShareButton.tsx` | Shares `/s/<token>` when signed in. |
+| `src/components/layout/UserNav.tsx` | "Your impact" in the global account menu. |
+
+---
+
+## Full coverage of the article, line by line
+
+Recorded so the next reader can see the section was finished rather than
+sampled.
+
+| Article statement | Status |
+|---|---|
+| Surface named "Your impact" | ✅ matched |
+| Overall **and** per-fundraiser levels | ✅ matched |
+| Names and amounts of those you inspired | ✅ matched |
+| Anonymous stays Anonymous | ✅ matched, resolved in SQL |
+| Unique link from **any** share option when signed in | ✅ built (§4) |
+| Unique link immediately after donating | ✅ already existed (docs/57) |
+| "The amount you donated" shown with what you brought | ✅ built (§5) |
+| Reached from the top-right menu | ✅ built, and kept in the sidebar too (§6) |
+| Email to donors/supporters on first attributed donation | ⏸ deferred — mail is down (Resend 401); an untestable send path is an unverified claim |
+| Organizers/beneficiaries get **no** email | ✅ by construction — we send none |
+| Email verification on first access | ✅ stronger — the page is session-gated |
+| "Generate more unique share links" | ❌ rejected (§7) |
+| Data only from April 2024 | ❌ N/A — our column dates from 2026-10-15 (§7) |
+| Unsubscribe from impact emails | ❌ N/A — no impact emails |
+| "Donations you've made", 14-day edit window | ➡ a different surface, not this section |

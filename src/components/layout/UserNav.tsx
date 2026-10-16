@@ -15,6 +15,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Squares2X2Icon,
+  SparklesIcon,
   ArrowRightStartOnRectangleIcon,
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
@@ -130,6 +131,21 @@ export function UserNav() {
             <Link href="/dashboard">
               <Squares2X2Icon className="mr-2 h-4 w-4" />
               Dashboard
+            </Link>
+          </DropdownMenuItem>
+          {/*
+            "Your impact" sits in the GLOBAL account menu, not only in the
+            dashboard sidebar, because that is where someone who has just
+            shared a campaign actually is: on the campaign page. Reaching it
+            through /dashboard first would mean the one moment a sharer most
+            wants to check their link is the one moment the page is hardest to
+            find. GoFundMe places it the same way, in the top-right menu
+            (help-centre article 24972788571803). See docs/58.
+          */}
+          <DropdownMenuItem asChild>
+            <Link href="/dashboard/impact">
+              <SparklesIcon className="mr-2 h-4 w-4" />
+              Your impact
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>

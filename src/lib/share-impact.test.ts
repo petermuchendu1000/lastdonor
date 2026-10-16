@@ -51,6 +51,7 @@ const {
   getImpactSummary,
   getImpactByCampaign,
   getAttributedDonors,
+  getOwnGivingByCampaign,
 } = await import('./share-impact');
 
 /** The statement the call under test emitted. */
@@ -118,6 +119,36 @@ describe('refunded money is never credited to a sharer', () => {
   it('excludes it from the list of people brought in', async () => {
     await getAttributedDonors('user-1');
     expect(lastSql()).toMatch(/"refunded"\s*=\s*false/);
+  });
+
+  it('excludes it from what the sharer gave themselves', async () => {
+    await getOwnGivingByCampaign('user-1');
+    expect(lastSql()).toMatch(/"refunded"\s*=\s*false/);
+  });
+});
+
+describe('getOwnGivingByCampaign', () => {
+  it('reads the sharer\'s own donations, not their links', async () => {
+    await getOwnGivingByCampaign('user-1');
+    const sql = lastSql().toLowerCase();
+    expect(sql).toContain('from "donations"');
+    // Keyed on who gave, not on who minted a link: a sharer's own gift
+    // counts whether or not it arrived through their own link.
+    expect(sql).toMatch(/"donations"\."user_id"\s*=/);
+    expect(sql).not.toContain('campaign_share_links');
+  });
+
+  it('returns cents keyed by campaign', async () => {
+    nextRows.value = [['camp-a', 5000], ['camp-b', 2500]];
+    const giving = await getOwnGivingByCampaign('user-1');
+    expect(giving.get('camp-a')).toBe(5000);
+    expect(giving.get('camp-b')).toBe(2500);
+  });
+
+  it('is empty for a sharer who has never donated', async () => {
+    nextRows.value = [];
+    const giving = await getOwnGivingByCampaign('user-1');
+    expect(giving.size).toBe(0);
   });
 });
 
