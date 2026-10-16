@@ -164,6 +164,26 @@ const FIRST_PARTY_IMAGE_PATTERNS = [
   { protocol: "https" as const, hostname: "cdn.pixabay.com" },
 ];
 
+/**
+ * Development-only CSP relaxations.
+ *
+ * Next's DEV runtime (React Refresh / HMR) compiles modules with `eval`, so a
+ * `script-src` without `'unsafe-eval'` stops React hydrating at all. The
+ * symptom is silent and very misleading: pages render, but EVERY client
+ * component is inert - no onClick, no state, no effects - and the only clue
+ * is one console line about `unsafe-eval`. Diagnosed 2026-10-16 after an
+ * interactive section appeared broken in `next dev` and worked perfectly
+ * under `next build && next start`. See docs/63 and docs/64.
+ *
+ * The production bundle does NOT use `eval`, so this is strictly a
+ * development affordance. It is gated on `NODE_ENV` rather than on a flag so
+ * it cannot be switched on in production by setting an env var.
+ *
+ * `next build` and `next start` both run with NODE_ENV=production, so the
+ * header that ships is byte-identical to the one before this change.
+ */
+const IS_DEV = process.env.NODE_ENV === "development";
+
 const nextConfig: NextConfig = {
   // Self-contained server bundle in `.next/standalone` for the Fly.io image
   // (docs/26 §1 "Vercel couplings to remove", §10 step 1). Without this the
@@ -308,11 +328,13 @@ const nextConfig: NextConfig = {
           key: "Content-Security-Policy",
           value: [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' js.stripe.com plausible.io embed.tawk.to",
+            `script-src 'self' 'unsafe-inline'${IS_DEV ? " 'unsafe-eval'" : ""} js.stripe.com plausible.io embed.tawk.to`,
             "script-src-attr 'none'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https: *.supabase.co dvidshub.net img.youtube.com",
-            "connect-src 'self' api.stripe.com *.supabase.co *.sentry.io wss://ws-us3.pusher.com https://*.tawk.to wss://*.tawk.to",
+            // `ws:` in dev only: the HMR socket is same-origin but `'self'`
+            // does not cover the ws scheme in every browser.
+            `connect-src 'self'${IS_DEV ? " ws://localhost:* http://localhost:*" : ""} api.stripe.com *.supabase.co *.sentry.io wss://ws-us3.pusher.com https://*.tawk.to wss://*.tawk.to`,
             "frame-src 'self' https://js.stripe.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com https://*.tawk.to",
             "font-src 'self' fonts.gstatic.com",
             "object-src 'none'",
