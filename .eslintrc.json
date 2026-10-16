@@ -23,6 +23,10 @@
       {
         "selector": "TemplateElement[value.raw=/\u2014/]",
         "message": "Em dashes (\u2014) are prohibited in template literals. Use a hyphen-minus (-) or comma instead."
+      },
+      {
+        "selector": "JSXText[value=/\u2014/]",
+        "message": "Em dashes (\u2014) are prohibited in JSX text. Use a hyphen-minus (-) or comma instead."
       }
     ]
   },
