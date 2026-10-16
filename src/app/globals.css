@@ -56,6 +56,7 @@
   --color-surface-teal: var(--surface-teal);
   --color-surface-amber: var(--surface-amber);
   --color-surface-sage: var(--surface-sage);
+  --color-surface-ink: var(--surface-ink);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -118,6 +119,11 @@
   --surface-teal: #ECF4F2;   /* ~7% teal on white  */
   --surface-amber: #FDF3E4;  /* ~8% amber on white */
   --surface-sage: #EEF4EE;   /* ~6% green on white */
+  /* Deep ink band. One section on the homepage is allowed to invert: the fee
+     breakdown, which is the claim the whole product rests on. Fixed rather
+     than derived from --primary, because --primary is a bright teal in dark
+     mode and would be unreadable as a background. */
+  --surface-ink: #0B2B28;
   --foreground: #1A1A1A;
   --card: #FFFFFF;
   --card-foreground: #1A1A1A;
@@ -177,6 +183,9 @@
   --surface-teal: #152E2A;
   --surface-amber: #2A2218;
   --surface-sage: #17241E;
+  /* Lifted slightly above the dark-mode page background (#0F1A19) so the band
+     still reads as a distinct panel rather than merging into the page. */
+  --surface-ink: #10302C;
   --foreground: #F1F5F9;
   --card: #1A2E2B;
   --card-foreground: #F1F5F9;
