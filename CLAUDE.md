@@ -76,6 +76,7 @@ transcript or a commit message is lost.
 | `62-CAMPAIGN-ROW-BENCHMARK-ADR.md` | **Why the homepage shows three campaign cards on a phone and six on desktop, and the recorded-but-not-taken case for changing the card zero state (amends docs/47). Read before changing the homepage campaign row.** |
 | `63-HOW-IT-WORKS-MERGE-ADR.md` | **Why "What LastDonor Does" and "3 Steps" became one interactive stepper, where `#ai-answer` lives now (the JSON-LD `speakable` selector depends on it), why tab panels stack in one grid cell, and the finding that our CSP blocks `unsafe-eval` so NO client component hydrates in `next dev` - verify interactivity with `next build && next start`.** |
 | `64-DEV-CSP-AND-TRUST-BAR-ADR.md` | **Why `next.config.ts` adds `'unsafe-eval'` and `ws://localhost` to the CSP in DEVELOPMENT ONLY (without it React never hydrates in `next dev` and every client component is silently inert), with the byte-diff proving production is unchanged. Also the trust bar rebuild. Read before touching the CSP.** |
+| `65-NO-CRON-SCHEDULER-FINDING.md` | **⛔ OPEN: NO cron has ever run in production. `vercel.json` is inert on Fly, the Cloudflare Worker that should replace it does not exist (account has 0 workers), and `audit_logs` confirms zero scheduled activity. `reconcile` (a financial control) and 8 other jobs are dead. Read before relying on any cron.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
