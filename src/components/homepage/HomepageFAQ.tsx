@@ -71,20 +71,35 @@ export function HomepageFAQ() {
           </p>
         </div>
 
-        <dl className="mt-12 divide-y divide-border">
-          {faqs.map((faq) => (
-            <details key={faq.question} open className="group py-5">
+        {/*
+          Collapsed by default, except the first.
+
+          Every item used to carry a hardcoded `open`, which rendered all
+          seven answers expanded: 244 visible words and 1,598px of scroll on
+          a 390px phone, the second-tallest section on the page. It bought
+          nothing. The `FAQPage` JSON-LD above is what search engines read
+          for rich results, and a closed `<details>` keeps its answer in the
+          DOM regardless - collapsing changes what a person scrolls past,
+          not what a crawler sees.
+
+          The first stays open so the pattern is legible; a column of seven
+          identical closed rows does not read as expandable to everyone.
+          See docs/61.
+        */}
+        <div className="mt-10 divide-y divide-border sm:mt-12">
+          {faqs.map((faq, i) => (
+            <details key={faq.question} open={i === 0} className="group py-4 sm:py-5">
               <summary className="flex cursor-pointer list-none items-start justify-between gap-4 text-left">
-                <dt className="text-base font-semibold text-foreground">{faq.question}</dt>
+                <h3 className="text-base font-semibold text-foreground">{faq.question}</h3>
                 <ChevronDownIcon
                   className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
                   aria-hidden="true"
                 />
               </summary>
-              <dd className="mt-3 text-sm leading-relaxed text-muted-foreground">{faq.answer}</dd>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{faq.answer}</p>
             </details>
           ))}
-        </dl>
+        </div>
       </div>
     </section>
   );
