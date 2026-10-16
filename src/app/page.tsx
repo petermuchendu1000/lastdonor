@@ -10,7 +10,6 @@ import { TrustBar } from '@/components/homepage/TrustBar';
 import { HowItWorks } from '@/components/homepage/HowItWorks';
 import { CategoryShowcase } from '@/components/homepage/CategoryShowcase';
 import { WhereYourMoneyGoes } from '@/components/homepage/WhereYourMoneyGoes';
-import { Newsletter } from '@/components/homepage/Newsletter';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 
 import { AnimateOnScroll } from '@/components/AnimateOnScroll';
@@ -367,7 +366,13 @@ export default async function Home() {
       )}
 
       <HomepageFAQ />
-      <Newsletter />
+      {/*
+        The <Newsletter /> section was removed on 2026-10-16. The footer
+        carries the same "Stay in the loop" signup roughly 300px below where
+        this sat, so the homepage asked for an email address twice under the
+        same heading. The footer's version was kept rather than this one
+        because it appears on every page, not just here. docs/69.
+      */}
     </>
   );
 }

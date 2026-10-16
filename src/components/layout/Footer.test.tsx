@@ -18,9 +18,18 @@ describe('Footer', () => {
     expect(screen.getByText('Donor')).toBeInTheDocument();
   });
 
-  it('renders the reviewed fundraising notice', () => {
+  /*
+    Retargeted 2026-10-16. This asserted the "Reviewed Fundraising Platform"
+    pill, which was removed as the third statement of one claim inside a
+    single viewport (the tagline beneath the wordmark opens with "Reviewed
+    fundraising" and the trust bar says "Human reviewed"). The guarantee the
+    test exists for - that the footer states campaigns are reviewed - is
+    unchanged, so the assertion now follows the claim rather than the pill.
+    See docs/69.
+  */
+  it('states that fundraising is reviewed', () => {
     render(<Footer />);
-    expect(screen.getByText(/Reviewed Fundraising Platform/i)).toBeInTheDocument();
+    expect(screen.getByText(/Reviewed fundraising/i)).toBeInTheDocument();
   });
 
   it('renders Campaigns link', () => {
