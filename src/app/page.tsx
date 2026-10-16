@@ -9,10 +9,7 @@ import { HeroSection } from '@/components/homepage/HeroSection';
 import { TrustBar } from '@/components/homepage/TrustBar';
 import { HowItWorks } from '@/components/homepage/HowItWorks';
 import { CategoryShowcase } from '@/components/homepage/CategoryShowcase';
-import { ImpactCounter } from '@/components/homepage/ImpactCounter';
 import { WhereYourMoneyGoes } from '@/components/homepage/WhereYourMoneyGoes';
-import { TrustBanner } from '@/components/homepage/TrustBanner';
-import { Testimonials } from '@/components/homepage/Testimonials';
 import { Newsletter } from '@/components/homepage/Newsletter';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 
@@ -300,17 +297,30 @@ export default async function Home() {
         </section>
       )}
 
+      {/*
+        Two trust sections, not five. Measured 2026-10-15/16: "0% platform
+        fees" was asserted in four separate sections, "reviewed before
+        publication" in three and "visible impact tracking" in three, across
+        4,036px of a 15,756px mobile page. HowItWorks states all three once,
+        in order, and WhereYourMoneyGoes carries the money detail.
+
+        Removed, with where each claim survives:
+          ImpactCounter  - rendered "Real Numbers. Real People Helped. ...
+                           Not projections. Not estimates." above $0, because
+                           every campaign is unfunded (docs/33, docs/41). It
+                           advertised the absence it was meant to dispel.
+          Testimonials   - "Campaign details are reviewed" / "Progress stays
+                           visible" / "does not take a platform cut" are
+                           HowItWorks steps 01, 03 and 02.
+          TrustBanner    - its three questions are in HomepageFAQ verbatim in
+                           substance.
+
+        The components stay in the repo and on /how-it-works and
+        /transparency. See docs/51.
+      */}
       <HowItWorks />
-      <ImpactCounter
-        totalRaised={data.totalRaised}
-        totalDonors={data.totalDonors}
-        campaignsCompleted={data.campaignsCompleted}
-        peopleSupported={data.peopleSupported}
-      />
       <WhereYourMoneyGoes />
-      <Testimonials />
       <CategoryShowcase />
-      <TrustBanner />
 
       {/* Blog Preview */}
       {data.latestPosts.length > 0 && (

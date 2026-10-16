@@ -72,4 +72,44 @@ describe('CampaignCard', () => {
     const link = screen.getByRole('link');
     expect(link).toHaveAttribute('href', '/campaigns/help-johnson-family');
   });
+
+  // ── Unfunded state (docs/47, docs/51) ────────────────────────────────────
+  // Every live campaign is currently at zero, so this is the common path,
+  // not the edge case.
+
+  it('leads with the ask, not with $0, when nothing has been raised', () => {
+    render(<CampaignCard {...defaultProps} raisedAmount={0} />);
+    expect(screen.getByText('Be the first to donate')).toBeInTheDocument();
+    expect(screen.queryByText(/\$0/)).not.toBeInTheDocument();
+    expect(screen.getByText(/\$5,000 goal/)).toBeInTheDocument();
+  });
+
+  it('draws no progress bar when there is no progress to draw', () => {
+    render(<CampaignCard {...defaultProps} raisedAmount={0} />);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('still draws the progress bar once a campaign is funded', () => {
+    render(<CampaignCard {...defaultProps} raisedAmount={1} />);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  });
+
+  // ── Beneficiary line (docs/51) ───────────────────────────────────────────
+
+  it('omits "for <name>" when the title already names the subject', () => {
+    // 11 of 12 live campaigns are shaped like this.
+    render(<CampaignCard {...defaultProps} />);
+    expect(screen.queryByText(/^for /)).not.toBeInTheDocument();
+  });
+
+  it('keeps "for <name>" when the title does not name the subject', () => {
+    render(
+      <CampaignCard
+        {...defaultProps}
+        title="A Home Lost to the Flood"
+        subjectName="Marcus Delgado"
+      />,
+    );
+    expect(screen.getByText('for Marcus Delgado')).toBeInTheDocument();
+  });
 });

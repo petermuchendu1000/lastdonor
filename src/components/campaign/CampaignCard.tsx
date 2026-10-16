@@ -29,6 +29,8 @@ export function CampaignCard({
   goalAmount,
   donorCount,
 }: CampaignCardProps) {
+  const titleNamesSubject = title.toLowerCase().includes(subjectName.toLowerCase());
+
   return (
     <article
       className="animate-fade-in-up group flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card card-hover-lift"
@@ -63,12 +65,20 @@ export function CampaignCard({
           </div>
 
           {/* Row 2: Title */}
-          <h3 className="mt-2 line-clamp-2 font-display text-[15px] font-semibold leading-snug text-card-foreground transition-colors duration-200 group-hover:text-primary">
+          <h3 className="mt-2 line-clamp-2 font-display text-base font-semibold leading-snug text-card-foreground transition-colors duration-200 group-hover:text-primary">
             {title}
           </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            for {subjectName}
-          </p>
+          {/*
+            "for <name>" only when the title does not already carry the name.
+            Measured against production 2026-10-16: 11 of 12 live campaigns
+            had the subject's full name in the title, so this line was a
+            duplicate on nearly every card. See docs/51.
+          */}
+          {!titleNamesSubject && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              for {subjectName}
+            </p>
+          )}
 
           {/* Row 3: Financial data */}
           <div className="mt-auto pt-4">
@@ -98,11 +108,23 @@ export function CampaignCard({
               </div>
             )}
 
-            <ProgressBar
-              raisedAmount={raisedAmount}
-              goalAmount={goalAmount}
-              className="mt-2"
-            />
+            {/*
+              The bar is drawn only once there is progress to draw.
+              At zero it is an empty track that says nothing the goal line
+              above it has not already said, and across a grid where every
+              campaign is unfunded it repeats that emptiness twelve times.
+              GoFundMe's discover cards carry no progress bar at all, and no
+              goal either - only "$38,515 raised" - which is the same move
+              made permanently. We keep the bar where it is positive and drop
+              it where it is not. See docs/51.
+            */}
+            {raisedAmount > 0 && (
+              <ProgressBar
+                raisedAmount={raisedAmount}
+                goalAmount={goalAmount}
+                className="mt-2"
+              />
+            )}
 
             {/* Row 4: Social proof */}
             {donorCount !== undefined && donorCount > 0 && (
