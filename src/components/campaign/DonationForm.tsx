@@ -810,7 +810,18 @@ export function DonationForm({
             onClick={() => handlePresetSelect(amount)}
             whileTap={{ scale: 0.95 }}
             className={cn(
-              'group/amt flex flex-col items-center rounded-xl border px-2 py-3 text-center transition-all duration-200',
+              /*
+                `relative` + `pb-5` on EVERY tile, so the badge below can be
+                taken out of flow and still have room.
+
+                Measured live after the badge first shipped: row one was 77px
+                and row two 97px, because only the badged tile carried an
+                extra line. Two rows of amount buttons at visibly different
+                heights reads as a layout fault, and GoFundMe's six tiles are
+                uniform. Reserving the space everywhere makes them 85px each -
+                4px SHORTER in total than the mismatched version.
+              */
+              'group/amt relative flex flex-col items-center rounded-xl border px-2 pb-5 pt-3 text-center transition-all duration-200',
               selectedPreset === amount
                 ? 'border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20'
                 : 'border-border text-card-foreground hover:border-primary/40 hover:bg-muted/50',
@@ -828,7 +839,7 @@ export function DonationForm({
             {amount === SUGGESTED_AMOUNT && (
               <span
                 className={cn(
-                  'mt-1 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide',
+                  'absolute bottom-1 left-1/2 -translate-x-1/2 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide',
                   selectedPreset === amount
                     ? 'bg-primary-foreground/20 text-primary-foreground'
                     : 'bg-primary/10 text-primary',

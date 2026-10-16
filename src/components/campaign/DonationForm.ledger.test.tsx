@@ -105,6 +105,27 @@ describe('the suggested preset', () => {
     expect(tile.getAttribute('aria-label')).toMatch(/suggested$/);
   });
 
+  /*
+    Measured live when the badge first shipped: the badged tile pushed its
+    whole row from 77px to 97px, so the two rows of amounts rendered at
+    visibly different heights. jsdom cannot measure layout, so the mechanism
+    is pinned instead: the badge is out of flow and every tile reserves the
+    same room for it.
+  */
+  it('cannot change its tile’s height: out of flow, with room reserved on all six', () => {
+    render(<DonationForm {...props} />);
+    const tiles = screen
+      .getAllByRole('radio')
+      .filter((t) => /^\$/.test(t.getAttribute('aria-label') ?? ''));
+
+    expect(tiles).toHaveLength(6);
+    for (const tile of tiles) {
+      expect(tile.className).toMatch(/\brelative\b/);
+      expect(tile.className).toMatch(/\bpb-5\b/);
+    }
+    expect(screen.getByText('Suggested').className).toMatch(/\babsolute\b/);
+  });
+
   it('is a recommendation, NOT a pre-selection: no amount is chosen on arrival', () => {
     render(<DonationForm {...props} />);
     for (const tile of screen.getAllByRole('radio')) {

@@ -61,6 +61,24 @@ now, and it is absent.
 Zero donations of any kind, ever, on a site that has been live since
 2026-10-07 and renders a donate button on every page.
 
+### The system already knew
+
+`GET https://lastdonor.org/api/v1/health` has been answering, this whole
+time:
+
+```json
+{"status":"degraded",
+ "checks":{"database":{"status":"ok"},
+           "stripe":{"status":"error","error":"Payment service check failed"},
+           "redis":{"status":"ok"}}}
+```
+
+The health endpoint detected it correctly and said so on every call. Nothing
+was reading the endpoint. That is the same shape of failure as `docs/37`,
+where a passing health check hid a wedged pool for three hours: **a check
+nobody consumes is not monitoring.** Wiring `status: "degraded"` to an alert
+is a separate, overdue piece of work.
+
 ### What is needed (only the owner can supply these)
 
 1. A working **`STRIPE_SECRET_KEY`** (`flyctl secrets set`).
@@ -124,6 +142,20 @@ Live, 390×844, 2026-10-16. Their form reached at
 | Running fee/total ledger | none | donation / fee / total due today |
 | Suggested amount | none | one tile badged |
 | Refund assurance block | none | "GoFundMe protects your donation" |
+
+### Result, measured on the deployed page
+
+| 390×844 | Before | After | GoFundMe |
+|---|---|---|---|
+| Document height | 2,155px | **1,477px** | 1,593px |
+| Chrome below the CTA | 1,095px | **0px** | 0px |
+| Focusable elements in suppressed chrome | — | **0** | — |
+
+**−678px, and 116px shorter than GoFundMe** while carrying a fee ledger and
+a refund block their page matches only partly. Desktop: 1,614px → 1,302px
+(theirs 1,649px). The sitewide navbar and footer are untouched on every
+other route, verified in the same run (`/` and `/campaigns/<slug>` still
+report `display: block` with 23–27 focusable elements).
 
 ### The gap was furniture again, and worse than on `/campaigns`
 
@@ -209,6 +241,16 @@ recommendation a donor can ignore in one tap; a pre-filled amount is money
 chosen on their behalf by a form they have not read yet. A test asserts no
 tile is `aria-checked` on mount and that the submit button is still
 disabled.
+
+**And the badge broke the grid on its first deploy.** Measured on the live
+page straight after shipping: row one 77px, row two **97px**, because only
+the badged tile carried the extra line and the grid stretched its whole row
+to match. Two rows of amount buttons at visibly different heights reads as
+a layout fault, and GoFundMe's six are uniform. Fixed by taking the badge
+out of flow (`absolute`) and reserving the same bottom padding on all six,
+which makes them **85px each — 4px shorter in total** than the mismatched
+version. Caught only because the tiles were re-measured after deploying
+rather than eyeballed in the diff.
 
 ### 5. "Your donation is protected"
 
