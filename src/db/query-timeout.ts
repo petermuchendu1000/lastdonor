@@ -37,9 +37,18 @@
  * instead of an unbounded hang, so the deep health endpoint reports `degraded`
  * within a second and external monitoring can see it.
  *
- * It does NOT by itself free a stuck server-side query — only a role-level
- * `statement_timeout` can, and that is an owner decision because migrations run
- * as the same role. See `docs/37` §4.
+ * ON TIMEOUT IT CANCELS (added 2026-10-16, after the guard's first real
+ * outage). The original version raced a timeout and nothing else, which freed
+ * the caller but left the query holding its pool connection. With `max: 5`
+ * that turned a transient stall into a permanent one: five timeouts exhausted
+ * the pool, every later request queued and timed out, and the wedge re-formed
+ * within a single page load after a restart. `pending.cancel()` sends a
+ * CancelRequest so the driver settles the query and the pool gets its
+ * connection back. See `docs/52`.
+ *
+ * A role-level `statement_timeout` is still the only thing that bounds a
+ * server-side query the client has already walked away from, and that remains
+ * an owner decision because migrations run as the same role. See `docs/37` §4.
  */
 
 /** Wall-clock budget for a single query. */
@@ -76,6 +85,12 @@ export function resolveQueryTimeoutMs(
 /** The slice of `postgres`'s PendingQuery that drizzle's session uses. */
 interface PendingLike<T> extends PromiseLike<T> {
   values: () => PendingLike<unknown>;
+  /**
+   * `postgres`'s Query.cancel (`postgres/src/query.js`), which sends a
+   * CancelRequest on a second socket. Optional because the wrapper is also
+   * handed plain thenables by its own tests.
+   */
+  cancel?: () => void;
 }
 
 function bound<T>(pending: PendingLike<T>, ms: number): PendingLike<T> {
@@ -83,7 +98,30 @@ function bound<T>(pending: PendingLike<T>, ms: number): PendingLike<T> {
     then(onFulfilled, onRejected) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new QueryTimeoutError(ms)), ms);
+        timer = setTimeout(() => {
+          /*
+           * Cancel before rejecting. Racing a timeout only frees the CALLER;
+           * the query keeps its pool connection, and with `max: 5` five
+           * timed-out queries exhaust the pool permanently, so every later
+           * request queues and times out too. That is a self-reinforcing
+           * wedge that a restart does not survive under traffic: it took one
+           * page load to re-form in the 2026-10-16 outage, where five
+           * backends sat in `ClientRead` while the same pool config answered
+           * eight concurrent queries in 72ms from the same container.
+           *
+           * `cancel()` sends a real CancelRequest, so the server stops and
+           * the driver settles the query (57014), which is what actually
+           * returns the connection to the pool. Best-effort: a query that has
+           * not reached the wire yet has nothing to cancel, and the throw
+           * must not mask the timeout.
+           */
+          try {
+            pending.cancel?.();
+          } catch {
+            // Deliberately swallowed: the timeout below is the real outcome.
+          }
+          reject(new QueryTimeoutError(ms));
+        }, ms);
       });
       return Promise.race([Promise.resolve(pending), timeout])
         .finally(() => {
