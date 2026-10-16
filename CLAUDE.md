@@ -77,6 +77,7 @@ transcript or a commit message is lost.
 | `63-HOW-IT-WORKS-MERGE-ADR.md` | **Why "What LastDonor Does" and "3 Steps" became one interactive stepper, where `#ai-answer` lives now (the JSON-LD `speakable` selector depends on it), why tab panels stack in one grid cell, and the finding that our CSP blocks `unsafe-eval` so NO client component hydrates in `next dev` - verify interactivity with `next build && next start`.** |
 | `64-DEV-CSP-AND-TRUST-BAR-ADR.md` | **Why `next.config.ts` adds `'unsafe-eval'` and `ws://localhost` to the CSP in DEVELOPMENT ONLY (without it React never hydrates in `next dev` and every client component is silently inert), with the byte-diff proving production is unchanged. Also the trust bar rebuild. Read before touching the CSP.** |
 | `65-NO-CRON-SCHEDULER-FINDING.md` | **⛔ OPEN: NO cron has ever run in production. `vercel.json` is inert on Fly, the Cloudflare Worker that should replace it does not exist (account has 0 workers), and `audit_logs` confirms zero scheduled activity. `reconcile` (a financial control) and 8 other jobs are dead. Read before relying on any cron.** |
+| `66-CRON-WORKER-ADR.md` | **The cron Worker: ONE `*/5` trigger because Cloudflare caps triggers at 5 PER ACCOUNT on free, why the table lives in `src/lib/cron-schedule.ts` (so unit tests cover the deployed code), why it targets `lastdonor.fly.dev`, and why `simulate-donations` is never scheduled. ⛔ Built and tested but NOT DEPLOYED: needs a Cloudflare token with Workers Scripts:Edit.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -87,7 +88,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (5284 tests, 141 files, as of 2026-10-16)
+npm run test:unit      # Vitest (5302 tests, 142 files, as of 2026-10-16)
 npm run test:e2e       # Playwright (72 tests, 21 files)
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline
@@ -158,6 +159,12 @@ These exist for a reason; changing them has consequences beyond the local file.
   in `admin/seed/purge/route.ts:61`. Do not trust their values and do not cite
   them as a performance mitigation. Either populate them in the same transaction
   as the rows they count, or delete them. See docs/29.
+
+  **Amended 2026-10-16 (docs/66):** the `reconcile` cron *does* repair them.
+  Its first ever run reported `echoColumnFixes: 7`. They drifted because that
+  job had never executed (docs/65), not because nothing repairs them. Once the
+  cron Worker is deployed they are corrected daily. The underlying defect
+  stands: nothing increments them in the transaction that creates the rows.
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
   shared handler, multi-instance deploys serve stale HTML silently. See

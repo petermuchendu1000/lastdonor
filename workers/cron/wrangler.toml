@@ -1,0 +1,39 @@
+# LastDonor cron dispatcher. See docs/66.
+#
+# ONE trigger, not nine. Cloudflare caps Cron Triggers at 5 PER ACCOUNT on
+# the free plan (verified against their limits page, 2026-10-16), so the nine
+# schedules in vercel.json could never have existed here. The Worker decides
+# internally which jobs are due; the table lives in the app at
+# src/lib/cron-schedule.ts and is unit-tested by `npm run test:unit`.
+#
+# Deploy:
+#   cd workers/cron
+#   npx wrangler secret put CRON_SECRET     # must match the Fly secret
+#   npx wrangler deploy
+#
+# Watch it run:
+#   npx wrangler tail lastdonor-cron --format pretty
+
+name = "lastdonor-cron"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# Straight to Fly, not through the proxied hostname. Cloudflare's proxy has a
+# 100s ceiling and seven cron routes declare maxDuration = 300, so a proxied
+# dispatch would truncate them mid-run. docs/26 §4 called for a grey-cloud
+# `origin.lastdonor.com`; that record does not exist, and the Fly hostname
+# achieves the same thing without one.
+[vars]
+ORIGIN = "https://lastdonor.fly.dev"
+
+# CRON_SECRET is a secret, set with `wrangler secret put`, never listed here.
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+# No `fetch` handler is exported, so this Worker has no HTTP surface at all:
+# it can only be invoked by its own schedule. That is deliberate. A manual
+# "run job now" endpoint would be a second place the CRON_SECRET is accepted,
+# and the same thing is already achievable by calling the Fly route directly.
+[observability]
+enabled = true

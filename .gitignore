@@ -54,3 +54,7 @@ temp-blog-post.json
 # `tsc` run and conflicts on every merge. Already excluded by .dockerignore
 # ("useless in the image"); it should never have been tracked either.
 *.tsbuildinfo
+
+# Cloudflare Worker build output
+workers/**/.wrangler/
+workers/**/dist/
