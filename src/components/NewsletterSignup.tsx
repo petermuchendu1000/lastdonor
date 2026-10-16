@@ -140,8 +140,11 @@ export function NewsletterSignup({ source, variant = 'inline', className }: News
           weekly cadence promised to people who have never received anything
           is precisely the unsubstantiated claim CLAUDE.md prohibits.
 
-          "No spam." went too: it is a phrase every list says and none of
-          them is believed for saying it.
+          "No spam." went too HERE: it is a phrase every list says and none
+          of them is believed for saying it. It is left in place on
+          /newsletter and /register, where it sits in a list of concrete
+          commitments (one-click unsubscribe, no data selling) rather than
+          standing alone as filler.
 
           See docs/65.
         */}
