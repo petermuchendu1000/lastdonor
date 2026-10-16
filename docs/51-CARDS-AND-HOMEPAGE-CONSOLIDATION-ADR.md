@@ -139,15 +139,26 @@ gain. Kept.
 
 ---
 
-## 3. Expected effect, and what is not yet measured
+## 3. Effect — measured in production
 
-Removing those three sections should take roughly **2,965px** off the mobile
-homepage (664 + 1,184 + 1,117), bringing it from 15,756px to about
-**12,800px** before the hero changes in docs/49.
+The prediction was ~2,965px off the mobile page (664 + 1,184 + 1,117),
+landing near 12,800px. Measured on production after deploy:
 
-**This is arithmetic from the before-measurements, not a measurement.** The
-page must be re-measured in production after deploy, and this document
-updated with the real number.
+| | Before | After | GoFundMe |
+|---|---|---|---|
+| Mobile homepage height | 15,756px | **12,504px** | 7,745px |
+| Desktop homepage height | 8,996px | **7,163px** | 7,774px |
+| Mobile LCP | 1,036ms | **712ms** | 884ms |
+| Mobile CLS | 0 | **0** | 0 |
+
+**−3,252px on mobile**, slightly more than predicted because the hero changes
+in docs/49 landed in the same release. Desktop is now **shorter than theirs**;
+mobile is still 1.6× theirs, so there is more to do below the fold.
+
+LCP figures are from a clean run with **no programmatic scrolling**. An
+earlier pass reported 18,040ms for the mobile homepage; that was an artifact
+of the probe scrolling the full page, not a real regression. Scrolling a page
+during measurement invalidates LCP — do not trust a number collected that way.
 
 ---
 
