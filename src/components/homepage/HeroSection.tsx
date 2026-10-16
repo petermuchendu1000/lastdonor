@@ -12,43 +12,54 @@ export function HeroSection() {
       className="relative flex flex-col overflow-hidden bg-muted lg:block"
       aria-label="Welcome"
     >
-      {/* Desktop hero image - right portion, fades into background */}
-      <div
-        className="absolute inset-y-0 right-0 hidden w-[55%] lg:block"
-      >
-        <Image
-          src="/images/hero-bg.webp"
-          alt="LastDonor.org reviewed crowdfunding platform showing donation support and campaign progress"
-          fill
-          priority
-          sizes="55vw"
-          className="object-cover object-center"
-        />
-        {/* Gradient fade - blends image seamlessly into background */}
-        <div className="absolute inset-0 bg-gradient-to-r from-muted via-muted/50 to-transparent" />
-      </div>
-
       {/*
-        Mobile hero image - stacked BELOW the text.
-        Measured 2026-10-15: stacked above, it took the first 215px of a 844px
-        viewport, so the headline did not begin until y=332 and the secondary
-        CTA fell below the fold. GoFundMe's mobile hero opens on the headline
-        at y=56 and puts its imagery after the CTA. `order` keeps the image
-        early in the DOM, so it stays the LCP candidate and `priority` still
-        pays for itself. See docs/49.
+        Ambient wash. With no image on phones the hero was a flat grey slab,
+        so this puts warmth and depth behind the headline. Two CSS radial
+        gradients: no image request, no JavaScript, nothing to lay out, so it
+        cannot move the LCP or CLS that docs/47 and docs/49 won. Hidden from
+        assistive tech and from anyone who has asked for less motion is
+        unnecessary - it does not animate.
       */}
       <div
-        className="relative order-2 aspect-[16/9] sm:aspect-[2/1] lg:hidden"
-      >
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 lg:hidden"
+        style={{
+          backgroundImage:
+            'radial-gradient(65% 50% at 88% -5%, color-mix(in oklab, var(--color-brand-amber) 26%, transparent) 0%, transparent 72%), ' +
+            'radial-gradient(75% 55% at -10% 105%, color-mix(in oklab, var(--color-brand-teal) 22%, transparent) 0%, transparent 68%)',
+        }}
+      />
+      {/*
+        Desktop-only hero image. There is deliberately NO hero image on
+        phones: it cost 215px of an 844px viewport and a download, to carry
+        nothing the headline does not already say. See docs/53.
+
+        `sizes` does the real work. A CSS-hidden <img> is still in the DOM and
+        browsers still fetch it - measured 2026-10-16, the phone pulled BOTH
+        hero variants (w=384 and w=640, 18KB) for an image it never showed.
+        Declaring 16px below lg makes the browser resolve the srcset to Next's
+        smallest candidate on a phone instead of a full-width one. Done this
+        way rather than with a JS media-query hook because the hook would
+        delay the desktop LCP element until after hydration and risk a
+        hydration mismatch; this stays server-rendered and `priority`
+        preloads it.
+      */}
+      <div className="absolute inset-y-0 right-0 hidden w-[55%] lg:block">
         <Image
-          src="/images/hero-bg.webp"
-          alt="LastDonor.org reviewed crowdfunding platform showing donation support and campaign progress"
+          src="/images/hero-hope.webp"
+          alt="A grandmother and her granddaughter holding each other on a sunlit porch"
           fill
           priority
-          sizes="100vw"
+          sizes="(max-width: 1023px) 16px, 55vw"
           className="object-cover object-center"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-muted via-muted/40 to-transparent" />
+        {/*
+          Fade the left edge into the text column, then get out of the way.
+          A wash spread evenly across the full 55% desaturated the faces,
+          which are the entire reason this image is here. The stops hold it
+          to the left third.
+        */}
+        <div className="absolute inset-0 bg-gradient-to-r from-muted from-0% via-muted/45 via-22% to-transparent to-55%" />
       </div>
 
       {/* Text content - left column on desktop, full-width on mobile */}
@@ -87,9 +98,15 @@ export function HeroSection() {
           </motion.p>
 
           {/* CTAs - primary (amber) + secondary (teal outlined) */}
+          {/*
+            Full-width stacked on phones, inline from sm up. A 260px pill
+            floating in a 390px column reads as tentative, and a full-width
+            primary is the standard mobile affordance with the largest
+            possible tap target.
+          */}
           <motion.div
             variants={fadeInUp}
-            className="mt-10 flex flex-wrap items-center gap-4"
+            className="mt-10 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4"
           >
             {/*
               Both buttons carry `border-2` so they are the same height. The
@@ -100,30 +117,48 @@ export function HeroSection() {
             */}
             <Link
               href="/campaigns"
-              className="btn-press inline-flex items-center justify-center rounded-full border-2 border-transparent bg-brand-amber px-8 py-3.5 text-base font-bold text-white shadow-md transition-all duration-200 hover:shadow-[--shadow-amber] hover:-translate-y-0.5"
+              className="btn-press inline-flex w-full items-center justify-center rounded-full border-2 border-transparent bg-brand-amber px-8 py-3.5 text-base font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[--shadow-amber] sm:w-auto"
             >
               Browse Reviewed Campaigns
             </Link>
             <Link
               href="/share-your-story"
-              className="btn-press inline-flex items-center justify-center rounded-full border-2 border-primary px-8 py-3.5 text-base font-semibold text-primary transition-all duration-200 hover:bg-primary/5 hover:-translate-y-0.5"
+              className="btn-press inline-flex w-full items-center justify-center rounded-full border-2 border-primary px-8 py-3.5 text-base font-semibold text-primary transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary/5 sm:w-auto"
             >
               Share Your Story
             </Link>
           </motion.div>
 
-          {/* Zero-Knowledge Proof strip: pre-empts top FUDs at point of CTA click */}
-          <motion.p
+          {/*
+            Zero-Knowledge Proof strip: pre-empts the top objections at the
+            point of CTA click.
+
+            Was a 12px grey run-on separated by middots, which wrapped to two
+            ragged lines on a 390px screen and read as fine print. Now three
+            discrete chips: each claim is its own object, legible at 13px, and
+            the wrap is deliberate rather than accidental.
+          */}
+          <motion.ul
             variants={fadeInUp}
-            className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+            className="mt-6 flex flex-wrap gap-2"
           >
-            <CheckBadgeIcon className="h-4 w-4 text-brand-teal" aria-hidden="true" />
-            <span>No signup required to donate</span>
-            <span aria-hidden="true" className="text-border">·</span>
-            <span>Every campaign human-reviewed</span>
-            <span aria-hidden="true" className="text-border">·</span>
-            <span>0% platform fees</span>
-          </motion.p>
+            {[
+              'No signup to donate',
+              'Human-reviewed campaigns',
+              '0% platform fees',
+            ].map((claim) => (
+              <li
+                key={claim}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card/70 px-3 py-1.5 text-[13px] font-medium text-foreground/80 shadow-sm backdrop-blur-sm"
+              >
+                <CheckBadgeIcon
+                  className="h-4 w-4 shrink-0 text-brand-teal"
+                  aria-hidden="true"
+                />
+                {claim}
+              </li>
+            ))}
+          </motion.ul>
         </motion.div>
       </div>
     </section>

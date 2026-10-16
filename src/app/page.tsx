@@ -221,29 +221,25 @@ export default async function Home() {
           <p className="text-base font-medium leading-relaxed text-foreground">
             LastDonor helps people support <strong>medical fundraising</strong>, <strong>emergency fundraising</strong>, and <strong>disaster relief fundraising</strong> campaigns that are reviewed before publication. We charge <strong>0% platform fees on fundraisers</strong> and provide <strong>visible donation tracking</strong>, so donors can follow the path from contribution to impact.
           </p>
-          <dl className="mt-8 grid gap-4 sm:grid-cols-2 text-sm leading-relaxed">
-            <div>
-              <dt className="font-semibold text-foreground">0% platform fee</dt>
-              <dd className="mt-1 text-muted-foreground">
-                LastDonor does not take a platform cut. Standard Stripe processing fees apply.
-              </dd>
-            </div>
+          {/*
+            Was five definition pairs. Three of them - "0% platform fee",
+            "Reviewed campaigns" and "Donation tracking and impact" - restated
+            the same three claims that HowItWorks and HomepageFAQ already
+            make, which on a phone stacked into a fifth consecutive wall of
+            the same argument (docs/51 counted four; this was the fifth).
+
+            The two kept are the only ones saying something found nowhere else
+            on the page. The SEO payload is untouched: every target term
+            ("medical fundraising", "emergency fundraising", "disaster relief
+            fundraising", "0% platform fees on fundraisers", "visible donation
+            tracking") lives in the paragraph above, which is what the
+            data-speakable block exists to serve. See docs/53.
+          */}
+          <dl className="mt-8 grid gap-5 text-sm leading-relaxed sm:grid-cols-2">
             <div>
               <dt className="font-semibold text-foreground">How we operate</dt>
               <dd className="mt-1 text-muted-foreground">
                 General fund donations, grants, sponsorships, and operating support help cover review, verification, donor support, hosting, payment operations, and impact updates.
-              </dd>
-            </div>
-            <div>
-              <dt className="font-semibold text-foreground">Reviewed campaigns</dt>
-              <dd className="mt-1 text-muted-foreground">
-                Campaigns are reviewed by a real person before they go live, with supporting details checked against the story.
-              </dd>
-            </div>
-            <div>
-              <dt className="font-semibold text-foreground">Donation tracking and impact</dt>
-              <dd className="mt-1 text-muted-foreground">
-                Donors can follow campaign progress and receive updates that show how funds are used after a campaign closes.
               </dd>
             </div>
             <div>
