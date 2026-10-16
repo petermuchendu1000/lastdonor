@@ -207,51 +207,16 @@ export default async function Home() {
       <HeroSection />
       <TrustBar />
 
-      {/* AI/SEO Answer Block: structured definitions for AI snippet extraction */}
-      <section
-        id="ai-answer"
-        data-speakable="true"
-        className="bg-background py-10 sm:py-12"
-        aria-label="What is LastDonor?"
-      >
-        <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-4 font-display text-2xl font-bold text-foreground sm:text-3xl">
-            What LastDonor Does
-          </h2>
-          <p className="text-base font-medium leading-relaxed text-foreground">
-            LastDonor helps people support <strong>medical fundraising</strong>, <strong>emergency fundraising</strong>, and <strong>disaster relief fundraising</strong> campaigns that are reviewed before publication. We charge <strong>0% platform fees on fundraisers</strong> and provide <strong>visible donation tracking</strong>, so donors can follow the path from contribution to impact.
-          </p>
-          {/*
-            Was five definition pairs. Three of them - "0% platform fee",
-            "Reviewed campaigns" and "Donation tracking and impact" - restated
-            the same three claims that HowItWorks and HomepageFAQ already
-            make, which on a phone stacked into a fifth consecutive wall of
-            the same argument (docs/51 counted four; this was the fifth).
+      {/*
+        The "What LastDonor Does" answer block lived here. It was merged into
+        <HowItWorks /> on 2026-10-16 (docs/63): it did the same job as the
+        step list - explain the product - and between them they restated what
+        the rest of the page already says.
 
-            The two kept are the only ones saying something found nowhere else
-            on the page. The SEO payload is untouched: every target term
-            ("medical fundraising", "emergency fundraising", "disaster relief
-            fundraising", "0% platform fees on fundraisers", "visible donation
-            tracking") lives in the paragraph above, which is what the
-            data-speakable block exists to serve. See docs/53.
-          */}
-          <dl className="mt-8 grid gap-5 text-sm leading-relaxed sm:grid-cols-2">
-            <div>
-              <dt className="font-semibold text-foreground">How we operate</dt>
-              <dd className="mt-1 text-muted-foreground">
-                General fund donations, grants, sponsorships, and operating support help cover review, verification, donor support, hosting, payment operations, and impact updates.
-              </dd>
-            </div>
-            <div>
-              <dt className="font-semibold text-foreground">Real human support</dt>
-              <dd className="mt-1 text-muted-foreground">
-                A real person helps donors and campaign organizers with questions about medical, emergency, and disaster relief fundraising.
-              </dd>
-            </div>
-          </dl>
-        </div>
-      </section>
-
+        Its `#ai-answer` paragraph, which this page's JSON-LD names in
+        `speakable.cssSelector`, moved intact into that component. Do not
+        rename the id there without updating the graph above.
+      */}
       {/* Active Campaigns */}
       {data.activeCampaigns.length > 0 && (
         <section className="bg-surface-teal py-20 sm:py-24">
