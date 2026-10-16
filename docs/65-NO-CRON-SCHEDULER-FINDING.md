@@ -112,8 +112,28 @@ impact stories, and ways to help. **Weekly.** No spam."* A weekly cadence
 promised to three people who have never received a single send is exactly the
 unsubstantiated claim `CLAUDE.md` prohibits. It now reads "New reviewed
 campaigns and impact updates, straight to your inbox" — no cadence until one
-is real. "No spam" went too; every list says it and none is believed for
-saying it.
+is real.
+
+**Corrected 2026-10-16, same day:** the first pass fixed only the homepage
+instance, which is the one that appeared in the screenshot. Verifying the
+deploy against the live HTML showed the claim was still being served, so a
+search for the *claim* rather than the instance found five more:
+
+| Location | Was |
+|---|---|
+| `Footer.tsx` — **every page of the site** | "Weekly impact stories and new campaigns." |
+| `/newsletter` visible copy | "Weekly, never daily" |
+| `/newsletter` meta description | "Get weekly updates on…" |
+| `/newsletter` OpenGraph description | "Weekly updates on…" |
+| `/newsletter` OG image subtitle | "Weekly+updates+on…" |
+
+The footer one was the worst: the same unsubstantiated cadence on every page,
+not just the homepage. All six are now gone. The lesson is the obvious one —
+**grep for the claim, not for the screenshot.**
+
+"No spam" was removed from the homepage card only. It stays on `/newsletter`
+and `/register`, where it sits in a list of concrete commitments (one-click
+unsubscribe, no data selling) rather than standing alone as filler.
 
 **Not fixed: the scheduler.** Standing up a Cloudflare Worker with nine cron
 triggers and the `CRON_SECRET` bearer token is production infrastructure with

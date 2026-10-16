@@ -6,16 +6,16 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'Newsletter',
   description:
-    'Get weekly updates on reviewed campaigns, impact stories, and ways to help medical, emergency, memorial, family, and community fundraisers.',
+    'Updates on reviewed campaigns, impact stories, and ways to help medical, emergency, memorial, family, and community fundraisers.',
   keywords: seoKeywords('campaigns', 'trust', 'donor', 'medical', 'emergency'),
   alternates: { canonical: 'https://lastdonor.org/newsletter' },
   openGraph: {
     title: 'Newsletter | LastDonor.org',
     description:
-      'Weekly updates on reviewed campaigns, impact stories, and ways to help.',
+      'Updates on reviewed campaigns, impact stories, and ways to help.',
     images: [
       {
-        url: '/api/v1/og/page?title=Newsletter&subtitle=Weekly+updates+on+reviewed+campaigns+and+impact+stories.',
+        url: '/api/v1/og/page?title=Newsletter&subtitle=Updates+on+reviewed+campaigns+and+impact+stories.',
         width: 1200,
         height: 630,
         alt: 'LastDonor.org Newsletter',
@@ -74,7 +74,7 @@ export default function NewsletterPage() {
         <div className="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <CheckIcon />
-            Weekly, never daily
+            Only when there is something to say
           </span>
           <span className="inline-flex items-center gap-1.5">
             <CheckIcon />
