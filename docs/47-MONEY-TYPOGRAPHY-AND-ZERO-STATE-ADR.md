@@ -152,6 +152,13 @@ quantity and lead with the ask:
 | Sidebar count | "0 donors" | *(suppressed)* |
 | Card figure | `$0 raised` / `of $5,000` | "Be the first to donate" / `$5,000 goal` |
 
+> **Resolved 2026-10-16 (see docs/71).** The card hierarchy WAS changed in
+> the end: `/campaigns` renders the zero state twelve times down one column,
+> where it stops being an invitation and becomes the page's dominant message.
+> The goal now leads on the card and the prompt sits one step below it. The
+> sidebar, which this doc also covers, is unchanged: one instance, high
+> intent, invitation exactly right.
+>
 > **Amended 2026-10-16 (see docs/62).** This decision was taken by evaluating
 > a card in isolation. On the homepage, six cards in a column repeat "Be the
 > first to donate" six times, and the aggregate reads as *"nobody has donated

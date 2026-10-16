@@ -234,7 +234,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
             {/* Header: emotional headline + social-proof count + trust anchor.
                 Psychology: Anchoring (concrete number), Authority (reviewed), Zero-Knowledge Proof. */}
             <header className="mb-6">
-              <h1 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              <h1 className="font-display text-[1.6rem] font-bold leading-tight tracking-tight text-foreground sm:text-4xl">
                 Reviewed Fundraisers Raising Money Right Now
               </h1>
               <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
@@ -251,12 +251,32 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
                     <span className="font-semibold text-foreground tabular-nums">{activeCount.toLocaleString('en-US')}</span>{' '}active {activeCount === 1 ? 'campaign' : 'campaigns'}
                   </span>
                 )}
-                <span aria-hidden="true" className="text-border">·</span>
+                {/*
+                  Hidden below `sm`. This paragraph is `flex flex-wrap`, so
+                  on a phone "Each one reviewed before going live" wraps to
+                  its own line and the separator was left dangling at the
+                  end of the line above it, as a middot with nothing after
+                  it. A separator only separates when both sides share a
+                  line. See docs/71.
+                */}
+                <span aria-hidden="true" className="hidden text-border sm:inline">·</span>
                 <span>Each one reviewed before going live</span>
               </p>
             </header>
 
-            {/* Status tabs: Gestalt Enclosure + Similarity. Active-first ordering (Serial Position). */}
+            {/*
+              The tab strip only earns its 66px when there is a second tab
+              worth taking. With no completed campaigns it rendered
+              "Active 12 | Completed 0", where the second tab links to an
+              empty page and the first repeats the count stated one line
+              above it.
+
+              Part of getting the first card nearer the top: measured
+              2026-10-16, a visitor saw 486px of chrome before any campaign
+              on a 844px screen, 58% of the fold, against GoFundMe's 238px
+              (28%). See docs/71.
+            */}
+            {completedCount > 0 && (
             <div
               role="tablist"
               aria-label="Campaign status"
@@ -284,6 +304,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
                 </span>
               </Link>
             </div>
+            )}
           </>
         )}
 

@@ -307,7 +307,18 @@ export function CampaignFilters({
           </SheetContent>
         </Sheet>
 
-        {/* Category pill → Popover (desktop) */}
+        {/*
+          Category, Location and Close to target are ALSO rows inside the
+          Filters sheet, so on a phone they were the same control twice. The
+          comment here already said "(desktop)"; it simply was not true, and
+          the five pills wrapped to a second line.
+
+          Hidden below `sm`, where the Filters button (which carries the
+          active count) is the single entry point. Sort stays visible at
+          every width: it is a different axis from filtering and its label
+          doubles as the current state. See docs/71.
+        */}
+        <span className="hidden sm:contents">
         <Popover>
           <PopoverTrigger asChild>
             <button
@@ -420,7 +431,8 @@ export function CampaignFilters({
           </PopoverContent>
         </Popover>
 
-        {/* Sort pill → Popover (desktop) */}
+        </span>
+        {/* Sort pill. Visible at every width, see the note above. */}
         <Popover>
           <PopoverTrigger asChild>
             <button
@@ -455,12 +467,12 @@ export function CampaignFilters({
           </PopoverContent>
         </Popover>
 
-        {/* Close to target pill → toggle */}
+        {/* Close to target: in the sheet on a phone, see the note above. */}
         <button
           type="button"
           onClick={() => updateParams({ close_to_target: activeCloseToTarget ? null : '1' })}
           className={cn(
-            'inline-flex items-center gap-1 rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors',
+            'hidden items-center gap-1 rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors sm:inline-flex',
             activeCloseToTarget
               ? 'border-foreground bg-foreground text-background'
               : 'border-border text-foreground hover:bg-muted',

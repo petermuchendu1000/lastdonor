@@ -125,11 +125,29 @@ export function CampaignCard({
                  ~235px and the text column is ~218px, so they wrapped
                  raggedly. Side by side again from `sm`, where there is room. */
               <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">
-                <span className="text-sm font-semibold text-foreground">
-                  Be the first to donate
-                </span>
-                <span className="shrink-0 font-sans text-xs font-medium tabular-nums text-muted-foreground">
+                {/*
+                  Hierarchy swapped 2026-10-16 (amends docs/47, closes the
+                  case docs/62 recorded but did not take).
+
+                  docs/47 made "Be the first to donate" the prominent line,
+                  evaluating ONE card. In a grid the aggregate reads
+                  differently: the homepage showed it six times, and
+                  /campaigns shows it TWELVE times down a single column,
+                  where it stops being an invitation and becomes "nobody has
+                  donated to anything here".
+
+                  The goal leads now, because a column of goals reads as
+                  twelve campaigns with targets rather than twelve campaigns
+                  with no donors. Nothing is hidden: the prompt is still
+                  there, one step down. The campaign page sidebar, where
+                  there is exactly one instance and intent is high, keeps
+                  docs/47's order.
+                */}
+                <span className="font-sans text-sm font-semibold tabular-nums text-foreground">
                   {centsToDollarsWhole(goalAmount)} goal
+                </span>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  Be the first to donate
                 </span>
               </div>
             ) : (
