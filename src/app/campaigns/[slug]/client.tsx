@@ -43,6 +43,7 @@ export function CampaignSidebarClient({
         donateHref={donateHref}
         shareUrl={shareUrl}
         shareTitle={shareTitle}
+        campaignSlug={campaignSlug}
       />
 
       {impactTiers.length > 0 && (

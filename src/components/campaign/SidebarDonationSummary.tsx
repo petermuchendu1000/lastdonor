@@ -19,6 +19,8 @@ interface SidebarDonationSummaryProps {
   donateHref: string;
   shareUrl: string;
   shareTitle: string;
+  /** Lets a signed-in sharer get an attributed `/s/<token>` link. */
+  campaignSlug?: string;
   className?: string;
 }
 
@@ -29,6 +31,7 @@ export function SidebarDonationSummary({
   donateHref,
   shareUrl,
   shareTitle,
+  campaignSlug,
   className,
 }: SidebarDonationSummaryProps) {
   const percent = goalAmount > 0
@@ -109,7 +112,11 @@ export function SidebarDonationSummary({
           search — see docs/30 §1, where an attributed share loop is identified
           as the competitor's growth engine rather than a feature.
         */}
-        <SidebarShareButton url={shareUrl} title={shareTitle} />
+        <SidebarShareButton
+          url={shareUrl}
+          title={shareTitle}
+          campaignSlug={campaignSlug}
+        />
       </div>
 
       {isUnfunded && (
