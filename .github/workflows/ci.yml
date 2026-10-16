@@ -5,19 +5,48 @@ on:
     branches: [main, staging]
   pull_request:
     branches: [main]
+  # Lets the pipeline be triggered by hand or by automation, which it could
+  # not be before. See docs/50.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_VERSION: '20'
+
 jobs:
+  # Reports which optional secrets exist, so the DB-backed jobs can skip
+  # cleanly instead of failing red on a repository that has never had them
+  # set. `secrets` cannot be read from a job-level `if`, so it is surfaced
+  # here as an output.
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      has-db: ${{ steps.probe.outputs.has-db }}
+    steps:
+      - id: probe
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: |
+          if [ -n "$TEST_DATABASE_URL" ]; then
+            echo "has-db=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-db=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=DB-backed jobs skipped::TEST_DATABASE_URL is not set, so integration and E2E will not run."
+          fi
+
+  # These three are independent of one another and of the database. They used
+  # to run strictly in series, so a lint error delayed the unit result by the
+  # whole lint job.
   lint-and-typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
       - run: npm run lint
@@ -25,37 +54,42 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-latest
-    needs: lint-and-typecheck
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
       - run: npm run test:unit
 
   security-audit:
     runs-on: ubuntu-latest
-    needs: unit-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
       - name: Middleware coverage audit
         run: node scripts/audit-middleware-coverage.mjs
+      # Was `--testPathPattern=test/security`, a Jest flag. Vitest rejects it
+      # with "Unknown option", so this job failed on every run, and because
+      # integration, build and e2e all depended on it the pipeline could never
+      # reach them. The positional form is the Vitest equivalent.
       - name: Security canary tests
-        run: npx vitest run --testPathPattern=test/security
+        run: npx vitest run test/security
       - name: Principles 9-12 audit (Economy, Privilege Separation, Injection, XSS)
         run: node scripts/security-audit-p9-12.mjs
 
   integration-tests:
     runs-on: ubuntu-latest
-    needs: [unit-tests, security-audit]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [config, lint-and-typecheck, unit-tests, security-audit]
+    if: >-
+      needs.config.outputs.has-db == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     env:
       DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
@@ -64,34 +98,51 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
-      - run: npx drizzle-kit push
+      # `drizzle-kit push` diffs the live schema and applies whatever it
+      # infers. docs/34 settled that this project applies ONE validated
+      # baseline from migrations-v2 via the migrator. Using the documented
+      # path here keeps CI and production on the same mechanism.
+      - run: npm run db:migrate
       - run: npm run test:integration
 
   build:
     runs-on: ubuntu-latest
-    needs: integration-tests
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [lint-and-typecheck, unit-tests, security-audit]
     env:
       DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
       - run: npm run build
 
   e2e-tests:
     runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [config, build, integration-tests]
+    if: >-
+      needs.config.outputs.has-db == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    strategy:
+      fail-fast: false
+      # Most of this product's traffic is phones, and the mobile layouts are
+      # where the recent work landed (docs/48, docs/49), but CI only ever ran
+      # Desktop Chrome. Both run now, and one failing does not mask the other.
+      matrix:
+        project: ['Desktop Chrome', 'Mobile Chrome']
     env:
       DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
@@ -101,14 +152,39 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- --project="Desktop Chrome"
+      - run: npm run test:e2e -- --project="${{ matrix.project }}"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.project }}
           path: playwright-report/
           retention-days: 7
+
+  # A single required status to protect `main` with, so the branch rule does
+  # not have to name every job and does not go green when a job is skipped.
+  ci-complete:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - lint-and-typecheck
+      - unit-tests
+      - security-audit
+      - build
+      - integration-tests
+      - e2e-tests
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        run: |
+          results='${{ join(needs.*.result, " ") }}'
+          echo "job results: $results"
+          for r in $results; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error title=CI failed::a required job reported '$r'"; exit 1 ;;
+            esac
+          done
+          echo "All required jobs passed (skipped jobs are allowed: see the config job's warning)."
