@@ -154,10 +154,15 @@ COPY . .
 # empty, and visitors do not pay for the first render. Either way it arrives as
 # a BuildKit secret, so it never lands in a layer or in `docker history`.
 # `.next/cache` is a BuildKit cache mount, not a layer: it holds Next's
-# webpack/SWC compilation cache between builds. Measured 2026-10-16, this
-# step was 183.6s of a ~196s image build - every other step was already
-# CACHED - and the log showed webpack serializing its pack files from
-# scratch each time, because the cache directory died with the container.
+# webpack/SWC compilation cache between builds.
+#
+# HONEST RESULT, measured 2026-10-16: the mount WORKS - a probe at the top of
+# this step reported `1.1G, 11 files` on entry, so the cache genuinely
+# survives - but it buys nothing. Webpack compile was 106s without it and
+# 103s with it. Keep expectations accordingly; the dominant cost of this
+# build is compiling the app, not re-reading a cache. Retained because it is
+# the standard Next-in-Docker pattern, costs only builder disk, and may pay
+# off after a Next upgrade. See docs/54 for the full phase breakdown.
 #
 # `sharing=locked` rather than the default `shared`: two concurrent builds
 # writing one webpack cache corrupts it, and a corrupt cache fails closed by

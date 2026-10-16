@@ -169,6 +169,22 @@ const nextConfig: NextConfig = {
   // (docs/26 §1 "Vercel couplings to remove", §10 step 1). Without this the
   // runtime stage would have to carry the full `node_modules` tree.
   output: "standalone",
+
+  /*
+   * `next build` re-runs ESLint over the whole project. Measured on the
+   * 2026-10-16 Fly builds, "Linting and checking validity of types" was 31s
+   * of a 191s image build.
+   *
+   * It is a duplicate, not a safety net: `CLAUDE.md` requires
+   * `npm run lint && npm run typecheck && npm run test:unit` to pass before
+   * any commit, and `.github/workflows/ci.yml` runs lint as its own job. By
+   * the time Docker builds, lint has already passed twice.
+   *
+   * TypeScript checking is deliberately LEFT ON. A lint failure is a style
+   * regression; a type error is a runtime bug, and that one is worth paying
+   * for in the build. See docs/54.
+   */
+  eslint: { ignoreDuringBuilds: true },
   compress: true,
   poweredByHeader: false,
   reactStrictMode: true,
