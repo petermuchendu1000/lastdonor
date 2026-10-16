@@ -1,6 +1,26 @@
 /**
- * Compute a lower starting goal for automated goal setting.
- * Uses piecewise linear interpolation in log10 space, capped at $2,600.
+ * ⛔ NOT WIRED TO ANYTHING. Do not re-render this in the UI without first
+ * building the feature behind it. See `docs/76`.
+ *
+ * Until 2026-10-16 the create wizard showed an "Automated goal setting"
+ * toggle, defaulted ON and badged "Recommended", which said *"we'll
+ * gradually adjust your goal as donations come in"* and then printed
+ * **"Your starting goal would be: $600"** under a $25,000 entry.
+ *
+ * None of that happened. `autoGoal` was never in the POST body,
+ * `goalAmount` was always sent at the full typed figure, no column stores a
+ * starting goal, and no job anywhere raises one. The toggle was a promise
+ * with no implementation, on a page about other people's money, so the UI
+ * was removed rather than the promise softened.
+ *
+ * The function survives because the anchor table below is researched work
+ * worth keeping for whoever builds the real thing. Building it needs: a
+ * column for the published goal distinct from the target, a job that raises
+ * it, and a decision about what donors are shown while it ramps - which is
+ * `docs/33` territory, not a UI change.
+ *
+ * Computes a lower starting goal by piecewise linear interpolation in
+ * log10 space, capped at $2,600.
  *
  * Anchor points (matching GoFundMe):
  *   $100     → $100

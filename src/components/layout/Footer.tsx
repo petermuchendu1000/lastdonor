@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { CreditCardIcon } from '@/components/ui/icon';
 import { FooterDarkModeToggle } from '@/components/layout/FooterDarkModeToggle';
 import { FooterNewsletter } from '@/components/layout/FooterNewsletter';
+import { SOCIAL_LINKS } from '@/lib/social-links';
 
 const LINK_GROUPS = [
   {
@@ -98,6 +99,36 @@ export function Footer() {
               United States<br />
               contact@lastdonor.org
             </p>
+
+            {/*
+              Social profiles, from `SOCIAL_LINKS` - the same list the
+              Organization JSON-LD publishes as `sameAs`, so the footer and
+              the entity graph cannot disagree about which accounts exist.
+
+              The list is empty today and this renders nothing. That is
+              deliberate: the two profiles `sameAs` used to claim both
+              returned 404 (see `src/lib/social-links.ts`). An empty row of
+              icons, or links to accounts that do not exist, would be worse
+              than no row.
+            */}
+            {SOCIAL_LINKS.length > 0 && (
+              <nav aria-label="LastDonor on social media" className="mt-4">
+                <ul className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {SOCIAL_LINKS.map((link) => (
+                    <li key={link.href}>
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="me noopener noreferrer"
+                        className="inline-block py-0.5 text-sm text-gray-400 transition-colors hover:text-white"
+                      >
+                        {link.name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            )}
 
             {/* Trust badges */}
             <div className="mt-4 flex items-center gap-3 text-xs text-gray-500">

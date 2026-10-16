@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { FundraiserPreviewModal } from './FundraiserPreviewModal';
-import { computeStartingGoal } from '@/lib/compute-starting-goal';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -156,7 +155,6 @@ interface FormData {
   fundraisingFor: string;
   // Step 1: Set Your Goal
   goalAmount: string;
-  autoGoal: boolean;
   // Step 2: Add Media
   heroImageUrl: string;
   galleryImages: string[];
@@ -181,7 +179,6 @@ type FormErrors = Partial<Record<string, string>>;
 const INITIAL: FormData = {
   fundraisingFor: '',
   goalAmount: '',
-  autoGoal: true,
   heroImageUrl: '',
   galleryImages: [],
   photoCredit: '',
@@ -660,7 +657,6 @@ export function ShareYourStoryForm() {
 
   const goalDollars = form.goalAmount ? parseInt(form.goalAmount, 10) : 0;
 
-  const startingGoal = computeStartingGoal(goalDollars);
   const storyLen = form.story.trim().length;
   const storyMsg = storyCharMessage(storyLen);
   const showBeneficiaryConsent = form.beneficiaryRelation && form.beneficiaryRelation !== 'self';
@@ -1025,58 +1021,24 @@ export function ShareYourStoryForm() {
                   </span>
                 </div>
                 {errors.goalAmount && <p id="goalAmount-error" className="text-sm text-red-500">{errors.goalAmount}</p>}
+                {/*
+                  This hint used to read: "Fundraisers like yours typically
+                  aim to raise $5,000", with "Fundraisers like yours"
+                  underlined as though it were a link to the evidence.
+
+                  $5,000 was a hardcoded string. It was not derived from the
+                  category, the location, or anything else, and it could not
+                  have been: this platform has recorded no real fundraisers
+                  and no donations, so there is no "fundraisers like yours"
+                  to average. CLAUDE.md: never add a claim the platform
+                  cannot substantiate. Replaced with the one thing that IS
+                  true about how the number is used - a reviewer reads it.
+                */}
                 <p id="goalAmount-hint" className="text-base text-muted-foreground">
-                  <span className="underline cursor-pointer hover:text-foreground">Fundraisers like yours</span>{' '}
-                  typically aim to raise{' '}
-                  <span className="font-medium text-foreground">$5,000</span>
+                  Ask for what the need actually costs. A reviewer checks the goal
+                  against your story and documents before the campaign goes live.
                 </p>
               </div>
-
-              {/* Automated goal setting card */}
-              <div className="rounded-xl border border-border bg-muted/30 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <span className="inline-block rounded border border-green-600 bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-green-800 dark:border-green-500 dark:bg-green-950/40 dark:text-green-300">
-                      Recommended
-                    </span>
-                    <h3 className="text-base font-bold text-foreground">Automated goal setting</h3>
-                    <p className="text-base leading-relaxed text-muted-foreground">
-                      To help build momentum, we&apos;ll gradually adjust your goal as donations come in.{' '}
-                      <span className="underline cursor-pointer hover:text-foreground">More details</span>
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={form.autoGoal}
-                    aria-label="Automated goal setting"
-                    onClick={() => update('autoGoal', !form.autoGoal)}
-                    className={`relative mt-1 inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                      form.autoGoal
-                        ? 'bg-green-600'
-                        : 'bg-gray-300 dark:bg-gray-600'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ${
-                        form.autoGoal ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-
-              {goalDollars > 0 && form.autoGoal && (
-                <div className="flex items-center gap-2 px-1">
-                  <svg className="h-5 w-5 shrink-0 text-green-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                  </svg>
-                  <p className="text-base text-muted-foreground">
-                    Your starting goal would be:{' '}
-                    <span className="font-bold text-foreground">${startingGoal.toLocaleString()}</span>
-                  </p>
-                </div>
-              )}
             </div>
           )}
 
@@ -1844,44 +1806,6 @@ export function ShareYourStoryForm() {
                             USD
                           </span>
                         </div>
-                        <div className="rounded-xl border border-border bg-muted/30 p-5">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-1.5">
-                              <span className="inline-block rounded border border-green-600 bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-green-800 dark:border-green-500 dark:bg-green-950/40 dark:text-green-300">
-                                Recommended
-                              </span>
-                              <h4 className="text-base font-bold text-foreground">Automated goal setting</h4>
-                              <p className="text-sm leading-relaxed text-muted-foreground">
-                                To help build momentum, we&apos;ll gradually adjust your goal as donations come in.
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={form.autoGoal}
-                              aria-label="Automated goal setting"
-                              onClick={() => update('autoGoal', !form.autoGoal)}
-                              className={`relative mt-1 inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                                form.autoGoal ? 'bg-green-600' : 'bg-gray-300 dark:bg-gray-600'
-                              }`}
-                            >
-                              <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ${
-                                form.autoGoal ? 'translate-x-6' : 'translate-x-1'
-                              }`} />
-                            </button>
-                          </div>
-                        </div>
-                        {goalDollars > 0 && form.autoGoal && (
-                          <div className="flex items-center gap-2">
-                            <svg className="h-5 w-5 shrink-0 text-green-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-                            </svg>
-                            <p className="text-sm text-muted-foreground">
-                              Your starting goal would be:{' '}
-                              <span className="font-bold text-foreground">${startingGoal.toLocaleString()}</span>
-                            </p>
-                          </div>
-                        )}
                       </div>
                     )}
 

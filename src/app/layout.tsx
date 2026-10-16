@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { DM_Serif_Display, DM_Sans, DM_Mono } from 'next/font/google';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { SOCIAL_LINKS } from '@/lib/social-links';
 
 const BASE_URL = 'https://lastdonor.org';
 
@@ -29,10 +30,24 @@ const siteSchemaGraph = {
       knowsAbout: [
         ...seoKeywords('core', 'campaigns', 'trust', 'medical', 'emergency', 'disaster', 'memorial'),
       ],
-      sameAs: [
-        'https://www.linkedin.com/company/lastdonor',
-        'https://x.com/lastdonororg',
-      ],
+      /*
+        Fed from `SOCIAL_LINKS`, which is also what the footer renders, so a
+        profile cannot be claimed in one place and absent from the other.
+
+        This array used to hardcode a LinkedIn company page and an X handle.
+        Both returned 404 on 2026-10-16 - verified against GoFundMe's
+        equivalents on the same request shape, which return 200, so the
+        404s mean the accounts do not exist rather than a bot wall. The
+        comment at the top of this block asks for an entity graph that
+        asserts nothing the visible site cannot prove; two imaginary
+        profiles were the opposite of that.
+
+        Omitted entirely while the list is empty: `sameAs: []` is a claim
+        about nothing, and absent is the honest encoding of "none yet".
+      */
+      ...(SOCIAL_LINKS.length > 0
+        ? { sameAs: SOCIAL_LINKS.map((link) => link.href) }
+        : {}),
       contactPoint: {
         '@type': 'ContactPoint',
         contactType: 'Customer Support',

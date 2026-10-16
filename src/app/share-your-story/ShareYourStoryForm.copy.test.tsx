@@ -122,3 +122,49 @@ describe('advancing keeps one heading per screen', () => {
     expect(screen.queryByText(/Tell us how much you'd like to raise/i)).toBeNull();
   });
 });
+
+describe('screen 2 promises nothing the product does not do', () => {
+  async function goalScreen() {
+    const user = userEvent.setup();
+    render(<ShareYourStoryForm />);
+    await user.click(screen.getAllByRole('radio', { name: /Yourself/i })[0]);
+    await user.click(screen.getByRole('button', { name: /^Continue$/i }));
+    return user;
+  }
+
+  /*
+    The screen carried an "Automated goal setting" toggle, defaulted ON and
+    badged "Recommended", saying "we'll gradually adjust your goal as
+    donations come in" and printing "Your starting goal would be: $600"
+    under a $25,000 entry. `autoGoal` was never in the POST body, no column
+    stores a starting goal, and no job raises one. See docs/76.
+  */
+  it('no longer offers a toggle that adjusts nothing', async () => {
+    await goalScreen();
+    expect(screen.queryByRole('switch', { name: /automated goal setting/i })).toBeNull();
+    expect(screen.queryByText(/gradually adjust your goal/i)).toBeNull();
+  });
+
+  it('does not tell the organiser their goal will start lower', async () => {
+    const user = await goalScreen();
+    await user.type(screen.getByLabelText(/fundraising goal amount/i), '25000');
+    expect(screen.queryByText(/starting goal would be/i)).toBeNull();
+  });
+
+  /*
+    "$5,000" was a hardcoded string, not derived from category, location or
+    anything else - and it could not have been: the platform has recorded no
+    real fundraisers and no donations, so there is no "fundraisers like
+    yours" to average.
+  */
+  it('states no average it cannot compute', async () => {
+    await goalScreen();
+    expect(screen.queryByText(/typically aim to raise/i)).toBeNull();
+    expect(screen.queryByText(/Fundraisers like yours/i)).toBeNull();
+  });
+
+  it('says instead what actually happens to the number', async () => {
+    await goalScreen();
+    expect(screen.getByText(/a reviewer checks the goal/i)).toBeInTheDocument();
+  });
+});
