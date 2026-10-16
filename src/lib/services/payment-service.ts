@@ -23,6 +23,7 @@ import {
   notifyAdminsDonationReceived, notifyCreatorDonationReceived,
   notifyCreatorFirstDonation, notifyCreatorCampaignCompleted,
 } from '@/lib/notifications';
+import { donationReceiptEmail } from '@/lib/email-templates';
 import { formatDocumentRequirementsHtml } from '@/lib/document-requirements';
 import { logError } from '@/lib/errors';
 import { safeAsync } from '@/lib/api-handler';
@@ -430,38 +431,26 @@ export async function sendDonationReceipt({
   // non-2xx AND from inside its own catch, so without `isFailure` this loop
   // made exactly one attempt and the error was discarded (audit docs/29 P0-4).
   const sendResult = await retryWithBackoff(
+    /*
+      The receipt renders through the shared shell like every other template
+      (`donationReceiptEmail`). It used to be an inline `<div>` right here,
+      which made it one of only two sends in the codebase that bypassed
+      docs/67 - and the one that interpolated `donorName`, a free-text field
+      the donor types into the checkout form and which travels here through
+      Stripe metadata, into HTML UNESCAPED. The template escapes every
+      interpolated value, which is what the rest of `email-templates.ts`
+      already did. See docs/74.
+    */
     () => resend.emails.send({
       from: 'LastDonor.org <receipts@lastdonor.org>',
-    to: meta.donorEmail,
-    subject: `Donation Receipt - ${campaign.title}`,
-    html: `
-      <div style="font-family: 'DM Sans', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h1 style="color: #0F766E; font-size: 24px;">Thank You for Your Donation!</h1>
-        <p>Dear ${meta.isAnonymous ? 'Donor' : meta.donorName},</p>
-        <p>Your generous donation to <strong>${campaign.title}</strong> has been received and processed successfully.</p>
-        <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
-          <tr>
-            <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Amount</td>
-            <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">$${(amount / 100).toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Campaign</td>
-            <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">${campaign.title}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Transaction ID</td>
-            <td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-family: monospace; font-size: 12px;">${paymentIntent.id}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; color: #666;">Date</td>
-            <td style="padding: 8px 0; text-align: right;">${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</td>
-          </tr>
-        </table>
-        <p style="color: #666; font-size: 14px;">Please retain this email as confirmation of your donation. This message is not a tax receipt and does not determine tax deductibility. Consult a tax advisor for your specific situation.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-        <p style="color: #999; font-size: 12px;">LastDonor.org - Every campaign has a last donor. Will it be you?</p>
-      </div>
-    `,
+      to: meta.donorEmail,
+      ...donationReceiptEmail({
+        campaignTitle: campaign.title,
+        donorName: meta.donorName,
+        isAnonymous: meta.isAnonymous,
+        amount,
+        transactionId: paymentIntent.id,
+      }),
     }),
     {
       maxRetries: 2,

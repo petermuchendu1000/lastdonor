@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { users, verificationTokens } from '@/db/schema';
+import { accounts, users, verificationTokens } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-import { resend } from '@/lib/resend';
 import type { ApiError } from '@/types/api';
 import { forgotPasswordSchema } from '@/lib/validators/user';
-import { retryWithBackoff } from '@/lib/utils/retry';
+import { notifyPasswordResetOutcome } from '@/lib/notifications';
 
 const TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -42,8 +41,41 @@ export async function POST(request: NextRequest) {
       .where(eq(users.email, email))
       .limit(1);
 
-    // Only send if user exists and has a password (not OAuth-only)
-    if (!user?.passwordHash) {
+    /*
+      Three outcomes, three emails, one HTTP response.
+
+      Both of the branches below used to `return successResponse` and send
+      nothing, which made the response's promise ("a password reset link has
+      been sent") untrue of any inbox for anyone without a password. The
+      people it failed hardest are the ones who most need it: somebody who
+      signed up with Google, forgot how, and clicked "forgot password" got
+      silence, every time, with no way to find out why.
+
+      This is the shape `/register` already uses (docs/39). The enumeration
+      oracle docs/32 closed stays closed, because the HTTP response is byte
+      for byte the same on all three paths and only the mailbox owner is told
+      which one ran. See docs/74.
+    */
+    if (!user) {
+      await notifyPasswordResetOutcome({ email, outcome: 'no_account' });
+      return successResponse;
+    }
+
+    if (!user.passwordHash) {
+      // Which provider, so the email can say "sign in with Google" rather
+      // than the useless "you have no password". A user may have several;
+      // the first is enough to name the route back in.
+      const [linked] = await db
+        .select({ provider: accounts.provider })
+        .from(accounts)
+        .where(eq(accounts.userId, user.id))
+        .limit(1);
+
+      await notifyPasswordResetOutcome({
+        email,
+        outcome: 'oauth_only',
+        provider: linked?.provider ?? null,
+      });
       return successResponse;
     }
 
@@ -84,34 +116,17 @@ export async function POST(request: NextRequest) {
     // change to the reset page as well, so it is left as follow-up.
     const resetUrl = `${process.env.NEXTAUTH_URL || 'https://lastdonor.org'}/login/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
 
-    const { error: sendError } = await retryWithBackoff(
-      () => resend.emails.send({
-        from: 'LastDonor.org <noreply@lastdonor.org>',
-        to: email,
-        subject: 'Reset Your Password - LastDonor.org',
-        html: `
-          <div style="font-family: 'DM Sans', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-            <h1 style="color: #0F766E; font-size: 24px;">Password Reset Request</h1>
-            <p>We received a request to reset your password. Click the link below to set a new password:</p>
-            <p style="margin: 24px 0;">
-              <a href="${resetUrl}" style="background-color: #0F766E; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">
-                Reset Password
-              </a>
-            </p>
-            <p style="color: #666; font-size: 14px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-            <p style="color: #999; font-size: 12px;">LastDonor.org</p>
-          </div>
-        `,
-      }),
-      // Resend resolves with {data:null,error} rather than throwing, so without
-      // isFailure this password-reset email had no retry at all (docs/29 P0-4).
-      { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
-    );
-
-    if (sendError) {
-      console.error('[forgot-password] Resend API error:', sendError);
-    }
+    /*
+      Rendered through the shared shell like every other template, instead of
+      the raw `<div style="font-family: 'DM Sans'">` this route used to inline.
+      docs/67 moved 44 templates onto that shell and missed this one, so the
+      single most security-sensitive email the platform sends was also the
+      only one with no doctype, no Outlook table scaffolding, no preheader,
+      and no CAN-SPAM footer. `sendEmailOnly` keeps the same retry semantics
+      (the Resend SDK resolves `{data:null,error}` rather than throwing, so
+      `isFailure` is what gives this email a retry at all - docs/29 P0-4).
+    */
+    await notifyPasswordResetOutcome({ email, outcome: 'reset_link', resetUrl });
 
     return successResponse;
   } catch (error) {

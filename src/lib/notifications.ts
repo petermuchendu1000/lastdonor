@@ -41,6 +41,9 @@ import {
   withdrawalFailedEmail,
   registrationWelcomeEmail,
   registrationExistingAccountEmail,
+  passwordResetEmail,
+  passwordResetNoAccountEmail,
+  passwordResetOauthOnlyEmail,
 } from '@/lib/email-templates';
 import {
   adaptiveDonationReceiptEmail,
@@ -182,6 +185,40 @@ export async function notifyRegistrationOutcome(p: {
   const emailContent = p.created
     ? registrationWelcomeEmail({ name: p.name || 'there' })
     : registrationExistingAccountEmail();
+
+  await sendEmailOnly({ to: p.email, ...emailContent });
+}
+
+/** Which branch `POST /api/v1/auth/forgot-password` took. */
+export type PasswordResetOutcome = 'reset_link' | 'no_account' | 'oauth_only';
+
+/**
+ * Tell the submitted address what happened to a password-reset request.
+ *
+ * Called on ALL THREE branches, the same way `notifyRegistrationOutcome` is
+ * called on both branches of register (`docs/39`). Two of them previously
+ * sent nothing at all, so the route's reassuring "if an account exists, a
+ * link has been sent" was, for those two, simply not true of any inbox.
+ *
+ * The HTTP response does not change and still reveals nothing: the branch is
+ * disclosed only to whoever owns the mailbox. Keep the call shape identical
+ * across the three - one `sendEmailOnly`, no extra round trip - so response
+ * time does not encode the outcome either. See docs/74.
+ */
+export async function notifyPasswordResetOutcome(p: {
+  email: string;
+  outcome: PasswordResetOutcome;
+  /** Only ever set for `reset_link`. */
+  resetUrl?: string;
+  /** Only ever set for `oauth_only`, e.g. `google`. */
+  provider?: string | null;
+}) {
+  const emailContent =
+    p.outcome === 'reset_link'
+      ? passwordResetEmail({ resetUrl: p.resetUrl ?? '' })
+      : p.outcome === 'oauth_only'
+        ? passwordResetOauthOnlyEmail({ provider: p.provider })
+        : passwordResetNoAccountEmail();
 
   await sendEmailOnly({ to: p.email, ...emailContent });
 }

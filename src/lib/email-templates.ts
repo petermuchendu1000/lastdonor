@@ -399,6 +399,53 @@ export function donationReceivedEmail(p: {
   };
 }
 
+/**
+ * The donor's own receipt.
+ *
+ * Moved here 2026-10-16 from an inline template literal in
+ * `payment-service.ts`, where it was the other half of the gap `docs/67`
+ * left (see the password reset family below). Two things were wrong with it
+ * beyond the missing shell:
+ *
+ *  1. **`donorName` and `campaignTitle` were interpolated into HTML
+ *     unescaped.** `donorName` is a free-text field the donor types into the
+ *     checkout form, carried through Stripe metadata and straight into the
+ *     markup of an email. `esc()` everywhere now, which is the rule every
+ *     other template in this file already followed.
+ *  2. The date was computed with `toLocaleDateString` on the SERVER, so the
+ *     receipt was stamped in the container's locale and timezone rather than
+ *     anything meaningful to the donor. It is now an explicit UTC date,
+ *     labelled as such, because a receipt that says "October 16, 2026" with
+ *     no zone is a figure that cannot be reconciled.
+ */
+export function donationReceiptEmail(p: {
+  campaignTitle: string;
+  donorName: string;
+  isAnonymous: boolean;
+  amount: number;
+  transactionId: string;
+  date?: Date;
+}) {
+  const greeting = p.isAnonymous || !p.donorName ? 'Donor' : p.donorName;
+  const stamped = (p.date ?? new Date()).toISOString().slice(0, 10);
+  return {
+    subject: `Donation receipt - ${p.campaignTitle}`,
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Thank you for your donation</h1>
+      <p>Dear ${esc(greeting)},</p>
+      <p>Your donation to <strong>${esc(p.campaignTitle)}</strong> has been received and processed.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Amount</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount)}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Campaign</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">${esc(p.campaignTitle)}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Transaction ID</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-family: monospace; font-size: 12px;">${esc(p.transactionId)}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Date</td><td style="padding: 8px 0; text-align: right;">${stamped} (UTC)</td></tr>
+      </table>
+      <p style="color: #666; font-size: 14px;">LastDonor charges no platform fee, so the full amount above went to the campaign less Stripe&rsquo;s processing fee.</p>
+      <p style="color: #666; font-size: 14px;">Please keep this email as confirmation of your donation. It is not a tax receipt and does not determine tax deductibility. Consult a tax advisor about your own situation.</p>
+    `),
+  };
+}
+
 export function bulkRefundCompletedEmail(p: {
   adminName: string;
   campaignTitle: string;
@@ -762,6 +809,89 @@ export function registrationWelcomeEmail(p: { name: string }) {
  * no token and grants no access. The recipient recovers the account through
  * the normal reset flow, which mints its own token.
  */
+/*
+  ── The password reset family ─────────────────────────────────────────────
+
+  Added 2026-10-16. The reset email was the LAST template still rendering its
+  own raw `<div style="font-family: 'DM Sans'">` inside the route handler,
+  which meant the single most security-sensitive message this platform sends
+  was also the only one with no doctype, no Outlook table scaffolding, no
+  preheader and no CAN-SPAM footer. docs/67 moved 44 templates onto the
+  shell and missed this one because it never lived in this file.
+
+  Two of the three are new behaviour, not just a re-render. See docs/74.
+*/
+
+/** The reset link itself. Sent only to an address that has a password. */
+export function passwordResetEmail(p: { resetUrl: string }) {
+  return {
+    subject: 'Reset your LastDonor.org password',
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Reset your password</h1>
+      <p>Someone asked to reset the password on your LastDonor.org account. If that was you, use the button below.</p>
+      ${ctaButton(p.resetUrl, 'Reset password')}
+      <p style="color: #666; font-size: 14px;">This link works once and expires in one hour.</p>
+      <p style="color: #666; font-size: 14px;">If it was not you, nothing has changed and your password still works. You can ignore this email.</p>
+    `),
+  };
+}
+
+/**
+ * Sent when the address has no account.
+ *
+ * The HTTP response is unchanged and still says "if an account exists" — the
+ * oracle `docs/32` closed stays closed, because only the inbox owner learns
+ * which branch ran. This is the shape `/register` already uses for its two
+ * outcomes (`docs/39`); the reset route simply never had it, so a visitor who
+ * typed the wrong address got silence and no way to find out why.
+ */
+export function passwordResetNoAccountEmail() {
+  const signUpUrl = `${BASE_URL}/register`;
+  return {
+    subject: 'No LastDonor.org account for this address',
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">There is no account for this address</h1>
+      <p>Someone asked to reset a LastDonor.org password for this email address, but there is no account here, so there was nothing to reset.</p>
+      <p><strong>If that was you:</strong> you may have signed up with a different address. You can also create an account.</p>
+      ${ctaButton(signUpUrl, 'Create an account')}
+      <p style="color: #666; font-size: 14px;">If it was not you, there is nothing to do. No account was created and whoever submitted the form was not told whether this address is registered.</p>
+    `),
+  };
+}
+
+/**
+ * Sent when the account exists but signs in through an identity provider and
+ * has no password to reset.
+ *
+ * Before this, that case returned early and sent nothing at all, so a real
+ * account holder who had forgotten *how* they signed up was told nothing,
+ * every time, forever. The provider name is included because "use Google"
+ * is the entire answer and withholding it helps nobody — the person already
+ * owns the inbox.
+ */
+export function passwordResetOauthOnlyEmail(p: { provider?: string | null }) {
+  const signInUrl = `${BASE_URL}/login`;
+  const named = p.provider ? esc(titleCaseProvider(p.provider)) : null;
+  return {
+    subject: 'Sign in to LastDonor.org without a password',
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">This account has no password</h1>
+      <p>Someone asked to reset the password on your LastDonor.org account. ${
+        named
+          ? `You sign in with <strong>${named}</strong>, so there is no password to reset.`
+          : 'You sign in through a connected account rather than with a password, so there is no password to reset.'
+      }</p>
+      ${ctaButton(signInUrl, named ? `Sign in with ${named}` : 'Sign in')}
+      <p style="color: #666; font-size: 14px;">Nothing has changed on your account. If it was not you who asked, you can ignore this email.</p>
+    `),
+  };
+}
+
+/** `google` -> `Google`. Providers are lowercase slugs in the accounts table. */
+function titleCaseProvider(provider: string): string {
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
 export function registrationExistingAccountEmail() {
   const signInUrl = `${BASE_URL}/login`;
   return {
