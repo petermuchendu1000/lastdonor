@@ -124,12 +124,29 @@ export function NewsletterSignup({ source, variant = 'inline', className }: News
 
   if (variant === 'hero') {
     return (
-      <div className={cn('relative mx-auto max-w-2xl overflow-hidden rounded-2xl border border-border bg-card p-8 sm:p-12', className)}>
+      <div className={cn('relative mx-auto max-w-2xl overflow-hidden rounded-2xl border border-border bg-card p-6 sm:p-10', className)}>
         <h2 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
           Stay in the Loop
         </h2>
+        {/*
+          "Weekly." was removed on 2026-10-16 and must not come back until a
+          newsletter has actually been sent.
+
+          Verified that day: `send-newsletter` is scheduled only in
+          `vercel.json`, which docs/26 states does nothing on Fly, where this
+          deploys. The Cloudflare Worker meant to replace it does not exist
+          (`workers/scripts` returns count=0 for the account), and the
+          database holds 3 subscribers with ZERO newsletter audit rows. A
+          weekly cadence promised to people who have never received anything
+          is precisely the unsubstantiated claim CLAUDE.md prohibits.
+
+          "No spam." went too: it is a phrase every list says and none of
+          them is believed for saying it.
+
+          See docs/65.
+        */}
         <p className="mt-2 text-sm text-muted-foreground">
-          Campaign updates, impact stories, and ways to help. Weekly. No spam.
+          New reviewed campaigns and impact updates, straight to your inbox.
         </p>
         <form onSubmit={handleSubmit(onSubmit)} className="mt-6 flex flex-col gap-3 sm:flex-row">
           <label htmlFor="newsletter-hero-email" className="sr-only">Email address</label>
