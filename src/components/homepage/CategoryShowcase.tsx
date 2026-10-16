@@ -50,7 +50,7 @@ export function CategoryShowcase() {
             <h2 className="mt-3 font-display text-[2rem] font-bold leading-[1.15] tracking-tight text-foreground md:text-[2.25rem]">
               Find a Cause You Care About
             </h2>
-            <p className="mt-4 font-serif text-[15px] font-light leading-relaxed text-muted-foreground md:text-[16px]">
+            <p className="mt-4 text-[15px] leading-relaxed text-muted-foreground md:text-[16px]">
               Browse reviewed fundraisers by real-life need and give where your support matters most.
             </p>
           </div>
@@ -93,7 +93,7 @@ export function CategoryShowcase() {
                 <span className="mt-5 font-display text-[18px] font-bold leading-tight tracking-tight text-foreground">
                   {label}
                 </span>
-                <span className="mt-2 font-serif text-[14px] font-light leading-relaxed text-muted-foreground">
+                <span className="mt-2 text-[14px] leading-relaxed text-muted-foreground">
                   {description}
                 </span>
                 <span className="mt-auto pt-5 text-[13px] font-bold text-primary transition-colors duration-200 group-hover:text-primary/80">

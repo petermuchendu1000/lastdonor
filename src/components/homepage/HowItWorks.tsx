@@ -42,7 +42,7 @@ export function HowItWorks() {
           <h2 className="font-display text-[1.75rem] font-bold leading-[1.15] tracking-tight text-foreground sm:text-[2rem] lg:text-[2.25rem]">
             3 Steps to Give with Confidence
           </h2>
-          <p className="mt-3 font-serif text-[15px] font-light text-muted-foreground sm:mt-4 sm:text-[16px]">
+          <p className="mt-3 text-[15px] text-muted-foreground sm:mt-4 sm:text-[16px]">
             Find a reviewed campaign, donate securely, and see your impact.
           </p>
         </motion.div>
@@ -63,7 +63,14 @@ export function HowItWorks() {
                 className="flex flex-col border-t border-border pt-6 sm:pt-7"
               >
                 <div className="flex items-center gap-3">
-                  <span className="font-display text-[12px] font-semibold tracking-[0.14em] text-muted-foreground sm:text-[13px]">
+                  {/*
+                    The number is the whole point of a numbered process and
+                    was the faintest thing in it: 12px, muted, in a display
+                    serif. GoFundMe sets theirs at ~24px inside a 56px
+                    circle. This keeps our flatter treatment but gives the
+                    numeral real size and full-contrast ink. See docs/56.
+                  */}
+                  <span className="font-display text-[22px] font-bold leading-none tabular-nums text-foreground sm:text-[24px]">
                     {step.number}
                   </span>
                   <span className="h-px w-6 bg-border" aria-hidden="true" />
@@ -76,7 +83,7 @@ export function HowItWorks() {
                 <h3 className="mt-4 font-display text-[17px] font-bold tracking-tight text-foreground sm:mt-5 sm:text-[18px]">
                   {step.title}
                 </h3>
-                <p className="mt-2.5 max-w-prose font-serif text-[14px] font-light leading-[1.7] text-muted-foreground sm:mt-3 sm:text-[15px] md:text-[14px]">
+                <p className="mt-2.5 max-w-prose text-[15px] leading-[1.65] text-muted-foreground sm:mt-3 md:text-[14px]">
                   {step.description}
                 </p>
               </motion.li>
