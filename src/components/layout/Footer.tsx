@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { CreditCardIcon } from '@/components/ui/icon';
 import { FooterDarkModeToggle } from '@/components/layout/FooterDarkModeToggle';
 import { FooterNewsletter } from '@/components/layout/FooterNewsletter';
 
@@ -98,8 +99,15 @@ export function Footer() {
 
             {/* Trust badges */}
             <div className="mt-4 flex items-center gap-3 text-xs text-gray-500">
-              <span className="flex items-center gap-1">
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2}><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              <span className="flex items-center gap-1.5">
+                {/*
+                  Was a hand-rolled inline SVG element with its own viewBox and
+                  strokeWidth={2}, one of seventeen such in `src/`. It now
+                  comes through the icon layer, so it carries the brand
+                  stroke and the shared size scale like everything else.
+                  See docs/70.
+                */}
+                <CreditCardIcon size="sm" />
                 Secured by Stripe
               </span>
               {/*
