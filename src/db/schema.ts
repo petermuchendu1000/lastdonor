@@ -376,14 +376,54 @@ export const donations = pgTable(
     source: donationSourceEnum('source').notNull().default('real'),
     refunded: boolean('refunded').notNull().default(false),
     subscribedToUpdates: boolean('subscribed_to_updates').notNull().default(false),
+    /**
+     * Which share link brought this donor, if any. Nullable: most donations
+     * arrive directly. See `docs/57`.
+     */
+    shareLinkId: uuid('share_link_id').references(() => campaignShareLinks.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_donations_campaign_id').on(table.campaignId),
+    index('idx_donations_share_link_id').on(table.shareLinkId),
     index('idx_donations_user_id').on(table.userId),
     index('idx_donations_created_at').on(table.createdAt),
     uniqueIndex('idx_donations_stripe_payment_id').on(table.stripePaymentId),
     check('donations_amount_check', sql`${table.amount} >= 500`),
+  ],
+);
+
+/**
+ * A share link belongs to one campaign and one sharer.
+ *
+ * `docs/30` §1 identifies the attributed share loop as GoFundMe's growth
+ * engine rather than a feature: a plain share button is not parity, because
+ * it cannot tell an organizer which of their supporters actually reached
+ * anyone. This table is what makes a share countable.
+ *
+ * The token is random, not signed. These are looked up in the database on
+ * every use, so a signature would add verification cost without adding
+ * security - unlike `unsubscribe-tokens`, which must be verifiable with no
+ * row to check against. See `docs/57`.
+ */
+export const campaignShareLinks = pgTable(
+  'campaign_share_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id),
+    token: text('token').notNull(),
+    /** Null for a guest sharer; the link still attributes. */
+    userId: uuid('user_id').references(() => users.id),
+    /** Visits that resolved this token. Not unique visitors. */
+    clickCount: integer('click_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_campaign_share_links_token').on(table.token),
+    index('idx_campaign_share_links_campaign_id').on(table.campaignId),
+    index('idx_campaign_share_links_user_id').on(table.userId),
   ],
 );
 

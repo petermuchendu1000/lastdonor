@@ -39,6 +39,17 @@ const campaignRow = {
   status: 'active',
 };
 
+/*
+ * The page now mints an attributed share link on a verified success, which
+ * pulls in NextAuth. This suite is about what the receipt renders, so the
+ * session is stubbed rather than stood up. See docs/57.
+ */
+vi.mock('@/lib/auth', () => ({ auth: vi.fn(async () => null) }));
+vi.mock('@/lib/share-links', () => ({
+  mintShareLink: vi.fn(async () => ({ id: 'link-1', token: 'tok_test_123456' })),
+  shareUrl: (t: string) => `https://lastdonor.org/s/${t}`,
+}));
+
 vi.mock('@/db', () => ({
   db: {
     select: () => ({

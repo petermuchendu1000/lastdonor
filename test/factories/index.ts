@@ -78,6 +78,7 @@ export function buildDonation(overrides: Partial<Donation> = {}): Donation {
     donorName: 'Jane Doe',
     donorEmail: 'jane@example.com',
     donorLocation: 'Portland, OR',
+    shareLinkId: null,
     message: 'Stay strong!',
     isAnonymous: false,
     isRecurring: false,

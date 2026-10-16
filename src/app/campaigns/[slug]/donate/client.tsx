@@ -25,6 +25,8 @@ interface DonatePageClientProps {
   confirmedAmount?: number;
   sessionId?: string;
   paymentIntentId?: string;
+  /** This donor's attributed share link. See docs/57. */
+  attributedShareUrl?: string;
 }
 
 /** How a verified Stripe state is shown to the donor. */
@@ -62,6 +64,7 @@ export function DonatePageClient({
   confirmedAmount: verifiedAmount,
   sessionId,
   paymentIntentId,
+  attributedShareUrl,
 }: DonatePageClientProps) {
   const router = useRouter();
   const confirmSent = useRef(false);
@@ -181,6 +184,7 @@ export function DonatePageClient({
               initialAmount={initialAmount}
               initialStep={stepForState(state)}
               initialConfirmedAmount={confirmedAmount}
+              attributedShareUrl={attributedShareUrl}
               onDonationComplete={() => router.refresh()}
             />
           </div>

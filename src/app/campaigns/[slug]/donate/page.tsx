@@ -6,6 +6,10 @@ import { eq, and, or } from 'drizzle-orm';
 import { centsToDollars } from '@/lib/utils/currency';
 import { verifyDonationReturn } from '@/lib/donations/verify-return';
 import type { DonationReturnState } from '@/lib/donations/verify-return';
+import { auth } from '@/lib/auth';
+import { logError } from '@/lib/errors';
+import { appBaseUrl } from '@/lib/unsubscribe-tokens';
+import { mintShareLink, shareUrl } from '@/lib/share-links';
 import { DonatePageClient } from './client';
 
 interface PageProps {
@@ -120,8 +124,37 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
     }
   }
 
+  /*
+   * Mint this donor's attributed share link, but ONLY on a Stripe-verified
+   * success. Two reasons it is gated that tightly:
+   *
+   *   - every mint writes a row, so minting on page render would create one
+   *     per visit rather than one per donor;
+   *   - docs/42 established that nothing may be rendered from an unverified
+   *     `?donation=success`. A share link saying "anyone who gives through
+   *     this is credited to you" is a claim about a donation, so it is held
+   *     to the same bar as the receipt.
+   *
+   * Best-effort: a failure here must not cost the donor their receipt, so it
+   * degrades to the plain campaign URL. See docs/57.
+   */
+  let attributedShareUrl: string | undefined;
+  if (returnState === 'succeeded') {
+    try {
+      const session = await auth();
+      const link = await mintShareLink({
+        campaignId: campaign.id,
+        userId: session?.user?.id ?? null,
+      });
+      attributedShareUrl = shareUrl(link.token, appBaseUrl());
+    } catch (error) {
+      logError(error, 'campaigns/[slug]/donate#mintShareLink');
+    }
+  }
+
   return (
     <DonatePageClient
+      attributedShareUrl={attributedShareUrl}
       campaignId={campaign.id}
       campaignSlug={campaign.slug}
       campaignTitle={campaign.title}

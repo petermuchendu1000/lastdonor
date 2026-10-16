@@ -39,6 +39,8 @@ interface PaymentMetadata {
   isAnonymous: boolean;
   isRecurring: boolean;
   subscribedToUpdates: boolean;
+  /** Share link that brought this donor, if any. See docs/57. */
+  shareLinkId: string | null;
 }
 
 interface TransactionResult {
@@ -66,6 +68,12 @@ function parseMetadata(meta: Stripe.Metadata): PaymentMetadata | null {
     isAnonymous: meta.isAnonymous === 'true',
     isRecurring: meta.isRecurring === 'true',
     subscribedToUpdates: meta.subscribedToUpdates === 'true',
+    /*
+     * Absent on the overwhelming majority of donations, and absent on every
+     * donation taken before this existed. Treated as optional for exactly
+     * that reason: a missing attribution is the normal case, never an error.
+     */
+    shareLinkId: meta.shareLinkId || null,
   };
 }
 
@@ -161,6 +169,13 @@ async function processPaymentTransaction(
       isRecurring,
       phaseAtTime: phase,
       source: 'real',
+      /*
+       * Written in the same INSERT as the donation, inside the same
+       * transaction, so attribution cannot drift from the row it describes.
+       * docs/41 established one writer for donation accounting; this does
+       * not add a second.
+       */
+      shareLinkId: meta.shareLinkId,
     }).onConflictDoNothing({ target: donations.stripePaymentId }).returning({ id: donations.id });
 
     if (insertResult.length === 0) return null; // Duplicate webhook

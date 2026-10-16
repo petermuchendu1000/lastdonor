@@ -8,6 +8,13 @@
       "when": 1791993822116,
       "tag": "0000_cheerful_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792124539413,
+      "tag": "0001_ordinary_electro",
+      "breakpoints": true
     }
   ]
 }

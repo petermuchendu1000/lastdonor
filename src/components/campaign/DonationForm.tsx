@@ -92,6 +92,8 @@ interface DonationFormProps {
   className?: string;
   /** Campaign slug for post-donation navigation (omit for general fund) */
   campaignSlug?: string;
+  /** This donor's attributed share link, minted server-side. See docs/57. */
+  attributedShareUrl?: string;
   /** When true, strips card wrapper (border/bg/padding) for use inside Dialog */
   embedded?: boolean;
   /** Pre-select an amount in cents when the form mounts */
@@ -173,12 +175,21 @@ function CheckoutStep({
    Step 3 - Success confirmation
    ───────────────────────────────────────────── */
 
-function SuccessStep({ amount, campaignTitle, campaignSlug, embedded }: { amount: number; campaignTitle: string; campaignSlug?: string; embedded?: boolean }) {
-  const shareUrl = campaignSlug
-    ? (typeof window !== 'undefined'
-        ? `${window.location.origin}/campaigns/${campaignSlug}`
-        : `https://lastdonor.org/campaigns/${campaignSlug}`)
-    : '';
+function SuccessStep({ amount, campaignTitle, campaignSlug, embedded, attributedShareUrl }: { amount: number; campaignTitle: string; campaignSlug?: string; embedded?: boolean; attributedShareUrl?: string }) {
+  /*
+   * Prefer this donor's own attributed link. Sharing the plain campaign URL
+   * is the thing docs/30 §1 says is explicitly NOT parity: nothing it
+   * produces can be counted, so an organizer can never see which supporter
+   * actually reached anyone. Falls back to the plain URL when no link could
+   * be minted, because a share that cannot be attributed still beats no
+   * share. See docs/57.
+   */
+  const shareUrl = attributedShareUrl
+    ?? (campaignSlug
+      ? (typeof window !== 'undefined'
+          ? `${window.location.origin}/campaigns/${campaignSlug}`
+          : `https://lastdonor.org/campaigns/${campaignSlug}`)
+      : '');
 
   const shareText = `I just donated to ${campaignTitle} on LastDonor - join me.`;
 
@@ -242,8 +253,20 @@ function SuccessStep({ amount, campaignTitle, campaignSlug, embedded }: { amount
           <p className="text-sm font-semibold text-card-foreground">
             Multiply your impact
           </p>
+          {/*
+            Was "One share brings an average of two new donors." That number
+            appears in no document, no analysis and no data source in this
+            repository - it was invented. On a platform whose CLAUDE.md says
+            never to add a claim it cannot substantiate, and which already
+            had a forged-attribution incident (docs/36), a fabricated
+            conversion statistic shown to a donor who has just paid is not a
+            small thing. Replaced with what is actually true: the link is
+            theirs and the campaign can see it worked.
+          */}
           <p className="mt-1 text-xs text-muted-foreground">
-            One share brings an average of two new donors. Pick a channel:
+            {attributedShareUrl
+              ? 'This link is yours. Anyone who gives through it is credited to you.'
+              : 'Share it anywhere:'}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <a
@@ -429,6 +452,7 @@ export function DonationForm({
   initialStep,
   initialConfirmedAmount,
   onDonationComplete,
+  attributedShareUrl,
 }: DonationFormProps) {
   const [selectedPreset, setSelectedPreset] = useState<number | null>(() => {
     if (initialAmount && (PRESET_AMOUNTS as readonly number[]).includes(initialAmount)) return initialAmount;
@@ -620,7 +644,7 @@ export function DonationForm({
   if (step === 'success') {
     return (
       <div className={wrapperClass}>
-        <SuccessStep amount={confirmedAmount} campaignTitle={campaignTitle} campaignSlug={campaignSlug} embedded={embedded} />
+        <SuccessStep amount={confirmedAmount} campaignTitle={campaignTitle} campaignSlug={campaignSlug} embedded={embedded} attributedShareUrl={attributedShareUrl} />
       </div>
     );
   }

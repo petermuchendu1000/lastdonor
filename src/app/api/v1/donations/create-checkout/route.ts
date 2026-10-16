@@ -4,6 +4,11 @@ import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { createIntentSchema } from '@/lib/validators/donation';
 import { stripe } from '@/lib/stripe';
+import {
+  SHARE_ATTRIBUTION_COOKIE,
+  resolveShareLinkForCampaign,
+} from '@/lib/share-links';
+import { logError } from '@/lib/errors';
 import { randomUUID } from 'crypto';
 import type { ApiResponse, ApiError } from '@/types/api';
 
@@ -74,6 +79,28 @@ export async function POST(request: NextRequest) {
     // to. These three copies drifted apart once already: the subscription copy
     // existed while the PaymentIntent copy did not, which is how recurring
     // charges ended up unrecorded (audit docs/29 P1-2).
+    /*
+     * Attribution, if this donor arrived through someone's share link.
+     * Resolved against THIS campaign, so a cookie left over from a different
+     * campaign cannot credit the wrong sharer. Carried on Stripe metadata
+     * like every other donor fact, because that is the disaster-recovery
+     * substrate (CLAUDE.md) - attribution survives anything rebuildable from
+     * Stripe alone. See docs/57.
+     */
+    let shareLinkId: string | null = null;
+    try {
+      const shareToken = request.cookies?.get(SHARE_ATTRIBUTION_COOKIE)?.value ?? null;
+      shareLinkId = await resolveShareLinkForCampaign(shareToken, data.campaignId);
+    } catch (error) {
+      /*
+       * Attribution is a nice-to-have bolted onto the side of a payment. It
+       * must never be able to stop one: a cookie-less request object or a
+       * database hiccup here should cost the sharer their credit, not cost
+       * the campaign the donation.
+       */
+      logError(error, { requestId, route: 'donations/create-checkout#shareAttribution' });
+    }
+
     const donationMetadata = {
       campaignId: data.campaignId,
       donorName: data.donorName || 'Anonymous',
@@ -83,6 +110,7 @@ export async function POST(request: NextRequest) {
       isAnonymous: String(data.isAnonymous),
       isRecurring: String(data.isRecurring),
       subscribedToUpdates: String(data.subscribedToUpdates),
+      ...(shareLinkId ? { shareLinkId } : {}),
     };
 
     const origin = request.headers.get('origin') || 'https://lastdonor.org';

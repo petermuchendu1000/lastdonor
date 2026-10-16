@@ -604,6 +604,7 @@ describe('donation receipts (docs/29 P0-4)', () => {
       isAnonymous: false,
       isRecurring: false,
       subscribedToUpdates: false,
+      shareLinkId: null,
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     campaign: baseCampaign() as any,
