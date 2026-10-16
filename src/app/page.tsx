@@ -269,20 +269,34 @@ export default async function Home() {
                 Every campaign below has been reviewed by our editorial team.
               </p>
             </AnimateOnScroll>
+            {/*
+              Six cards on desktop (a full 2x3 grid), three on a phone.
+
+              GoFundMe's equivalent row shows exactly three and then a "Show
+              more" button; ours showed all six stacked, which is most of why
+              this section ran 1,379px on a 390px screen against their 869px.
+              The remaining three are one tap away behind the button below,
+              which is the same bargain they strike.
+
+              Hidden with CSS rather than sliced on the server because the
+              server cannot know the viewport, and this section is rendered
+              once and cached. See docs/62.
+            */}
             <div className="mt-8 grid gap-3 sm:mt-12 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {data.activeCampaigns.map((c) => (
-                <CampaignCard
-                  key={c.slug}
-                  slug={c.slug}
-                  title={c.title}
-                  heroImageUrl={c.heroImageUrl}
-                  subjectName={c.subjectName}
-                  category={c.category}
-                  location={c.location || c.subjectHometown || undefined}
-                  raisedAmount={c.raisedAmount}
-                  goalAmount={c.goalAmount}
-                  donorCount={c.donorCount}
-                />
+              {data.activeCampaigns.map((c, i) => (
+                <div key={c.slug} className={i >= 3 ? 'hidden sm:block' : undefined}>
+                  <CampaignCard
+                    slug={c.slug}
+                    title={c.title}
+                    heroImageUrl={c.heroImageUrl}
+                    subjectName={c.subjectName}
+                    category={c.category}
+                    location={c.location || c.subjectHometown || undefined}
+                    raisedAmount={c.raisedAmount}
+                    goalAmount={c.goalAmount}
+                    donorCount={c.donorCount}
+                  />
+                </div>
               ))}
             </div>
             <AnimateOnScroll className="mt-8">
@@ -290,7 +304,7 @@ export default async function Home() {
                 href="/campaigns"
                 className="btn-press inline-flex rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground transition-colors duration-200 hover:bg-primary/90"
               >
-                Browse reviewed campaigns raising money now
+                Browse all reviewed campaigns
               </Link>
             </AnimateOnScroll>
           </div>
