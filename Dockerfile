@@ -153,7 +153,20 @@ COPY . .
 # then the 24 `revalidate` routes pre-render with real content instead of
 # empty, and visitors do not pay for the first render. Either way it arrives as
 # a BuildKit secret, so it never lands in a layer or in `docker history`.
+# `.next/cache` is a BuildKit cache mount, not a layer: it holds Next's
+# webpack/SWC compilation cache between builds. Measured 2026-10-16, this
+# step was 183.6s of a ~196s image build - every other step was already
+# CACHED - and the log showed webpack serializing its pack files from
+# scratch each time, because the cache directory died with the container.
+#
+# `sharing=locked` rather than the default `shared`: two concurrent builds
+# writing one webpack cache corrupts it, and a corrupt cache fails closed by
+# rebuilding, which is the slow path this exists to avoid.
+#
+# Safe to mount: only `.next/standalone` and `.next/static` are copied into
+# the runner, and neither lives under `.next/cache`. See docs/54.
 RUN --mount=type=secret,id=database_url \
+    --mount=type=cache,target=/app/.next/cache,sharing=locked \
     set -eu; \
     if [ -s /run/secrets/database_url ]; then \
       DATABASE_URL="$(cat /run/secrets/database_url)" npm run build; \
