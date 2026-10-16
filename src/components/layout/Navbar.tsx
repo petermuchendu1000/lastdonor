@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, lazy, Suspense, type ComponentPropsWithoutRef } from 'react';
+import { useState, Suspense, type ComponentPropsWithoutRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuthState } from '@/lib/auth-state';
@@ -29,10 +29,6 @@ import {
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 
-// Lazy-load NotificationBell (not needed for initial render, reduces main bundle)
-const NotificationBell = lazy(() =>
-  import('@/components/NotificationBell').then((m) => ({ default: m.NotificationBell }))
-);
 
 /* ------------------------------------------------------------------ */
 /*  Navigation data - all links derive from here, nothing hardcoded   */
@@ -249,12 +245,14 @@ export function Navbar() {
               data-testid="auth-indeterminate"
             />
           ) : isAuthed ? (
-            <>
-              <Suspense fallback={<div className="h-9 w-9" />}>
-                <NotificationBell />
-              </Suspense>
-              <UserNav />
-            </>
+            /*
+              The bell was a second 36px button beside the avatar saying the
+              same thing the avatar can say on its own. The unread count is a
+              badge on the avatar now and the list is an item in the account
+              menu, which returns that width to the navbar and removes a
+              duplicate entry point. See docs/68.
+            */
+            <UserNav />
           ) : (
             <Suspense
               fallback={
@@ -300,12 +298,7 @@ export function Navbar() {
           </Link>
 
           {isAuthed && (
-            <>
-              <Suspense fallback={<div className="h-9 w-9" />}>
-                <NotificationBell />
-              </Suspense>
-              <UserNav />
-            </>
+<UserNav />
           )}
           <Sheet onOpenChange={(open) => { if (!open) setMobileView('root'); }}>
             <SheetTrigger asChild>

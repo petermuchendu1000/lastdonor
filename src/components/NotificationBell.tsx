@@ -182,6 +182,39 @@ function _clearAll() {
   fetch('/api/v1/notifications', { method: 'DELETE' }).catch(() => {});
 }
 
+// ─── Shared read for the avatar badge ───────────────────────────────────────
+
+/**
+ * Unread count, for surfaces that show the badge without owning the bell.
+ *
+ * The navbar no longer renders a bell: the count sits on the avatar and the
+ * list moved into the account menu, which gives a 36px tap target back on a
+ * phone (docs/68). `UserNav` reads the count through this hook, so there is
+ * still exactly one poller and one piece of state.
+ *
+ * Subscribing is what starts the poller (`_subscribe` ref-counts it), so a
+ * surface that only wants the number gets live data without mounting the
+ * bell.
+ */
+export function useUnreadNotificationCount(): number {
+  const { status } = useSession();
+  const { unreadCount } = useSyncExternalStore(_subscribe, _getSnapshot, _getSnapshot);
+
+  // Mirrors the bell's own effect exactly: `_subscribe` already starts the
+  // poller on the first subscriber and stops it on the last, so this only
+  // has to stop it when the session goes away. Calling `_startPolling` here
+  // as well would be redundant, and returning `_stopPolling` from the
+  // cleanup would fight the ref-count when both this hook and the bell are
+  // mounted.
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      _stopPolling();
+    }
+  }, [status]);
+
+  return unreadCount;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function NotificationBell() {

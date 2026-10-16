@@ -5,7 +5,6 @@
  */
 import Image from 'next/image';
 import Link from 'next/link';
-import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 
 export function HeroSection() {
   return (
@@ -127,32 +126,21 @@ export function HeroSection() {
           </div>
 
           {/*
-            Zero-Knowledge Proof strip: pre-empts the top objections at the
-            point of CTA click.
+            The three-chip proof strip that sat here was removed on
+            2026-10-16. It said "No signup to donate / Human-reviewed
+            campaigns / 0% platform fees"; the TrustBar immediately below it
+            says "0% platform fee / Human reviewed / Impact updates". Two of
+            the three were the same claim twice, about 80px apart, and the
+            repetition was self-inflicted: the TrustBar rebuild in docs/64
+            shortened its labels to exactly the words the chips already used.
 
-            Was a 12px grey run-on separated by middots, which wrapped to two
-            ragged lines on a 390px screen and read as fine print. Now three
-            discrete chips: each claim is its own object, legible at 13px, and
-            the wrap is deliberate rather than accidental.
+            The TrustBar keeps them, not the hero. It is the narrower strip,
+            it reads as a band of facts rather than as part of the pitch, and
+            the hero's own subheading already carries "0% platform fees" in
+            a sentence. "No signup to donate" is the one claim that was only
+            here; it now lives in the How it works stepper, step 02, as "Any
+            card, no account needed". See docs/68.
           */}
-          <ul className="hero-reveal hero-reveal-3 mt-6 flex flex-wrap gap-2">
-            {[
-              'No signup to donate',
-              'Human-reviewed campaigns',
-              '0% platform fees',
-            ].map((claim) => (
-              <li
-                key={claim}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card/70 px-3 py-1.5 text-[13px] font-medium text-foreground/80 shadow-sm backdrop-blur-sm"
-              >
-                <CheckBadgeIcon
-                  className="h-4 w-4 shrink-0 text-brand-teal"
-                  aria-hidden="true"
-                />
-                {claim}
-              </li>
-            ))}
-          </ul>
         </div>
       </div>
     </section>
