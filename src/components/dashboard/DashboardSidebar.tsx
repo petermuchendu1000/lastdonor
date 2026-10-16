@@ -16,6 +16,7 @@ import {
   ChevronRightIcon,
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 
 type NavItem = {
@@ -27,6 +28,9 @@ type NavItem = {
 const PRIMARY_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: HomeIcon },
   { href: '/dashboard/finances', label: 'Finances', icon: BanknotesIcon },
+  // GoFundMe puts "Your impact" in the account menu; ours is primary nav
+  // because the loop only works if the sharer can find what it earned them.
+  { href: '/dashboard/impact', label: 'Your impact', icon: SparklesIcon },
 ];
 
 const ACCOUNT_CHILDREN: { href: string; label: string }[] = [

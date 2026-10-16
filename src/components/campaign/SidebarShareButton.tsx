@@ -1,40 +1,116 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ShareIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
+import { useAuthState } from '@/lib/auth-state';
 
 interface SidebarShareButtonProps {
+  /** The plain campaign URL. Always the fallback, never a dead end. */
   url: string;
   title: string;
+  /** Present when an attributed link can be minted for this campaign. */
+  campaignSlug?: string;
   className?: string;
 }
 
 /**
+ * How long we will wait for an attributed link before sharing the plain URL.
+ *
+ * The share sheet must open. A sharer whose network is slow gets an
+ * uncredited share, which is a worse outcome than a credited one and a far
+ * better outcome than a button that appears broken.
+ */
+const MINT_TIMEOUT_MS = 1_500;
+
+/**
  * The sidebar's second primary action.
  *
- * Uses the native share sheet where the browser has one — on a phone that is
- * the whole contact list, one tap, with no social account required — and falls
+ * Uses the native share sheet where the browser has one - on a phone that is
+ * the whole contact list, one tap, with no social account required - and falls
  * back to copying the link. The capability is probed inside the handler rather
  * than at render, so the server and client markup stay identical.
+ *
+ * ## Attribution (2026-10-16)
+ *
+ * For a signed-in sharer this shares `/s/<token>`, not the plain campaign URL,
+ * so the donations it produces show up on `/dashboard/impact`. GoFundMe's
+ * help-centre article 24972788571803 (VERIFIED, edited 2026-10-07) states a
+ * signed-in user gets a unique link from **any** share option; ours previously
+ * minted one only on the post-donation screen, so the main share surface - this
+ * button - was handing out an uncountable URL and the impact dashboard had
+ * nothing to report. See `docs/58`.
+ *
+ * Three things here are deliberate:
+ *
+ *  - **Minted on click, not on mount.** A mint is a write. Doing it at render
+ *    would create a link for every campaign a signed-in person merely looked
+ *    at, and "Campaigns shared: 47" would then count 47 pages they scrolled
+ *    past. The dashboard would be reporting something untrue.
+ *  - **Bounded, and never blocking.** `MINT_TIMEOUT_MS` caps the wait, and any
+ *    failure shares the plain URL instead. Attribution is an enhancement; the
+ *    share itself is the feature.
+ *  - **`unknown` auth shares the plain URL.** Per `docs/44` a failed or
+ *    rate-limited session read must not be treated as signed out; here it
+ *    simply means no attribution, which is the harmless reading.
  */
-export function SidebarShareButton({ url, title, className }: SidebarShareButtonProps) {
+export function SidebarShareButton({
+  url,
+  title,
+  campaignSlug,
+  className,
+}: SidebarShareButtonProps) {
   const [copied, setCopied] = useState(false);
+  const { isAuthenticated } = useAuthState();
+  /** Resolved attributed link, kept so a second share costs no request. */
+  const minted = useRef<string | null>(null);
+
+  /** This sharer's attributed link, or the plain URL if one cannot be had. */
+  async function resolveShareUrl(): Promise<string> {
+    if (minted.current) return minted.current;
+    if (!isAuthenticated || !campaignSlug) return url;
+
+    try {
+      const response = await fetch(
+        `/api/v1/campaigns/${encodeURIComponent(campaignSlug)}/share-link`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+          signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
+        },
+      );
+      if (!response.ok) return url;
+      const body = await response.json();
+      const attributed = body?.data?.url;
+      if (typeof attributed !== 'string' || !attributed) return url;
+      minted.current = attributed;
+      return attributed;
+    } catch {
+      // Offline, timed out, 401, malformed - all the same answer: share the
+      // page. Nothing here is worth a toast; the sharer asked to share.
+      return url;
+    }
+  }
 
   async function handleShare() {
+    const target = await resolveShareUrl();
+
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title, url });
+        await navigator.share({ title, url: target });
         return;
       } catch (err) {
         // The user dismissing the share sheet is a normal outcome, not a
-        // failure worth reporting. Anything else falls through to copying.
+        // failure worth reporting. Anything else falls through to copying -
+        // including a NotAllowedError from a browser that considers the
+        // activation spent by the await above.
         if (err instanceof Error && err.name === 'AbortError') return;
       }
     }
 
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(target);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       const { toast } = await import('sonner');
