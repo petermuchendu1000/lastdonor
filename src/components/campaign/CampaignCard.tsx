@@ -29,36 +29,69 @@ export function CampaignCard({
   goalAmount,
   donorCount,
 }: CampaignCardProps) {
-  const titleNamesSubject = title.toLowerCase().includes(subjectName.toLowerCase());
+  /*
+   * Hide "for <name>" when the title already names the subject. Matching on
+   * the full name alone missed "Sgt. Vega Comes Home..." for a subject
+   * recorded as "Sgt. Ramon Vega", so the surname is checked too - that is
+   * the token a reader actually recognises as the same person.
+   */
+  const lowerTitle = title.toLowerCase();
+  const surname = subjectName.trim().split(/\s+/).pop()?.toLowerCase() ?? '';
+  const titleNamesSubject =
+    lowerTitle.includes(subjectName.toLowerCase()) ||
+    (surname.length > 2 && lowerTitle.includes(surname));
 
   return (
     <article
       className="animate-fade-in-up group flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card card-hover-lift"
     >
-      <Link href={`/campaigns/${slug}`} className="flex flex-1 flex-col">
+      {/*
+        Horizontal below `sm`, vertical from `sm` up.
+
+        Measured 2026-10-16: our vertical card was ~400px tall on a phone, so
+        the homepage spent ~2,400px to surface six campaigns. GoFundMe's
+        mobile "Discover" row uses a 358x128 horizontal card - square
+        thumbnail left, text right - and surfaces TEN campaigns in 869px.
+        That is 87 vertical pixels per campaign against our ~400.
+
+        Done as a direction change on ONE element rather than two cards
+        toggled by CSS. A hidden card is still in the DOM and its image is
+        still fetched; that mistake cost 18KB per phone load in the hero
+        (docs/53) and would cost far more across a grid. See docs/55.
+      */}
+      <Link href={`/campaigns/${slug}`} className="flex flex-1 flex-row sm:flex-col">
         {/* Hero image - clean, no overlays */}
-        <div className="relative aspect-[16/10] overflow-hidden">
+        <div className="relative aspect-square w-28 shrink-0 overflow-hidden sm:aspect-[16/10] sm:w-full">
           <CampaignHeroImage
             src={heroImageUrl}
             alt={title}
             category={category}
             fill
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            /* 112px on a phone, not 100vw: the thumbnail is 112px wide, so
+               asking for a full-width variant downloads several times the
+               pixels it can show. */
+            sizes="(max-width: 639px) 112px, (max-width: 1024px) 50vw, 33vw"
             className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
           />
         </div>
 
         {/* Content */}
-        <div className="flex flex-1 flex-col p-5">
-          {/* Row 1: Category + Location */}
+        <div className="flex flex-1 flex-col p-3.5 sm:p-5">
+          {/*
+            Row 1: Category + Location.
+            The category chip is hidden on the compact card. In ~218px of
+            text column it pushes the location onto its own line, and the
+            thumbnail beside it already carries the category's visual cue.
+            GoFundMe's compact card shows proximity only, no category.
+          */}
           <div className="flex items-center gap-2">
             {category && (
-              <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold capitalize text-muted-foreground">
+              <span className="hidden rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold capitalize text-muted-foreground sm:inline">
                 {category}
               </span>
             )}
             {location && (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="truncate text-[11px] text-muted-foreground">
                 {location}
               </span>
             )}
@@ -88,7 +121,10 @@ export function CampaignCard({
                 a "$0 raised" that reads as a dead page across a whole grid.
                 The goal is still shown in full — see docs/47.
               */
-              <div className="flex items-baseline justify-between gap-2">
+              /* Stacked on the compact card: side by side these two need
+                 ~235px and the text column is ~218px, so they wrapped
+                 raggedly. Side by side again from `sm`, where there is room. */
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">
                 <span className="text-sm font-semibold text-foreground">
                   Be the first to donate
                 </span>

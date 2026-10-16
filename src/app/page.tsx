@@ -257,15 +257,19 @@ export default async function Home() {
         <section className="bg-surface-teal py-20 sm:py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <AnimateOnScroll>
-              <h2 className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              {/*
+                24px on a phone, matching GoFundMe's equivalent row heading.
+                At 30px this ran to three lines above a list of compact
+                cards and outweighed the content it introduced.
+              */}
+              <h2 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl lg:text-4xl">
                 Browse Reviewed Campaigns Raising Money Right Now
               </h2>
-              <p className="mt-3 max-w-xl text-base text-muted-foreground">
+              <p className="mt-3 max-w-xl text-sm text-muted-foreground sm:text-base">
                 Every campaign below has been reviewed by our editorial team.
-                Give with confidence knowing you can follow progress and impact updates.
               </p>
             </AnimateOnScroll>
-            <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-8 grid gap-3 sm:mt-12 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {data.activeCampaigns.map((c) => (
                 <CampaignCard
                   key={c.slug}
@@ -331,7 +335,7 @@ export default async function Home() {
                 See exactly where your donation went and the impact it created.
               </p>
             </AnimateOnScroll>
-            <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-8 grid gap-3 sm:mt-12 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {data.latestPosts.map((post) => (
                 <Link
                   key={post.slug}
