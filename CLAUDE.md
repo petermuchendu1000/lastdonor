@@ -78,6 +78,7 @@ transcript or a commit message is lost.
 | `64-DEV-CSP-AND-TRUST-BAR-ADR.md` | **Why `next.config.ts` adds `'unsafe-eval'` and `ws://localhost` to the CSP in DEVELOPMENT ONLY (without it React never hydrates in `next dev` and every client component is silently inert), with the byte-diff proving production is unchanged. Also the trust bar rebuild. Read before touching the CSP.** |
 | `65-NO-CRON-SCHEDULER-FINDING.md` | **⛔ OPEN: NO cron has ever run in production. `vercel.json` is inert on Fly, the Cloudflare Worker that should replace it does not exist (account has 0 workers), and `audit_logs` confirms zero scheduled activity. `reconcile` (a financial control) and 8 other jobs are dead. Read before relying on any cron.** |
 | `66-CRON-WORKER-ADR.md` | **The cron Worker: ONE `*/5` trigger because Cloudflare caps triggers at 5 PER ACCOUNT on free, why the table lives in `src/lib/cron-schedule.ts` (so unit tests cover the deployed code), why it targets `lastdonor.fly.dev`, and why `simulate-donations` is never scheduled. ⛔ Built and tested but NOT DEPLOYED: needs a Cloudflare token with Workers Scripts:Edit.** |
+| `67-EMAIL-SHELL-ADR.md` | **One email shell for all 44 templates: why tables and VML (Outlook renders through Word), why no SVG or web fonts (Gmail strips both), the derived preheader, and FIVE fabricated statistics removed from outgoing mail. Read before touching `email-shell.ts`, `email-templates.ts` or `email-adaptive.ts`.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -88,7 +89,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (5302 tests, 142 files, as of 2026-10-16)
+npm run test:unit      # Vitest (5322 tests, 143 files, as of 2026-10-16)
 npm run test:e2e       # Playwright (72 tests, 21 files)
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline

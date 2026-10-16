@@ -31,6 +31,7 @@
  */
 
 import { campaignUnsubscribeMechanism } from '@/lib/unsubscribe-tokens';
+import { renderEmail, emailButton } from './email-shell';
 
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://lastdonor.org';
 
@@ -87,27 +88,21 @@ function campaignUnsubscribeFooter(p: {
 
 // ─── Shared Layout ──────────────────────────────────────────────────────────
 
-function wrap(body: string): string {
-  return `
-    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1a1a1a;">
-      ${body}
-      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
-      <p style="color: #999; font-size: 12px; line-height: 1.5;">
-        LastDonor.org - Every campaign has a last donor. Will it be you?<br/>
-        <a href="${BASE_URL}/settings" style="color: #999;">Manage notification preferences</a>
-      </p>
-    </div>
-  `;
+/**
+ * Every template in this file renders through the one shared shell.
+ *
+ * This used to be a bare `div` with no doctype, no `<head>` and no tables,
+ * which Outlook's Word engine cannot lay out reliably, and it emitted no
+ * inbox preview line. `renderEmail` supplies all of that; `derivePreheader`
+ * means each template gains a preview line without being rewritten. See
+ * `email-shell.ts` and `docs/67`.
+ */
+function wrap(body: string, preheader?: string): string {
+  return renderEmail({ body, preheader });
 }
 
 function ctaButton(href: string, label: string, color: string = '#0F766E'): string {
-  return `
-    <p style="margin: 24px 0;">
-      <a href="${href}" style="background-color: ${color}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
-        ${label}
-      </a>
-    </p>
-  `;
+  return emailButton(href, label, color as `#${string}`);
 }
 
 function formatCents(cents: number): string {
@@ -291,8 +286,8 @@ export function adaptiveDonationReceiptEmail(p: {
   let ctaSection: string;
   if (isFirstTime) {
     ctaSection = `
-      <p style="font-weight: 600; margin-top: 20px;">One thing you can do right now that doubles your impact:</p>
-      <p>Share this campaign with one person you think would care. Personal shares are 10x more effective than social media posts.</p>
+      <p style="font-weight: 600; margin-top: 20px;">There is one thing you can do that the money cannot:</p>
+      <p>Send this to one person you think would care. A public post reaches everyone and asks no one. A message asks someone, by name, and it comes from you, who already gave.</p>
       ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Share This Campaign')}
     `;
   } else if (isRepeat) {
@@ -307,7 +302,7 @@ export function adaptiveDonationReceiptEmail(p: {
   return {
     subject,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">${heading}</h1>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">${heading}</h1>
       ${openingParagraph}
       ${highValueSection}
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
@@ -352,7 +347,7 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
       return {
         subject: `You were about to do something great, ${p.donorName}`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Still Thinking About It?</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Still Thinking About It?</h1>
           <p>Hi ${donorName},</p>
           <p>We noticed you started a donation${amountHint} to <strong>"${campaignTitle}"</strong> but didn't finish. No worries at all. Life gets busy.</p>
           <p>If you'd still like to help, the campaign is right where you left it. Every contribution, no matter the size, moves things forward.</p>
@@ -366,7 +361,7 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
       return {
         subject: `"${p.campaignTitle}" is ${progressPercent}% funded`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Here's Where Things Stand</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Here's Where Things Stand</h1>
           <p>Hi ${donorName},</p>
           <p>Since you last visited, <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(p.raisedCents)}</strong> from <strong>${p.donorCount}</strong> donor${p.donorCount === 1 ? '' : 's'}.</p>
           <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
@@ -386,7 +381,7 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
       return {
         subject: `Last note about "${p.campaignTitle}"`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">One Last Note</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">One Last Note</h1>
           <p>Hi ${donorName},</p>
           <p>This is our last message about <strong>"${campaignTitle}."</strong> We respect your time and your inbox.</p>
           <p>If this campaign moved you, the link is still here. If not, no hard feelings. There are many ways to make a difference, and donating is just one of them.</p>
@@ -483,7 +478,7 @@ export function adaptiveRefundEmail(p: {
 
     redirectSection = `
       <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-      <h2 style="color: #0F766E; font-size: 18px;">Other campaigns that could use your help</h2>
+      <h2 style="color: #0F766E; font-size: 18px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Other campaigns that could use your help</h2>
         <p>If you'd like to redirect your generosity, here are reviewed campaigns in a similar area:</p>
       ${campaignCards}
       ${ctaButton(`${BASE_URL}/campaigns`, 'Browse All Campaigns')}
@@ -501,7 +496,7 @@ export function adaptiveRefundEmail(p: {
   return {
     subject,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Refund Processed</h1>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Refund Processed</h1>
       ${openingSection}
       ${detailsTable}
       ${trustSection}
@@ -545,12 +540,12 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `"${c.campaignTitle}" is gaining traction. Keep it going.`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Your Campaign Has Momentum</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Campaign Has Momentum</h1>
           <p>Hi ${creatorName},</p>
           <p>Your campaign <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(c.raisedCents)}</strong> from <strong>${c.donorCount}</strong> donor${c.donorCount === 1 ? '' : 's'} so far. That's real progress.</p>
           <p>Donors love hearing from the people they're helping. A quick update goes a long way. Even a short message like "Here's where things stand" keeps people invested and encourages them to share your campaign with others.</p>
           ${calloutBox(
-            `<strong>Quick tip:</strong> Campaigns that post updates at least once a week raise 2x more than those that don't. Your donors want to hear from you.`
+            `<strong>Quick tip:</strong> Your donors have no way of knowing what their money did unless you tell them. Five minutes and one photo is the difference between a receipt and a reason to give again.`
           )}
           ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Post an Update')}
           <p style="color: #666; font-size: 14px;">Need help writing an update? Just reply to this email and we'll help you out.</p>
@@ -563,7 +558,7 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `Your donors haven't heard from you in ${daysSince} days`,
         html: wrap(`
-          <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;">Your Donors Are Wondering</h1>
+          <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donors Are Wondering</h1>
           <p>Hi ${creatorName},</p>
           <p>It's been <strong>${daysSince} days</strong> since you last updated <strong>"${campaignTitle}."</strong> Your <strong>${c.donorCount}</strong> donor${c.donorCount === 1 ? '' : 's'} gave because they believe in your cause, and they'd love to know how things are going.</p>
           <p>We've seen campaigns lose momentum when supporters don't hear back. It doesn't have to be long. Even a sentence or two can reignite interest and bring in new donations.</p>
@@ -582,7 +577,7 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `We want to help "${c.campaignTitle}" succeed`,
         html: wrap(`
-          <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;">Let's Get Things Moving Again</h1>
+          <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Let's Get Things Moving Again</h1>
           <p>Hi ${creatorName},</p>
           <p>We know things don't always go as planned. Your campaign <strong>"${campaignTitle}"</strong> hasn't received a new update in a while, and new donations have slowed down.</p>
           <p>That's completely normal. It happens to many campaigns. The good news is that it's not too late to turn things around.</p>
@@ -608,7 +603,7 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `${milestone} people now support "${c.campaignTitle}"`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">${milestone} Supporters and Counting</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">${milestone} Supporters and Counting</h1>
           <p>Hi ${creatorName},</p>
           <p>Something worth celebrating: <strong>${milestone} people</strong> have now donated to your campaign <strong>"${campaignTitle}."</strong> That's not just a number. That's ${milestone} people who read your story and decided to help.</p>
           <p>You've raised <strong>${formatCents(c.raisedCents)}</strong> so far, which is <strong>${progressPercent}%</strong> of your goal.</p>
@@ -622,7 +617,7 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `You're halfway there! "${c.campaignTitle}" is 50% funded`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">You're Halfway There!</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You're Halfway There!</h1>
           <p>Hi ${creatorName},</p>
           <p>Your campaign <strong>"${campaignTitle}"</strong> just crossed the 50% mark. You've raised <strong>${formatCents(c.raisedCents)}</strong> from <strong>${c.donorCount}</strong> supporter${c.donorCount === 1 ? '' : 's'}.</p>
           <p>This is a big deal. Research shows that campaigns that reach 50% are far more likely to reach their full goal. The hardest part is behind you.</p>
@@ -647,14 +642,14 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `3 ways to get your first donations for "${c.campaignTitle}"`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Let's Get Your First Donations</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Let's Get Your First Donations</h1>
           <p>Hi ${creatorName},</p>
           <p>Your campaign <strong>"${campaignTitle}"</strong> has been live for a few days. Here are the three things that work best for getting early donations:</p>
-          <h3 style="color: #333; margin: 20px 0 8px;">1. Send personal messages first</h3>
-          <p>Before posting on social media, text or WhatsApp your campaign link to 5 to 10 people you know personally. Include a short note about why this matters to you. Personal messages get 10x more donations than public posts.</p>
-          <h3 style="color: #333; margin: 20px 0 8px;">2. Be the first to donate</h3>
+          <h3 style="color: #333; margin: 20px 0 8px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">1. Send personal messages first</h3>
+          <p>Before posting on social media, text or WhatsApp your campaign link to 5 to 10 people you know personally. Include a short note about why this matters to you. A public post reaches everyone and asks no one. A message asks someone, by name.</p>
+          <h3 style="color: #333; margin: 20px 0 8px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">2. Be the first to donate</h3>
           <p>If you haven't already, make a small donation to your own campaign. It sounds simple, but it works. People are more likely to give when they see others have already started.</p>
-          <h3 style="color: #333; margin: 20px 0 8px;">3. Tell the story, not the ask</h3>
+          <h3 style="color: #333; margin: 20px 0 8px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">3. Tell the story, not the ask</h3>
           <p>When sharing, lead with why this campaign exists, not how much you need. People connect with stories. The money follows the emotion.</p>
           ${calloutBox(`<strong>Your campaign link:</strong><br/><a href="${BASE_URL}/campaigns/${c.campaignSlug}" style="color: #0F766E; word-break: break-all;">${BASE_URL}/campaigns/${c.campaignSlug}</a>`)}
           ${ctaButton(`${BASE_URL}/campaigns/${c.campaignSlug}`, 'View Your Campaign')}
@@ -667,7 +662,7 @@ export function creatorMotivationEmail(p: {
       return {
         subject: `Weekly update: "${c.campaignTitle}" at ${progressPercent}%`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Your Weekly Campaign Summary</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Weekly Campaign Summary</h1>
           <p>Hi ${creatorName},</p>
           <p>Here's how <strong>"${campaignTitle}"</strong> performed this week:</p>
           <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
@@ -735,7 +730,7 @@ export function verificationEscalationEmail(p: {
       return {
         subject: `Incredible! "${p.campaignTitle}" is fully funded!`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">You Did It!</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You Did It!</h1>
           <p>Hi ${creatorName},</p>
           <p>Take a moment to let this sink in: <strong>${p.donorCount}</strong> people donated a total of <strong>${formatCents(p.goalAmount)}</strong> to your campaign <strong>"${campaignTitle}."</strong> That's real.</p>
           <p>Now, to get those funds into your hands, there's a simple verification process. It exists to protect you and your donors, and most people finish it in under 10 minutes.</p>
@@ -755,7 +750,7 @@ export function verificationEscalationEmail(p: {
       return {
         subject: `Quick steps to get your funds from "${p.campaignTitle}"`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Three Steps to Your Funds</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Three Steps to Your Funds</h1>
           <p>Hi ${creatorName},</p>
           <p>Your campaign <strong>"${campaignTitle}"</strong> raised <strong>${formatCents(p.goalAmount)}</strong>. Here's exactly how to access those funds:</p>
           <div style="margin: 20px 0;">
@@ -792,7 +787,7 @@ export function verificationEscalationEmail(p: {
       return {
         subject: `${p.donorCount} donors are waiting to hear from you`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Your Donors Are Watching</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donors Are Watching</h1>
           <p>Hi ${creatorName},</p>
           <p><strong>${p.donorCount}</strong> people donated to <strong>"${campaignTitle}"</strong> because they trust you. Completing verification shows them their trust was well placed.</p>
           <p>We haven't received your verification documents yet. This is the step that unlocks your <strong>${formatCents(p.goalAmount)}</strong> in raised funds.</p>
@@ -812,7 +807,7 @@ export function verificationEscalationEmail(p: {
       return {
         subject: `${p.daysRemaining} days left to verify "${p.campaignTitle}"`,
         html: wrap(`
-          <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;">Time Is Running Short</h1>
+          <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Time Is Running Short</h1>
           <p>Hi ${creatorName},</p>
           <p>We understand that life can get overwhelming, especially when you're going through a difficult time. But we need to let you know that your verification deadline for <strong>"${campaignTitle}"</strong> is approaching.</p>
           <p style="color: #EA580C; font-weight: 600;">You have ${p.daysRemaining} days to complete verification before we may need to begin returning the ${formatCents(p.goalAmount)} in donations back to donors.</p>
@@ -832,7 +827,7 @@ export function verificationEscalationEmail(p: {
       return {
         subject: `Last chance: ${p.daysRemaining} days to verify and receive ${formatCents(p.goalAmount)}`,
         html: wrap(`
-          <h1 style="color: #DC2626; font-size: 24px; margin: 0 0 16px;">Final Notice</h1>
+          <h1 style="color: #DC2626; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Final Notice</h1>
           <p>Hi ${creatorName},</p>
           <p>This is the last reminder about verification for your campaign <strong>"${campaignTitle}."</strong></p>
           <p>Without verification in the next <strong>${p.daysRemaining} days</strong>, we will begin returning <strong>${formatCents(p.goalAmount)}</strong> to the <strong>${p.donorCount}</strong> people who donated to you.</p>
@@ -885,7 +880,7 @@ export function donorReengagementEmail(p: {
       return {
         subject: `New campaigns on LastDonor that could use your help`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Good to See You Again</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Good to See You Again</h1>
           <p>Hi ${donorName},</p>
           <p>It's been a little while since your last donation. We hope you're doing well.</p>
           <p>A few new campaigns have launched since then, and we thought you might want to take a look:</p>
@@ -900,13 +895,13 @@ export function donorReengagementEmail(p: {
       return {
         subject: `Remember when you helped ${p.campaignsSupported} campaign${p.campaignsSupported === 1 ? '' : 's'}?`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Your Impact on LastDonor</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Impact on LastDonor</h1>
           <p>Hi ${donorName},</p>
           <p>We wanted to take a moment to recognize what you've done. Since joining LastDonor, you've donated <strong>${formatCents(p.totalDonatedCents)}</strong> across <strong>${p.campaignsSupported}</strong> campaign${p.campaignsSupported === 1 ? '' : 's'}. That's real money that went to real people.</p>
           <p>There are always new campaigns that could use someone like you. No pressure, just an open door whenever you're ready.</p>
           ${p.featuredCampaigns.length > 0
             ? `
-              <h3 style="color: #333; margin: 20px 0 12px;">Campaigns near their goal:</h3>
+              <h3 style="color: #333; margin: 20px 0 12px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Campaigns near their goal:</h3>
               ${p.featuredCampaigns.slice(0, 2).map(c => `
                 <div style="border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
                   <p style="font-weight: 600; margin: 0 0 4px;">${esc(c.title)}</p>
@@ -926,7 +921,7 @@ export function donorReengagementEmail(p: {
       return {
         subject: `We'll miss you, ${p.donorName}`,
         html: wrap(`
-          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Just Checking In</h1>
+          <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Just Checking In</h1>
           <p>Hi ${donorName},</p>
           <p>It's been a while since we've heard from you, and we wanted to say: thank you. Your past donations made a real difference, and that doesn't expire.</p>
           <p>This will be our last outreach for now. If you ever want to come back and explore new campaigns, we'll be here. No sign-up needed, no re-enrollment. Just visit whenever you're ready.</p>
@@ -962,7 +957,7 @@ export function highValueDonorThankYouEmail(p: {
   return {
     subject: `A personal thank you from LastDonor, ${p.donorName}`,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Thank You, ${donorName}</h1>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Thank You, ${donorName}</h1>
       <p>Your donation of <strong>${formatCents(p.amount)}</strong> to <strong>"${campaignTitle}"</strong> is remarkable. We don't say that lightly.</p>
       ${isRepeat
         ? `<p>You've now donated <strong>${formatCents(p.donorContext.totalDonatedCents)}</strong> across <strong>${p.donorContext.campaignsSupported}</strong> campaigns on LastDonor. You're among the people who make this platform possible.</p>`
@@ -1002,7 +997,7 @@ export function postDonationImpactEmail(p: {
   return {
     subject: `Here's what your donation to "${p.campaignTitle}" is doing`,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Your Donation at Work</h1>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donation at Work</h1>
       <p>Hi ${donorName},</p>
       <p>A week ago, you donated <strong>${formatCents(p.donationAmount)}</strong> to <strong>"${campaignTitle}."</strong> We wanted to show you what's happened since.</p>
       <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
@@ -1013,7 +1008,7 @@ export function postDonationImpactEmail(p: {
       </div>
       ${p.latestUpdate
         ? `
-          <h3 style="color: #333; margin: 20px 0 8px;">Latest update from the campaign:</h3>
+          <h3 style="color: #333; margin: 20px 0 8px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Latest update from the campaign:</h3>
           <blockquote style="border-left: 3px solid #0F766E; margin: 12px 0; padding: 8px 16px; color: #444; font-style: italic;">${esc(p.latestUpdate)}</blockquote>
         `
         : `<p>No updates yet, but the campaign is making progress. We'll keep you posted with new updates.</p>`
@@ -1047,7 +1042,7 @@ export function creatorThankYouUpdateEmail(p: {
   return {
     subject: `A message from ${p.creatorName}: "${p.campaignTitle}"`,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">A Message From ${creatorName}</h1>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">A Message From ${creatorName}</h1>
       <p>Hi ${donorName},</p>
       <p>The person behind <strong>"${campaignTitle}"</strong> wrote you a personal message:</p>
       <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid #0F766E;">
@@ -1085,11 +1080,11 @@ export function campaignUpdateDigestEmail(p: {
   return {
     subject: `Update: "${p.campaignTitle}" - ${p.updateTitle}`,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;">Campaign Update</h1>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Campaign Update</h1>
       <p>Hi ${donorName},</p>
       <p>There's a new update on <strong>"${campaignTitle},"</strong> a campaign you donated to:</p>
       <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0;">
-        <h3 style="margin: 0 0 8px; color: #333;">${esc(p.updateTitle)}</h3>
+        <h3 style="margin: 0 0 8px; color: #333;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">${esc(p.updateTitle)}</h3>
         <p style="margin: 0; color: #444; line-height: 1.6;">${esc(p.updateExcerpt)}</p>
       </div>
       <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
