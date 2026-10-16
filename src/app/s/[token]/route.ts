@@ -24,13 +24,24 @@ import {
   resolveShareLinkAndCountClick,
 } from '@/lib/share-links';
 import { logError } from '@/lib/errors';
+import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ token: string }> },
 ) {
   const { token } = await context.params;
-  const fallback = new URL('/campaigns', request.nextUrl.origin);
+  /*
+   * The canonical origin, NOT `request.nextUrl.origin`.
+   *
+   * Behind Fly's proxy the request URL carries the container's internal bind
+   * address, so `nextUrl.origin` produced
+   * `https://0.0.0.0:3000/campaigns/...` and every share link redirected to
+   * a dead host. Caught on the production smoke test, not in any unit test -
+   * the bug only exists once there is a proxy in front. See docs/57.
+   */
+  const origin = appBaseUrl();
+  const fallback = new URL('/campaigns', origin);
 
   try {
     const link = await resolveShareLinkAndCountClick(token);
@@ -45,7 +56,7 @@ export async function GET(
     const slug = rows[0]?.slug;
     if (!slug) return NextResponse.redirect(fallback, { status: 302 });
 
-    const destination = new URL(`/campaigns/${slug}`, request.nextUrl.origin);
+    const destination = new URL(`/campaigns/${slug}`, origin);
     const response = NextResponse.redirect(destination, { status: 302 });
 
     response.cookies.set({

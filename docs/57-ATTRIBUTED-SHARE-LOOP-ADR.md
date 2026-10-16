@@ -137,7 +137,29 @@ exercise of the `migrations-v2` lineage `docs/34` established.
 
 ---
 
-## 5. Not built yet
+## 5. A bug this shipped, and how it was caught
+
+The first deploy redirected every share link to
+**`https://0.0.0.0:3000/campaigns/...`** — a dead host.
+
+`request.nextUrl.origin` is the container's internal bind address behind
+Fly's proxy, not the public origin. Now `appBaseUrl()`, the same canonical
+origin the unsubscribe links already use.
+
+**No unit test could have caught it as written**, because the bug only
+exists once something is proxying in front. It was caught by the production
+smoke test, which followed a real minted link with `curl -D -` and read the
+`location` header. A regression test now pins it by asserting the redirect
+target is the canonical origin and explicitly `not.toContain('0.0.0.0')`,
+from a request whose own origin is the bind address.
+
+The lesson generalises: **anything that constructs an absolute URL from the
+incoming request is wrong on this deployment**, and the smoke test has to
+look at headers, not just status codes. A 302 alone looked fine.
+
+---
+
+## 6. Not built yet
 
 - **Organizer-facing per-link stats.** The data is being captured now
   (`click_count`, and donations joined on `share_link_id`), but nothing
