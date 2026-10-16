@@ -8,6 +8,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import Link from 'next/link';
 import { Switch } from '@/components/ui/switch';
+import { ReviewedIcon } from '@/components/ui/icon';
 import { centsToDollars, centsToDollarsWhole, dollarsToCents } from '@/lib/utils/currency';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
@@ -66,13 +67,21 @@ type DonationFormValues = z.infer<typeof donationFormSchema>;
 /**
  * Presets in cents, highest first.
  *
- * The order is deliberate and mirrors GoFundMe, whose live donate form was
- * observed on 2026-10-15 offering $1,000 / $500 / $350 / $100 / $50 in
- * descending order. Leading with the largest figure anchors the choice set
- * upward; leading with $25, as this form previously did, anchors it down.
- * This is competitor-mirroring plus the anchoring literature, not a result we
- * have measured ourselves — it is the A/B test this form most needs. See
- * `docs/47-MONEY-TYPOGRAPHY-AND-ZERO-STATE-ADR.md`.
+ * CORRECTED 2026-10-16. This comment previously justified the descending
+ * order as mirroring GoFundMe, "observed on 2026-10-15 offering $1,000 /
+ * $500 / $350 / $100 / $50 in descending order". Re-measured on their live
+ * donate form today, five loads of the same campaign: FOUR served
+ * $25 / $50 / $100 / $200 / $300 / $500 ascending with $100 badged, and ONE
+ * served $300 / $200 / $100 / $50 / $25 / $10 descending with $50 badged.
+ * They are A/B testing both the order and the badge, so "GoFundMe does it"
+ * cannot justify anything here - whatever we copy, half their traffic sees
+ * the opposite.
+ *
+ * The order stays descending on the anchoring argument alone, which is the
+ * only part of the original reasoning that survives: leading with the
+ * largest figure anchors the choice set upward. Still unmeasured by us, and
+ * still the A/B test this form most needs.
+ * See `docs/47-MONEY-TYPOGRAPHY-AND-ZERO-STATE-ADR.md` and `docs/72`.
  */
 const PRESET_AMOUNTS = [100000, 50000, 25000, 10000, 5000, 2500] as const; // cents
 
@@ -85,6 +94,24 @@ const IMPACT_HINTS: Record<number, string> = {
   50000: 'Significant support',
   100000: 'Game-changing gift',
 };
+
+/**
+ * The preset carrying the "Suggested" badge.
+ *
+ * GoFundMe badges exactly one tile ("💚 SUGGESTED", verified live on their
+ * donate form 2026-10-16) and, importantly, does NOT pre-select it: their
+ * running total still reads $0.00 on arrival. Mirrored deliberately. A badge
+ * is a recommendation the donor can ignore in one tap; a pre-filled amount is
+ * money chosen on their behalf by a form they have not read yet.
+ *
+ * $100 is the figure their dominant arm badges - four of five loads sampled
+ * today, the fifth badging $50 (see PRESET_AMOUNTS above on their A/B test).
+ * That is a weak basis, and it is the only external one available: this
+ * platform has recorded no donations, so there is no mode of our own to
+ * derive. Hence the word "Suggested", which is a recommendation we are
+ * making. Nothing here implies other donors chose it, because none have.
+ */
+const SUGGESTED_AMOUNT = 10000;
 
 interface DonationFormProps {
   campaignId: string;
@@ -530,6 +557,15 @@ export function DonationForm({
     currentAmount >= MIN_DONATION_CENTS &&
     currentAmount <= MAX_DONATION_CENTS;
 
+  /*
+    What the ledger shows. Only a figure this form would actually submit:
+    an out-of-range entry already has its own error beside the input and its
+    own button copy, and quoting "Total charged today $999,999,999.00" next
+    to "the maximum is $100,000" was the exact defect the button copy below
+    was fixed for. Anything unpayable reads as zero.
+  */
+  const ledgerAmount = amountIsPayable ? currentAmount : 0;
+
   const handlePresetSelect = useCallback((amountCents: number) => {
     setSelectedPreset(amountCents);
     setCustomAmount((amountCents / 100).toFixed(2));
@@ -766,7 +802,11 @@ export function DonationForm({
               spans into "$50Week of groceries", which a screen reader reads
               as one run-on token.
             */
-            aria-label={`${centsToDollarsWhole(amount)}, ${IMPACT_HINTS[amount]}`}
+            aria-label={
+              amount === SUGGESTED_AMOUNT
+                ? `${centsToDollarsWhole(amount)}, ${IMPACT_HINTS[amount]}, suggested`
+                : `${centsToDollarsWhole(amount)}, ${IMPACT_HINTS[amount]}`
+            }
             onClick={() => handlePresetSelect(amount)}
             whileTap={{ scale: 0.95 }}
             className={cn(
@@ -785,6 +825,18 @@ export function DonationForm({
             )}>
               {IMPACT_HINTS[amount]}
             </span>
+            {amount === SUGGESTED_AMOUNT && (
+              <span
+                className={cn(
+                  'mt-1 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide',
+                  selectedPreset === amount
+                    ? 'bg-primary-foreground/20 text-primary-foreground'
+                    : 'bg-primary/10 text-primary',
+                )}
+              >
+                Suggested
+              </span>
+            )}
           </motion.button>
         ))}
       </div>
@@ -921,6 +973,46 @@ export function DonationForm({
         )}
       </div>
 
+      {/*
+        The running total, directly above the pay button.
+
+        GoFundMe's donate form carries this same ledger and, on the monthly
+        tab, its middle line reads "Recurring fee (5%)" (verified live
+        2026-10-16). Ours reads $0.00, which is the single strongest thing
+        this product can say and was previously said only as three words of
+        11px grey text under the button.
+
+        The figures are the donor's own arithmetic, not a claim: total equals
+        donation because nothing is added to the card. Stripe's cut is named
+        in the note rather than shown as a row - it is real, but it is taken
+        out of the payout, so putting it in a column headed "charged today"
+        would misstate what the card is debited.
+      */}
+      <dl className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-muted-foreground">Your donation</dt>
+          <dd className="font-medium tabular-nums text-card-foreground">
+            {centsToDollars(ledgerAmount)}
+          </dd>
+        </div>
+        <div className="mt-1.5 flex items-baseline justify-between gap-3">
+          <dt className="text-muted-foreground">LastDonor platform fee</dt>
+          <dd className="font-semibold tabular-nums text-primary">{centsToDollars(0)}</dd>
+        </div>
+        <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-border pt-2.5">
+          <dt className="font-semibold text-card-foreground">
+            {isRecurring ? 'Total charged monthly' : 'Total charged today'}
+          </dt>
+          <dd className="font-bold tabular-nums text-card-foreground">
+            {centsToDollars(ledgerAmount)}
+          </dd>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          Stripe&rsquo;s processing fee (2.9% + $0.30) comes out of the payout, not your
+          card. LastDonor takes no cut and adds no tip request.
+        </p>
+      </dl>
+
       {/* Whatever the server said, in the page. Not only in a toast. */}
       {submitError && (
         <p
@@ -997,6 +1089,35 @@ export function DonationForm({
           </Link>
           . Monthly donations can be cancelled before the next billing date.
         </p>
+      </div>
+
+      {/*
+        The closing block GoFundMe's donate page ends on ("GoFundMe protects
+        your donation - we guarantee you a full refund for up to a year in
+        the rare case that fraud occurs", verified live 2026-10-16).
+
+        Ours states only what `/refund-policy` actually commits us to, and it
+        deliberately carries NO time window: that page sets no outer bound
+        and inventing "up to a year" to match theirs would be a refund
+        promise the platform has not made. Each clause below is one of the
+        listed situations in which a refund is available.
+      */}
+      <div className="flex items-start gap-3 rounded-xl border border-border bg-background px-4 py-3">
+        <ReviewedIcon size="lg" className="mt-0.5 shrink-0 text-primary" />
+        <div>
+          <p className="text-sm font-semibold text-card-foreground">
+            Your donation is protected
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            Every campaign is reviewed by a person before it goes live. If a charge is
+            unauthorised, a campaign is removed before funds are released, or it fails
+            verification after you give, we refund donors.{' '}
+            <Link href="/refund-policy" className="underline underline-offset-2 hover:text-foreground">
+              Refund Policy
+            </Link>
+            .
+          </p>
+        </div>
       </div>
     </form>
   );

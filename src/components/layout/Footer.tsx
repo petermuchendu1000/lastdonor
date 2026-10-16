@@ -42,7 +42,9 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="bg-[#0F1A19] text-gray-300">
+    // `data-site-chrome` marks this as sitewide furniture that a checkout
+    // page suppresses. See the `:has([data-checkout])` rule in globals.css.
+    <footer data-site-chrome="footer" className="bg-[#0F1A19] text-gray-300">
       {/* Newsletter CTA strip */}
       <div className="border-b border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-3 px-4 py-6 sm:flex-row sm:items-center sm:gap-4 sm:px-6 sm:py-8 lg:px-8">

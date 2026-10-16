@@ -125,4 +125,59 @@ describe('POST /api/v1/donations/create-checkout', () => {
     expect(res.status).toBe(400);
     expect(sessionsCreate).not.toHaveBeenCalled();
   });
+
+  /*
+    A key Stripe refuses is not a failed payment, it is a deployment that
+    cannot take money at all. Verified in production 2026-10-16: the Fly
+    secret was a placeholder, every call here threw, and every donor read
+    "Failed to create checkout session" - which sounds retryable and is not.
+    The `type` field asserted below is the real stripe-node shape, checked
+    against the live API with a deliberately invalid key, not assumed.
+  */
+  describe('when STRIPE_SECRET_KEY is not a working key', () => {
+    function authError() {
+      return Object.assign(new Error('Invalid API Key provided'), {
+        type: 'StripeAuthenticationError',
+        statusCode: 401,
+      });
+    }
+
+    it('answers 503, not 500: this is unavailability, not a transient fault', async () => {
+      sessionsCreate.mockRejectedValue(authError());
+      const res = await POST(request({ ...baseBody, isRecurring: false }));
+
+      expect(res.status).toBe(503);
+      expect((await res.json()).error.code).toBe('PAYMENTS_UNAVAILABLE');
+    });
+
+    it('tells the donor it is our fault and that nothing was charged', async () => {
+      sessionsCreate.mockRejectedValue(authError());
+      const body = await (await POST(request({ ...baseBody, isRecurring: false }))).json();
+
+      expect(body.error.message).toMatch(/problem on our side/);
+      expect(body.error.message).toMatch(/nothing has been charged/);
+      expect(body.error.message).toMatch(/support@lastdonor\.org/);
+    });
+
+    it('never puts the key, or anything resembling one, in the response', async () => {
+      sessionsCreate.mockRejectedValue(
+        Object.assign(new Error('Invalid API Key provided: sk_test_abc123'), {
+          type: 'StripeAuthenticationError',
+        }),
+      );
+      const text = await (await POST(request({ ...baseBody, isRecurring: false }))).text();
+
+      expect(text).not.toMatch(/sk_(test|live)_/);
+    });
+
+    it('leaves every other Stripe failure as a 500', async () => {
+      sessionsCreate.mockRejectedValue(
+        Object.assign(new Error('card_declined'), { type: 'StripeCardError' }),
+      );
+      const res = await POST(request({ ...baseBody, isRecurring: false }));
+
+      expect(res.status).toBe(500);
+      expect((await res.json()).error.code).toBe('INTERNAL_ERROR');
+    });
+  });
 });

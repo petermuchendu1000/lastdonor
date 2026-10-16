@@ -23,6 +23,12 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
   RATE_LIMITED: { status: 429, message: 'Too many requests. Please try again later.' },
   INTERNAL_ERROR: { status: 500, message: 'Something went wrong. Please try again later.' },
   CONNECT_NOT_ENABLED: { status: 400, message: 'This feature is not currently available.' },
+  PAYMENTS_UNAVAILABLE: {
+    status: 503,
+    message:
+      'Card payments are unavailable right now. This is a problem on our side, not with ' +
+      'your card, and nothing has been charged.',
+  },
 };
 
 // ─── Application Error Classes ──────────────────────────────────────────────

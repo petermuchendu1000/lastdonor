@@ -125,13 +125,28 @@ export function DonatePageClient({
     window.history.replaceState({}, '', window.location.pathname);
   }, [state]);
 
+  /** Clamped: an over-funded campaign must not report a negative gap. */
+  const remainingAmount = Math.max(0, goalAmount - raisedAmount);
+
 
 
   return (
-    <div className="min-h-[100dvh] bg-muted/30">
-      {/* Top bar */}
+    /*
+      `data-checkout` suppresses the sitewide navbar and footer for this page
+      (the `:has()` rule in globals.css). Measured 2026-10-16 at 390px, they
+      were 1,095px of the page's 2,155px - more than half of it, all of it
+      below the pay button, and 25 links competing with one action.
+      GoFundMe's donate page carries neither.
+    */
+    <div data-checkout className="min-h-[100dvh] bg-muted/30">
+      {/*
+        The one bar this page gets, replacing both the sitewide navbar and
+        the old back-only strip. Same two jobs GoFundMe's checkout header
+        does: a way back to the fundraiser, and proof of whose site this is
+        at the moment a card is about to be typed in.
+      */}
       <nav className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-2xl items-center px-6 py-3">
+        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-6 py-3">
           <Link
             href={`/campaigns/${campaignSlug}`}
             className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-primary"
@@ -139,6 +154,10 @@ export function DonatePageClient({
             <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
             Back to campaign
           </Link>
+          <span className="font-display text-base font-bold tracking-tight text-foreground">
+            Last<span className="text-primary">Donor</span>
+            <span className="text-accent">.</span>
+          </span>
         </div>
       </nav>
 
@@ -152,25 +171,50 @@ export function DonatePageClient({
               {campaignTitle}
             </h1>
 
+            {/*
+              What the top of a checkout screen says about progress.
+
+              This block used to render, unconditionally, a $0 figure, an
+              empty progress trough and "0 people have donated" - three
+              separate statements of "nobody has given to this" on the one
+              screen whose job is to ask for a gift. GoFundMe's donate page
+              states the gap instead ("Still $4,725 to go.", verified live
+              2026-10-16), which is the same arithmetic pointed forward.
+
+              So: the remaining amount leads when there is progress to
+              describe, and an unfunded campaign gets the invitation that
+              docs/47 and docs/71 settled on everywhere else rather than a
+              bar drawn at zero.
+            */}
             <div className="mt-4 space-y-2">
-              <div className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="tabular-nums">
-                  <span className="font-mono font-semibold text-foreground">
-                    {centsToDollarsWhole(raisedAmount)}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {' '}of {centsToDollarsWhole(goalAmount)}
-                  </span>
-                </span>
-              </div>
-              <ProgressBar
-                raisedAmount={raisedAmount}
-                goalAmount={goalAmount}
-                compact
-              />
-              <p className="text-xs tabular-nums text-muted-foreground">
-                {donorCount.toLocaleString()} {donorCount === 1 ? 'person has' : 'people have'} donated
-              </p>
+              {raisedAmount === 0 ? (
+                <>
+                  <p className="text-sm font-semibold text-foreground">
+                    Be the first to donate.
+                  </p>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {centsToDollarsWhole(goalAmount)} goal
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold tabular-nums text-foreground">
+                    {remainingAmount > 0
+                      ? `Still ${centsToDollarsWhole(remainingAmount)} to go.`
+                      : `Goal reached - ${centsToDollarsWhole(raisedAmount)} raised.`}
+                  </p>
+                  <ProgressBar
+                    raisedAmount={raisedAmount}
+                    goalAmount={goalAmount}
+                    compact
+                  />
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {centsToDollarsWhole(raisedAmount)} of {centsToDollarsWhole(goalAmount)}
+                    {' · '}
+                    {donorCount.toLocaleString()} {donorCount === 1 ? 'donor' : 'donors'}
+                  </p>
+                </>
+              )}
             </div>
           </div>
 

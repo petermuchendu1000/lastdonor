@@ -107,6 +107,32 @@ we cannot match. We have not run the experiment. **This is the single
 highest-value A/B test available to this codebase** and the reorder should be
 treated as the challenger arm until it is run.
 
+#### AMENDED 2026-10-16: support (b) does not hold
+
+Re-measured on GoFundMe's live donate form, five loads of the same campaign
+within one hour:
+
+| Loads | Ladder served | Badged |
+|---|---|---|
+| 4 | `$25 / $50 / $100 / $200 / $300 / $500` **ascending** | `$100` |
+| 1 | `$300 / $200 / $100 / $50 / $25 / $10` **descending** | `$50` |
+
+Neither arm matches the `$1,000 / $500 / $350 / $100 / $50` recorded above on
+2026-10-15, and the dominant arm today is the **ascending** one. **GoFundMe is
+A/B testing the order, so "the market leader descends" was never a stable
+fact to read off their page** — whatever we copy, a large share of their
+traffic is being shown the opposite.
+
+Reason (b) is therefore withdrawn. The order **stays descending** on reason
+(a) alone, which is unaffected. The practical lesson is the one `docs/59`
+reached about fee figures and `docs/56` about fonts: a competitor's rendered
+page is evidence about one bucketed session, and an experimenting competitor
+must be sampled more than once before anything is read off it. One load is an
+anecdote.
+
+The conclusion above is unchanged and now rests on a single leg: **run the
+experiment.** See `docs/72` for the measurements.
+
 ### Deliberately not changed
 
 `ImpactTiers` in the sidebar stays **ascending**. Those carry escalating

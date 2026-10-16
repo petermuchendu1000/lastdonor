@@ -181,6 +181,48 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
+    /*
+     * Separate "this deployment cannot take money at all" from "this one
+     * payment failed", because the two need completely different responses
+     * and for three weeks they were indistinguishable.
+     *
+     * Verified against production 2026-10-16: `STRIPE_SECRET_KEY` on Fly was
+     * a placeholder (`sk_test_...0000`), so EVERY call here threw Stripe's
+     * `authentication_error` and every donor saw "Failed to create checkout
+     * session" - wording that reads as a transient hiccup worth retrying.
+     * Nobody retried into success, because no key means no payment, ever.
+     * Zero donations had been recorded on the platform.
+     *
+     * A misconfigured key is an operator problem, so it is logged as one and
+     * the donor is told plainly that it is our fault, nothing was charged,
+     * and a human can help - the same thing CheckoutStep says when the
+     * publishable key is missing from the build.
+     */
+    const stripeAuthFailure =
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { type?: string }).type === 'StripeAuthenticationError';
+
+    if (stripeAuthFailure) {
+      console.error(
+        '[POST /api/v1/donations/create-checkout] STRIPE_SECRET_KEY is not a working key. ' +
+          'No donation can complete on this deployment until it is replaced.',
+        { requestId },
+      );
+      const errorBody: ApiError = {
+        ok: false,
+        error: {
+          code: 'PAYMENTS_UNAVAILABLE',
+          message:
+            'Card payments are unavailable right now. This is a problem on our side, ' +
+            'not with your card, and nothing has been charged. Please email ' +
+            'support@lastdonor.org so we can help you give.',
+          requestId,
+        },
+      };
+      return NextResponse.json(errorBody, { status: 503 });
+    }
+
     console.error('[POST /api/v1/donations/create-checkout]', error);
     const errorBody: ApiError = {
       ok: false,
