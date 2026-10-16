@@ -10,6 +10,7 @@ import {
   getAttributedDonors,
   getImpactByCampaign,
   getImpactSummary,
+  getOwnGivingByCampaign,
 } from '@/lib/share-impact';
 import { ImpactLinkRow } from '@/components/dashboard/ImpactLinkRow';
 
@@ -31,10 +32,11 @@ export default async function ImpactPage() {
   if (!session?.user?.id) redirect('/login?callbackUrl=/dashboard/impact');
 
   const userId = session.user.id;
-  const [summary, byCampaign, donors] = await Promise.all([
+  const [summary, byCampaign, donors, ownGiving] = await Promise.all([
     getImpactSummary(userId),
     getImpactByCampaign(userId),
     getAttributedDonors(userId),
+    getOwnGivingByCampaign(userId),
   ]);
 
   const origin = appBaseUrl();
@@ -113,6 +115,7 @@ export default async function ImpactPage() {
                 clicks={row.clicks}
                 donorsBrought={row.donorsBrought}
                 amountBroughtCents={row.amountBroughtCents}
+                ownGivingCents={ownGiving.get(row.campaignId) ?? 0}
               />
             ))}
           </ul>

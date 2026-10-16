@@ -143,6 +143,39 @@ export async function getImpactByCampaign(userId: string): Promise<ImpactByCampa
 }
 
 /**
+ * What this person gave themselves, per campaign.
+ *
+ * GoFundMe's article is specific about this pairing: "Not only will you be
+ * able to see the amount you donated, but you'll also be able to see how many
+ * other donations you brought to the fundraiser." Gave-and-brought together
+ * is the whole claim a sharer can make about a campaign, and either number
+ * alone understates it.
+ *
+ * Kept as its own query rather than another join on `getImpactByCampaign`:
+ * the two have nothing to do with each other beyond the campaign id, and
+ * folding a second independent aggregate into that query is how the visit
+ * count got multiplied in the first place (see docs/58).
+ *
+ * Returns cents keyed by campaign id. A sharer who never donated gets an
+ * empty map, which is a normal state - a link can be minted by anyone signed
+ * in, donation or not.
+ */
+export async function getOwnGivingByCampaign(
+  userId: string,
+): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      campaignId: donations.campaignId,
+      cents: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
+    })
+    .from(donations)
+    .where(and(eq(donations.userId, userId), COUNTS_AS_IMPACT))
+    .groupBy(donations.campaignId);
+
+  return new Map(rows.map((r) => [r.campaignId, r.cents]));
+}
+
+/**
  * The people a sharer brought in.
  *
  * `isAnonymous` is resolved in SQL rather than in the component, so there is

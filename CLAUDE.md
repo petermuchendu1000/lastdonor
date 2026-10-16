@@ -80,7 +80,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (5280 tests, 141 files, as of 2026-10-16)
+npm run test:unit      # Vitest (5284 tests, 141 files, as of 2026-10-16)
 npm run test:e2e       # Playwright (72 tests, 21 files)
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline

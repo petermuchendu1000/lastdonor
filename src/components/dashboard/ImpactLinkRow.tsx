@@ -12,6 +12,8 @@ interface ImpactLinkRowProps {
   clicks: number;
   donorsBrought: number;
   amountBroughtCents: number;
+  /** What this person gave to this campaign themselves. 0 if they did not. */
+  ownGivingCents: number;
 }
 
 /**
@@ -31,6 +33,7 @@ export function ImpactLinkRow({
   clicks,
   donorsBrought,
   amountBroughtCents,
+  ownGivingCents,
 }: ImpactLinkRowProps) {
   const [copied, setCopied] = useState(false);
 
@@ -104,6 +107,29 @@ export function ImpactLinkRow({
         this a sharer sees "12 visits, 0 donors" and has no idea whether
         that is normal.
       */}
+      {/*
+        Gave AND brought, in one sentence, because that is the sharer's whole
+        contribution and either number alone understates it. GoFundMe pairs
+        them for the same reason: "Not only will you be able to see the amount
+        you donated, but you'll also be able to see how many other donations
+        you brought." Shown only when they gave - for the many sharers who
+        have not, a "$0 given" line is a reproach, not information.
+      */}
+      {ownGivingCents > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          You gave <Money cents={ownGivingCents} className="font-semibold text-foreground" />
+          {amountBroughtCents > 0 ? (
+            <>
+              {' and brought in '}
+              <Money cents={amountBroughtCents} className="font-semibold text-foreground" />
+              {' more.'}
+            </>
+          ) : (
+            '.'
+          )}
+        </p>
+      )}
+
       {clicks > 0 && donorsBrought === 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
           People are opening this link but not donating yet.
