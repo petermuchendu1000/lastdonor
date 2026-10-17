@@ -1,8 +1,13 @@
 # 82 — Phone numbers, before any SMS provider
 
 **Date:** 2026-10-17
-**Status:** Foundation implemented. **⛔ The Africa's Talking client itself
-is NOT built — it needs a sandbox key.**
+**Status:** Foundation implemented.
+**Amended 2026-10-17 — the ⛔ below is resolved by `docs/84`:** a sandbox
+key arrived the same day, the API was probed, and
+`src/lib/africastalking.ts` is built and exercised against it. Read
+`docs/84` for what the probes found (a failed send answers HTTP 201; errors
+are `text/plain`; the provider silently resolves a local number against its
+own region) and for the account-level steps still blocking a live send.
 **Chosen capabilities:** SMS notifications + phone verification (OTP).
 **Related:** `docs/41` (mail consent and CAN-SPAM, the same shape),
 `docs/81` (the probe-first rule this follows).
@@ -107,6 +112,12 @@ in a form handler.
 ---
 
 ## ⛔ What is NOT built, and why
+
+> **Superseded 2026-10-17 by `docs/84`.** The client described below as not
+> built now exists, written against probed responses as this section
+> required. Items 1-4 of the list are still open; item 5 (Sender ID) turned
+> out **not** to apply to the sandbox. Kept here unedited because the
+> reasoning is the standing rule, not a status line.
 
 **The Africa's Talking client.** No credentials exist — not in Fly secrets,
 the session environment, or `.env.example`. Africa's Talking requires a
