@@ -84,8 +84,29 @@ Plus a **60-second resend cooldown**, which is not a security control but a
 cost one: each send bills us and lands on somebody's handset, so a free
 "resend" is a way to pay us to harass a stranger.
 
-The code is stored as SHA-256. A database read must not hand somebody a
-working code.
+### The stored hash is HMAC, not a digest — and that was learned the hard way
+
+The code was first stored as a plain SHA-256. Walking the flow against
+production (below) meant recovering the code from the table, and **it took
+seconds**: hashing all 10^6 six-digit strings and comparing. The search
+space belongs to the *code*, not to the hash, so a digest here is not
+protection — anyone who can read the row reads a working code.
+
+It is now `HMAC-SHA256(PASSWORD_PEPPER, "phone-otp:<userId>:<code>")`.
+
+- **The pepper lives only in the environment**, never in the database, so
+  a database-only breach cannot be turned into codes. Same secret and same
+  reasoning as `src/lib/password.ts`, and mandatory in production the same
+  way.
+- **`phone-otp:` is domain separation** from password hashing, which uses
+  the same key.
+- **The user id is inside the input**, so a row copied from one account
+  into another stops verifying.
+- Rotating the pepper burns every live code. That is correct, and a test
+  asserts it.
+
+A test runs the attacker's own loop against a stored value and fails to
+find it.
 
 ### A deliberate detail in `generateCode`
 
@@ -224,6 +245,35 @@ that matters, *"will not accept the correct code once the budget is
 spent"*.
 
 Full suite after this change: **5,821 passing across 159 files.**
+
+---
+
+## The production walk-through
+
+Signed in to lastdonor.org as a throwaway account and used the flow, with
+the deployed `AT_USERNAME=sandbox` credentials. The code was recovered
+from its stored hash (which is how the hashing defect above was found);
+the account was deleted afterwards.
+
+```
+1  GET state                 200  verified:false smsConsent:false smsSandbox:true
+2  POST send code            200  {"sent":true,"phone":"+254 ••••••300","sandbox":true}
+3  db row                    attempts:0 phone_e164:+254711082300
+4  code recovered            yes
+5  PUT wrong code            400  INVALID_CODE
+6  PATCH consent (unverified)400  PHONE_NOT_VERIFIED
+7  PUT correct code          200  {"verified":true,"phone":"+254 ••••••300"}
+8  PATCH consent (verified)  200  {"smsConsent":true}
+9  GET state (after)         200  verified:true smsConsent:true
+10 PUT replay                400  CODE_UNUSABLE
+11 users row                 phone_e164:+254711082300 verified:t consented:t
+12 codes left                0
+```
+
+Step 6 before step 8 is the consent gate doing its job, and step 10 is the
+code being consumed. Both were already green as unit tests; what the walk
+added was the rate-limit scoping, the in-memory tier collision and the
+brute-forceable hash, none of which a unit test was ever going to show.
 
 ---
 

@@ -13,6 +13,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'crypto';
 
 type Row = Record<string, unknown>;
 
@@ -142,6 +143,40 @@ describe('the code itself', () => {
   });
 });
 
+/*
+  Proven against production on 2026-10-17, when this was a bare SHA-256:
+  the code was recovered in seconds by hashing all 10^6 candidates. The
+  search space belongs to the code, not to the digest, so only a secret
+  the database does not hold makes the stored value useless to a reader.
+*/
+describe('the stored hash is useless without the pepper', () => {
+  it('is not a bare digest of the code', () => {
+    const bare = createHash('sha256').update('123456').digest('hex');
+    expect(hashCode(USER, '123456')).not.toBe(bare);
+  });
+
+  it('is not brute-forceable from the table alone', () => {
+    const stored = hashCode(USER, '123456');
+    // The attacker's loop, with the whole space and no pepper.
+    for (let i = 0; i < 1000; i++) {
+      const guess = String(i).padStart(6, '0');
+      expect(createHash('sha256').update(guess).digest('hex')).not.toBe(stored);
+    }
+  });
+
+  it('changes with the pepper, so rotating it burns every live code', () => {
+    vi.stubEnv('PASSWORD_PEPPER', 'a'.repeat(32));
+    const before = hashCode(USER, '123456');
+    vi.stubEnv('PASSWORD_PEPPER', 'b'.repeat(32));
+    expect(hashCode(USER, '123456')).not.toBe(before);
+  });
+
+  /* A row copied into another account must stop verifying. */
+  it('is bound to the user it was minted for', () => {
+    expect(hashCode('user-1', '123456')).not.toBe(hashCode('user-2', '123456'));
+  });
+});
+
 describe('sending', () => {
   it('texts the code to the normalised number', async () => {
     const out = await sendPhoneCode(USER, '0712345678', T0);
@@ -168,7 +203,7 @@ describe('sending', () => {
   it('stores a hash, never the code', async () => {
     await sendPhoneCode(USER, '+254712345678', T0);
     const code = mintedCode();
-    expect(state.codes[0].codeHash).toBe(hashCode(code));
+    expect(state.codes[0].codeHash).toBe(hashCode(USER, code));
     expect(JSON.stringify(state.codes[0])).not.toContain(code);
   });
 

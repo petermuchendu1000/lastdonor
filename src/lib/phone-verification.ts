@@ -28,7 +28,7 @@
  * `recordSmsConsent` is separate for that reason — the same split
  * `docs/41` made for mail.
  */
-import { createHash, randomInt, timingSafeEqual } from 'crypto';
+import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { and, eq, lt } from 'drizzle-orm';
 import { db } from '@/db';
 import { phoneVerificationCodes, users } from '@/db/schema';
@@ -53,8 +53,38 @@ export const MAX_ATTEMPTS = 5;
 /** Shortest gap between two code requests from the same person. */
 export const RESEND_COOLDOWN_MS = 60 * 1000;
 
-export function hashCode(code: string): string {
-  return createHash('sha256').update(code).digest('hex');
+/**
+ * Hash a code for storage: **HMAC with the server-side pepper**, not a
+ * bare digest.
+ *
+ * Proven against production on 2026-10-17, before this was peppered: a
+ * plain SHA-256 of a six-digit code was recovered in seconds by hashing
+ * all 10^6 candidates. The search space is the code's, not the hash's, so
+ * a digest is no protection at all here — anyone who can read the table
+ * reads a working code.
+ *
+ * `PASSWORD_PEPPER` lives only in the environment, never in the database,
+ * so a database-only breach cannot be turned into codes. Same reasoning,
+ * and the same secret, as `src/lib/password.ts`; mandatory in production
+ * there and here.
+ *
+ * The user id is inside the HMAC input so a row copied from one account
+ * into another stops verifying, and `phone-otp:` keeps this use
+ * domain-separated from password hashing.
+ */
+export function hashCode(userId: string, code: string): string {
+  const pepper = process.env.PASSWORD_PEPPER;
+
+  if (!pepper) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('PASSWORD_PEPPER must be set in production to store verification codes.');
+    }
+    // Dev without a pepper. Still an HMAC, just with a constant key: the
+    // stored value stays the same shape, so nothing downstream differs.
+    return createHmac('sha256', 'dev-no-pepper').update(`phone-otp:${userId}:${code}`).digest('hex');
+  }
+
+  return createHmac('sha256', pepper).update(`phone-otp:${userId}:${code}`).digest('hex');
 }
 
 /**
@@ -131,7 +161,7 @@ export async function sendPhoneCode(
   await db.insert(phoneVerificationCodes).values({
     userId,
     phoneE164: phone.e164,
-    codeHash: hashCode(code),
+    codeHash: hashCode(userId, code),
     expiresAt: new Date(now.getTime() + CODE_TTL_MS),
     createdAt: now,
   });
@@ -206,7 +236,7 @@ export async function verifyPhoneCode(
 
   const cleaned = submitted.replace(/\D/g, '');
 
-  if (!hashesMatch(hashCode(cleaned), row.codeHash)) {
+  if (!hashesMatch(hashCode(userId, cleaned), row.codeHash)) {
     const attempts = row.attempts + 1;
     if (attempts >= MAX_ATTEMPTS) {
       // Burned. A sixth guess has nothing to guess against.
