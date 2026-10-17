@@ -3,6 +3,8 @@
 import { useState, useMemo, useCallback, Fragment } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Money } from '@/components/ui/Money';
+import { centsToDollars } from '@/lib/utils/currency';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -156,17 +158,17 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile
           label="Total Raised"
-          value={`$${(totals.totalRaised / 100).toLocaleString()}`}
+          value={centsToDollars(totals.totalRaised)}
           className="bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300"
         />
         <StatTile
           label="Total Released"
-          value={`$${(totals.totalReleased / 100).toLocaleString()}`}
+          value={centsToDollars(totals.totalReleased)}
           className="bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300"
         />
         <StatTile
           label="Total Withdrawn"
-          value={`$${(totals.totalWithdrawn / 100).toLocaleString()}`}
+          value={centsToDollars(totals.totalWithdrawn)}
           className="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300"
         />
         <StatTile
@@ -262,17 +264,17 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
                     </td>
                     <td className="px-4 py-3 text-right hidden sm:table-cell">
                       <span className="font-mono font-medium">
-                        ${(campaign.raisedAmount / 100).toLocaleString()}
+                        {<Money cents={campaign.raisedAmount} precision="exact" />}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right hidden md:table-cell">
                       <span className="font-mono font-medium text-green-700 dark:text-green-400">
-                        ${(campaign.totalReleasedAmount / 100).toLocaleString()}
+                        {<Money cents={campaign.totalReleasedAmount} precision="exact" />}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right hidden md:table-cell">
                       <span className="font-mono font-medium text-blue-700 dark:text-blue-400">
-                        ${(campaign.totalWithdrawnAmount / 100).toLocaleString()}
+                        {<Money cents={campaign.totalWithdrawnAmount} precision="exact" />}
                       </span>
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
@@ -298,31 +300,31 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
                               <div>
                                 <dt className="text-muted-foreground text-xs">Goal</dt>
                                 <dd className="font-mono font-medium">
-                                  ${(campaign.goalAmount / 100).toLocaleString()}
+                                  {<Money cents={campaign.goalAmount} precision="exact" />}
                                 </dd>
                               </div>
                               <div>
                                 <dt className="text-muted-foreground text-xs">Raised</dt>
                                 <dd className="font-mono font-medium">
-                                  ${(campaign.raisedAmount / 100).toLocaleString()}
+                                  {<Money cents={campaign.raisedAmount} precision="exact" />}
                                 </dd>
                               </div>
                               <div>
                                 <dt className="text-muted-foreground text-xs">Released</dt>
                                 <dd className="font-mono font-medium text-green-700 dark:text-green-400">
-                                  ${(campaign.totalReleasedAmount / 100).toLocaleString()}
+                                  {<Money cents={campaign.totalReleasedAmount} precision="exact" />}
                                 </dd>
                               </div>
                               <div>
                                 <dt className="text-muted-foreground text-xs">Withdrawn</dt>
                                 <dd className="font-mono font-medium text-blue-700 dark:text-blue-400">
-                                  ${(campaign.totalWithdrawnAmount / 100).toLocaleString()}
+                                  {<Money cents={campaign.totalWithdrawnAmount} precision="exact" />}
                                 </dd>
                               </div>
                               <div>
                                 <dt className="text-muted-foreground text-xs">Available</dt>
                                 <dd className="font-mono font-medium">
-                                  ${(available / 100).toLocaleString()}
+                                  {<Money cents={available} precision="exact" />}
                                 </dd>
                               </div>
                             </div>

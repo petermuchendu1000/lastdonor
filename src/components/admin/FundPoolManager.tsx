@@ -1,5 +1,6 @@
 'use client';
 
+import { centsToDollars } from '@/lib/utils/currency';
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -47,7 +48,8 @@ interface Props {
 }
 
 function formatCents(cents: number): string {
-  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // docs/88 F4: delegate, so there is one currency renderer.
+  return centsToDollars(cents);
 }
 
 /* ---------- component ---------- */

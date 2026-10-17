@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { startOfReportingDay, startOfReportingMonth } from '@/lib/reporting-timezone';
 import { requireRole } from '@/lib/auth';
 import { db } from '@/db';
 import { donations, newsletterSubscribers } from '@/db/schema';
@@ -22,8 +23,9 @@ export async function GET() {
 
   try {
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  // docs/88 F15, kept in step with src/app/admin/page.tsx.
+  const startOfDay = startOfReportingDay(now);
+  const startOfMonth = startOfReportingMonth(now);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   const [todayDonations] = await db

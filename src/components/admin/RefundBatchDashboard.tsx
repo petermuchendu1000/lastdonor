@@ -1,5 +1,6 @@
 'use client';
 
+import { centsToDollars } from '@/lib/utils/currency';
 import { useState, useEffect, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -75,8 +76,13 @@ const RECORD_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructi
   failed: 'destructive',
 };
 
+/*
+  docs/88 F4/F5: one currency renderer. This local helper produced
+  `$1234.50` with no thousands separator; `centsToDollars` uses
+  Intl currency formatting, which is what every other screen uses.
+*/
 function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return centsToDollars(cents);
 }
 
 export function RefundBatchDashboard() {

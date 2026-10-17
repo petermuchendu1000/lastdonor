@@ -1,4 +1,5 @@
 import { auth } from '@/lib/auth';
+import { startOfReportingDay, startOfReportingMonth } from '@/lib/reporting-timezone';
 import { db } from '@/db';
 import { donations, campaigns, newsletterSubscribers, users } from '@/db/schema';
 import { eq, sql, gte, and, inArray } from 'drizzle-orm';
@@ -12,8 +13,10 @@ export const metadata: Metadata = {
 
 async function getDashboardStats() {
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  // docs/88 F15: boundaries in the configured reporting zone, not the
+  // server's. Labelled on screen so the reader knows which day this is.
+  const startOfDay = startOfReportingDay(now);
+  const startOfMonth = startOfReportingMonth(now);
 
   const [todayDonations] = await db
     .select({

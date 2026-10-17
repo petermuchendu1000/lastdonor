@@ -1,5 +1,7 @@
 'use client';
 
+import { Money } from '@/components/ui/Money';
+import { centsToDollars } from '@/lib/utils/currency';
 import { useState, useMemo } from 'react';
 import { CampaignStatusBadge } from '@/components/campaigns/CampaignStatusBadge';
 import { Button } from '@/components/ui/button';
@@ -322,7 +324,7 @@ export function GovernancePanel({ campaigns: initial }: GovernancePanelProps) {
                 </td>
                 <td className="hidden px-4 py-3 capitalize text-muted-foreground md:table-cell">{c.verificationStatus.replace(/_/g, ' ')}</td>
                 <td className="px-4 py-3 text-right font-mono text-foreground">
-                  ${(c.raisedAmount / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  <Money cents={c.raisedAmount} precision="exact" />
                 </td>
                 <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">{c.donorCount}</td>
                 <td className="hidden max-w-[140px] truncate px-4 py-3 text-muted-foreground lg:table-cell">
@@ -555,8 +557,8 @@ export function GovernancePanel({ campaigns: initial }: GovernancePanelProps) {
             </label>
             {refundAll && (
               <p className="text-xs text-muted-foreground">
-                This will process {target?.donorCount ?? 0} refund(s) totalling $
-                {((target?.raisedAmount ?? 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}.
+                This will process {target?.donorCount ?? 0} refund(s) totalling{' '}
+                {centsToDollars(target?.raisedAmount ?? 0)}.
                 Refunds are irreversible.
               </p>
             )}

@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { startOfReportingMonth } from '@/lib/reporting-timezone';
 import { aiUsageLogs, auditLogs, siteSettings } from '@/db/schema';
 import { sql, gte, eq, and } from 'drizzle-orm';
 
@@ -133,7 +134,8 @@ export async function getAICostSummary(): Promise<AICostSummary> {
   const startOfDay = new Date(now);
   startOfDay.setUTCHours(0, 0, 0, 0);
   const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  // docs/88 F15.
+  const startOfMonth = startOfReportingMonth(now);
 
   const [today, week, month] = await Promise.all([
     db

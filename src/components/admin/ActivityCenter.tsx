@@ -1,5 +1,6 @@
 'use client';
 
+import { centsToDollars } from '@/lib/utils/currency';
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,7 +78,7 @@ function getEventDescription(entry: ActivityEntry | AlertEntry): string {
   const details = entry.details;
   switch (entry.eventType) {
     case 'donation.recorded':
-      return `$${((details.amount as number) / 100 || 0).toFixed(2)} donation received`;
+      return `${centsToDollars(Number(details.amount) || 0)} donation received`;
     case 'donation.failed':
       return `Donation payment failed`;
     case 'donation.refunded':

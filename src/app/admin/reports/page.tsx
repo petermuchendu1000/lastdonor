@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { startOfReportingMonth, startOfReportingYear, startOfReportingMonthsAgo, reportingTimezoneLabel } from '@/lib/reporting-timezone';
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
@@ -24,9 +25,10 @@ export default async function AdminReportsPage() {
   }
 
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  // docs/88 F15.
+  const startOfMonth = startOfReportingMonth(now);
+  const startOfYear = startOfReportingYear(now);
+  const twelveMonthsAgo = startOfReportingMonthsAgo(11, now);
 
   const realNonRefunded = and(eq(donations.source, 'real'), eq(donations.refunded, false));
 
@@ -121,7 +123,8 @@ export default async function AdminReportsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Financial Reports</h1>
         <p className="text-sm text-muted-foreground">
-          Revenue analytics and campaign performance
+          Revenue analytics and campaign performance. Months and years are
+          counted in {reportingTimezoneLabel()}.
         </p>
       </div>
       <FinancialReports

@@ -144,8 +144,9 @@ export function FinancialReports({
                   />
                   <Tooltip
                     formatter={(value, name) => {
-                      if (name === 'revenue') return [`$${Number(value).toFixed(2)}`, 'Revenue'];
-                      if (name === 'avg') return [`$${Number(value).toFixed(2)}`, 'Avg Donation'];
+                      // Chart series are in dollars (divided at the mapping above), so scale back to cents for the one renderer.
+                      if (name === 'revenue') return [centsToDollars(Math.round(Number(value) * 100)), 'Revenue'];
+                      if (name === 'avg') return [centsToDollars(Math.round(Number(value) * 100)), 'Avg Donation'];
                       return [value, name];
                     }}
                     contentStyle={{
@@ -200,7 +201,7 @@ export function FinancialReports({
                       tickFormatter={(v: number) => `$${v}`}
                     />
                     <Tooltip
-                      formatter={(value) => [`$${Number(value).toFixed(2)}`, 'Revenue']}
+                      formatter={(value) => [centsToDollars(Math.round(Number(value) * 100)), 'Revenue']}
                       contentStyle={{
                         borderRadius: '8px',
                         border: '1px solid var(--border)',

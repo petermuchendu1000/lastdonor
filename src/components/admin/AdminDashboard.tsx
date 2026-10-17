@@ -1,6 +1,7 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
+import { reportingTimezoneLabel } from '@/lib/reporting-timezone';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatRelativeTime } from '@/lib/utils/dates';
 import { CATEGORY_LABELS } from '@/lib/categories';
@@ -83,6 +84,16 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
           detail={`${stats.month.campaignsCompleted} completed`}
         />
       </div>
+
+      {/*
+        docs/88 F15. "Today" and "This month" are computed in one
+        configured zone, not the reader's. Naming it is the difference
+        between a figure that can be quoted and one that quietly means a
+        different day to whoever is looking at it.
+      */}
+      <p className="-mt-2 text-xs text-muted-foreground">
+        Periods are counted in {reportingTimezoneLabel()}.
+      </p>
 
       {/*
         Pending review. Rendered unconditionally (docs/88 F6).
