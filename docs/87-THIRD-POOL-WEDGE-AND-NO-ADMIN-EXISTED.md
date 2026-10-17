@@ -354,3 +354,80 @@ mode). `src/db/query-timeout.ts` records its findings as "verified against
 the production pooler **on port 6543**", so the application is on
 transaction mode; the 5432 URL is this session's own copy, used for
 migrations. **Withdrawn as a concern.**
+
+---
+
+# AMENDMENT 3 — the cancel experiment, run
+
+## The hypothesis was weaker than amendment 2 claimed
+
+Amendment 2 proposed that `docs/52`'s `pending.cancel()` creates the
+stuck backends. Before running it, the comment block already in
+`src/db/query-timeout.ts` was re-read, and it records **five backends
+sitting in `ClientRead` during the 2026-10-16 outage** — which predates
+`cancel()`. The symptom therefore predates the suspected cause, and
+cancel cannot be its origin. The experiment can only test whether cancel
+makes them *worse* or *more permanent*. Stated here because amendment 2
+oversold it.
+
+## Setup
+
+`DB_CANCEL_ON_TIMEOUT` (`src/db/query-timeout.ts`). Default ON, so an
+unset, empty or malformed value leaves `docs/52` behaviour intact; only
+the exact string `0` disables the CancelRequest. Read per call, so
+reverting is removing one Fly secret with no build.
+
+Set on Fly and deployed (release 56, digest `9048cdb637b2dd86`,
+`Deployed`). VERIFIED present on the running machine.
+
+## Measurement
+
+Same probe both sides: 20 samples, 30 s apart, recording health latency,
+backends with a transaction older than 2 minutes, and the subset of those
+in `state=active` + `wait=ClientRead`.
+
+| | baseline (cancel ON) | experiment (cancel OFF) |
+|---|---|---|
+| samples | 20 | 20 |
+| db errors | 0 | 0 |
+| latency min/median/max (ms) | 5 / 41 / 76 | 30 / 41 / 87 |
+| backends stuck > 2 min | **0** | **0** |
+| of those, in `ClientRead` | **0** | **0** |
+
+Identical medians, no wedge on either side. **The result is null.**
+
+## ⛔ What this experiment cannot settle
+
+**Ten minutes is far too short.** The five wedges were 40 minutes to 2
+hours apart, and the baseline window contained no wedge at all. A clean
+experiment window therefore proves nothing: it is the expected result
+whether or not cancel matters.
+
+Treating a quiet 10 minutes as a pass would be the same error as
+`docs/52`'s "can no longer become permanent", which was also concluded
+from a short clean window and was wrong within a day.
+
+**What would settle it:** leave `DB_CANCEL_ON_TIMEOUT=0` in place for
+several hours of ordinary traffic and compare the count of
+`ClientRead`-stuck backends against the same span with it unset. That
+needs a scheduled sampler, which is the same gap `docs/65` describes.
+
+## The better fix this points at
+
+Since no GUC bounds an `active` + `ClientRead` backend (amendment 2), the
+remedy that actually worked both times was terminating by transaction
+age. A targeted predicate avoids the migration risk that made `docs/37`
+park this:
+
+```sql
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+WHERE datname = current_database()
+  AND state = 'active' AND wait_event = 'ClientRead'
+  AND xact_start IS NOT NULL AND now() - xact_start > interval '5 minutes';
+```
+
+A migration doing work is never in `ClientRead`, so this cannot touch
+one. It still needs a scheduler: `pg_cron` is not installed, and our own
+cron has never run. An in-process interval in the Next server would work
+without new infrastructure. NOT built here — one change at a time during
+an incident, which is `docs/52`'s own lesson.
