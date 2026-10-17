@@ -696,3 +696,122 @@ count.
   hours apart.
 - The terminate-by-age watchdog in amendment 3 is still not built, and
   remains the only remedy that has ever worked during an incident.
+
+---
+
+# AMENDMENT 6 — the watchdog, built and proven against the real signature
+
+Amendment 3 named terminate-by-transaction-age as "the better fix this
+points at" and did not build it, because one change at a time during an
+incident is `docs/52`'s own lesson. It is built now:
+`src/db/wedge-watchdog.ts`.
+
+## What it does
+
+Every 60 seconds it runs one statement:
+
+```sql
+SELECT pid, pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND pid <> pg_backend_pid()
+  AND application_name IS DISTINCT FROM 'lastdonor-wedge-watchdog'
+  AND state = 'active' AND wait_event = 'ClientRead'
+  AND xact_start IS NOT NULL
+  AND now() - xact_start > make_interval(secs => 300)
+```
+
+Finding and terminating in one statement, so nothing can change between
+the look and the kill.
+
+## Why it opens its own connection, and is not a cron
+
+It has to work when the app pool is the broken thing. Borrowing from
+`src/db/index.ts`'s pool would make it queue behind the very wedge it
+exists to clear. So: a dedicated client, `max: 1`, opened per sweep and
+closed after, named `lastdonor-wedge-watchdog` in `pg_stat_activity`.
+
+It is not a cron route for the same reason, plus `docs/65`: no cron has
+ever run in production, and a route would arrive through the wedged
+pool even once one does. It starts from `src/instrumentation.ts` in the
+nodejs runtime, and is inert during `next build`.
+
+## Reproducing the real signature was the hard part
+
+Two lab attempts produced the wrong state, and saying so matters
+because amendment 5 leaned on the first one:
+
+| attempt | resulting state |
+|---|---|
+| five timed-out `pg_sleep(60)` queries | `active` / **`Timeout:PgSleep`** - still executing |
+| abandon a query, wait for the server to finish | `idle` / `ClientRead`, **no transaction** |
+| `BEGIN; COPY t FROM STDIN;` then silence | **`active` / `Client:ClientRead`, transaction open** |
+
+Only the third is production's signature. **This corrects amendment 5**:
+its "5 timeouts, cancel off, leaves 5 stuck backends" reproduced *pool
+exhaustion from timeouts*, which is real and matters, but those backends
+were still running `pg_sleep`, not sitting in `ClientRead`. The wedge
+state itself was never reproduced there, and the first watchdog test
+found this by terminating nothing.
+
+`COPY FROM STDIN` inside a transaction is a faithful stand-in: the
+backend has done its work and is waiting for client bytes that never
+come, inside an open transaction, exactly like production.
+
+## Proven against it (VERIFIED, local Postgres)
+
+```
+state after 3s:
+  pid 347  idle in transaction/Client/ClientRead  txn=3s  :: SELECT 1
+  pid 348  active/Client/ClientRead               txn=2s  :: COPY wedge_target FROM STDIN;
+  production signature present: YES (pid 348)
+
+sweep, 300s age floor   -> terminated 0        (it is 3 seconds old)
+dry run, 2s floor       -> found 1, nothing changed
+live sweep, 2s floor    -> terminated pid 348, terminated=true
+after:                     pid 347 still there
+legitimate idle-in-transaction client -> SURVIVED, still usable
+legitimate long-running query          -> SURVIVED
+```
+
+Four things it must not kill, and does not: a young wedged backend, an
+`idle in transaction` client, a slow-but-working query, and itself.
+
+## Why the predicate is safe
+
+`state = 'active'` with `wait_event = 'ClientRead'` means the server
+finished and is waiting for the client. A migration doing work is never
+in that state: it is executing (a different wait event, or none) or
+`idle in transaction` between statements, and migrations connect on
+5432 in session mode (`docs/34`), not through the pooler these come
+from. The age floor is the second guard, and it cannot be configured
+below 60 seconds.
+
+It deliberately does **not** touch `idle in transaction` backends -
+Postgres can already bound those with
+`idle_in_transaction_session_timeout` - nor slow-but-running queries.
+Killing a slow report is a different decision from clearing an
+abandoned transaction, and only the second is provably safe.
+
+## Controls
+
+| variable | default | effect |
+|---|---|---|
+| `DB_WATCHDOG` | unset (on) | `off` disables it; `dry-run` reports without terminating |
+| `DB_WATCHDOG_MAX_TXN_AGE_SECONDS` | 300 | age floor, clamped to 60..86400 |
+| `DB_WATCHDOG_INTERVAL_SECONDS` | 60 | sweep period, clamped to 10..3600 |
+
+On by default, because the alternative has been seven outages in one
+day. Every termination is logged at error level with the pid, the
+transaction age and the statement: a watchdog that silently clears an
+outage turns an incident into a mystery, and nobody learns the pool
+wedged at all.
+
+Every instance runs its own, with the first sweep offset by a random
+slice of the period. A lock would be one more thing to wedge, and
+terminating a pid another instance already took is a no-op.
+
+**Bug found by writing the test:** the idempotence guard was keyed on
+the interval handle, which only exists after the randomised initial
+delay, so a second `startWedgeWatchdog()` inside that window would have
+armed a second watchdog. Now keyed on a flag set when arming begins.

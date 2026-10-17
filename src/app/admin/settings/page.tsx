@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { users, campaigns, donations, newsletterSubscribers, siteSettings } from '@/db/schema';
-import { sql, eq, like } from 'drizzle-orm';
+import { sql, like } from 'drizzle-orm';
 import { SystemSettings } from '@/components/admin/SystemSettings';
 import { getAllSettings } from '@/lib/settings.server';
 import type { Metadata } from 'next';

@@ -27,6 +27,15 @@ export async function register() {
 
     const { enforceSecrets } = await import('@/lib/validate-secrets');
     enforceSecrets();
+
+    /*
+      The wedge watchdog (docs/87). It runs here rather than as a cron
+      route for two reasons: no cron has ever run in production
+      (docs/65), and a route would come in through the same pool the
+      watchdog exists to rescue. It opens its own single connection.
+    */
+    const { startWedgeWatchdog } = await import('@/db/wedge-watchdog');
+    startWedgeWatchdog();
   }
 
   if (process.env.NEXT_RUNTIME === 'edge') {
