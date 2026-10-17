@@ -13,8 +13,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export const revalidate = 60;
-
 export default async function SimulationPage() {
   const session = await auth();
   if (!session?.user || session.user.role !== 'admin') {

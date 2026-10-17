@@ -72,7 +72,8 @@ describe('no server-local period boundaries (F15)', () => {
   const SERVER_FILES = [
     'src/app/admin/page.tsx',
     'src/app/admin/reports/page.tsx',
-    'src/app/api/v1/admin/dashboard/route.ts',
+    // `src/app/api/v1/admin/dashboard/route.ts` was here until docs/88
+    // F10 deleted it as an orphan. Nothing called it.
     'src/lib/monitoring/ai-cost-tracker.ts',
   ];
 

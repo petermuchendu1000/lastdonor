@@ -94,6 +94,7 @@ describe('admin list footers (docs/88 F16 ratchet)', () => {
       'GovernancePanel.tsx',
       'VerificationQueue.tsx',
       'PayoutsDashboard.tsx',
+      'CampaignsList.tsx', // capped by docs/88 F8
     ];
     const missing = capped.filter(
       (f) => !readFileSync(join(dir, f), 'utf8').includes('<ListCount'),

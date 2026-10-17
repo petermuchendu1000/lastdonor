@@ -12,8 +12,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export const revalidate = 60;
-
 export default async function MonitoringPage() {
   const [costSummary, costTrend, costByPromptType, simulationQuality, pipelineHealth] =
     await Promise.all([

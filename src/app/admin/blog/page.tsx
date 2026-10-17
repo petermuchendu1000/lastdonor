@@ -9,8 +9,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export const revalidate = 60;
-
 export default async function AdminBlogPage() {
   /* Select only the columns the UI needs - excludes heavy bodyHtml, faqData, etc. */
   const [rows, statusCounts] = await Promise.all([

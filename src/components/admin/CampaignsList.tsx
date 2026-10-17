@@ -27,10 +27,13 @@ import { CampaignStatusBadge } from '@/components/campaigns/CampaignStatusBadge'
 import { VerificationBadge } from '@/components/campaigns/TrustBadge';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
+import { ListCount } from '@/components/admin/ListCount';
 import {
   PlusIcon,
   MagnifyingGlassIcon,
   EllipsisVerticalIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 
 interface Campaign {
@@ -50,8 +53,14 @@ interface Campaign {
 
 interface CampaignsListProps {
   campaigns: Campaign[];
+  /** Per-status `count(*)` over the whole table, not over `campaigns`. */
   statusCounts: Record<string, number>;
+  /** True `count(*)`, before the page's fetch cap (docs/88 F8, F16). */
+  totalCampaigns: number;
 }
+
+/* Matches every other admin list. */
+const PAGE_SIZE = 25;
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
@@ -86,11 +95,12 @@ function formatCategoryLabel(cat: string) {
   return cat.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
+export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: CampaignsListProps) {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
   const [statusTarget, setStatusTarget] = useState<{ campaign: Campaign; newStatus: string } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -161,7 +171,17 @@ export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
     return result;
   }, [campaigns, search, statusFilter, categoryFilter]);
 
-  const totalCount = campaigns.length;
+  /*
+    The true table size, not `campaigns.length` (docs/88 F8). The
+    fetch is capped, so the array length is the size of the page's
+    fetch and saying "222 total" from it would be false the moment
+    there are more than 200.
+  */
+  const totalCount = totalCampaigns;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   const statuses = ['draft', 'active', 'last_donor_zone', 'completed', 'archived', 'paused', 'under_review', 'suspended', 'cancelled'];
 
   return (
@@ -191,7 +211,7 @@ export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
           return (
             <button
               key={s}
-              onClick={() => setStatusFilter(isActive ? null : s)}
+              onClick={() => { setStatusFilter(isActive ? null : s); setPage(1); }}
               className={`rounded-lg border border-border px-3 py-3 text-left transition-colors duration-100 ${
                 isActive
                   ? 'border-primary/40 bg-primary/5'
@@ -213,13 +233,13 @@ export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
             type="text"
             placeholder="Search campaigns…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none transition-colors duration-100 focus:border-primary focus:ring-2 focus:ring-ring"
           />
         </div>
         <select
           value={categoryFilter ?? ''}
-          onChange={(e) => setCategoryFilter(e.target.value || null)}
+          onChange={(e) => { setCategoryFilter(e.target.value || null); setPage(1); }}
           className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none transition-colors duration-100 focus:border-primary focus:ring-2 focus:ring-ring"
         >
           <option value="">All Categories</option>
@@ -248,7 +268,7 @@ export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-                {filtered.map((c) => {
+                {paged.map((c) => {
                   const pct = c.goalAmount > 0 ? Math.min((c.raisedAmount / c.goalAmount) * 100, 100) : 0;
                   return (
                     <tr key={c.id} className="transition-colors duration-100 hover:bg-muted/30">
@@ -372,6 +392,47 @@ export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
             </table>
           </div>
         </div>
+
+      {/* ── Count and pagination (docs/88 F8, F16) ── */}
+      {(filtered.length > 0 || totalCount > campaigns.length) && (
+        <div className="mt-3 flex items-start justify-between gap-4 border-t border-border pt-3">
+          <ListCount
+            from={filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
+            to={Math.min(safePage * PAGE_SIZE, filtered.length)}
+            shown={filtered.length}
+            loaded={campaigns.length}
+            total={totalCount}
+            noun="campaigns"
+          />
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-7 w-7"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => p - 1)}
+                aria-label="Previous page"
+              >
+                <ChevronLeftIcon className="h-4 w-4" />
+              </Button>
+              <span className="px-2 text-xs tabular-nums text-muted-foreground">
+                {safePage} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-7 w-7"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                aria-label="Next page"
+              >
+                <ChevronRightIcon className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Status change confirmation */}
       <Dialog open={!!statusTarget} onOpenChange={() => { setStatusTarget(null); setActionError(null); }}>

@@ -12,8 +12,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export const revalidate = 0;
-
 const CRON_JOBS = [
   { name: 'Ingest News', schedule: '*/30 * * * *' },
   { name: 'Update Phases', schedule: '*/5 * * * *' },

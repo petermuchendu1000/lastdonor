@@ -11,8 +11,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export const revalidate = 60;
-
 // High-priority event types to surface as alerts
 const ALERT_EVENTS = [
   'donation.failed', 'donation.refunded', 'reconcile.discrepancy',

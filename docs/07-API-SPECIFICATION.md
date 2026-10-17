@@ -486,32 +486,27 @@ Aggregate platform statistics. Public. Cached for 5 minutes.
 
 All admin endpoints require `editor` or `admin` role.
 
-#### `GET /api/v1/admin/dashboard`
+#### `GET /api/v1/admin/dashboard` — REMOVED 2026-10-17 (docs/88 F10)
 
-Admin dashboard statistics. Admin only.
+Deleted, not deprecated: it had no callers anywhere in the repository.
+`/admin` computes the same figures server-side in its own page, so the
+endpoint was a second implementation of money figures that nothing
+rendered and nobody compared against the screen.
 
-**Response: `200 OK`**
-```json
-{
-  "ok": true,
-  "data": {
-    "today": {
-      "donations": 12,
-      "amount": 85000,
-      "newSubscribers": 8
-    },
-    "thisMonth": {
-      "donations": 347,
-      "amount": 2160000,
-      "newSubscribers": 210,
-      "campaignsLaunched": 2,
-      "campaignsCompleted": 1
-    },
-    "activeCampaigns": [ ... ],
-    "recentDonations": [ ... ]
-  }
-}
-```
+Three shapes existed at once by the end: this spec promised
+`{today, thisMonth, activeCampaigns, recentDonations}`, the route
+returned `{today, month, dailyDonations}`, and the page computed a
+third. That is the cost of a parallel implementation with no consumer
+to keep it honest.
+
+If a 30-day donations chart is wanted (the one thing the route had that
+the page does not), build it from a query module the page also calls,
+not from a second endpoint. Note the route's series would have been
+wrong once `REPORTING_TIMEZONE` left UTC: it bucketed with
+`date_trunc('day', ...)` in the database's zone while the tiles above
+it used the reporting zone (docs/88 F15), and its 30-day window was a
+rolling instant rather than a day boundary, so the first bucket was
+always a partial day.
 
 ---
 
