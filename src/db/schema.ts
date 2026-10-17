@@ -334,6 +334,15 @@ export const campaigns = pgTable(
     totalWithdrawnAmount: integer('total_withdrawn_amount').notNull().default(0),
     stripeVerificationId: text('stripe_verification_id'),
     stripeVerificationUrl: text('stripe_verification_url'),
+    /*
+      Didit replaced Stripe Identity as the verification provider
+      (docs/81). The Stripe columns are kept, not dropped: they hold the
+      only record of any verification started under the old provider, and
+      dropping a column to tidy up is how history is lost. New sessions
+      write the two below.
+    */
+    diditSessionId: text('didit_session_id'),
+    diditSessionUrl: text('didit_session_url'),
     // Echo columns: pre-computed counters to avoid N+1 queries on listing pages
     seedDonationCount: integer('seed_donation_count').notNull().default(0),
     messageCount: integer('message_count').notNull().default(0),
@@ -347,6 +356,7 @@ export const campaigns = pgTable(
     index('idx_campaigns_simulation_flag').on(table.simulationFlag),
     index('idx_campaigns_creator_id').on(table.creatorId),
     uniqueIndex('idx_campaigns_stripe_verification_id').on(table.stripeVerificationId),
+    uniqueIndex('idx_campaigns_didit_session_id').on(table.diditSessionId),
     check('campaigns_raised_nonneg', sql`${table.raisedAmount} >= 0`),
     check('campaigns_goal_positive', sql`${table.goalAmount} > 0`),
     check('campaigns_donor_count_nonneg', sql`${table.donorCount} >= 0`),

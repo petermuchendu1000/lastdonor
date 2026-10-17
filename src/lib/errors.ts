@@ -29,6 +29,12 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
       'Card payments are unavailable right now. This is a problem on our side, not with ' +
       'your card, and nothing has been charged.',
   },
+  VERIFICATION_UNAVAILABLE: {
+    status: 503,
+    message:
+      'Identity verification is temporarily unavailable. This is a problem on our side, ' +
+      'not with your documents.',
+  },
 };
 
 // ─── Application Error Classes ──────────────────────────────────────────────

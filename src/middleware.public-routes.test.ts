@@ -57,6 +57,15 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   'POST /api/v1/auth/forgot-password': 'Used by someone who cannot sign in.',
   'POST /api/v1/auth/reset-password': 'Token-gated password reset.',
 
+  /*
+    No shared secret, by design (docs/81): this route reads only a session
+    id from the body and then asks Didit what the decision is over an
+    authenticated call of our own, so a forged request cannot assert an
+    outcome - the worst it achieves is making us re-read a decision we are
+    entitled to read.
+  */
+  'POST /api/v1/verification/didit/webhook': 'Didit verification webhook; the body is a hint, the decision is re-fetched.',
+
   // Public reads.
   'GET /api/v1/campaigns': 'Public campaign listing.',
   'HEAD /api/v1/campaigns': 'Public campaign listing.',

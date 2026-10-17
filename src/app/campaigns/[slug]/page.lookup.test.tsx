@@ -70,9 +70,27 @@ describe('unknown slug', () => {
     expect(elapsed).toBeLessThan(2_000);
   });
 
-  it('does not mark the 404 render uncacheable', async () => {
+  /*
+    REVERSED 2026-10-17 (docs/80). This asserted the opposite - that the
+    404 render was NOT marked uncacheable - with no reason recorded. The
+    intent was presumably that a bogus slug should be cheap to serve
+    repeatedly.
+
+    It is what produced a soft 404. Measured in production: a nonexistent
+    slug answered `HTTP 200` with `x-nextjs-cache: HIT` and
+    `x-nextjs-prerender: 1`, because this route sets `revalidate = 60` and
+    a cached ISR entry is served 200 regardless of the status its render
+    asked for. The body said "Campaign Not Found" while the response said
+    "here it is", so search engines indexed every mistyped slug as a thin
+    page instead of dropping it.
+
+    The trade-off accepted: a bogus slug now costs one indexed lookup
+    instead of a cache hit. That is a single query on a column with a
+    unique index, and the correct status code is worth more than it.
+  */
+  it('marks the 404 render uncacheable, so the status is not replayed as a 200', async () => {
     await expect(CampaignDetailPage(pageProps('nope-1'))).rejects.toThrow(NOT_FOUND);
-    expect(cacheMock.noStore).not.toHaveBeenCalled();
+    expect(cacheMock.noStore).toHaveBeenCalled();
   });
 
   it('returns renderable, non-indexable metadata rather than throwing', async () => {

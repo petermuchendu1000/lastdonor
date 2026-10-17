@@ -24,7 +24,13 @@ export interface ApiError {
         given does not work - as distinct from one payment failing. Answered
         with 503, because retrying will not help until an operator acts.
       */
-      | 'PAYMENTS_UNAVAILABLE';
+      | 'PAYMENTS_UNAVAILABLE'
+      /*
+        The identity-verification provider is unreachable or unconfigured.
+        503, like PAYMENTS_UNAVAILABLE: retrying the same request will not
+        help until an operator acts.
+      */
+      | 'VERIFICATION_UNAVAILABLE';
     message: string;
     field?: string;
     requestId: string;

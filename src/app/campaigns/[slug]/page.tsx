@@ -302,8 +302,27 @@ export default async function CampaignDetailPage({ params }: PageProps) {
   }
 
   if (lookup.status === 'missing') {
-    // The query answered and matched nothing. This is the only evidence that
-    // justifies a 404, and it is reached without waiting on any timeout.
+    /*
+      The query answered and matched nothing. This is the only evidence that
+      justifies a 404, and it is reached without waiting on any timeout.
+
+      `noStore()` first, for the status code rather than the content.
+      Verified against production 2026-10-17: a nonexistent slug answered
+      `HTTP 200` with `x-nextjs-cache: HIT` and `x-nextjs-prerender: 1`.
+      This route sets `revalidate = 60`, so the not-found render was being
+      written into the ISR entry for that slug and replayed from cache,
+      and a cached entry is served 200 regardless of the status the render
+      asked for. The body said "Campaign Not Found" while the response
+      said "here it is" - a textbook soft 404, which search engines treat
+      as a thin page to index rather than a page to drop.
+
+      Marking the render dynamic keeps it out of the ISR entry, so
+      `notFound()` reaches the client as a real 404. Same device, and the
+      same reason, as the `unavailable` branch above: a response about
+      whether an appeal exists must not be served from a cache that cannot
+      carry the answer.
+    */
+    noStore();
     notFound();
   }
 

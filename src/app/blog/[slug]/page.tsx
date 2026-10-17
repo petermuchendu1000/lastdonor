@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { unstable_noStore as noStore } from 'next/cache';
 import { notFound } from 'next/navigation';
 import { db } from '@/db';
 import { blogPosts } from '@/db/schema';
@@ -131,7 +132,20 @@ export default async function BlogPostPage({ params }: PageProps) {
     .where(and(eq(blogPosts.slug, slug), eq(blogPosts.published, true)))
     .limit(1);
 
-  if (!post) notFound();
+  /*
+    `noStore()` before `notFound()`, for the status code.
+
+    This route sets `revalidate`, so without it the not-found render is
+    written into the ISR entry for the unknown slug and replayed as
+    `HTTP 200` with `x-nextjs-cache: HIT` — a soft 404, which search
+    engines index as a thin page instead of dropping. Proven against
+    production on `/campaigns/[slug]` 2026-10-17; this route had the same
+    shape. See docs/80.
+  */
+  if (!post) {
+    noStore();
+    notFound();
+  }
 
   // Related posts: same category, exclude current, up to 3
   const related = await db

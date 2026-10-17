@@ -115,6 +115,12 @@ export const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
 
   // ─── Payments ────────────────────────────────────────────────────────────
   {
+    pattern: /^\/api\/v1\/verification\/didit\/webhook$/,
+    methods: ['POST'],
+    reason:
+      'Didit verification webhook. Deliberately has no shared secret: the route reads only a session id from the body and then asks Didit what the decision is over an authenticated call of our own, so a forged request cannot assert an outcome. See docs/81.',
+  },
+  {
     pattern: /^\/api\/v1\/donations\/webhook$/,
     methods: ['POST'],
     reason: 'Stripe webhook; authenticated by Stripe signature verification, not by session.',

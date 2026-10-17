@@ -3,14 +3,19 @@ import { db } from '@/db';
 import { campaigns, auditLogs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { auth, UnauthorizedError, ForbiddenError } from '@/lib/auth';
-import { createIdentityVerificationSession } from '@/lib/stripe-identity';
+import { createDiditSession, DiditNotConfiguredError, DiditApiError } from '@/lib/didit';
+import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import { identitySessionSchema } from '@/lib/validators/admin';
 
 /**
  * POST /api/v1/verification/identity/session
- * Creates a Stripe Identity verification session for a campaign.
+ * Creates a Didit identity-verification session for a campaign.
+ *
+ * Provider switched from Stripe Identity 2026-10-17, see docs/81. The
+ * route shape, the ownership check and the allowed-status list are
+ * unchanged; only who performs the check changed.
  *
  * Body: { campaignId: string, force?: boolean }
  */
@@ -38,8 +43,8 @@ export async function POST(req: NextRequest) {
         slug: campaigns.slug,
         creatorId: campaigns.creatorId,
         verificationStatus: campaigns.verificationStatus,
-        stripeVerificationId: campaigns.stripeVerificationId,
-        stripeVerificationUrl: campaigns.stripeVerificationUrl,
+        diditSessionId: campaigns.diditSessionId,
+        diditSessionUrl: campaigns.diditSessionUrl,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -66,41 +71,46 @@ export async function POST(req: NextRequest) {
     }
 
     // If session already exists, return it - unless caller explicitly requests a fresh session
-    if (campaign.stripeVerificationId && campaign.stripeVerificationUrl && !force) {
+    if (campaign.diditSessionId && campaign.diditSessionUrl && !force) {
       return NextResponse.json({
         ok: true,
         data: {
-          sessionId: campaign.stripeVerificationId,
-          url: campaign.stripeVerificationUrl,
+          sessionId: campaign.diditSessionId,
+          url: campaign.diditSessionUrl,
           existing: true,
         },
       });
     }
 
     // Clear stale session if force-creating a new one
-    if (force && campaign.stripeVerificationId) {
+    if (force && campaign.diditSessionId) {
       await db
         .update(campaigns)
         .set({
-          stripeVerificationId: null,
-          stripeVerificationUrl: null,
+          diditSessionId: null,
+          diditSessionUrl: null,
           updatedAt: new Date(),
         })
         .where(eq(campaigns.id, campaign.id));
     }
 
-    // Create Stripe Identity session
-    const result = await createIdentityVerificationSession({
+    /*
+      `callback` is where Didit returns the person after the hosted flow.
+      It is a destination for a browser, not a trust boundary: the status
+      shown there is read from our own database, which is only ever
+      written from Didit's decision API. `appBaseUrl()` rather than a
+      literal, for the reason docs/57 records about share links.
+    */
+    const result = await createDiditSession({
       campaignId: campaign.id,
-      campaignSlug: campaign.slug,
+      callbackUrl: `${appBaseUrl()}/dashboard?verification=${campaign.slug}`,
     });
 
-    // Store session ID on campaign
     await db
       .update(campaigns)
       .set({
-        stripeVerificationId: result.sessionId,
-        stripeVerificationUrl: result.url,
+        diditSessionId: result.sessionId,
+        diditSessionUrl: result.url,
         verificationStatus: 'pending',
         updatedAt: new Date(),
       })
@@ -112,7 +122,7 @@ export async function POST(req: NextRequest) {
       eventType: 'identity_session_created',
       targetType: 'campaign',
       targetId: campaign.id,
-      details: { stripeVerificationId: result.sessionId },
+      details: { provider: 'didit', diditSessionId: result.sessionId },
       severity: 'info',
     });
 
@@ -125,6 +135,27 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    /*
+      A provider that is not configured is unavailability, not a bug in
+      the request: 503, and say so plainly. Same shape as the Stripe
+      `PAYMENTS_UNAVAILABLE` branch in docs/72.
+    */
+    if (error instanceof DiditNotConfiguredError) {
+      console.error('[verification/identity/session] DIDIT_API_KEY is not set.', { requestId });
+      return NextResponse.json(
+        { ok: false, error: { code: 'VERIFICATION_UNAVAILABLE', message: 'Identity verification is temporarily unavailable. This is a problem on our side, not with your documents.', requestId } } satisfies ApiError,
+        { status: 503 },
+      );
+    }
+    if (error instanceof DiditApiError) {
+      // `error.message` carries Didit's validation detail, never our key:
+      // the key is only ever a request header.
+      console.error('[verification/identity/session] Didit rejected the request:', error.message, { requestId });
+      return NextResponse.json(
+        { ok: false, error: { code: 'VERIFICATION_UNAVAILABLE', message: 'We could not start identity verification just now. Please try again shortly.', requestId } } satisfies ApiError,
+        { status: 503 },
+      );
+    }
     if (error instanceof UnauthorizedError) {
       return NextResponse.json(
         { ok: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required', requestId } } satisfies ApiError,
