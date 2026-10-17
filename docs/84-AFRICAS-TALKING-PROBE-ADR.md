@@ -64,6 +64,23 @@ have now been made from this account; refreshing the dashboard is the
 test.** If the banner persists, the activation interaction must happen on a
 live app, which means the real prerequisite is the one in the next section.
 
+> **Resolved 2026-10-17, later the same day (OBSERVED).** The dashboard was
+> refreshed and **the banner is gone**, alongside `Wallet: KES 10` and
+> `Plan: Basic`. The account is activated.
+>
+> What this does **not** establish is the cause. We made the sandbox calls
+> and the banner cleared, but nothing was controlled — the owner may have
+> done something else in the console in between, and Africa's Talking
+> publishes no account-status endpoint to check against. Record it as
+> *"the banner cleared after sandbox activity"*, not as *"sandbox activity
+> clears the banner"*.
+>
+> A related inference made in chat and **withdrawn**: that the live host
+> answering `401` to the sandbox key proved the account was still
+> unactivated. It proves nothing of the sort. A sandbox-scoped key is
+> refused by the live host either way; key scope and account state are
+> different facts.
+
 **The key supplied is sandbox-only** (row 4: `401` against the live host).
 A live app issues its own separate key.
 
@@ -186,13 +203,13 @@ preconditions are account-level and one is a design decision:
    ([learn.microsoft.com](https://learn.microsoft.com/en-us/connectors/africastalkingsms/),
    publisher Africa's Talking, retrieved 2026-10-17.)
 2. **A registered Sender ID**, for live. Console step, not code.
-3. **Account activation**, if the banner survives the sandbox calls above.
-4. **OTP storage.** Unchanged from `docs/82`: `verification_tokens` fits an
-   `sms:+254…` identifier but has **no attempt counter**, so brute-force
-   resistance must come from the `auth` rate-limit tier (`docs/44`) or a new
-   column. Decide before building.
-5. **A consent gate that fails closed**, like `SEED_DONATIONS_OPT_IN` in
-   `docs/41`: no `sms_consent_at`, no message.
+3. ~~**Account activation**, if the banner survives the sandbox calls
+   above.~~ **Done 2026-10-17** — see the resolution note above.
+4. ~~**OTP storage.**~~ **Resolved by `docs/85`:** its own table with the
+   attempt counter on the row, because `verification_tokens` is keyed
+   `(identifier, token)` and has nowhere to hang one.
+5. ~~**A consent gate that fails closed.**~~ **Built in `docs/85`:**
+   `PATCH /api/v1/users/phone` refuses consent for an unverified number.
 
 **Sandbox messages reach the Africa's Talking simulator, never a handset.**
 `isSmsSandbox()` exists so nothing can report a simulator send to a person
