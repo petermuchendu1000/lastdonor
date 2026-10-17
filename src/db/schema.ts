@@ -736,6 +736,47 @@ export const verificationTokens = pgTable(
   ],
 );
 
+/**
+ * One-time codes for phone verification over SMS.
+ *
+ * A separate table rather than an `sms:+254…` identifier in
+ * `verification_tokens`, which `docs/82` floated. Two reasons, and the
+ * second is the deciding one:
+ *
+ *   - `verification_tokens` is NextAuth's table, keyed on
+ *     (identifier, token). You cannot look up "the live code for this
+ *     user" without already knowing the code, so there is nowhere to hang
+ *     a failed-attempt count.
+ *   - A six-digit code is one in a million, which an IP rate limit does
+ *     not protect: an attacker spreading guesses across addresses walks
+ *     straight through it. The counter has to live on the CODE. That is
+ *     `attempts` below, and it is what makes the guess budget five rather
+ *     than unbounded.
+ *
+ * The code itself is never stored — only a SHA-256 of it, like a password.
+ * A database read must not hand somebody a working code.
+ */
+export const phoneVerificationCodes = pgTable(
+  'phone_verification_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The E.164 number being proved, not the one currently on the user. */
+    phoneE164: text('phone_e164').notNull(),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One live code per person: minting a new one deletes the old.
+    uniqueIndex('idx_phone_verification_codes_user').on(table.userId),
+  ],
+);
+
 // ─── AI Usage Logs ─────────────────────────────────────────────────────────
 
 export const aiUsageLogs = pgTable(

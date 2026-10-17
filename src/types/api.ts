@@ -30,7 +30,26 @@ export interface ApiError {
         503, like PAYMENTS_UNAVAILABLE: retrying the same request will not
         help until an operator acts.
       */
-      | 'VERIFICATION_UNAVAILABLE';
+      | 'VERIFICATION_UNAVAILABLE'
+      /*
+        No SMS credentials, so no code can be sent. 503, for the same
+        reason as the two above.
+      */
+      | 'SMS_UNAVAILABLE'
+      /*
+        The SMS provider was reached and refused this recipient. 502: the
+        failure is theirs, not the caller's, and the provider's own token
+        (InvalidPhoneNumber, InvalidSenderId) is logged rather than
+        returned - it describes our configuration, and tells the person
+        nothing they can act on. See docs/84.
+      */
+      | 'SMS_SEND_FAILED'
+      /* A verification code that was wrong. */
+      | 'INVALID_CODE'
+      /* A code that expired, was already used, or ran out of attempts. */
+      | 'CODE_UNUSABLE'
+      /* Consent to be texted, asked for before the number was proved. */
+      | 'PHONE_NOT_VERIFIED';
     message: string;
     field?: string;
     requestId: string;

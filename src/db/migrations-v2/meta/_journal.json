@@ -29,6 +29,13 @@
       "when": 1792205214612,
       "tag": "0003_free_joystick",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792208855004,
+      "tag": "0004_loving_bastion",
+      "breakpoints": true
     }
   ]
 }

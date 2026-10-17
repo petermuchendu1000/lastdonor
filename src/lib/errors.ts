@@ -35,6 +35,20 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
       'Identity verification is temporarily unavailable. This is a problem on our side, ' +
       'not with your documents.',
   },
+  SMS_UNAVAILABLE: {
+    status: 503,
+    message: 'Text messaging is unavailable right now. This is a problem on our side.',
+  },
+  SMS_SEND_FAILED: {
+    status: 502,
+    message: 'We could not send a code to that number.',
+  },
+  INVALID_CODE: { status: 400, message: 'That code is not right.' },
+  CODE_UNUSABLE: { status: 400, message: 'That code can no longer be used. Ask for a new one.' },
+  PHONE_NOT_VERIFIED: {
+    status: 400,
+    message: 'Verify your phone number before turning on text messages.',
+  },
 };
 
 // ─── Application Error Classes ──────────────────────────────────────────────

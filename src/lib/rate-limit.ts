@@ -227,6 +227,18 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
         analytics: false,
         prefix: 'rl:lastdonor:users',
       }),
+      /*
+        Its own tier, tighter than `users` (30/60 s), because every request
+        here can put a charged SMS on a stranger's handset. The per-user
+        cooldown in `phone-verification.ts` is the real guard; this bounds
+        one address cycling through accounts to get past it.
+      */
+      sms: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(SMS_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:sms',
+      }),
       // See SESSION_READ_LIMIT below. Its own prefix, so the bucket is not
       // shared with sign-in attempts.
       session: new Ratelimit({
@@ -270,6 +282,25 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
  * be a database amplifier. A large bucket keeps that bounded while sitting far
  * above any plausible browsing rate.
  */
+// ─── Sending an SMS costs money and lands on a handset (docs/85) ──────────
+/**
+ * `/api/v1/users/phone` mints and texts a verification code.
+ *
+ * It sits under `/api/v1/users`, whose tier is 30/60 s — far too generous
+ * for a path where each accepted request bills us for a message delivered
+ * to somebody's phone. The binding guard is the 60-second per-user
+ * cooldown in `src/lib/phone-verification.ts`; this tier bounds the way
+ * around it, which is one address cycling through accounts.
+ *
+ * Five per minute per IP: above any honest use (a person sends one code
+ * and maybe resends once), far below a useful volume for anyone paying
+ * for the messages with our balance.
+ */
+export const SMS_PATH_PREFIX = '/api/v1/users/phone';
+
+/** Bucket for {@link SMS_PATH_PREFIX}: 5 requests / 60 s / IP. */
+export const SMS_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
+
 export const SESSION_READ_PATH = '/api/auth/session';
 
 /** Bucket for {@link SESSION_READ_PATH}: 120 reads / 60 s / IP. */
@@ -296,6 +327,8 @@ export function isSessionReadRequest(pathname: string, method: string): boolean 
  */
 export function getLimiterTier(pathname: string, method: string = 'GET'): string {
   if (isSessionReadRequest(pathname, method)) return 'session';
+  // Before the `/api/v1/users` line below, which would otherwise swallow it.
+  if (pathname.startsWith(SMS_PATH_PREFIX)) return 'sms';
   if (pathname.startsWith('/api/v1/auth') || pathname.startsWith('/api/auth')) return 'auth';
   if (pathname.startsWith('/api/v1/newsletter')) return 'newsletter';
   if (pathname.startsWith('/api/v1/donations')) return 'donations';
@@ -318,6 +351,9 @@ const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
   '/api/v1/donations/create-intent': { maxRequests: 10, windowMs: 60_000 },
   '/api/v1/auth': { maxRequests: 10, windowMs: 60_000 },
   '/api/v1/newsletter': { maxRequests: 5, windowMs: 60_000 },
+  // Before '/api/v1/users': insertion order decides, and the broader entry
+  // would otherwise give a route that sends charged SMS a 30/60 s bucket.
+  [SMS_PATH_PREFIX]: SMS_LIMIT,
   '/api/v1/users': { maxRequests: 30, windowMs: 60_000 },
   '/api/v1/blog': { maxRequests: 60, windowMs: 60_000 },
   '/api/v1/campaigns': { maxRequests: 60, windowMs: 60_000 },

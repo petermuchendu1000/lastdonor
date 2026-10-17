@@ -5,6 +5,7 @@ import { users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import AccountPageClient from '@/components/user/AccountPageClient';
 import { BadgeDisplay } from '@/components/user/BadgeDisplay';
+import { PhoneVerificationCard } from '@/components/user/PhoneVerificationCard';
 import type { UserBadge } from '@/types';
 import type { Metadata } from 'next';
 
@@ -57,6 +58,10 @@ export default async function DashboardSettingsPage() {
             avatarUrl: user.avatarUrl,
           }}
         />
+      </div>
+
+      <div className="mt-6">
+        <PhoneVerificationCard />
       </div>
     </>
   );
