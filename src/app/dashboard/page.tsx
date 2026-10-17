@@ -6,6 +6,7 @@ import { donations, campaigns } from '@/db/schema';
 import { eq, desc, sql, and, or } from 'drizzle-orm';
 import { centsToDollars, centsToDollarsWhole } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
+import { VerificationRow } from '@/components/dashboard/VerificationRow';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import {
   ExclamationTriangleIcon,
@@ -67,6 +68,19 @@ async function getDashboardData(userId: string, userEmail: string) {
 
   const donationStats = donationStatsResult[0];
 
+  /*
+    The URGENT banner: verification you are being chased for, because money
+    is waiting on it.
+
+    Kept narrow on purpose - nagging somebody to prove their identity
+    before a single person has donated is noise. What was wrong was that
+    this was the ONLY door. Both of its conditions are currently
+    unsatisfiable (`docs/79` moved every campaign to `under_review`, and
+    `docs/72` means no campaign can ever have a donor), so the link never
+    rendered and the whole verification flow was unreachable without
+    knowing the URL. The per-campaign entry point below is the fix; this
+    stays as the escalation. See docs/83.
+  */
   const needsVerification = myCampaigns.filter(
     (c) =>
       (c.status === 'active' || c.status === 'last_donor_zone') &&
@@ -218,6 +232,19 @@ export default async function DashboardPage() {
                           </span>{' '}
                           raised of {centsToDollarsWhole(c.goalAmount)}
                         </p>
+
+                        {/*
+                          Verification, always reachable.
+
+                          Before this, the only link to
+                          /dashboard/campaigns/[id]/verification was the
+                          urgent banner above, gated on the campaign being
+                          active AND having at least one donor - neither of
+                          which any campaign currently satisfies. The page
+                          existed, the Didit integration behind it worked,
+                          and no organiser could get to it. See docs/83.
+                        */}
+                        <VerificationRow campaignId={c.id} status={c.verificationStatus} />
 
                         <div className="mt-2">
                           <ProgressBar
