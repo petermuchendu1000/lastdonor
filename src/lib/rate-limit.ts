@@ -298,8 +298,28 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
  */
 export const SMS_PATH_PREFIX = '/api/v1/users/phone';
 
-/** Bucket for {@link SMS_PATH_PREFIX}: 5 requests / 60 s / IP. */
+/** Bucket for {@link isSmsSendRequest}: 5 requests / 60 s / IP. */
 export const SMS_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
+
+/**
+ * True when this request would actually put a message on a handset.
+ *
+ * **POST only, and that is load-bearing.** The first version of this tier
+ * matched the whole path, and walking the flow against production showed
+ * what that costs: GET (the page loads and reads state), POST (send),
+ * PUT (verify), PUT again (the code was mistyped), PATCH (consent) is
+ * FIVE requests of ordinary, honest use — so the limiter answered 429 to
+ * a person typing a code we had just texted them.
+ *
+ * The other verbs are free for us and must not share the budget. `PUT` is
+ * the one that looks like it needs a limit, and it does not: guessing a
+ * code is bounded by the per-code attempt counter in
+ * `phone-verification.ts`, which is the control that actually works
+ * (an IP limit does not — see `docs/85`).
+ */
+export function isSmsSendRequest(pathname: string, method: string): boolean {
+  return pathname.startsWith(SMS_PATH_PREFIX) && method.toUpperCase() === 'POST';
+}
 
 export const SESSION_READ_PATH = '/api/auth/session';
 
@@ -328,7 +348,7 @@ export function isSessionReadRequest(pathname: string, method: string): boolean 
 export function getLimiterTier(pathname: string, method: string = 'GET'): string {
   if (isSessionReadRequest(pathname, method)) return 'session';
   // Before the `/api/v1/users` line below, which would otherwise swallow it.
-  if (pathname.startsWith(SMS_PATH_PREFIX)) return 'sms';
+  if (isSmsSendRequest(pathname, method)) return 'sms';
   if (pathname.startsWith('/api/v1/auth') || pathname.startsWith('/api/auth')) return 'auth';
   if (pathname.startsWith('/api/v1/newsletter')) return 'newsletter';
   if (pathname.startsWith('/api/v1/donations')) return 'donations';
@@ -366,6 +386,9 @@ function getConfig(pathname: string, method: string = 'GET'): RateLimitConfig {
     // The generous session bucket is for the GET/HEAD cookie read only; see
     // `isSessionReadRequest`.
     if (route === SESSION_READ_PATH && !isSessionReadRequest(pathname, method)) continue;
+    // The tight SMS bucket is for the verb that actually sends a message;
+    // the rest of the path falls through to the `/api/v1/users` entry.
+    if (route === SMS_PATH_PREFIX && !isSmsSendRequest(pathname, method)) continue;
     return config;
   }
   return { maxRequests: 100, windowMs: 60_000 };
@@ -430,12 +453,12 @@ export async function checkRateLimitAsync(request: NextRequest): Promise<NextRes
   const ip = getClientIp(request.headers);
   const method = request.method ?? 'GET';
   const config = getConfig(pathname, method);
+  const tier = getLimiterTier(pathname, method);
   const key = `${ip}:${pathname.split('/').slice(0, 5).join('/')}`;
 
   // ── Try distributed (Upstash) limiter first ──────────────────────────────
   const limiters = initDistributedLimiters();
   if (limiters) {
-    const tier = getLimiterTier(pathname, method);
     const limiter = limiters[tier] ?? limiters.default;
     try {
       const result = await limiter.limit(key);
@@ -466,8 +489,18 @@ export async function checkRateLimitAsync(request: NextRequest): Promise<NextRes
     }
   }
 
-  // ── In-memory fallback (per-instance, dev, or Upstash outage) ─────────────
-  return checkInMemory(key, config);
+  /*
+    ── In-memory fallback (per-instance, dev, or Upstash outage) ────────────
+
+    Keyed by TIER as well as IP and path. Upstash gives each tier its own
+    prefix, so its buckets are already independent; the in-memory store
+    had no such separation, and two tiers sharing a path shared one
+    counter with two different ceilings. That first showed up on
+    `/api/v1/users/phone`, where a handful of free verifies could spend
+    the tight send budget and 429 the next send. Without the tier in the
+    key, the narrower limit silently governs every verb on the path.
+  */
+  return checkInMemory(`${tier}:${key}`, config);
 }
 
 /**
@@ -480,8 +513,11 @@ export function checkRateLimit(request: NextRequest): NextResponse | null {
   if (pathname.includes('/webhook')) return null;
 
   const ip = getClientIp(request.headers);
-  const config = getConfig(pathname, request.method ?? 'GET');
+  const method = request.method ?? 'GET';
+  const config = getConfig(pathname, method);
+  const tier = getLimiterTier(pathname, method);
   const key = `${ip}:${pathname.split('/').slice(0, 5).join('/')}`;
 
-  return checkInMemory(key, config);
+  // Tier in the key, for the reason given in `checkRateLimitAsync`.
+  return checkInMemory(`${tier}:${key}`, config);
 }

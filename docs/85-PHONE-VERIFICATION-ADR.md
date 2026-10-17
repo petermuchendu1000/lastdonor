@@ -145,6 +145,37 @@ that runs whenever Upstash is unconfigured, which is every test run.
 `rate-limit.sms.test.ts` drives the fallback to an actual 429 rather than
 only asserting the tier name, and the ordering mutation turns it red.
 
+### Two defects the production walk-through found, that tests did not
+
+Both were caught by signing in to the deployed site and actually using
+the flow (below), after 29 green unit tests.
+
+**1. The tier covered every verb.** It matched on path alone, so GET (the
+card reads its state) + POST (send) + PUT (verify) + PUT (the code was
+mistyped) + PATCH (consent) is **five requests of entirely honest use** —
+and the sixth got a 429. The limiter was refusing a person typing a code
+we had just texted them.
+
+Only `POST` costs anything, so the tier is now `isSmsSendRequest`: that
+path **and** that verb. `PUT` is the one that looks like it still needs a
+limit, and it does not — guessing a code is bounded by the per-code
+attempt counter, which is the control that actually works. The original
+unit test asserted *"covers every verb on the path, including the read"*
+as though it were the intent; it encoded the bug. It now asserts the
+opposite, with the reason.
+
+**2. The in-memory limiter had no tier separation, and never has.**
+Its key was `${ip}:${path}`. Upstash gives each tier its own Redis prefix,
+so its buckets are independent — the in-memory store had nothing of the
+kind, so two tiers sharing a path shared **one counter with two different
+ceilings**, and the narrowest ceiling silently governed every verb. Fixing
+defect 1 alone would not have helped: the free `PUT`s would still have
+spent the send budget.
+
+The key is now `${tier}:${ip}:${path}`. This is a pre-existing defect in
+shared code, not something this change introduced — it was simply
+unobservable until a path had two tiers on it.
+
 ---
 
 ## Sandbox is announced, not hidden

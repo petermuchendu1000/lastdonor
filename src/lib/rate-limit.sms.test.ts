@@ -12,7 +12,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { NextRequest } from 'next/server';
-import { checkRateLimitAsync, getLimiterTier, SMS_LIMIT, SMS_PATH_PREFIX } from '@/lib/rate-limit';
+import {
+  checkRateLimitAsync,
+  getLimiterTier,
+  isSmsSendRequest,
+  SMS_LIMIT,
+  SMS_PATH_PREFIX,
+} from '@/lib/rate-limit';
 
 /** The bucket the SMS path would fall into if the ordering were wrong. */
 const USERS_TIER_LIMIT = 30;
@@ -46,10 +52,32 @@ describe('the SMS tier', () => {
     expect(getLimiterTier(SMS_PATH_PREFIX, 'POST')).not.toBe('users');
   });
 
-  it('covers every verb on the path, including the read', () => {
-    for (const method of ['GET', 'POST', 'PUT', 'PATCH']) {
-      expect(getLimiterTier(SMS_PATH_PREFIX, method)).toBe('sms');
+  /*
+    Caught by walking the flow against production, not by a unit test:
+    with every verb in the tight bucket, GET + POST + PUT + a mistyped
+    PUT + PATCH is five requests of ordinary use, and the limiter 429'd a
+    person typing a code we had just texted them. Only POST costs money.
+  */
+  it('covers the send and nothing else', () => {
+    expect(getLimiterTier(SMS_PATH_PREFIX, 'POST')).toBe('sms');
+    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+      expect(getLimiterTier(SMS_PATH_PREFIX, method)).toBe('users');
     }
+  });
+
+  it('identifies the send by verb, not by path alone', () => {
+    expect(isSmsSendRequest(SMS_PATH_PREFIX, 'post')).toBe(true);
+    expect(isSmsSendRequest(SMS_PATH_PREFIX, 'PUT')).toBe(false);
+    expect(isSmsSendRequest('/api/v1/users/settings', 'POST')).toBe(false);
+  });
+
+  it('does not spend the send budget on verifying a code', async () => {
+    const ip = '203.0.113.90';
+    for (let i = 0; i < SMS_LIMIT.maxRequests + 2; i++) {
+      expect(await checkRateLimitAsync(request(SMS_PATH_PREFIX, ip, 'PUT'))).toBeNull();
+    }
+    // The send budget is untouched by those.
+    expect(await checkRateLimitAsync(request(SMS_PATH_PREFIX, ip, 'POST'))).toBeNull();
   });
 
   it('leaves the rest of /api/v1/users alone', () => {
