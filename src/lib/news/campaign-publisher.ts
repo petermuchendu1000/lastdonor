@@ -99,7 +99,9 @@ export async function publishCampaignFromNewsItem(
   } = {},
 ): Promise<PublishOutcome> {
   const recentStoryPatterns = options.recentStoryPatterns ?? [];
-  const auditEventType = options.auditEventType ?? 'campaign.auto_published';
+  // Drafted, not published: the generator no longer publishes anything
+  // (docs/79). `campaign.published` is written by the approval route.
+  const auditEventType = options.auditEventType ?? 'campaign.auto_drafted';
 
   // ── Step 1: Fetch & validate news item ────────────────────────────────
 
@@ -250,11 +252,20 @@ export async function publishCampaignFromNewsItem(
     };
   }
 
-  // Fuzzy dedup against recent campaigns
+  /*
+    Fuzzy dedup against recent campaigns.
+
+    Ordered by `createdAt`, NOT `publishedAt`. Since docs/79 a generated
+    campaign is queued with `publishedAt: null`, so ordering by that column
+    would sort every unreviewed campaign to the bottom and this window
+    would only ever see already-approved ones - the pipeline would happily
+    generate a second campaign about the same person while the first sat
+    in the review queue. `createdAt` is set on insert either way.
+  */
   const recentCampaigns = await db
     .select({ title: campaigns.title, subjectName: campaigns.subjectName })
     .from(campaigns)
-    .orderBy(desc(campaigns.publishedAt))
+    .orderBy(desc(campaigns.createdAt))
     .limit(15);
 
   const isDuplicateOfRecent = recentCampaigns.some((c) => {
@@ -359,7 +370,26 @@ export async function publishCampaignFromNewsItem(
     .values({
       title: campaignTitle,
       slug: campaignSlug,
-      status: 'active',
+      /*
+        THE REVIEW GATE, second half. Resolved 2026-10-17, see docs/79.
+
+        This inserted `status: 'active'` with `publishedAt` set, so a
+        machine-generated campaign about a named real person went public
+        with nobody having read it. All 12 campaigns live before today
+        arrived this way.
+
+        docs/78 gated user submissions; this is what made "every campaign
+        is reviewed by a person before it goes live" still false for every
+        campaign a donor could actually see. Both paths now land in the
+        same queue, so the claim holds without qualification.
+
+        The cost is deliberate: the news pipeline is no longer autonomous.
+        It drafts; a person publishes. For content this platform writes
+        itself, in the names of real people it found in the news
+        (docs/33, docs/36), that is the correct direction for the cost to
+        run.
+      */
+      status: 'under_review',
       heroImageUrl: imageResult.url,
       photoCredit: imageResult.credit,
       storyHtml,
@@ -377,7 +407,9 @@ export async function publishCampaignFromNewsItem(
       source: 'automated',
       simulationFlag: true,
       simulationConfig: { paused: false, fundAllocation: 'pool' },
-      publishedAt: new Date(),
+      // Stamped by the admin approval route on first publication, keyed on
+      // this column being null. See docs/78.
+      publishedAt: null,
     })
     .returning({ id: campaigns.id });
 

@@ -10,7 +10,7 @@ import type { ApiError } from '@/types/api';
 const EVENT_CATEGORIES: Record<string, string[]> = {
   donations: ['donation.recorded', 'donation.failed', 'donation.refunded'],
   campaigns: [
-    'campaign.phase_transition', 'campaign.completed', 'campaign.auto_published',
+    'campaign.phase_transition', 'campaign.completed', 'campaign.auto_published', 'campaign.auto_drafted',
     'campaign.created',
   ],
   users: ['user.login', 'user.deleted', 'user.role_changed'],

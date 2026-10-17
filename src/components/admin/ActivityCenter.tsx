@@ -54,7 +54,7 @@ const SEVERITY_STYLES: Record<string, { dot: string; variant: 'default' | 'secon
 
 const CATEGORY_EVENTS: Record<string, string[]> = {
   donations: ['donation.recorded', 'donation.failed', 'donation.refunded'],
-  campaigns: ['campaign.phase_transition', 'campaign.completed', 'campaign.auto_published', 'campaign.created'],
+  campaigns: ['campaign.phase_transition', 'campaign.completed', 'campaign.auto_published', 'campaign.auto_drafted', 'campaign.created'],
   users: ['user.login', 'user.deleted', 'user.role_changed'],
   system: ['cron.send_newsletter', 'cron.simulate_donations', 'cron.publish_campaigns', 'cron.fetch_news', 'cron.ingest_news', 'cron.reconcile', 'admin.seed_purge', 'admin.seed_messages_generated', 'audit_log.viewed'],
 };
@@ -86,6 +86,7 @@ function getEventDescription(entry: ActivityEntry | AlertEntry): string {
       return `Campaign reached its goal`;
     case 'campaign.phase_transition':
       return `Campaign moved to ${(details.toPhase as string)?.replace(/_/g, ' ') ?? 'new phase'}`;
+    case 'campaign.auto_drafted':
     case 'campaign.auto_published':
       return `Campaign auto-published`;
     case 'user.role_changed':

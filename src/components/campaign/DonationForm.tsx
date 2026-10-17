@@ -1120,20 +1120,22 @@ export function DonationForm({
             Your donation is protected
           </p>
           {/*
-            The first sentence here read "Every campaign is reviewed by a
-            person before it goes live." Removed 2026-10-17: it is not
-            true. `POST /api/v1/user-campaigns` publishes straight to
-            `status: 'active'` with no review gate, and the 12 campaigns
-            currently on the site were auto-published by a cron. I wrote
-            that sentence the day before, carrying the claim over from the
-            rest of the site without checking the code path. See docs/77.
+            This sentence was removed on 2026-10-17 and restored the same
+            day, which is the whole story of docs/77 -> docs/79.
 
-            What remains is the refund policy, which IS what this block is
-            for and IS substantiated by /refund-policy.
+            It came out because it was false: both creation paths inserted
+            `status: 'active'` and nothing was read before publication. It
+            is back because both paths now insert `status: 'under_review'`
+            and a person approves - user submissions in docs/78, the news
+            generator in docs/79. The claim is substantiated by the code,
+            not by the marketing copy that used to assert it.
+
+            If either gate is ever removed, this sentence goes with it.
           */}
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            If a charge is unauthorised, a campaign is removed before funds are
-            released, or it fails verification after you give, we refund donors.{' '}
+            Every campaign is reviewed by a person before it goes live. If a charge is
+            unauthorised, a campaign is removed before funds are released, or it fails
+            verification after you give, we refund donors.{' '}
             <Link href="/refund-policy" className="underline underline-offset-2 hover:text-foreground">
               Refund Policy
             </Link>

@@ -660,7 +660,7 @@ export async function runNewsPipeline(
 
       // Audit log
       await db.insert(schema.auditLogs).values({
-        eventType: 'campaign.auto_published',
+        eventType: 'campaign.auto_drafted',
         targetType: 'campaign',
         targetId: campaign.id,
         severity: 'info',

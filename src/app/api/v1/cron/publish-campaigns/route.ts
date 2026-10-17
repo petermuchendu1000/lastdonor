@@ -69,10 +69,16 @@ export async function GET(request: NextRequest) {
     // Shared state across the batch for anti-repetition
     const recentStoryPatterns: StoryPattern[] = [];
 
+    /*
+      Ordered by `createdAt`, not `publishedAt`: since docs/79 a generated
+      campaign is queued unpublished, so ordering by `publishedAt` would
+      hide every campaign still awaiting review from this anti-repetition
+      window.
+    */
     const recentCampaigns = await db
       .select({ title: campaigns.title })
       .from(campaigns)
-      .orderBy(desc(campaigns.publishedAt))
+      .orderBy(desc(campaigns.createdAt))
       .limit(15);
     const recentTitles = recentCampaigns.map((c) => c.title);
 
@@ -81,7 +87,9 @@ export async function GET(request: NextRequest) {
         const result = await publishCampaignFromNewsItem(item.id, {
           recentStoryPatterns,
           recentTitles,
-          auditEventType: 'campaign.auto_published',
+          // Drafted into the review queue, not published: a person
+          // approves it in /admin/campaigns. See docs/79.
+          auditEventType: 'campaign.auto_drafted',
         });
 
         if (result.ok) {
