@@ -398,7 +398,14 @@ describe('Email templates - updated for instant-live', () => {
     });
   });
 
-  describe('campaignSubmittedEmail - live confirmation', () => {
+  /*
+    REVERSED 2026-10-17 (docs/78). This block used to assert that the admin
+    email says the campaign is "live" and does NOT mention review, which
+    was correct while creation published instantly. The owner chose to make
+    the review claim true instead, so the admin email is now a request to
+    review something nobody can see yet.
+  */
+  describe('campaignSubmittedEmail - review request', () => {
     const email = campaignSubmittedEmail({
       campaignTitle: 'Help Alice',
       creatorName: 'Alice',
@@ -407,14 +414,17 @@ describe('Email templates - updated for instant-live', () => {
       campaignId: '00000000-0000-4000-a000-000000000001',
     });
 
-    it('says campaign is live/published', () => {
-      const combinedText = email.subject + email.html;
-      expect(combinedText).toMatch(/live|published|active/i);
+    it('asks for a review', () => {
+      expect(email.subject + email.html).toMatch(/review/i);
     });
 
-    it('does NOT say "Submitted for Review"', () => {
-      const combinedText = email.subject + email.html;
-      expect(combinedText).not.toContain('Submitted for Review');
+    it('says the campaign is NOT public yet', () => {
+      expect(email.html).toMatch(/not<\/strong>? ?public|not public/i);
+    });
+
+    it('does not tell an admin the campaign is already live', () => {
+      expect(email.subject).not.toMatch(/\blive\b/i);
+      expect(email.html).not.toMatch(/is <strong>active<\/strong> and live/i);
     });
   });
 });
@@ -529,44 +539,31 @@ describe('Notification functions - new lifecycle notifications', () => {
 // 5. CAMPAIGN CREATION - INSTANT-LIVE
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('Campaign creation - instant-live', () => {
+/*
+  REVERSED 2026-10-17 (docs/78): creation no longer publishes.
+
+  What stays here is the one thing still true of the route's source and
+  cheap to assert textually. Everything else this block used to grep for -
+  the status, the publish stamp, the audit event, which notifications fire
+  - is now asserted BEHAVIOURALLY in
+  `src/app/api/v1/user-campaigns/review-gate.test.ts`, which drives the
+  real route and inspects the row it tries to write.
+
+  That is also the follow-up this file recorded for itself further down:
+  source-text assertions break on every legitimate refactor. This block
+  broke on a deliberate architecture change and told us nothing a
+  behavioural test would not have told us better.
+*/
+describe('Campaign creation', () => {
   const routeSource = readFileSync(resolve(ROOT, 'src/app/api/v1/user-campaigns/route.ts'), 'utf-8');
-
-  it('sets status to active (not draft)', () => {
-    expect(routeSource).toContain("status: 'active'");
-    expect(routeSource).not.toMatch(/status:\s*'draft'/);
-  });
-
-  it('sets publishedAt on creation', () => {
-    expect(routeSource).toContain('publishedAt: new Date()');
-  });
 
   it('sets verificationStatus to unverified', () => {
     expect(routeSource).toContain("verificationStatus: 'unverified'");
   });
 
-  it('audit event is campaign.published', () => {
-    expect(routeSource).toContain("'campaign.published'");
-    expect(routeSource).not.toContain("'campaign.submitted'");
-  });
-
-  it('calls notifyWelcomeCampaigner after creation', () => {
-    expect(routeSource).toContain('notifyWelcomeCampaigner(');
-  });
-
-  it('calls notifyAdminsCampaignSubmitted after creation (FYI)', () => {
-    expect(routeSource).toContain('notifyAdminsCampaignSubmitted(');
-  });
-
-  it('imports both notification functions', () => {
-    expect(routeSource).toContain('notifyAdminsCampaignSubmitted');
-    expect(routeSource).toContain('notifyWelcomeCampaigner');
-  });
-
-  it('passes campaignSlug to welcome notification', () => {
-    const welcomeCall = routeSource.match(/notifyWelcomeCampaigner\(\{[\s\S]*?\}\)/);
-    expect(welcomeCall).not.toBeNull();
-    expect(welcomeCall![0]).toContain('campaignSlug');
+  it('does not publish on creation: see review-gate.test.ts for the rest', () => {
+    expect(routeSource).toContain("status: 'under_review'");
+    expect(routeSource).not.toMatch(/^\s+status: 'active',$/m);
   });
 });
 

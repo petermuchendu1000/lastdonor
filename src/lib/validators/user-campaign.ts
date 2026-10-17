@@ -101,7 +101,7 @@ export const createUserCampaignSchema = z.object({
     .optional(),
 
   // ── Step 5: Review & Submit ────────────────────────────────────────────
-  // Consent is implicit when the user clicks "Launch fundraiser".
+  // Consent is implicit when the user submits the campaign for review.
   // The fields are kept for backwards compatibility but always sent as true.
   agreedToTerms: z.literal(true, { errorMap: () => ({ message: 'You must agree to the Terms of Service' }) }),
   confirmedTruthful: z.literal(true, { errorMap: () => ({ message: 'You must confirm the information is truthful' }) }),

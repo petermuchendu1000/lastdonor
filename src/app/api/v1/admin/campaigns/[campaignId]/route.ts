@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { campaigns, donations, campaignUpdates, campaignSeedMessages, auditLogs } from '@/db/schema';
+import { campaigns, donations, campaignUpdates, campaignSeedMessages, auditLogs, users } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
-import { notifyCampaignStatusChange } from '@/lib/notifications';
+import { notifyCampaignStatusChange, notifyWelcomeCampaigner } from '@/lib/notifications';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import type { CampaignStatus, UserRole } from '@/types';
@@ -63,7 +63,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const newStatus = body.status as CampaignStatus;
 
     const [campaign] = await db
-      .select({ id: campaigns.id, title: campaigns.title, status: campaigns.status })
+      .select({
+        id: campaigns.id,
+        title: campaigns.title,
+        status: campaigns.status,
+        slug: campaigns.slug,
+        creatorId: campaigns.creatorId,
+        // Read so the publish stamp below can tell a first publication
+        // from a return to active.
+        publishedAt: campaigns.publishedAt,
+      })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
       .limit(1);
@@ -85,7 +94,19 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const updates: Record<string, unknown> = { status: newStatus, updatedAt: new Date() };
-    if (newStatus === 'active' && currentStatus === 'draft') {
+    /*
+      First publication stamps `publishedAt`.
+
+      This used to check `currentStatus === 'draft'` only. Since docs/78
+      every user submission arrives as `under_review`, so approving one
+      would have left `publishedAt` null forever — and the homepage orders
+      featured campaigns by it, `/campaigns` sorts on it, and the sitemap
+      reads it. Keyed on the column being empty rather than on a specific
+      previous status, so a later route into `active` cannot miss it and a
+      republish cannot silently re-date a campaign that was already live.
+    */
+    const isFirstPublication = newStatus === 'active' && campaign.publishedAt === null;
+    if (isFirstPublication) {
       updates.publishedAt = new Date();
     }
     if (newStatus === 'completed') {
@@ -94,8 +115,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     await db.update(campaigns).set(updates).where(eq(campaigns.id, campaignId));
 
+    /*
+      A first publication is the event donors and the organiser care
+      about, and it is what `campaign.submitted` in the creation route is
+      waiting to be paired with. Logged under its own type so the review
+      queue is auditable end to end: submitted -> published, or submitted
+      -> suspended.
+    */
     await db.insert(auditLogs).values({
-      eventType: 'campaign.status_changed',
+      eventType: isFirstPublication ? 'campaign.published' : 'campaign.status_changed',
       actorId: session.user?.id ?? null,
       actorRole: session.user?.role as UserRole,
       targetType: 'campaign',
@@ -110,6 +138,33 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
       .limit(1);
+
+    /*
+      On a first publication the organiser gets the "Your Campaign Is
+      Live!" email with its sharing steps. That email used to be sent at
+      submission, which only made sense while nothing was reviewed; this
+      is the moment it became true. See docs/78.
+
+      `notifyCampaignStatusChange` below writes to DONORS, of which a
+      never-published campaign has none, so the two do not overlap.
+    */
+    if (isFirstPublication && campaign.creatorId) {
+      const [creator] = await db
+        .select({ email: users.email, name: users.name })
+        .from(users)
+        .where(eq(users.id, campaign.creatorId))
+        .limit(1);
+
+      if (creator?.email) {
+        notifyWelcomeCampaigner({
+          campaignerId: campaign.creatorId,
+          campaignerEmail: creator.email,
+          campaignerName: creator.name ?? 'Campaigner',
+          campaignTitle: campaign.title,
+          campaignSlug: campaign.slug,
+        }).catch((err) => console.error('[campaign.published] welcome notification error:', err));
+      }
+    }
 
     // Notify donors asynchronously - do not block the response
     notifyCampaignStatusChange({

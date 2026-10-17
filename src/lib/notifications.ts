@@ -24,6 +24,7 @@ import {
   roleChangedEmail,
   accountDeletedEmail,
   campaignSubmittedEmail,
+  campaignSubmittedForReviewEmail,
   campaignPausedDonorEmail,
   campaignResumedDonorEmail,
   campaignSuspendedDonorEmail,
@@ -434,7 +435,7 @@ export async function notifyAdminsCampaignSubmitted(p: {
       userId: admin.id,
       type: 'campaign_submitted',
       title: `New campaign: "${p.campaignTitle}"`,
-      message: `${p.creatorName} published a new campaign. Category: ${p.category}, Goal: $${(p.goalAmount / 100).toFixed(2)}.`,
+      message: `${p.creatorName} submitted a campaign for review. It is not public until approved. Category: ${p.category}, Goal: $${(p.goalAmount / 100).toFixed(2)}.`,
       link: `/admin/campaigns/${p.campaignId}/edit`,
       email: { to: admin.email, ...emailContent },
     });
@@ -676,6 +677,35 @@ export async function notifyInfoRequest(p: {
  * Send the welcome email to a new campaigner when their campaign goes live.
  * Focus: sharing and getting first donation - zero document requests.
  */
+/**
+ * Tell the organiser their campaign is in the review queue.
+ *
+ * Sent at submission. `notifyWelcomeCampaigner` below, whose email opens
+ * "Your Campaign Is Live!", now fires only when an admin approves — before
+ * `docs/78` it was sent at submission, which was accurate only because
+ * nothing was being reviewed. See docs/77.
+ */
+export async function notifyCampaignSubmittedForReview(p: {
+  campaignerId: string;
+  campaignerEmail: string;
+  campaignerName: string;
+  campaignTitle: string;
+}) {
+  const emailContent = campaignSubmittedForReviewEmail({
+    campaignerName: p.campaignerName || 'Campaigner',
+    campaignTitle: p.campaignTitle,
+  });
+
+  await createAndEmail({
+    userId: p.campaignerId,
+    type: 'campaign_submitted',
+    title: `"${p.campaignTitle}" is with our reviewers`,
+    message: 'A person reads every campaign before it is published. We will email you when it is decided.',
+    link: '/dashboard',
+    email: { to: p.campaignerEmail, ...emailContent },
+  });
+}
+
 export async function notifyWelcomeCampaigner(p: {
   campaignerId: string;
   campaignerEmail: string;

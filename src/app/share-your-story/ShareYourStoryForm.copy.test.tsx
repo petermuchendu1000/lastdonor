@@ -208,30 +208,39 @@ describe('screens 3 to 5 each say one thing once', () => {
 
 describe('screen 6 describes what the button actually does', () => {
   /*
-    `POST /api/v1/user-campaigns` inserts with status 'active' and
-    publishedAt set, and its own comments say "instant-live" and "campaign
-    is live, no review needed". The screen used to promise an editorial
-    review "typically within 24 hours" and approval before going live.
-    See docs/77.
+    The gate exists now (docs/78): `POST /api/v1/user-campaigns` writes
+    `status: 'under_review'` with a null `publishedAt`, so the review this
+    screen describes is real. What must NOT come back is the invented
+    turnaround - no reviewed user campaign has ever been published, so
+    there is no "typically" to report (docs/77).
   */
-  it('does not promise a review before publication', async () => {
+  it('says a person reads it before publication, because one does', async () => {
     await advanceTo(5);
-    expect(screen.queryByText(/typically within 24 hours/i)).toBeNull();
-    expect(screen.queryByText(/Once approved, your campaign goes live/i)).toBeNull();
-    expect(screen.queryByText(/editorial team reviews your campaign/i)).toBeNull();
+    expect(screen.getByText(/A person reads your campaign before it is published/i)).toBeInTheDocument();
+    expect(screen.getByText(/It is not public yet/i)).toBeInTheDocument();
   });
 
-  it('says the page goes live straight away, which is what happens', async () => {
+  it('quotes no turnaround time it cannot support', async () => {
     await advanceTo(5);
-    expect(screen.getByText(/goes live and can accept donations straight away/i)).toBeInTheDocument();
+    expect(screen.queryByText(/within 24 hours/i)).toBeNull();
+    expect(screen.queryByText(/\b\d+ (hours|days|business days)\b/i)).toBeNull();
   });
 
-  it('keeps the two next-steps that are true', async () => {
+  it('does not promise the page goes live on submit', async () => {
     await advanceTo(5);
-    // notifyWelcomeCampaigner fires on this request and its template really
-    // does carry sharing tips.
+    expect(screen.queryByText(/goes live and can accept donations straight away/i)).toBeNull();
+  });
+
+  it('labels the button for what it does: submit, not launch', async () => {
+    await advanceTo(5);
+    expect(screen.getByRole('button', { name: /submit$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /launch/i })).toBeNull();
+  });
+
+  it('keeps the next-steps that are true', async () => {
+    await advanceTo(5);
     expect(screen.getByText(/tips to maximize your reach/i)).toBeInTheDocument();
-    expect(screen.getByText(/Share your campaign link/i)).toBeInTheDocument();
+    expect(screen.getByText(/share the link with friends/i)).toBeInTheDocument();
   });
 
   it('states the instruction once, not three times', async () => {

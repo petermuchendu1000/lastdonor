@@ -184,18 +184,45 @@ export function campaignSubmittedEmail(p: {
   campaignId: string;
 }) {
   return {
-    subject: `[Admin] New Campaign Live: ${p.campaignTitle}`,
+    subject: `[Admin] Review needed: ${p.campaignTitle}`,
     html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">New Campaign Published</h1>
-      <p>A new campaign has been published and is now accepting donations:</p>
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">A campaign is waiting for review</h1>
+      <p>A new campaign has been submitted and is <strong>not public</strong> until someone approves it:</p>
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
         <tr><td style="padding: 8px 0; color: #666; width: 120px;">Title</td><td style="padding: 8px 0; font-weight: 600;">${esc(p.campaignTitle)}</td></tr>
         <tr><td style="padding: 8px 0; color: #666;">Created by</td><td style="padding: 8px 0;">${esc(p.creatorName)}</td></tr>
         <tr><td style="padding: 8px 0; color: #666;">Category</td><td style="padding: 8px 0;">${esc(p.category)}</td></tr>
         <tr><td style="padding: 8px 0; color: #666;">Goal</td><td style="padding: 8px 0;">${formatCents(p.goalAmount)}</td></tr>
       </table>
-      <p>This campaign is <strong>active</strong> and live. Verification will be requested upon campaign completion.</p>
-      ${ctaButton(BASE_URL + '/admin/campaigns/' + p.campaignId + '/edit', 'View Campaign')}
+      <p>Nobody can see or donate to it while it sits here, so the organiser is waiting on this.</p>
+      ${ctaButton(BASE_URL + '/admin/campaigns/' + p.campaignId + '/edit', 'Review campaign')}
+    `),
+  };
+}
+
+/**
+ * The organiser's receipt for a submission. Sent INSTEAD of
+ * `welcomeCampaignerEmail`, which now fires only on approval.
+ *
+ * Deliberately promises no turnaround time. The platform has never
+ * published a reviewed user campaign, so there is no "typically within N
+ * hours" to quote — the same reason that phrase came out of the wizard in
+ * `docs/77`. Say what is true: it is in the queue, and we will write again.
+ */
+export function campaignSubmittedForReviewEmail(p: {
+  campaignerName: string;
+  campaignTitle: string;
+}) {
+  return {
+    subject: `We have your campaign: "${p.campaignTitle}"`,
+    html: wrap(`
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your campaign is with our reviewers</h1>
+      <p>Dear ${esc(p.campaignerName)},</p>
+      <p>Thank you for submitting <strong>"${esc(p.campaignTitle)}"</strong>. A person reads every campaign before it is published, so it is not public yet and cannot receive donations until it is approved.</p>
+      <p>We will email you as soon as it is decided. If anything needs changing first, we will tell you exactly what.</p>
+      <p style="color: #666; font-size: 14px;">You can see the campaign and its status any time in your dashboard.</p>
+      ${ctaButton(`${BASE_URL}/dashboard`, 'Open your dashboard')}
+      <p style="color: #666; font-size: 14px;">Questions? Reach us at <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a></p>
     `),
   };
 }

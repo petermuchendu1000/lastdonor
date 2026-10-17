@@ -368,7 +368,9 @@ export function FundraiserPreviewModal({
               disabled={launching}
               className="rounded-full px-8"
             >
-              {launching ? 'Launching...' : 'Launch fundraiser'}
+              {/* Submitting, not launching: a submission goes to review,
+                  not to the public site. See docs/78. */}
+              {launching ? 'Submitting...' : 'Submit for review'}
             </Button>
           </div>
         </div>

@@ -4,7 +4,7 @@ import { campaigns, users, auditLogs } from '@/db/schema';
 import { eq, and, desc, sql, inArray, gte } from 'drizzle-orm';
 import { createUserCampaignSchema } from '@/lib/validators/user-campaign';
 import { requireRole } from '@/lib/auth';
-import { notifyAdminsCampaignSubmitted, notifyWelcomeCampaigner } from '@/lib/notifications';
+import { notifyAdminsCampaignSubmitted, notifyCampaignSubmittedForReview } from '@/lib/notifications';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { generateSlug } from '@/lib/utils/slug';
 import { handleApiError } from '@/lib/errors';
@@ -165,13 +165,29 @@ export async function POST(request: NextRequest) {
           fundUsagePlan: data.fundUsagePlan ?? null,
           goalAmount: data.goalAmount,
           campaignOrganizer: organizer,
-          status: 'active',
+          /*
+            THE REVIEW GATE. Resolved 2026-10-17, see docs/78.
+
+            This used to insert `status: 'active'` with `publishedAt` set,
+            so a submission was public the instant the button was pressed.
+            The site claimed the opposite in ~30 places, including the
+            Organization JSON-LD and the /compare table against GoFundMe
+            (docs/77). The claim is now the one that holds: nothing a user
+            submits is visible until a person approves it.
+
+            `under_review` with a null `publishedAt` is what makes it
+            invisible — every public read filters on
+            `status in ('active', 'last_donor_zone')`. Do not relax this to
+            'active' without also correcting every page that promises
+            pre-publication review.
+          */
+          status: 'under_review',
           simulationFlag: false,
           source: 'manual',
           creatorId: userId,
           beneficiaryRelation: data.beneficiaryRelation,
           verificationStatus: 'unverified',
-          publishedAt: new Date(),
+          publishedAt: null,
         })
         .returning({
           id: campaigns.id,
@@ -189,9 +205,10 @@ export async function POST(request: NextRequest) {
       return result;
     });
 
-    // Audit log: campaign published (instant-live)
+    // Audit log: submitted, NOT published. `campaign.published` is written
+    // by the admin route when the campaign is approved (docs/78).
     await db.insert(auditLogs).values({
-      eventType: 'campaign.published',
+      eventType: 'campaign.submitted',
       actorId: userId,
       actorRole: session.user.role as 'donor' | 'editor' | 'admin',
       targetType: 'campaign',
@@ -205,23 +222,27 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Notify admins (FYI - campaign is live, no review needed)
+    // Admins have a campaign to review. Nobody can see it until they do,
+    // so the organiser is waiting on this email.
     notifyAdminsCampaignSubmitted({
       campaignId: campaign.id,
       campaignTitle: data.title,
       creatorName: session.user.name ?? 'Unknown',
       category: data.category,
       goalAmount: data.goalAmount,
-    }).catch((err) => console.error('[campaign.published] admin notification error:', err));
+    }).catch((err) => console.error('[campaign.submitted] admin notification error:', err));
 
-    // Send welcome email to campaigner (sharing focus, zero document requests)
-    notifyWelcomeCampaigner({
+    /*
+      The organiser gets a receipt for the submission, NOT the "Your
+      Campaign Is Live!" welcome. That one now fires from the admin
+      approval route, which is the moment it becomes true (docs/78).
+    */
+    notifyCampaignSubmittedForReview({
       campaignerId: userId,
       campaignerEmail: session.user.email!,
       campaignerName: session.user.name ?? 'Campaigner',
       campaignTitle: data.title,
-      campaignSlug: campaign.slug,
-    }).catch((err) => console.error('[campaign.published] welcome notification error:', err));
+    }).catch((err) => console.error('[campaign.submitted] creator notification error:', err));
 
     const response: ApiResponse<typeof campaign> = { ok: true, data: campaign };
     return NextResponse.json(response, { status: 201 });

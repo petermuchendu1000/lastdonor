@@ -76,13 +76,7 @@ const STEP_HERO: ReadonlyArray<{ title: string; subtitle?: string }> = [
     ("Tell Maria's story") and worth keeping for that.
   */
   { title: 'Title and story', subtitle: 'What happened, and what the money will do.' },
-  /*
-    The subtitle here said "A person reads every campaign before it goes
-    live." I wrote that yesterday, carrying over the claim the screen
-    already made, and it is not true: this flow publishes immediately. See
-    the note on the "What happens next?" list below, and docs/77.
-  */
-  { title: 'Review and submit', subtitle: 'Check everything before your page goes live.' },
+  { title: 'Review and submit', subtitle: 'A person reads every campaign before it is published.' },
 ];
 
 const RELATIONS = [
@@ -473,7 +467,7 @@ export function ShareYourStoryForm() {
         errs.title = 'Title must be under 120 characters';
       if (form.story.trim().length < 200)
         errs.story = `Story must be at least 200 characters (${form.story.trim().length}/200)`;
-      // Consent checks removed -- implicit when user clicks "Launch fundraiser".
+      // Consent checks removed -- implicit when the user submits.
     }
 
     setErrors(errs);
@@ -780,10 +774,7 @@ export function ShareYourStoryForm() {
               <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              {/* Was "Draft in minutes. Reviewed before publication." The
-                  second sentence is the claim this flow does not keep -
-                  it publishes immediately. See docs/77. */}
-              <span>Draft in minutes. Your page is live as soon as you launch it.</span>
+              <span>Draft in minutes. Reviewed before publication.</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -1755,7 +1746,7 @@ export function ShareYourStoryForm() {
               {/* Passive legal notice (replaces mandatory checkboxes) */}
               <div className="rounded-lg border border-border bg-muted/30 px-6 py-5">
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  By clicking &ldquo;Launch fundraiser&rdquo; you agree to LastDonor&apos;s{' '}
+                  By submitting this campaign you agree to LastDonor&apos;s{' '}
                   <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">
                     Terms of Service
                   </a>{' '}
@@ -1777,46 +1768,25 @@ export function ShareYourStoryForm() {
               </div>
 
               {/*
-                CORRECTED 2026-10-17. This list used to read:
+                These four lines describe what the button beside them
+                actually does, and as of docs/78 that includes the review.
 
-                  · Our editorial team reviews your campaign, typically
-                    within 24 hours
-                  · Once approved, your campaign goes live and can start
-                    accepting donations
-
-                Neither happens. `POST /api/v1/user-campaigns` inserts with
-                `status: 'active'` and `publishedAt: new Date()`, writes a
-                `campaign.published` audit event, and its own comments say
-                "instant-live" and "campaign is live, no review needed".
-                The campaign is public before this screen finishes
-                unmounting - which is also why the button beside this list
-                says "Launch fundraiser" and not "Submit for review".
-
-                "typically within 24 hours" was unsupportable twice over:
-                there is no pre-publication review to time, and no
-                user-submitted campaign has ever existed to average (all 12
-                campaigns are `source = 'automated'`), so there is no
-                "typically". Same class as the $5,000 in docs/76.
-
-                The third and fourth lines stayed because they are true:
-                `notifyWelcomeCampaigner` fires on this request and the
-                template really does carry sharing tips.
-
-                ⛔ The wider problem is NOT fixed here. "Reviewed before
-                publication" is claimed in ~30 places across 18 files,
-                including the Organization JSON-LD, /compare (as a
-                competitive claim against GoFundMe), /about, /how-it-works,
-                /editorial-standards and /transparency. Rewriting the
-                platform's central promise is an owner's decision between
-                making review real and changing the claim. See docs/77.
+                History worth keeping: until 2026-10-17 this list promised
+                "our editorial team reviews your campaign, typically within
+                24 hours" and "once approved, your campaign goes live"
+                while `POST /api/v1/user-campaigns` inserted
+                `status: 'active'` and published instantly. The gate now
+                exists, so the promise is kept — but no turnaround time is
+                quoted, because no reviewed user campaign has ever been
+                published and there is nothing to average (docs/77).
               */}
               <div className="rounded-lg border border-border bg-muted/50 p-6">
                 <p className="text-base font-semibold text-foreground">What happens next?</p>
                 <ul className="mt-3 space-y-2 text-sm leading-relaxed text-muted-foreground">
-                  <li>Your campaign page goes live and can accept donations straight away</li>
-                  <li>LastDonor can review it at any time, and will contact you if anything needs changing</li>
-                  <li>Share your campaign link with friends, family, and social media</li>
-                  <li>You&apos;ll receive an email with tips to maximize your reach</li>
+                  <li>A person reads your campaign before it is published. It is not public yet</li>
+                  <li>We email you when it is decided, and tell you exactly what to change if anything needs changing</li>
+                  <li>Once it is published, share the link with friends, family and social media</li>
+                  <li>That email carries tips to maximize your reach</li>
                 </ul>
               </div>
 
@@ -2179,8 +2149,15 @@ export function ShareYourStoryForm() {
                   Continue
                 </Button>
               ) : (
+                /*
+                  "Submit", not "Launch". The button no longer publishes
+                  anything: since docs/78 a submission lands as
+                  `under_review` and a person decides. A control whose
+                  label promises an outcome it cannot deliver is the same
+                  defect as the copy around it.
+                */
                 <Button onClick={handlePreviewLaunch} disabled={submitting} type="button" className="rounded-full px-8">
-                  {session?.user ? 'Preview & Launch' : 'Sign in & Launch'}
+                  {session?.user ? 'Preview & submit' : 'Sign in & submit'}
                 </Button>
               )}
             </div>
