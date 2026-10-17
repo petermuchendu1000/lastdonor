@@ -259,7 +259,13 @@ export async function runNewsPipeline(
   // Classification accuracy is dramatically better with full body text
   // vs. the 1-2 sentence summary from GNews.
   const bodyMap = new Map<string, string>();
-  const bodyBatchSize = 5;
+  /*
+    Each item in a batch does an UPDATE, so the batch size is also a
+    count of concurrent database connections. Five is the whole pool
+    (`src/db/index.ts`), which would leave nothing for anything else
+    running on the machine. Three, per docs/87 amendment 5.
+  */
+  const bodyBatchSize = 3;
 
   for (let i = 0; i < newArticles.length; i += bodyBatchSize) {
     const batch = newArticles.slice(i, i + bodyBatchSize);

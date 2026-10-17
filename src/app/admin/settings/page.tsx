@@ -28,21 +28,25 @@ export default async function AdminSettingsPage() {
     redirect('/admin');
   }
 
-  const [
-    [userCount],
-    [campaignCount],
-    [donationCount],
-    [subscriberCount],
-    currentSettings,
-    [currentUser],
-    dbEnvKeys,
-  ] = await Promise.all([
-    db.select({ count: sql<number>`count(*)::int` }).from(users),
-    db.select({ count: sql<number>`count(*)::int` }).from(campaigns),
-    db.select({ count: sql<number>`count(*)::int` }).from(donations),
-    db.select({ count: sql<number>`count(*)::int` }).from(newsletterSubscribers),
+  /*
+    docs/87 amendment 5. This was SEVEN queries in one `Promise.all`
+    against a pool of five, and it was reproduced leaving backends
+    stuck in `active` / `Client/ClientRead` on 2026-10-17. The four
+    table counts are now one round trip of scalar subqueries, which
+    the planner handles as four cheap aggregates, and the rest runs in
+    one batch that leaves room for the layout's `auth()`.
+  */
+  const [[counts], currentSettings, dbEnvKeys] = await Promise.all([
+    db
+      .select({
+        users: sql<number>`(select count(*) from ${users})::int`,
+        campaigns: sql<number>`(select count(*) from ${campaigns})::int`,
+        donations: sql<number>`(select count(*) from ${donations})::int`,
+        subscribers: sql<number>`(select count(*) from ${newsletterSubscribers})::int`,
+        securityQuestion: sql<string | null>`(select security_question from ${users} where id = ${session.user.id})`,
+      })
+      .from(sql`(select 1) as _`),
     getAllSettings(),
-    db.select({ securityQuestion: users.securityQuestion }).from(users).where(eq(users.id, session.user.id)).limit(1),
     db.select({ key: siteSettings.key }).from(siteSettings).where(like(siteSettings.key, 'env.%')),
   ]);
 
@@ -50,10 +54,10 @@ export default async function AdminSettingsPage() {
   const dbKeySet = new Set(dbEnvKeys.map((r) => r.key.replace('env.', '')));
 
   const stats = {
-    totalUsers: userCount.count,
-    totalCampaigns: campaignCount.count,
-    totalDonations: donationCount.count,
-    totalNewsletterSubscribers: subscriberCount.count,
+    totalUsers: counts.users,
+    totalCampaigns: counts.campaigns,
+    totalDonations: counts.donations,
+    totalNewsletterSubscribers: counts.subscribers,
     cronJobs: CRON_JOBS,
   };
 
@@ -72,7 +76,7 @@ export default async function AdminSettingsPage() {
         <h1 className="text-2xl font-bold tracking-tight">System Settings</h1>
         <p className="text-sm text-muted-foreground">Manage platform configuration, environment status, and cron jobs.</p>
       </div>
-      <SystemSettings initialSettings={currentSettings} hasSecurityQuestion={!!currentUser?.securityQuestion} stats={stats} environment={environment} />
+      <SystemSettings initialSettings={currentSettings} hasSecurityQuestion={!!counts.securityQuestion} stats={stats} environment={environment} />
     </>
   );
 }

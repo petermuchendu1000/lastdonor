@@ -17,11 +17,16 @@ export default async function AnalyticsPage() {
     redirect('/admin');
   }
 
+  /*
+    docs/87 amendment 5: three concurrent queries plus the layout's
+    `auth()` is the pool's whole capacity. The category breakdown runs
+    after the batch rather than inside it; it is the slowest of the
+    four and nothing else depends on it.
+  */
   const [
     campaignCounts,
     donationStats,
     fundPoolStats,
-    categoryBreakdown,
   ] = await Promise.all([
     // Campaign counts by simulation flag + status
     db
@@ -49,8 +54,10 @@ export default async function AnalyticsPage() {
       })
       .from(fundPoolAllocations)
       .groupBy(fundPoolAllocations.status),
-    // Per-category breakdown: campaign count by sim flag, donation totals by source
-    db.execute(sql`
+  ]);
+
+  // Per-category breakdown: campaign count by sim flag, donation totals by source
+  const categoryBreakdown = await db.execute(sql`
       SELECT
         c.category,
         count(*) FILTER (WHERE c.simulation_flag = true)::int AS simulated,
@@ -61,8 +68,7 @@ export default async function AnalyticsPage() {
       LEFT JOIN donations d ON d.campaign_id = c.id
       GROUP BY c.category
       ORDER BY c.category
-    `),
-  ]);
+  `);
 
   // Build campaign counts
   const campaignData = { simulated: { active: 0, completed: 0, archived: 0, total: 0 }, real: { active: 0, completed: 0, archived: 0, total: 0 } };

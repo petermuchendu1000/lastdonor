@@ -152,7 +152,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
   // status tabs; `matchedCountRow` is what the header above the list reports,
   // because printing the unfiltered total above a filtered list contradicted
   // the list itself (docs/45).
-  const [results, activeCountRow, completedCountRow, matchedCountRow] = await Promise.all([
+  const [results, tabCounts, matchedCountRow] = await Promise.all([
     db
       .select({
         id: campaigns.id,
@@ -174,23 +174,26 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
       .where(conditions)
       .orderBy(primaryOrder, asc(campaigns.id))
       .limit(PAGE_SIZE + 1),
+    /*
+      docs/87 amendment 5. The tab counts were three separate scans of
+      `campaigns` running beside the listing query, four connections for
+      one page view on the busiest public route. They are FILTER
+      aggregates over one scan now; the filtered count keeps its own
+      query because its predicate is built from the request.
+    */
     db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(campaigns)
-      .where(
-        or(eq(campaigns.status, 'active'), eq(campaigns.status, 'last_donor_zone')),
-      ),
-    db
-      .select({ count: sql<number>`COUNT(*)` })
-      .from(campaigns)
-      .where(or(eq(campaigns.status, 'completed'), eq(campaigns.status, 'archived'))),
+      .select({
+        active: sql<number>`count(*) FILTER (WHERE ${campaigns.status} IN ('active','last_donor_zone'))::int`,
+        completed: sql<number>`count(*) FILTER (WHERE ${campaigns.status} IN ('completed','archived'))::int`,
+      })
+      .from(campaigns),
     filtersActive
       ? db.select({ count: sql<number>`COUNT(*)` }).from(campaigns).where(conditions)
       : Promise.resolve(null),
   ]);
 
-  const activeCount = Number(activeCountRow[0]?.count ?? 0);
-  const completedCount = Number(completedCountRow[0]?.count ?? 0);
+  const activeCount = Number(tabCounts[0]?.active ?? 0);
+  const completedCount = Number(tabCounts[0]?.completed ?? 0);
   const matchedCount = filtersActive ? Number(matchedCountRow?.[0]?.count ?? 0) : activeCount;
 
   const hasMore = results.length > PAGE_SIZE;

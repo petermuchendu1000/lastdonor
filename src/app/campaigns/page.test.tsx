@@ -72,7 +72,7 @@ function campaignRow(n: number) {
 const TWELVE = Array.from({ length: 12 }, (_, i) => campaignRow(i + 1));
 
 /**
- * Queue the four result sets the page reads.
+ * Queue the result sets the page reads.
  * `matched` is omitted when no filter is active, exactly as the page does.
  */
 function mockDb({
@@ -86,7 +86,13 @@ function mockDb({
   completed?: number;
   matched?: number;
 }) {
-  state.queue = [rows, [{ count: active }], [{ count: completed }]];
+  /*
+    The two tab counts became one FILTER-aggregate row in docs/87
+    amendment 5, so the page now reads three result sets, not four.
+    The assertions below are unchanged: what the header says is the
+    point, not how many round trips produced it.
+  */
+  state.queue = [rows, [{ active, completed }]];
   if (matched !== undefined) state.queue.push([{ count: matched }]);
 }
 

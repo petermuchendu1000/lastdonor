@@ -19,7 +19,7 @@ import { CRON_JOBS } from '@/lib/cron-schedule';
 */
 
 const NOW = new Date('2026-10-17T22:00:00.000Z');
-const OPTED_IN = { SEED_DONATIONS_OPT_IN: SEED_DONATIONS_OPT_IN_SENTINEL } as NodeJS.ProcessEnv;
+const OPTED_IN = { SEED_DONATIONS_OPT_IN: SEED_DONATIONS_OPT_IN_SENTINEL } as unknown as NodeJS.ProcessEnv;
 const NOT_OPTED_IN = {} as NodeJS.ProcessEnv;
 const JUST_RAN = new Date(NOW.getTime() - 60_000);
 const LONG_AGO = new Date(NOW.getTime() - SCHEDULER_STALE_AFTER_MS - 1);
@@ -67,7 +67,7 @@ describe('getSimulationReadiness', () => {
   it('never leaks the opt-in value, only whether it is present', () => {
     const r = getSimulationReadiness(null, NOW, {
       SEED_DONATIONS_OPT_IN: 'some-other-value',
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     const text = JSON.stringify(r);
     expect(text).not.toContain('some-other-value');
     expect(ids(r)).toContain('not-opted-in');

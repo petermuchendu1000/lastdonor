@@ -47,7 +47,12 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 async function getHomepageData() {
-  const [featuredCampaigns, activeCampaigns, stats, latestPosts, completedCount, supportedCount] =
+  /*
+    docs/87 amendment 5. This was six concurrent queries on the busiest
+    public route, against a pool of five. Split into two batches of
+    three, and the two campaign counts merged into one scan.
+  */
+  const [featuredCampaigns, activeCampaigns, stats] =
     await Promise.all([
       // Featured campaign: most recently published active
       db
@@ -105,49 +110,41 @@ async function getHomepageData() {
         })
         .from(donations),
 
-      // Latest published blog posts
-      db
-        .select({
-          slug: blogPosts.slug,
-          title: blogPosts.title,
-          excerpt: blogPosts.excerpt,
-          coverImageUrl: blogPosts.coverImageUrl,
-          authorName: blogPosts.authorName,
-          category: blogPosts.category,
-          publishedAt: blogPosts.publishedAt,
-        })
-        .from(blogPosts)
-        .where(eq(blogPosts.published, true))
-        .orderBy(desc(blogPosts.publishedAt))
-        .limit(3),
-
-      // Completed campaign count
-      db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(campaigns)
-        .where(
-          or(
-            eq(campaigns.status, 'completed'),
-            eq(campaigns.status, 'archived'),
-          ),
-        ),
-
-      // Unique people supported
-      db
-        .select({
-          count: sql<number>`COUNT(DISTINCT ${campaigns.subjectName})`,
-        })
-        .from(campaigns)
-        .where(eq(campaigns.status, 'completed')),
     ]);
+
+  const [latestPosts, campaignTotals] = await Promise.all([
+    // Latest published blog posts
+    db
+      .select({
+        slug: blogPosts.slug,
+        title: blogPosts.title,
+        excerpt: blogPosts.excerpt,
+        coverImageUrl: blogPosts.coverImageUrl,
+        authorName: blogPosts.authorName,
+        category: blogPosts.category,
+        publishedAt: blogPosts.publishedAt,
+      })
+      .from(blogPosts)
+      .where(eq(blogPosts.published, true))
+      .orderBy(desc(blogPosts.publishedAt))
+      .limit(3),
+
+    // Completed campaigns, and the people they supported, in one scan
+    db
+      .select({
+        completed: sql<number>`COUNT(*) FILTER (WHERE ${campaigns.status} IN ('completed','archived'))`,
+        supported: sql<number>`COUNT(DISTINCT ${campaigns.subjectName}) FILTER (WHERE ${campaigns.status} = 'completed')`,
+      })
+      .from(campaigns),
+  ]);
 
   return {
     featuredCampaign: featuredCampaigns[0] ?? null,
     activeCampaigns,
     totalRaised: Number(stats[0]?.totalRaised ?? 0),
     totalDonors: Number(stats[0]?.totalDonors ?? 0),
-    campaignsCompleted: Number(completedCount[0]?.count ?? 0),
-    peopleSupported: Number(supportedCount[0]?.count ?? 0),
+    campaignsCompleted: Number(campaignTotals[0]?.completed ?? 0),
+    peopleSupported: Number(campaignTotals[0]?.supported ?? 0),
     latestPosts,
   };
 }
