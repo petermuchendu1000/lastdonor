@@ -7,7 +7,7 @@ import {
   users,
 } from '@/db/schema';
 import { desc, sql, count, eq, inArray } from 'drizzle-orm';
-import { VerificationDashboard } from '@/components/admin/VerificationDashboard';
+import { VerificationQueue } from '@/components/admin/VerificationQueue';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -23,8 +23,19 @@ export default async function AdminVerificationPage() {
     redirect('/admin');
   }
 
-  // Load all campaigns that have entered verification (exclude unverified/pending/legacy-verified)
-  const excludedStatuses = sql`${campaigns.verificationStatus} NOT IN ('unverified','pending','verified')`;
+  /*
+    Campaigns that have entered verification.
+
+    `pending` was in this exclusion list until docs/88 F7. `mapDiditStatus`
+    (`src/lib/didit.ts`) returns `pending` for EVERY non-terminal Didit
+    state, including "In Review", which docs/81 documents as Didit's own
+    MANUAL review queue. Excluding it hid exactly the campaigns most
+    likely to need a human.
+
+    `unverified` stays excluded: nothing has started, so there is nothing
+    to review. `verified` is the legacy value no current path writes.
+  */
+  const excludedStatuses = sql`${campaigns.verificationStatus} NOT IN ('unverified','verified')`;
 
   const [queuedCampaigns, [stats]] = await Promise.all([
     db
@@ -60,7 +71,7 @@ export default async function AdminVerificationPage() {
         totalRejected: sql<number>`count(*) FILTER (WHERE ${campaigns.verificationStatus} = 'rejected')::int`,
       })
       .from(campaigns)
-      .where(sql`${campaigns.verificationStatus} NOT IN ('unverified','pending','verified')`),
+      .where(sql`${campaigns.verificationStatus} NOT IN ('unverified','verified')`),
   ]);
 
   const campaignIds = queuedCampaigns.map((c) => c.id);
@@ -72,7 +83,7 @@ export default async function AdminVerificationPage() {
           <h1 className="text-2xl font-bold tracking-tight">Verification Queue</h1>
           <p className="text-sm text-muted-foreground">No campaigns in verification queue</p>
         </div>
-        <VerificationDashboard initialCampaigns={[]} stats={stats} />
+        <VerificationQueue initialItems={[]} stats={stats} />
       </>
     );
   }
@@ -104,10 +115,10 @@ export default async function AdminVerificationPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Verification Queue</h1>
         <p className="text-sm text-muted-foreground">
-          {stats.totalPending} campaigns pending review
+          {serialized.length} {serialized.length === 1 ? 'campaign' : 'campaigns'} in verification
         </p>
       </div>
-      <VerificationDashboard initialCampaigns={serialized} stats={stats} />
+      <VerificationQueue initialItems={serialized} stats={stats} />
     </>
   );
 }

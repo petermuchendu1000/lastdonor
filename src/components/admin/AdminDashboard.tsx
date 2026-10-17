@@ -84,13 +84,25 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
         />
       </div>
 
-      {/* CDS Data Table - Pending Review */}
-      {stats.pendingCampaigns.length > 0 && (
-        <section>
+      {/*
+        Pending review. Rendered unconditionally (docs/88 F6).
+
+        This section used to be wrapped in `length > 0 &&`, so when the
+        query was broken the admin saw no section at all - not "0 waiting",
+        but no indication the review queue existed. An operator cannot
+        notice the absence of something they have never seen.
+      */}
+      <section>
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold">Pending review</h2>
             <Badge variant="secondary" className="tabular-nums text-xs">{stats.pendingCampaigns.length}</Badge>
           </div>
+          {stats.pendingCampaigns.length === 0 && (
+            <p className="mt-3 rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">
+              Nothing waiting. Campaigns appear here as soon as they are submitted.
+            </p>
+          )}
+          {stats.pendingCampaigns.length > 0 && (
           <div className="mt-4 overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
@@ -132,8 +144,8 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
               </tbody>
             </table>
           </div>
+          )}
         </section>
-      )}
 
       {/* CDS Data Table - Active Campaigns */}
       <section>

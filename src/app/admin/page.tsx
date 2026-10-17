@@ -102,7 +102,25 @@ async function getDashboardStats() {
     .orderBy(sql`${donations.createdAt} desc`)
     .limit(10);
 
-  // User-submitted campaigns pending admin review
+  /*
+    Campaigns waiting on an admin (docs/88 F6).
+
+    This used to filter on `verificationStatus = 'pending'` AND
+    `status = 'draft'` AND `source = 'manual'`. All three were wrong at
+    once by 2026-10-17:
+
+      - submissions are created `unverified`, never `pending`
+        (`user-campaigns/route.ts:189`);
+      - docs/78 changed submissions from `draft` to `under_review`;
+      - docs/79 gated the news pipeline too, so the queue is mostly
+        `source: 'automated'`, which the third filter excluded.
+
+    Two of the three could never match anything, so the first screen an
+    admin sees reported nothing to review while 12 campaigns waited. The
+    queue is defined by `status`, which is the column the review gate
+    actually sets, and by nothing else: who created it does not change
+    whether a person still has to look at it.
+  */
   const pendingReview = await db
     .select({
       id: campaigns.id,
@@ -111,16 +129,11 @@ async function getDashboardStats() {
       category: campaigns.category,
       goalAmount: campaigns.goalAmount,
       creatorId: campaigns.creatorId,
+      source: campaigns.source,
       createdAt: campaigns.createdAt,
     })
     .from(campaigns)
-    .where(
-      and(
-        eq(campaigns.verificationStatus, 'pending'),
-        eq(campaigns.status, 'draft'),
-        eq(campaigns.source, 'manual'),
-      ),
-    )
+    .where(eq(campaigns.status, 'under_review'))
     .orderBy(campaigns.createdAt);
 
   // Resolve creator names for pending campaigns
@@ -144,7 +157,16 @@ async function getDashboardStats() {
     slug: c.slug,
     category: c.category,
     goalAmount: c.goalAmount,
-    creatorName: c.creatorId ? (creatorMap.get(c.creatorId) ?? 'Unknown') : 'Unknown',
+    /*
+      Every automated draft has a null `creatorId`, so this column read
+      "Unknown" for the whole queue. "Unknown" implies we lost the
+      answer; the news pipeline is the answer.
+    */
+    creatorName: c.creatorId
+      ? (creatorMap.get(c.creatorId) ?? 'Unknown')
+      : c.source === 'automated'
+        ? 'News pipeline'
+        : 'Unknown',
     createdAt: c.createdAt.toISOString(),
   }));
 
