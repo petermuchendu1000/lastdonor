@@ -82,6 +82,17 @@ export function resolveQueryTimeoutMs(
   return parsed;
 }
 
+/**
+ * Whether a timed-out query sends a CancelRequest (`docs/52`).
+ *
+ * Read per call, not at module load, so the experiment can be turned off
+ * by setting one Fly secret rather than shipping a build. Anything other
+ * than the exact string `0` leaves the `docs/52` behaviour in place.
+ */
+export function cancelOnTimeout(): boolean {
+  return process.env.DB_CANCEL_ON_TIMEOUT !== '0';
+}
+
 /** The slice of `postgres`'s PendingQuery that drizzle's session uses. */
 interface PendingLike<T> extends PromiseLike<T> {
   values: () => PendingLike<unknown>;
@@ -115,10 +126,29 @@ function bound<T>(pending: PendingLike<T>, ms: number): PendingLike<T> {
            * not reached the wire yet has nothing to cancel, and the throw
            * must not mask the timeout.
            */
-          try {
-            pending.cancel?.();
-          } catch {
-            // Deliberately swallowed: the timeout below is the real outcome.
+          /*
+            EXPERIMENT, 2026-10-17 (docs/87 amendment 2). Five wedges in a
+            day, all with backends parked `state=active`,
+            `wait=Client/ClientRead`, transactions open for hours. One
+            question is whether this CancelRequest leaves the extended-query
+            sequence without its Sync and so creates them.
+
+            Caveat recorded honestly: the note above this block already
+            describes ClientRead-stuck backends in the 2026-10-16 outage,
+            which predates `cancel()`. So cancel is unlikely to be the
+            origin of the symptom, and this flag tests only whether it
+            makes them worse or more permanent.
+
+            Default is ON, so nothing changes without an explicit
+            `DB_CANCEL_ON_TIMEOUT=0`. Reverting the experiment is removing
+            that one secret, with no code change.
+          */
+          if (cancelOnTimeout()) {
+            try {
+              pending.cancel?.();
+            } catch {
+              // Deliberately swallowed: the timeout below is the real outcome.
+            }
           }
           reject(new QueryTimeoutError(ms));
         }, ms);

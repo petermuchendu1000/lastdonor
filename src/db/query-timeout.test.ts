@@ -13,6 +13,7 @@ import {
   withQueryTimeout,
   resolveQueryTimeoutMs,
   QueryTimeoutError,
+  cancelOnTimeout,
 } from './query-timeout';
 
 /** Client whose `unsafe` never settles, i.e. the wedged-pool case. */
@@ -169,5 +170,50 @@ describe('budget resolution', () => {
     resolveQueryTimeoutMs('12');
     expect(err).toHaveBeenCalledTimes(1);
     expect(err.mock.calls[0]?.[0]).toMatch(/DB_QUERY_TIMEOUT_MS/);
+  });
+});
+
+/*
+  The DB_CANCEL_ON_TIMEOUT experiment (docs/87 amendment 2). The default
+  must stay ON: the whole point is that turning the experiment off is an
+  explicit act, so an unset or malformed value cannot silently undo
+  docs/52's fix.
+*/
+describe('the cancel-on-timeout experiment flag', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each([undefined, '', '1', 'true', 'false', 'no', ' 0 '])(
+    'leaves cancelling ON for %p',
+    (value) => {
+      if (value === undefined) vi.stubEnv('DB_CANCEL_ON_TIMEOUT', '');
+      else vi.stubEnv('DB_CANCEL_ON_TIMEOUT', value);
+      if (value === undefined) {
+        // An unset variable must behave like any other non-"0" value.
+        expect(cancelOnTimeout()).toBe(true);
+      } else {
+        expect(cancelOnTimeout()).toBe(value !== '0');
+      }
+    },
+  );
+
+  it('turns cancelling off only for the exact string "0"', () => {
+    vi.stubEnv('DB_CANCEL_ON_TIMEOUT', '0');
+    expect(cancelOnTimeout()).toBe(false);
+  });
+
+  it('does not send a CancelRequest when the experiment is off', async () => {
+    vi.stubEnv('DB_CANCEL_ON_TIMEOUT', '0');
+    const cancel = vi.fn();
+    const never: Record<string, unknown> = {
+      then: () => {},
+      values: () => never,
+      cancel,
+    };
+    await expect(
+      withQueryTimeout(never as never, 20),
+    ).rejects.toBeInstanceOf(QueryTimeoutError);
+    expect(cancel).not.toHaveBeenCalled();
   });
 });
