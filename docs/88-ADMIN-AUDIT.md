@@ -88,6 +88,10 @@ renders them. `/admin/simulation:131` computes `seedDonationCount` from a live q
 NOT a bug.
 
 ## F9 MEDIUM — the simulation panel is inert twice over and says so nowhere
+> **Resolved 2026-10-17, and it was inert THREE times over, not twice.**
+> The page was also serving the error boundary inside a 200 and was the
+> trigger for the sixth pool wedge. See "F9 in detail" below and
+> docs/87 amendment 4.
 `/admin/simulation` offers enable/volume/pause/resume controls. Two independent reasons nothing happens:
 1. `SEED_DONATIONS_OPT_IN` is NOT set on Fly (verified: Fly secrets list has no SEED*). The cron refuses 403
    via `isSeedDonationsOptedIn()` (`src/lib/seed/simulation-engine.ts:57`) before any write — correct, per docs/33/41.
@@ -292,6 +296,7 @@ campaigns/new.
 | **F18** | Six tables in four components wrapped in `overflow-x-auto` | Live `/admin/governance` at 390x844: wrapper `scrollWidth 372 > clientWidth 340`, `overflow-x: auto`, `scrollLeft` reaches 32 and the actions column becomes reachable. Before: `overflow-x: hidden`, 32px unreachable. |
 | **F8** | `/admin/campaigns` capped at 200, tiles counted in SQL, rows paged 25 at a time | Live with 222 campaigns: rendered rows 222 -> 25, page 15,633px -> 2,593px, DOM 4,871 -> 952 nodes, HTML 793,089 -> 238,122 bytes, server ~560ms -> ~350ms. Tiles read `Draft 210, Under Review 12`, exactly `GROUP BY status`. |
 | **F10** | `/api/v1/admin/dashboard` deleted | Live as a signed-in admin: `404 text/html`, while `/api/v1/admin/users` answers `200 application/json` from the same session, so the 404 is the route being gone and not an auth failure. |
+| **F9** | `/admin/simulation` renders again, and names all three reasons it cannot run | Live: load 15,810ms + error boundary -> 1,646ms + the page. Enabling it now answers "Saved, but the simulation still cannot run", badge reads `Switched on, cannot run`, seed donations still 0. |
 | **F14** | 16 inert `revalidate` exports removed; caching decided once in the admin layout | Live as a signed-in admin, before the change: no `x-nextjs-cache` on any of them, `cache-control: private, no-cache, no-store, max-age=0, must-revalidate`, identical to `/admin/campaigns`, which never carried the directive. |
 
 Notes on each, since the *reason* matters more than the diff:
@@ -503,14 +508,80 @@ cached operator data.
 markup, not the page. Rendered, the tiles read 0/0/0 and the database
 holds 0. Not a defect.
 
+## F9 in detail: three blockers, a broken page, and a wedge
+
+### The panel was worse than inert: it was not rendering at all
+
+Loaded as an admin against production, `/admin/simulation` took
+**15,810ms** and then rendered "Something went wrong". Zero of its five
+switches existed. Pass 1 recorded it as a working-but-inert screen
+because the sweep checked status codes, and the error boundary is
+itself a 200. **N5 is corrected: a reachability sweep has to read the
+body.**
+
+### Three blockers, not two
+
+The audit named the opt-in and the missing scheduler. There is a third,
+and the three are independent, so clearing any two changes nothing:
+
+1. `SEED_DONATIONS_OPT_IN` is not set, so the cron route refuses with
+   403 before any write (docs/33, docs/41).
+2. `simulate-donations` is deliberately **absent from `CRON_JOBS`**, so
+   even a healthy scheduler would never call it (docs/66). This one was
+   missed in pass 1.
+3. No scheduler exists: the Worker is built and tested but has never
+   been deployed (docs/65, docs/66).
+
+### Why the banner is computed and not written
+
+Each blocker is read from the thing that actually blocks: the
+environment variable, the schedule table the deployed Worker imports,
+and the most recent `cron.%` audit row. Clear one and its line
+disappears on the next load. A hardcoded "this does not work yet"
+notice becomes a lie the day it starts working, and nobody deletes a
+stale warning.
+
+The opt-in value never reaches the client. The screen needs to know
+whether it is set, not what it says.
+
+### The journey, before and after
+
+The audit's complaint was "an admin toggles `simulation.enabled`, gets a
+success toast, and nothing occurs". Exercised against production after
+the fix:
+
+| | before | after |
+|---|---|---|
+| page load | 15,810ms, error boundary | 1,646ms, renders |
+| badge | (page errored; code said "Active" whenever the setting was on) | `Off`, and `Switched on, cannot run` once enabled |
+| blockers named | none | all three, each with what clears it and who can do it |
+| toast on enabling | "Settings saved" | "Settings saved" **and** "Saved, but the simulation still cannot run. See the notice above." |
+| seed donations created | 0 | 0 |
+
+The setting was toggled on and off during that measurement and the row
+removed afterwards, leaving `site_settings` exactly as it was: zero
+`simulation.*` rows.
+
+### The wedge it was causing
+
+While measuring the before state, production wedged for the sixth time.
+The stuck backend held a query that exists only on this page. The page
+ran six concurrent branches, one issuing five queries of its own,
+against a pool of five. Full account, including what it does and does
+not establish, in **docs/87 amendment 4**.
+
 ## Still open from this audit
 
 **Fixed and deployed:** F1, F2, F3, F4, F5, F6, F7, F8, F10, F12, F13, F14,
 F15, F16, F18. Every numbered finding from pass 1 is closed.
 
-**Still open:** F9 (the simulation panel is inert twice over and says so
-nowhere) is the one finding left, and it is not a code fix: it waits on the
-owner decision in docs/33 and on the cron Worker (docs/65, docs/66).
+**Still open:** none. Every numbered finding from pass 1 is closed.
+
+F9 was previously recorded here as "not a code fix, it waits on the owner
+decision in docs/33 and on the cron Worker". That was wrong. Whether the
+simulation should RUN is an owner decision; whether the screen tells the
+truth about its own state is not, and the screen was also failing to
+render at all.
 
 **Pass-2 gaps:** 12 of 24 pages unmeasured at 390px, per-screen copy, and
 write actions beyond campaigns (refund batches, fund-pool

@@ -431,3 +431,102 @@ one. It still needs a scheduler: `pg_cron` is not installed, and our own
 cron has never run. An in-process interval in the Next server would work
 without new infrastructure. NOT built here — one change at a time during
 an incident, which is `docs/52`'s own lesson.
+
+---
+
+# AMENDMENT 4 — sixth wedge, with a named trigger: `/admin/simulation`
+
+## What happened
+
+2026-10-17 ~21:58Z, while measuring `docs/88` F9. The site degraded to
+15-second responses on every database route; `/api/v1/campaigns` 500d;
+the Fly health check failed at 22:07:46Z. A real visitor (105.160.53.16)
+was hitting `/api/v1/notifications` throughout and got nothing but
+`QueryTimeoutError` for roughly ten minutes.
+
+## The wedged backend named its own caller (VERIFIED)
+
+One backend, the familiar signature from amendments 1-3:
+
+```
+pid 419821  state=active  wait=Client/ClientRead  xact_age=00:04:36
+query: select count(*)::int from "campaigns" where "campaigns"."simulation_flag" = $1
+```
+
+That statement exists in **exactly one place** in the codebase:
+`src/app/admin/simulation/page.tsx`, the `realCount` query. It is not a
+cron, not a public route, not a webhook. It ran because this session
+loaded `/admin/simulation`, and the transaction age put its start within
+a minute of that load. Previous wedges were found holding ordinary
+queries that many routes could have issued; this is the first one that
+points at a single page.
+
+## Restored the same way as before
+
+`pg_terminate_backend` on the one old transaction cleared the database
+side, but the app kept answering in 15.4s with no open transaction
+anywhere - the app-side pool was poisoned exactly as `docs/37` describes,
+and only a machine restart cleared it. Service came back at 0.33-0.58s.
+Two steps, both already documented; nothing new was needed.
+
+## Why that page and not another (MEASURED, then fixed)
+
+`/admin/simulation` ran six branches in one `Promise.all`, and one of
+them (`calculateAutoVolume`) issued five queries of its own, against a
+pool of **five** connections (`src/db/index.ts`, `max: 5`), with the
+admin layout's `auth()` role lookup running alongside. One page load
+could demand more connections than the whole process owns.
+
+`withQueryTimeout` starts its 15-second clock when a query is issued,
+**queue time included**. So a query that never gets a connection times
+out and invokes `pending.cancel()` - the path amendments 2 and 3
+suspect. This page was the only screen in the admin that reached that
+path on every single load.
+
+It was not a theory. Measured against production, signed in as an admin:
+
+| | before | after |
+|---|---|---|
+| `/admin/simulation` load | **15,810ms** | **1,646ms** |
+| rendered | the error boundary, "Something went wrong" | the page |
+| switches rendered | 0 | 5 |
+| open transactions left behind | 0 (that run) | 0 |
+
+The only change between those two rows is query batching: settings are
+loaded once and passed to `calculateAutoVolume` (four queries removed),
+and the rest run in batches that cannot exceed the pool. The 15s was the
+timeout firing on queued queries, and the error boundary was the page
+reporting it. A ratchet in
+`src/lib/seed/simulation-readiness.test.ts` parses the page and fails if
+any `Promise.all` batch grows past the pool size again.
+
+## What this does and does NOT establish
+
+**Established:** the page timed out on every load because it
+oversubscribed the pool, and it no longer does. A backend wedged while
+holding a query unique to that page.
+
+**NOT established:** that queue-timeout plus `cancel()` is the mechanism
+that wedges a backend. The same page produced the stuck backend on one
+load and none on another, so the wedge is intermittent even on a route
+that reached the timeout every time. Amendment 3's experiment remains
+unsettled, and no GUC bounds the state. What this fix removes is one
+route that walked into the timeout path on every visit; it does not
+remove the path.
+
+**Still unknown and worth checking:** whether any other route can
+oversubscribe the pool the same way. This was found by accident, not by
+a sweep. A `max: 5` pool shared by every request on the machine is small
+enough that a single page's `Promise.all` can starve the process, and
+nothing in the codebase enforces a bound on concurrent queries per
+request. Raising `max` is an owner decision (Supavisor slots), not a fix
+to make during an incident.
+
+## Correction to `docs/88` N5
+
+Pass 1 recorded "all 30 admin pages render 200". They did.
+`/admin/simulation` was serving the error boundary **inside** a 200 the
+whole time, because the error page is itself a successful render. A
+status-code sweep cannot see this; the body has to be read for the
+string. Any future reachability sweep should assert on content, not on
+status.
