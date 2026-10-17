@@ -530,3 +530,169 @@ whole time, because the error page is itself a successful render. A
 status-code sweep cannot see this; the body has to be read for the
 string. Any future reachability sweep should assert on content, not on
 status.
+
+---
+
+# AMENDMENT 5 — the sweep, a local lab, and an experiment left switched on
+
+Amendment 4 said `/admin/simulation` timed out because it issued more
+concurrent queries than the pool has connections. A sweep of every
+other route, and then a lab, showed that explanation is **wrong**. The
+real findings are worse and better than that.
+
+## 1. The sweep (VERIFIED by AST, not grep)
+
+A TypeScript AST pass over every page, route and `src/lib` entry point,
+resolving helper calls three levels deep, counting the widest set of
+queries that can be in flight at once:
+
+| route | concurrent queries (before) |
+|---|---|
+| `/admin/settings` | **7** |
+| `/admin/reports` | **7** |
+| `src/app/page.tsx` (the homepage) | **6** |
+| `/admin/simulation/analytics` | 4 |
+| `/campaigns` | 4 |
+| twelve more | 3 |
+
+Two routes fanned out **wider than the page amendment 4 blamed**, and
+one of them is the homepage. That alone made the amendment-4 story
+suspect.
+
+## 2. The lab says concurrency is harmless (VERIFIED, local Postgres)
+
+Production's exact driver options and timeout wrapper, against a local
+PostgreSQL 16, so nothing touches production:
+
+```
+50 concurrent fast queries, pool max 5   ->    13ms, 0 timeouts
+the exact /admin/simulation shape         ->    11ms, 0 rejected
+50 concurrent 300ms queries, pool max 5   -> 13,836ms, 0 timeouts
+```
+
+The queue drains. **Fan-out above the pool does not cause the 15s
+timeout.** Amendment 4's mechanism is retracted.
+
+## 3. What the lab DOES reproduce: the wedge itself
+
+Forcing client-side timeouts until they exhaust the pool, then asking
+the same pool for three ordinary queries:
+
+| forced timeouts | `cancel` | next three queries | backends left holding a txn |
+|---|---|---|---|
+| 1 | ON | 12ms, 1ms, 0ms | 0 |
+| 3 | ON | 11ms, 0ms, 0ms | 0 |
+| 5 | ON | 2ms, 0ms, 0ms | 0 |
+| 1 | OFF | 11ms, 3ms, 1ms | 0 |
+| 3 | OFF | 10ms, 1ms, 0ms | 0 |
+| **5** | **OFF** | **all three time out** | **5** |
+
+That is the wedge, in seconds, on a laptop-sized database. Two things
+follow:
+
+- **It takes enough concurrent timeouts to exhaust the pool.** Fewer
+  recover completely.
+- **`pending.cancel()` is what SAVES the pool, not what breaks it.**
+  Amendments 2 and 3 named cancel as the leading suspect for *creating*
+  the stuck backends. **That is reversed.** With cancel on, five
+  timeouts leave nothing behind; with it off, five timeouts leave five
+  stuck backends and a dead pool.
+
+Amendment 3 said settling this needed hours of production traffic and a
+scheduled sampler. It needed a local Postgres and a timeout short
+enough to fire on purpose.
+
+## 4. The experiment was still switched on in production
+
+`DB_CANCEL_ON_TIMEOUT` was still set as a Fly secret, digest
+`9048cdb637b2dd86` — the digest amendment 3 records for its `=0`
+value. Production has been running with **cancel disabled** since that
+experiment: precisely the configuration the table above shows wedging.
+
+Unset 2026-10-17. Nothing else is needed to revert it, exactly as
+amendment 3 promised; what was missing was anyone going back to do it.
+
+The lesson is not about pools. An experiment that changes production
+behaviour needs an owner and an end date, or it becomes the
+configuration.
+
+## 5. Production still disagrees with the lab, and that matters
+
+With cancel restored and the fan-out untouched, `/admin/settings` was
+re-measured and **still** left backends stuck in `active` /
+`Client/ClientRead`, holding its own queries:
+
+```
+select "key" from "site_settings" where "key" like $1
+select "security_question" from "users" where "id" = $1 limit $2
+```
+
+The lab cannot reproduce that, because the lab talks to Postgres
+directly and production goes through **Supavisor in transaction mode**.
+Supavisor is the one thing in the path the lab does not model, and it
+is already known to behave unlike Postgres here: docs/37 proved it
+silently ignores `connection: { statement_timeout }`.
+
+So the honest state is:
+
+- **Established:** cancel-off plus pool-exhausting timeouts wedges a
+  pool, reproducibly. The flag was on. It is now off.
+- **Established:** wide fan-out through Supavisor leaves stuck backends
+  in production, and narrowing it removes them.
+- **NOT established:** why. The mechanism at the Supavisor layer is
+  unexplained, and no GUC bounds the resulting state (amendment 2).
+
+Two changes shipped together. Only time will say which ended the
+wedges, and that ambiguity is the cost of fixing both during an
+incident rather than one at a time.
+
+## 6. What changed in the code
+
+Every entry point is at or under **three** concurrent queries now: the
+pool is five, the admin layout's `auth()` takes one, and three leaves a
+connection for whatever else the machine is serving.
+
+| route | before | after | how |
+|---|---|---|---|
+| `/admin/settings` | 7 | 3 | four counts + the security question become one row of scalar subqueries |
+| `/admin/reports` | 7 | 3 | YTD/MTD/all-time/refunds become one pass of FILTER aggregates over one scan |
+| `src/app/page.tsx` | 6 | 3 | two campaign counts merged; split into two batches |
+| `/campaigns` | 4 | 3 | tab counts merged into one scan |
+| `/admin/simulation/analytics` | 4 | 3 | the category breakdown runs after the batch |
+| news pipeline body fetch | 5 | 3 | batch size is also a connection count |
+
+Measured on production after deploying, three runs each:
+
+```
+/admin/settings              15,330ms  ->  492 / 361 / 455 ms
+/admin/reports                        ->  252 / 469 / 252 ms
+/admin/simulation/analytics           ->  232 / 224 / 235 ms
+/campaigns                            ->  237 / 196 / 213 ms
+/ (homepage)                          ->  353 / 361 / 369 ms
+```
+
+Twelve further routes re-measured at 195-432ms, no error boundaries,
+and zero backends holding a transaction afterwards.
+
+`src/db/pool-fanout.ratchet.test.ts` enforces the bound: it walks the
+AST of every page, route and lib file and fails if any entry point
+exceeds three, and fails if `max` in `src/db/index.ts` changes, so the
+budget cannot go slack without someone noticing.
+
+## 7. One correction to the sweep's own output
+
+The sweep first reported `src/lib/news/news-pipeline.ts` as having
+**unbounded** `.map` fan-out. It does not: it slices into fixed batches
+before mapping. The analyser could not see the slice. There is no
+unbounded fan-out anywhere in the codebase. The batch size was still
+lowered from 5 to 3, because a batch size over DB work is a connection
+count.
+
+## 8. Still open
+
+- The Supavisor mechanism in §5.
+- Whether the wedges are actually over. The flag has been off for
+  hours, not days, and the five earlier wedges were 40 minutes to 2
+  hours apart.
+- The terminate-by-age watchdog in amendment 3 is still not built, and
+  remains the only remedy that has ever worked during an incident.
