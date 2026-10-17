@@ -3,9 +3,10 @@ import { redirect } from 'next/navigation';
 import { SimulationControlPanel } from '@/components/admin/SimulationControlPanel';
 import { getAllSettings } from '@/lib/settings.server';
 import { db } from '@/db';
-import { campaigns, donations, fundPoolAllocations } from '@/db/schema';
+import { campaigns, donations, fundPoolAllocations, auditLogs } from '@/db/schema';
 import { sql, eq, and, inArray } from 'drizzle-orm';
 import { calculateAutoVolume } from '@/lib/seed/phase-out';
+import { getSimulationReadiness } from '@/lib/seed/simulation-readiness';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -19,16 +20,35 @@ export default async function SimulationPage() {
     redirect('/admin');
   }
 
-  const [
-    settings,
-    autoVolume,
-    campaignRows,
-    donationStats,
-    fundPoolStats,
-    [realCount],
-  ] = await Promise.all([
-    getAllSettings(),
-    calculateAutoVolume(),
+  /*
+    ── Why this page does not use one big Promise.all ────────────────
+
+    It used to. Six branches ran concurrently, and one of them
+    (`calculateAutoVolume`) issued five queries of its own, against a
+    pool of FIVE connections (`src/db/index.ts`, `max: 5`). The admin
+    layout's `auth()` role lookup runs alongside it. So opening this
+    one screen could demand more connections than the whole process
+    owns, and the surplus queries queue.
+
+    `withQueryTimeout` starts its 15s clock when a query is issued,
+    queue time included, and on expiry it calls `pending.cancel()` -
+    the path docs/52 and docs/87 suspect of leaving a backend wedged in
+    `active` / `Client/ClientRead` with an open transaction. On
+    2026-10-17 the sixth pool wedge was found holding
+    `select count(*)::int from "campaigns" where "simulation_flag" = $1`,
+    which exists in exactly one place in the codebase: the `realCount`
+    query below. See docs/87.
+
+    The settings are therefore loaded first and passed to
+    `calculateAutoVolume`, which removes four queries outright, and the
+    rest run in batches that cannot exceed the pool. The page is an
+    operator screen; a few serialised round trips cost milliseconds and
+    cannot starve every other request on the machine.
+  */
+  const settings = await getAllSettings();
+
+  const [autoVolume, campaignRows, donationStats] = await Promise.all([
+    calculateAutoVolume(settings),
     db
       .select({
         id: campaigns.id,
@@ -51,6 +71,9 @@ export default async function SimulationPage() {
       })
       .from(donations)
       .groupBy(donations.source),
+  ]);
+
+  const [fundPoolStats, [realCount], [lastCron]] = await Promise.all([
     db
       .select({
         status: fundPoolAllocations.status,
@@ -62,6 +85,15 @@ export default async function SimulationPage() {
       .select({ count: sql<number>`count(*)::int` })
       .from(campaigns)
       .where(eq(campaigns.simulationFlag, false)),
+    /*
+      The most recent run of ANY cron job, which is how this screen
+      knows whether a scheduler exists at all (docs/88 F9). Crons log
+      `cron.<job>` rows; nothing else writes that prefix.
+    */
+    db
+      .select({ at: sql<Date>`max(${auditLogs.timestamp})` })
+      .from(auditLogs)
+      .where(sql`${auditLogs.eventType} LIKE 'cron.%'`),
   ]);
 
   // Get donation counts per campaign
@@ -172,6 +204,15 @@ export default async function SimulationPage() {
     },
   };
 
+  /*
+    docs/88 F9. Read from the three things that actually block a seed
+    donation, so a cleared blocker disappears on its own rather than
+    leaving a stale warning behind.
+  */
+  const readiness = getSimulationReadiness(
+    lastCron?.at ? new Date(lastCron.at) : null,
+  );
+
   return (
     <>
       <div className="mb-6">
@@ -184,6 +225,7 @@ export default async function SimulationPage() {
         initialSettings={simulationSettings}
         campaigns={campaignsData}
         analytics={analytics}
+        readiness={readiness}
       />
     </>
   );

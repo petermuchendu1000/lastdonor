@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { CubeTransparentIcon } from '@heroicons/react/24/outline';
+import type { SimulationReadiness } from '@/lib/seed/simulation-readiness';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +66,7 @@ interface Props {
   initialSettings: SimulationSettings;
   campaigns: CampaignRow[];
   analytics: Analytics;
+  readiness: SimulationReadiness;
 }
 
 /* ---------- helpers ---------- */
@@ -80,7 +82,7 @@ function pct(n: number): string {
 
 /* ---------- component ---------- */
 
-export function SimulationControlPanel({ initialSettings, campaigns: initialCampaigns, analytics }: Props) {
+export function SimulationControlPanel({ initialSettings, campaigns: initialCampaigns, analytics, readiness }: Props) {
   const router = useRouter();
   const [settings, setSettings] = useState<SimulationSettings>(initialSettings);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>(initialCampaigns);
@@ -167,14 +169,57 @@ export function SimulationControlPanel({ initialSettings, campaigns: initialCamp
   const effectiveVolumeLabel =
     settings.effectiveVolume < 0 ? 'Disabled' : pct(settings.effectiveVolume);
 
+  /*
+    docs/88 F9. "Active" used to mean "the setting is on", which is not
+    what anyone reads it as. The simulation is active only when the
+    setting is on AND nothing is blocking it; with a blocker present
+    the switch changes a stored value and nothing else.
+  */
+  const reallyActive = settings.enabled && readiness.canRun;
+  const statusLabel = reallyActive
+    ? 'Active'
+    : settings.enabled
+      ? 'Switched on, cannot run'
+      : 'Off';
+
   return (
     <div className="space-y-6">
+      {readiness.blockers.length > 0 && (
+        <section
+          className="rounded-lg border border-brand-amber/40 bg-brand-amber/5 p-4"
+          aria-labelledby="sim-blockers-heading"
+        >
+          <h2 id="sim-blockers-heading" className="text-sm font-semibold">
+            Nothing on this screen will produce a donation
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {readiness.blockers.length === 1
+              ? 'One thing stands in the way. The controls below still save, they just have no effect.'
+              : `${readiness.blockers.length} separate things stand in the way, and clearing one is not enough. The controls below still save, they just have no effect.`}
+          </p>
+          <ol className="mt-3 space-y-3">
+            {readiness.blockers.map((b, i) => (
+              <li key={b.id} className="border-l-2 border-brand-amber/40 pl-3">
+                <p className="text-sm font-medium">
+                  {i + 1}. {b.title}
+                </p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{b.detail}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">To clear it: </span>
+                  {b.fix}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       {/* Global Controls */}
       <div className="rounded-lg border">
         <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
           <h3 className="text-sm font-semibold text-muted-foreground">Global Controls</h3>
-          <Badge variant={settings.enabled ? 'default' : 'secondary'}>
-            {settings.enabled ? 'Active' : 'Inactive'}
+          <Badge variant={reallyActive ? 'default' : settings.enabled ? 'outline' : 'secondary'}>
+            {statusLabel}
           </Badge>
         </div>
         <div className="space-y-4 p-4">
@@ -184,7 +229,18 @@ export function SimulationControlPanel({ initialSettings, campaigns: initialCamp
               id="sim-enabled"
               checked={settings.enabled}
               disabled={saving}
-              onCheckedChange={(v) => saveSettings({ enabled: v })}
+              onCheckedChange={async (v) => {
+                await saveSettings({ enabled: v });
+                /*
+                  The save toast says "Settings saved", which is true.
+                  Switching this on while blocked and being told only
+                  that is how an admin concludes the simulation is
+                  running (docs/88 F9).
+                */
+                if (v && !readiness.canRun) {
+                  toast.info('Saved, but the simulation still cannot run. See the notice above.');
+                }
+              }}
             />
           </div>
           <div className="flex items-center justify-between">
