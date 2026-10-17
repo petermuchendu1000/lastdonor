@@ -147,6 +147,8 @@ US-evening donations land in tomorrow's figure. (Checked and CLEAN: the database
 SQL `date_trunc('month', ...)` bucketing in /admin/reports does not mix bases with the Node cutoff.)
 
 ## F16 MEDIUM — /admin/users shows two contradicting totals on one screen
+> **Resolved 2026-10-17** for all eight capped lists, not just this one.
+> See "F16 in detail: the honest number is two numbers" below.
 `admin/users/page.tsx:18` caps the fetch at `.limit(200)` but also computes a true `count(*)` and passes
 it as `totalUsers`. `UsersList` uses `totalUsers` for the "All" filter tile (line 211) and
 `sorted.length` for the footer (line 387). Above 200 users the tile says the real number and the footer
@@ -235,6 +237,10 @@ Verified on a throwaway row with `published_at` nulled: 200, status
 `active`, `publishedAt stamped = true`. docs/78's behaviour holds.
 
 ## F18 LOW — two admin tables overflow at 390px
+> **Amended 2026-10-17.** Half of this is withdrawn: `/admin/audit-log`
+> already scrolls correctly and was never a defect. `/admin/governance`
+> was, and a proper sweep found six tables in four components with no
+> scroll wrapper. See "F18 in detail, and half of it withdrawn" below.
 Measured with Chromium at 390x844, signed in as admin. 12 of 24 pages
 measured before production wedged a fifth time and the run aborted.
 
@@ -274,6 +280,8 @@ campaigns/new.
 | **F5** | The two wrong formatters corrected | Live, same campaign: `/admin/payouts` `$1,250.5` -> `$1,250.50`, `$1,200` -> `$1,200.00`. `/admin` already showed `$1,250.50` for that row. |
 | **F15** | Period boundaries come from `src/lib/reporting-timezone.ts`; screens name the zone | Live: `/admin` now prints "Periods are counted in UTC." |
 | **F2** | `GET /api/v1/admin/verification-documents/[id]` signs and 302s; the queue links to it | Live, with a real PDF in the private bucket: `302` -> signed URL -> `200 application/pdf`, body starts `%PDF-1.4`. Before: list returned `supabase-private://…` and the route answered `405`. |
+| **F16** | All EIGHT capped admin lists report through `ListCount`: the page range, the loaded count, and the true `count(*)` when they differ | Live with 239 users: footer `Showing 1-25 of 200` + `Loaded the newest 200 of 239 users. Search and filters apply to those 200 only.` Before: `of 200`, with nothing saying 39 rows were never fetched. |
+| **F18** | Six tables in four components wrapped in `overflow-x-auto` | Live `/admin/governance` at 390x844: wrapper `scrollWidth 372 > clientWidth 340`, `overflow-x: auto`, `scrollLeft` reaches 32 and the actions column becomes reachable. Before: `overflow-x: hidden`, 32px unreachable. |
 
 Notes on each, since the *reason* matters more than the diff:
 
@@ -328,9 +336,77 @@ payload even though nothing consumes it now. Harmless (an admin-only
 response, and the key alone grants no access to a private bucket) but it
 is an internal storage path on the wire for no reason.
 
+## F16 in detail: the honest number is two numbers
+
+The screen stated two totals at once and neither was labelled. The fix
+is not to pick one. Printing the true 239 in the footer would make the
+numbers agree and would be a *different* lie, because paging to the end
+stops at row 200 whatever the footer promises. `ListCount` prints the
+page range, the loaded count, and the true count when they differ -
+the same choice docs/45 made for filters: report the limitation rather
+than present a narrower answer as the whole one.
+
+It also names a consequence no single number can. Search and the filter
+tiles run **in the browser** over the fetched rows. On a truncated list
+a tile reading "admin 3" can select 2 rows, with neither figure wrong:
+the tile counted the table, the filter searched the fetch.
+
+**Scope.** The audit flagged the other capped lists as "needs
+per-component confirmation". All seven were checked; all seven had the
+same shape. Eight lists now route through `ListCount`: users 200,
+donations 200, blog 200, blog/topics 200, news-feed 200, governance
+200, verification 500, payouts 500. Three already had a true `count(*)`
+in scope and unused (blog, blog/topics, news-feed); governance had
+none, so one was added; verification and payouts gained a plain
+`count(*)` beside their `FILTER` counts, under the same predicate as
+their own fetch, or the comparison would be against a different
+population.
+
+**Two more defects fell out of the sweep.** `GovernancePanel` and
+`VerificationQueue` read "Showing 25 of 60" on *every* page rather than
+"Showing 26-50 of 60". And the count rendered only when
+`totalPages > 1`, so the truncation warning vanished in the case that
+needs it most: a filter selecting three rows from a loaded 200 while 39
+more were never fetched at all.
+
+**Not done:** real server-side pagination, which would remove the cap
+instead of describing it. `/admin/users` paging is still client-side
+over at most 200 rows.
+
+## F18 in detail, and half of it withdrawn
+
+The pass-1 finding named `/admin/audit-log` (+66px) and
+`/admin/governance` (+7px). Re-measured at 390px against the deployed
+page:
+
+- `/admin/audit-log` **is not a defect.** Its table is already wrapped
+  in `div.overflow-x-auto` and scrolls correctly. The +66px was real
+  overflow of a correctly scrollable element, which is what that
+  element is for. The other elements the pass-1 scan flagged were
+  `.sr-only`, which is *supposed* to be clipped. Withdrawn.
+- `/admin/governance` **was** a defect: a 422px table inside a card with
+  `overflow-hidden` and no scrollable wrapper, so `overflow-x` computed
+  to `hidden` and the last 32px - the actions column - could not be
+  reached by any gesture.
+
+A sweep of every `<table>` under `src/components/admin` then found six
+in four components in that state: `AdminDashboard` (3), `GovernancePanel`,
+`InfoRequestsDashboard`, `PayoutsDashboard`. All six wrapped.
+
+The lesson is the same one docs/56 recorded: the pass-1 number came
+from a heuristic over elements, and a heuristic cannot tell a clipped
+table from a screen-reader label or from an element that scrolls on
+purpose. Measuring the specific claim against the deployed page
+retired half the finding and found three times as many instances of
+the other half.
+
+Two ratchets hold both: no admin component may hand-roll a
+`Showing ... of <array>.length` footer, and no `<table>` under
+`src/components/admin` may appear without a scrollable ancestor.
+
 ## Still open from this audit
 
-**Fixed and deployed:** F1, F2, F3, F4, F5, F6, F7, F12, F13, F15.
+**Fixed and deployed:** F1, F2, F3, F4, F5, F6, F7, F12, F13, F15, F16, F18.
 
 **Still open:**
 - **F8** `/admin/campaigns` has no LIMIT (unbounded as the table grows).
@@ -338,12 +414,7 @@ is an internal storage path on the wire for no reason.
   page's own stats.
 - **F14** 13 admin pages carry an inert `revalidate = 60` (measured: no
   caching happens, `auth()` forces dynamic rendering). Misleading, not broken.
-- **F16** `/admin/users` prints the true `count(*)` in the filter tile and
-  the capped fetch length in the footer, so above 200 users one screen
-  shows two different totals. Likely the same shape on the other capped
-  lists; only UsersList is verified.
-- **F18** `/admin/audit-log` (+66px) and `/admin/governance` (+7px) tables
-  overflow their container at 390px.
+(F16 and F18 moved to the fixed section below.)
 
 **Pass-2 gaps:** 12 of 24 pages unmeasured at 390px, per-screen copy, and
 write actions beyond campaigns (refund batches, fund-pool
