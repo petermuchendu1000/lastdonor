@@ -170,3 +170,90 @@ same way needs per-component confirmation — only UsersList is verified here.
 4. **Empty states**, with real eyes. A grep-based pass was attempted and
    produced false positives; it was discarded rather than reported.
 5. **Mobile layout.** 30 admin pages, none measured at 390px.
+
+---
+
+# PASS 2 — write actions and mobile (partial)
+
+Write actions were exercised against **throwaway campaigns created and
+deleted by this audit** (`subject_name = 'zzpass2'`), by a throwaway admin,
+all removed afterwards. No real row was touched.
+
+## F11 CONFIRMED at runtime
+All 17 transitions the client offers, driven through the API:
+`active -> paused` **400 VALIDATION_ERROR**, `last_donor_zone -> paused`
+**400 VALIDATION_ERROR**, the other 15 all 200. Exactly the two the static
+diff predicted.
+
+## F13 CONFIRMED, and worse than the docblock implies
+`DELETE /api/v1/admin/campaigns/[id]` on campaigns with no donations:
+
+| status | HTTP | rows left |
+|---|---|---|
+| `draft` | 200 | **0 — hard deleted** |
+| `active` | 200 | **0 — hard deleted** |
+| `completed` | 200 | **0 — hard deleted** |
+| `under_review` | 200 | **0 — hard deleted** |
+
+The docblock's "Only allowed for draft campaigns" guard does not exist in
+any form. `CampaignsList` renders Delete on every row. Any of the 12 queued
+campaigns — appeals naming real people — is two clicks from permanent
+destruction, together with its `campaignUpdates` and `campaignSeedMessages`.
+
+## F17 WITHDRAWN (my error, not a defect)
+An initial run reported HTTP 405 on all seven verification actions. The
+route exports `GET` and `PATCH`; the probe sent `POST`. The orphaned
+`VerificationQueue` uses PATCH correctly. Not a bug.
+
+## N9 CLEAN — the verification review API is complete and correct
+Re-run with PATCH:
+
+| from | action | result |
+|---|---|---|
+| `documents_uploaded` | `approve_t1` | 200 -> `identity_verified` |
+| `identity_verified` | `approve_t2` | 200 -> `fully_verified` |
+| `documents_uploaded` | `approve_t2` | 200 -> `fully_verified` |
+| `submitted_for_review` | `approve_t1` | 200 -> `identity_verified` |
+| `documents_uploaded` | `reject` | 200 -> `rejected` |
+| `documents_uploaded` | `request_info` | 200 -> `info_requested` |
+| `unverified` / `pending` | `approve_t1` | 409 CONFLICT (correctly refused) |
+
+**This sharpens F1 rather than softening it.** The backend that would let a
+campaign reach `fully_verified` — and therefore withdraw money — works
+completely. The only thing missing is a reachable UI.
+
+## N10 CLEAN — cancel matches its UI predicate exactly
+`GovernancePanel.canCancel` allows everything except cancelled/completed/
+archived. The API's `CANCELLABLE` is `active, last_donor_zone, paused,
+under_review, suspended, draft`. Driven through all seven statuses: the two
+the UI hides are the two the API refuses (400); the five it offers all
+succeed. (An earlier 400 on `active` was my probe sending a free-text
+`reason`; the schema is `z.enum(CANCELLATION_REASONS)`. My error.)
+
+## N11 CLEAN — `under_review -> active` stamps `publishedAt`
+Verified on a throwaway row with `published_at` nulled: 200, status
+`active`, `publishedAt stamped = true`. docs/78's behaviour holds.
+
+## F18 LOW — two admin tables overflow at 390px
+Measured with Chromium at 390x844, signed in as admin. 12 of 24 pages
+measured before production wedged a fifth time and the run aborted.
+
+| page | document width | worst offender |
+|---|---|---|
+| `/admin/audit-log` | 390 (no page scroll) | `table.w-full.text-sm` **+66px** |
+| `/admin/governance` | 390 (no page scroll) | `table.w-full.text-sm` **+7px** |
+
+The other 10 measured clean. The page itself does not scroll horizontally
+— the tables overflow inside their own container — so this is clipped
+content, not a broken layout.
+
+⛔ **12 of 24 pages are still unmeasured**: news-feed, notifications,
+payouts, refunds, reports, settings, simulation ×3, users, verification,
+campaigns/new.
+
+## Still not done in pass 2
+- Per-screen copy and labels (only the sidebar's "Verification Queue"
+  mislabel, found in pass 1, is recorded).
+- The remaining 12 pages at 390px.
+- Write actions beyond campaigns: refund batches, fund-pool
+  allocate/disburse, bulk email send, blog publish, user edits.

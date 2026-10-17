@@ -262,3 +262,95 @@ mid-transaction in the first place. That is still open.
   easier to hit. **Verify before anything else here.**
 - Alerting, still absent. This fourth wedge was found, once again, while
   doing something unrelated.
+
+---
+
+# AMENDMENT 2 — the fix above is INEFFECTIVE. Fifth wedge, and a fuller diagnosis
+
+**Retracting the previous amendment's claim that this was fixed.** It was
+not. A fifth wedge occurred roughly two hours later, with
+`idle_in_transaction_session_timeout = 5min` in force.
+
+## Why the fix does not fire
+
+Captured during the fifth wedge:
+
+```
+pid=403655 usename=postgres state='active'  conn_age=00:24:03  xact_age=00:07:04
+           wait=Client/ClientRead   select "id","total_released_amount",...
+pid=404580 usename=postgres state='active'  conn_age=00:10:13  xact_age=00:07:27
+           wait=Client/ClientRead   select "id","user_id","type","title",...
+```
+
+Both are `usename=postgres`, so the `ALTER ROLE` applies to them, and both
+connections were opened **after** it was set. Transactions were 7 minutes
+old — past the 5-minute bound — and were not terminated.
+
+**The reason: `state = 'active'`, not `'idle in transaction'`.**
+`idle_in_transaction_session_timeout` terminates only the latter. A backend
+parked in `active` + `Client/ClientRead` is outside its scope.
+
+## Nothing in PostgreSQL bounds this state
+
+| setting | value (verified) | fires here? |
+|---|---|---|
+| `statement_timeout` | `120000 ms` | **No.** These ran 7–11 h. The timer is not armed while the backend waits for client input between extended-protocol messages. |
+| `idle_in_transaction_session_timeout` | `300000 ms` (set above) | **No.** Wrong state. |
+| `tcp_keepalives_idle` / `interval` / `count` | `1800 s` / `60 s` / `9` | **No.** The TCP peer is Supavisor, and Supavisor is alive and answering. There is no dead socket to reap. |
+
+So the backend is healthy, its peer is healthy, and the transaction is
+immortal. The abandonment is **inside Supavisor**: it holds a server leg
+with an open transaction whose owning client is gone.
+
+**`ALTER ROLE postgres SET idle_in_transaction_session_timeout = '5min'`
+is being LEFT IN PLACE.** It is correct hygiene and bounds a genuine
+neighbouring failure (a real idle-in-transaction leak), it has no observed
+cost, and Supabase sets the same thing on its own auth role. But it must
+not be recorded as the fix for this, because it is not.
+Revert if ever needed: `ALTER ROLE postgres RESET idle_in_transaction_session_timeout;`
+
+## Leading hypothesis, NOT yet proven
+
+**Our own 15-second client timeout may be creating these.** `docs/52` added
+`pending.cancel()`, which opens a second socket and sends a CancelRequest.
+A cancelled extended-query sequence that never receives its `Sync` leaves
+the backend exactly where we keep finding it: `active`, `Client/ClientRead`,
+transaction open.
+
+Circumstantial support: every stuck query found across both captures is an
+ordinary page-load SELECT (`campaigns`, `users.role`, `notifications`,
+payout totals) — precisely what is in flight when a page load times out.
+
+This would make `docs/52`'s remedy a cause, which is the same shape as
+`docs/52`'s own finding that the `docs/37` guard "was part of the cause".
+
+**The experiment:** disable `pending.cancel()` (keep the reject), deploy,
+and watch whether backends stuck in `active`/`ClientRead` stop appearing.
+Cheap, reversible, and it settles the question. NOT done here.
+
+## The only remedy available to us today
+
+A watchdog that terminates backends by transaction age, since no GUC will:
+
+```sql
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+WHERE datname = current_database() AND xact_start IS NOT NULL
+  AND now() - xact_start > interval '5 minutes';
+```
+
+Run manually during each of the last two incidents; it restored service in
+seconds both times, with no deploy and no restart.
+
+It needs a scheduler. `pg_cron` is **not** installed in this database
+(checked: `pg_extension` has no row for it), and our own cron has never run
+(`docs/65`). Installing a database extension and giving it a
+`pg_terminate_backend` job is new production infrastructure and an owner
+decision, so it was NOT done unilaterally. It is the recommended next step.
+
+## Correction to AMENDMENT 1
+
+Amendment 1 flagged that `DATABASE_URL` might be on port 5432 (session
+mode). `src/db/query-timeout.ts` records its findings as "verified against
+the production pooler **on port 6543**", so the application is on
+transaction mode; the 5432 URL is this session's own copy, used for
+migrations. **Withdrawn as a concern.**
