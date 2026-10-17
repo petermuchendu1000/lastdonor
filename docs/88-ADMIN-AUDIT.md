@@ -1,7 +1,7 @@
 # 88 — Admin audit (pass 1: cross-cutting sweeps)
 
 **Date:** 2026-10-17
-**Status:** ⛔ IN PROGRESS. Pass 1 (whole-classes-of-bug sweeps) complete.
+**Status:** ⛔ IN PROGRESS. Pass 1 + pass 1b (more sweep classes) complete.
 Pass 2 (screen-by-screen semantics, copy, and the write actions) NOT started.
 **Follows:** `docs/87`, which found the admin had no users at all.
 
@@ -26,14 +26,13 @@ sending bulk email — so none were exercised. Those need a staging database
 or carefully chosen throwaway rows, and they are where the remaining defects
 most likely are.
 
-**A note on the count.** Ten real defects were found, two of them critical.
+**A note on the count.** Sixteen real defects so far, three of them critical.
 The brief anticipated "over 50". Pass 1's sweeps came back clean on six
 whole classes (below), and padding the list with those would have been
 dishonest. Pass 2 may well find more; this document will be amended rather
 than replaced.
 
 ---
-
 ## F1 CRITICAL — verification can never be approved, so no money can ever leave
 - `fully_verified` is set in exactly one place: `admin/campaigns/[campaignId]/verification/route.ts:132` (`approve_t2`).
 - The ONLY caller of that route is `VerificationQueue.tsx` (784 lines) — **imported by nothing**.
@@ -105,6 +104,56 @@ stats server-side in `page.tsx`. Two divergent implementations of the same figur
 - N7: `/api/v1/admin/settings/environment` masks secrets (`••••••••`+last4) and excludes DATABASE_URL.
 - N8: the `SEED_DONATIONS_OPT_IN` fail-closed gate described in docs/41 is real and correctly placed
       ahead of the lock and all writes.
+
+## F11 HIGH — the campaigns list offers a status change the API always rejects
+`CampaignsList.ALLOWED_TRANSITIONS` vs the API's map in `admin/campaigns/[campaignId]/route.ts:17`:
+- `active`:          client adds `paused`; server does NOT allow it.
+- `last_donor_zone`: client adds `paused`; server does NOT allow it.
+The dropdown PATCHes `{status:'paused'}` and gets 400 VALIDATION_ERROR every time. Pausing works only via
+`/admin/governance`, which uses the dedicated `/pause` route. Two transition maps, one of them wrong.
+
+## F12 MEDIUM — `realDonationCount` does not filter by source
+`admin/campaigns/[campaignId]/route.ts:229` counts EVERY donation row; there is no `source='real'`.
+The variable name, the inline comment ("Check for real donations - cannot hard-delete campaigns with
+real money"), the docblock ("no real donations") and the audit reason ("archived instead of deleted for
+financial integrity") all assert a filter the query does not apply. Currently fails safe — a seed-only
+campaign is archived rather than deleted — but anyone "fixing" the name to match the comment would start
+hard-deleting seed-funded campaigns. `donorCount` IS incremented by the seed engine
+(`simulation-engine.ts:282`), so the two paths disagree about what a donation is.
+
+## F13 HIGH — DELETE claims a draft-only guard that does not exist (data loss)
+Docblock: "Only allowed for draft campaigns with no real donations." There is NO status check in the
+handler, and `CampaignsList` renders Delete on every row unconditionally (`setDeleteTarget(c)`).
+An admin can permanently delete an `active` campaign with zero donations — and right now, any of the 12
+`under_review` campaigns, which have zero donations. The handler then hard-deletes the campaign plus its
+`campaignSeedMessages` and `campaignUpdates` rows.
+
+## F14 LOW (downgraded after measurement) — 13 admin pages carry an INERT `revalidate = 60`
+activity, audit-log, blog, blog/topics, donations, governance, monitoring, news-feed, payouts, reports,
+simulation, simulation/analytics, simulation/fund-pool, users, verification. These are authenticated,
+mutating operator views. Whether the full route cache actually engages is UNVERIFIED (they call `auth()`,
+which reads cookies and normally forces dynamic rendering) — the measurement was blocked by the outage.
+MEASURED 2026-10-17 against production as a signed-in admin: no `x-nextjs-cache` header on any of them,
+and `cache-control: private, no-cache, no-store, max-age=0, must-revalidate`. `auth()` reads cookies and
+forces dynamic rendering, so **the directive is inert**. Downgraded from MEDIUM: it is a misleading dead
+line, NOT stale operator data. Recorded because the next reader will otherwise assume it works.
+
+## F15 MEDIUM — every admin date boundary is UTC, labelled "Today" / "This Month"
+`admin/page.tsx:15-16`, `admin/reports/page.tsx:27-29`, `api/v1/admin/dashboard/route.ts:25-26`,
+`lib/monitoring/ai-cost-tracker.ts:136` all build boundaries with `new Date(y, m, d)` = server-local.
+No `TZ` is set on Fly, so that is UTC, and there is NO timezone handling anywhere in the admin.
+A Nairobi admin's "Today" rolls over at 03:00 local; a US admin's at 19:00 the previous evening, so
+US-evening donations land in tomorrow's figure. (Checked and CLEAN: the database is also UTC, so the
+SQL `date_trunc('month', ...)` bucketing in /admin/reports does not mix bases with the Node cutoff.)
+
+## F16 MEDIUM — /admin/users shows two contradicting totals on one screen
+`admin/users/page.tsx:18` caps the fetch at `.limit(200)` but also computes a true `count(*)` and passes
+it as `totalUsers`. `UsersList` uses `totalUsers` for the "All" filter tile (line 211) and
+`sorted.length` for the footer (line 387). Above 200 users the tile says the real number and the footer
+says "of 200". The correct value is in scope and unused.
+Server-side caps with no disclosure also on: verification (500), payouts (500/200), users/donations/
+governance/blog/blog-topics/notifications/news-feed/fund-pool (200 each). Whether each footer lies the
+same way needs per-component confirmation — only UsersList is verified here.
 
 ---
 

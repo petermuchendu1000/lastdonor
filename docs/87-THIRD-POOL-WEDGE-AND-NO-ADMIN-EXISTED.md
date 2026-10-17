@@ -172,3 +172,93 @@ about named real people (`docs/36`, `docs/79`), and publishing an appeal on
 someone's behalf is an editorial act for the owner, not a side effect of an
 engineering walk-through. They are one click each in `/admin/campaigns`,
 now that an admin exists.
+
+---
+
+# AMENDMENT 2026-10-17 — fourth wedge, and the ROOT CAUSE, finally measured
+
+It wedged again ~40 minutes after the restart above. That alone disproves
+`docs/52`'s conclusion that the wedge "can no longer become permanent".
+This time evidence was captured **before** restarting, which is what the
+first three incidents never did.
+
+## What was found
+
+`pg_stat_activity`, while every app route was timing out at 15,002 ms:
+
+```
+pid=354263  state=active  conn_age=11:32:41  query_age=11:17:46  xact_age=11:17:46
+            wait_event = Client/ClientRead
+            query: select "id","title" from "campaigns" where "simulation_flag" = $1 ...
+
+pid=355015  state=active  conn_age=11:19:28  query_age=11:16:45  xact_age=11:16:45
+            wait_event = Client/ClientRead
+            query: select "role" from "users" where "users"."id" = $1 limit $2
+```
+
+**Two backends with transactions open for 11 hours 17 minutes, both waiting
+on `Client/ClientRead`.** That wait event means the server finished its work
+and is waiting for the client to send the next message. The client never
+did — it was gone. The backends sat in open transactions holding Supavisor
+pool slots indefinitely.
+
+The second query is the `[auth] role lookup` that `src/lib/auth.ts` runs in
+middleware, so this is reachable from ordinary traffic.
+
+## Proof of causation
+
+The two backends were terminated with `pg_terminate_backend`, and **nothing
+else was done — no deploy, no machine restart**:
+
+| | before | after |
+|---|---|---|
+| health `database` | `error`, 15002 ms | `ok`, 21 ms → 3 ms |
+| `POST /api/auth/register` | `500` | `201` |
+
+That is the first demonstrated cause-and-effect across four incidents.
+
+## Both earlier docs named the wrong fix
+
+- **`docs/52`'s client-side `pending.cancel()`** cannot help. Cancelling
+  requires a client; here the client is already gone. The fix is real and
+  worth keeping, but it addresses a different failure.
+- **`docs/37` §4 and `docs/52` §6 debated a role-level `statement_timeout`**
+  and parked it because "migrations run as the same role". **That is the
+  wrong GUC.** `statement_timeout` bounds a query that is *executing*; these
+  queries were not executing, they were idle inside an open transaction. The
+  setting that bounds this is **`idle_in_transaction_session_timeout`**, and
+  the migration objection does not apply to it: a migration executing
+  statements back to back is never idle-in-transaction, and if one ever were
+  terminated the transaction rolls back cleanly.
+
+## Fix applied
+
+```sql
+ALTER ROLE postgres SET idle_in_transaction_session_timeout = '5min';
+```
+
+VERIFIED applied 2026-10-17; `rolconfig` now carries it alongside the
+pre-existing `search_path`. Supabase's own `supabase_auth_admin` role already
+sets this to 60 s in this same database, so the practice has precedent here.
+
+**Revert, if it ever harms a migration:**
+`ALTER ROLE postgres RESET idle_in_transaction_session_timeout;`
+
+This bounds the damage; it does not explain why a client disappears
+mid-transaction in the first place. That is still open.
+
+## ⛔ Still open after this
+
+- **Why the client vanishes mid-transaction.** Unknown across four
+  incidents. Candidates not yet tested: a Fly machine suspend/resume cutting
+  sockets, Supavisor dropping the client leg, or a Node process exit between
+  BEGIN and COMMIT.
+- **`DATABASE_URL` port.** `CLAUDE.md` states the app uses the pooler in
+  transaction mode on 6543 and that migrations use 5432. The copy available
+  to this session points at **5432**. Whether the Fly secret the app actually
+  runs on is 5432 or 6543 was NOT verified — Fly does not expose secret
+  values. If the app is on 5432 (session mode) it pins one backend per
+  client connection for its whole life, which would make this failure far
+  easier to hit. **Verify before anything else here.**
+- Alerting, still absent. This fourth wedge was found, once again, while
+  doing something unrelated.
