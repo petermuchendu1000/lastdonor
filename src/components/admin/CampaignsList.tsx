@@ -325,13 +325,27 @@ export function CampaignsList({ campaigns, statusCounts }: CampaignsListProps) {
                                 </DropdownMenuSub>
                               </>
                             )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => setDeleteTarget(c)}
-                            >
-                              Delete
-                            </DropdownMenuItem>
+                            {/*
+                              Draft only, matching the API guard added for
+                              docs/88 F13. Offering Delete on every row is
+                              how an active campaign  - or one of the review
+                              queue's appeals about a real person  - ended up
+                              two clicks from permanent destruction. Hidden
+                              rather than disabled: there is no state in
+                              which a non-draft becomes deletable, so a
+                              greyed-out item would only invite a retry.
+                            */}
+                            {c.status === 'draft' && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setDeleteTarget(c)}
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>

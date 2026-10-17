@@ -99,7 +99,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
       This used to check `currentStatus === 'draft'` only. Since docs/78
       every user submission arrives as `under_review`, so approving one
-      would have left `publishedAt` null forever — and the homepage orders
+      would have left `publishedAt` null forever  - and the homepage orders
       featured campaigns by it, `/campaigns` sorts on it, and the sitemap
       reads it. Keyed on the column being empty rather than on a specific
       previous status, so a later route into `active` cannot miss it and a
@@ -191,8 +191,26 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 /**
  * DELETE /api/v1/admin/campaigns/[campaignId] - Delete a campaign
- * Only allowed for draft campaigns with no real donations.
- * Campaigns with real donations are archived instead.
+ *
+ * Two outcomes, in this order:
+ *   1. ANY donation row (real or seed) -> archived, never destroyed.
+ *   2. No donations and status is `draft` -> hard deleted, with its
+ *      updates and seed messages.
+ *   3. No donations and any other status -> REFUSED (409).
+ *
+ * ── Why rule 3 exists (docs/88 F13) ──────────────────────────────────────
+ *
+ * This docblock used to claim "only allowed for draft campaigns" and NO
+ * such check existed. Proven against production on 2026-10-17 with
+ * throwaway rows: `draft`, `active`, `completed` AND `under_review` all
+ * returned 200 and left zero rows. `CampaignsList` renders Delete on every
+ * row, so any campaign  - including the review queue of appeals naming real
+ * people  - was two clicks from permanent destruction.
+ *
+ * The guard is a refusal rather than a silent archive because an admin who
+ * asked to delete an active campaign has either picked the wrong row or
+ * wants `archived`; both are better served by being told than by having
+ * one of them guessed at.
  */
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const requestId = randomUUID();
@@ -226,13 +244,20 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Check for real donations - cannot hard-delete campaigns with real money
-    const [realDonationCount] = await db
+    /*
+      ANY donation row, real or seed. The name used to be
+      `realDonationCount` while the query had no `source` filter  - see
+      docs/88 F12. Renamed rather than filtered: counting seed rows too is
+      the conservative side, and adding `source = 'real'` here would start
+      hard-deleting seed-funded campaigns, which is a product decision and
+      not a rename.
+    */
+    const [donationCount] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(donations)
       .where(eq(donations.campaignId, campaignId));
 
-    if (realDonationCount.count > 0) {
+    if (donationCount.count > 0) {
       // Archive instead of delete for data integrity
       await db.update(campaigns).set({ status: 'archived', updatedAt: new Date() }).where(eq(campaigns.id, campaignId));
 
@@ -243,7 +268,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
         targetType: 'campaign',
         targetId: campaignId,
         severity: 'warning',
-        details: { title: campaign.title, reason: 'delete_requested_with_donations', donationCount: realDonationCount.count },
+        details: { title: campaign.title, reason: 'delete_requested_with_donations', donationCount: donationCount.count },
       });
 
       // Fetch slug for notification
@@ -264,8 +289,29 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
       return NextResponse.json({
         ok: true,
-        data: { id: campaignId, action: 'archived', reason: `Campaign has ${realDonationCount.count} donation(s) - archived instead of deleted for financial integrity.` },
+        data: { id: campaignId, action: 'archived', reason: `Campaign has ${donationCount.count} donation(s) - archived instead of deleted for financial integrity.` },
       });
+    }
+
+    /*
+      The guard docs/88 F13 found missing. Only a draft may be destroyed;
+      anything that has been submitted, published or reviewed is refused
+      and the admin is pointed at archive, which is reversible.
+    */
+    if (campaign.status !== 'draft') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'CONFLICT',
+            message:
+              `Only a draft campaign can be deleted. This one is "${campaign.status}". ` +
+              'Archive it instead: archiving is reversible, deleting is not.',
+            requestId,
+          },
+        } satisfies ApiError,
+        { status: 409 },
+      );
     }
 
     // Safe to hard-delete: remove seed messages, updates, then campaign
