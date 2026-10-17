@@ -257,3 +257,42 @@ campaigns/new.
 - The remaining 12 pages at 390px.
 - Write actions beyond campaigns: refund batches, fund-pool
   allocate/disburse, bulk email send, blog publish, user edits.
+
+---
+
+# FIXED 2026-10-17 (deployed and verified in production)
+
+| ID | Fix | Proof |
+|---|---|---|
+| **F13** | `DELETE` refuses any non-draft with 409; menu shows Delete for drafts only | Live: `draft` 200/destroyed, `active`/`completed`/`under_review` 409 with the row intact. Menu went from `[View Details, Edit, Change Status, Delete]` to `[View Details, Edit, Change Status]`. |
+| **F12** | `realDonationCount` renamed `donationCount` | Renamed, NOT filtered. Adding `source='real'` would start hard-deleting seed-funded campaigns, which is a product decision. |
+| **F1** | `/admin/verification` renders `VerificationQueue`; `VerificationDashboard` (380 lines) deleted | Live row menu: `View Documents (0)`, `Approve Identity (T1)`, `Approve Full (T2)`, `Request more info`, `Reject`. |
+| **F7** | `pending` no longer excluded from either verification query | A campaign in Didit's manual review is now listed. `unverified` stays excluded: nothing has started. |
+| **F6** | Dashboard pending-review filters on `status = 'under_review'` alone; section always renders | Live: `/admin` shows the section with all 12 queued campaigns. |
+
+Notes on each, since the *reason* matters more than the diff:
+
+- **F1 was never a backend problem.** The verification API is complete and
+  correct (N9, verified against production before the fix). Only the door
+  was missing. `VerificationDashboard` was deleted in the same commit
+  rather than left behind, because a dead component that looks live is
+  exactly how this happened.
+- **F6's section now renders unconditionally.** It was wrapped in
+  `length > 0 &&`, so a broken query produced no section rather than
+  "0 waiting". An operator cannot notice the absence of something they
+  have never seen.
+- **"Submitted by" said "Unknown" for the whole queue**, because automated
+  drafts have a null `creatorId`. "Unknown" implies the answer was lost;
+  the news pipeline is the answer.
+
+22 tests added across the three fixes. The seven F13 cases and the ten F1
+reachability cases both fail against the pre-fix code.
+
+## Still open from this audit
+
+F2 (`DocumentViewerModal` — now reachable via "View Documents", NOT yet
+verified end to end), F3 (508-line dead `FundReleaseDashboard`), F4/F5
+(no `<Money>` in admin; two formatters wrong), F8, F10, F14, F15 (UTC
+dates labelled "Today"), F16, F18, and the unfinished pass-2 work:
+12 of 24 pages unmeasured at 390px, per-screen copy, and write actions
+beyond campaigns.
