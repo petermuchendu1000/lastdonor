@@ -673,8 +673,16 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
                           {doc.documentType.replace(/_/g, ' ')} &bull; {(doc.fileSize / 1024).toFixed(0)} KB &bull; {formatRelativeTime(doc.createdAt)}
                         </p>
                       </div>
+                      {/*
+                        docs/88 F2: this used to be `href={doc.fileUrl}`,
+                        which is a `supabase-private://` reference, not a
+                        URL - the browser silently did nothing. The route
+                        below signs the object and redirects, so the link
+                        is minted at click time and nothing stale sits in
+                        the list.
+                      */}
                       <a
-                        href={doc.fileUrl}
+                        href={`/api/v1/admin/verification-documents/${doc.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex shrink-0 items-center gap-1 text-sm text-brand-teal underline underline-offset-2 hover:text-brand-teal/80"
