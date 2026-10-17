@@ -167,16 +167,24 @@ or CSS class never would.
 
 ## Result
 
-Measured at 390px, mobile, against the state before `docs/75`:
+Measured on the deployed pages at 390×844, before the pass (`docs/75`
+baseline) and after it:
 
-| Screen | Before | After screens 1–2 | After this pass |
-|---|---|---|---|
-| 1 Who | 2,715px / 310w | 1,323 / 78 | 1,323 / 78 |
-| 2 Goal | 2,784 / 310 | 1,323 / 84 | 1,323 / 84 |
-| 3 Photos | 2,770 / 321 | 1,323 / 103 | *see below* |
-| 4 Category | 3,092 / 325 | 1,519 / 106 | |
-| 5 Story | 3,298 / 361 | 1,725 / 139 | |
-| 6 Review | 3,963 / 520 | 2,391 / 303 | |
+| Screen | Before | After | Height | Words |
+|---|---|---|---|---|
+| 1 Who | 2,715px / 310w | **1,323 / 78** | −51% | −75% |
+| 2 Goal | 2,784 / 310 | **1,323 / 84** | −52% | −73% |
+| 3 Photos | 2,770 / 321 | **1,323 / 87** | −52% | −73% |
+| 4 Category | 3,092 / 325 | **1,427 / 92** | −54% | −72% |
+| 5 Story | 3,298 / 361 | **1,485 / 80** | −55% | −78% |
+| 6 Review | 3,963 / 520 | **2,259 / 292** | −43% | −44% |
+| **Whole flow** | **18,622px / 2,347w** | **9,140px / 713w** | **−51%** | **−70%** |
 
-Post-deploy figures for 3–6 are recorded in the commit that follows this
-doc, measured the same way.
+For reference, GoFundMe's first create screen is 844px and 95 words. Ours
+is 1,323px and 78 words — fewer words, and the extra height is the
+collapsed FAQ below the flow, which is real landing-page content for a
+public URL that theirs does not have.
+
+Screen 6 remains the heaviest at 292 words, and that is correct: it is a
+summary of everything entered plus the legal notice. It is the one screen
+where the words are the content.
