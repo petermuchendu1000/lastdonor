@@ -71,26 +71,27 @@ describe('unknown slug', () => {
   });
 
   /*
-    REVERSED 2026-10-17 (docs/80). This asserted the opposite - that the
-    404 render was NOT marked uncacheable - with no reason recorded. The
-    intent was presumably that a bogus slug should be cheap to serve
-    repeatedly.
+    The 404 render must NOT call `noStore()`.
 
-    It is what produced a soft 404. Measured in production: a nonexistent
-    slug answered `HTTP 200` with `x-nextjs-cache: HIT` and
-    `x-nextjs-prerender: 1`, because this route sets `revalidate = 60` and
-    a cached ISR entry is served 200 regardless of the status its render
-    asked for. The body said "Campaign Not Found" while the response said
-    "here it is", so search engines indexed every mistyped slug as a thin
-    page instead of dropping it.
+    This assertion existed with no reason recorded, was reversed on
+    2026-10-17 to fix a soft 404, and is restored here with the reason it
+    always needed.
 
-    The trade-off accepted: a bogus slug now costs one indexed lookup
-    instead of a cache hit. That is a single query on a column with a
-    unique index, and the correct status code is worth more than it.
+    Measured: a nonexistent slug answers HTTP 200 with
+    `x-nextjs-cache: HIT`, because this route sets `revalidate = 60` and a
+    cached ISR entry is served 200 whatever status its render asked for.
+    That is a real defect. `noStore()` is NOT the fix: on an unknown slug
+    Next renders this page through on-demand ISR generation, and opting
+    out of the cache from inside that render is a dynamic-server bail-out,
+    which surfaced as HTTP 500 on all three affected routes in production.
+
+    It passed every local check first, because `next dev` does not use ISR
+    and answered 200 either way. Verified against `next build &&
+    next start` before any retry. See docs/80.
   */
-  it('marks the 404 render uncacheable, so the status is not replayed as a 200', async () => {
+  it('does not mark the 404 render uncacheable, because that 500s under ISR', async () => {
     await expect(CampaignDetailPage(pageProps('nope-1'))).rejects.toThrow(NOT_FOUND);
-    expect(cacheMock.noStore).toHaveBeenCalled();
+    expect(cacheMock.noStore).not.toHaveBeenCalled();
   });
 
   it('returns renderable, non-indexable metadata rather than throwing', async () => {

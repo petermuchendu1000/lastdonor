@@ -1,7 +1,7 @@
 # 80 — The soft 404: a cached "not found" served as 200
 
 **Date:** 2026-10-17
-**Status:** Implemented
+**Status:** ⛔ OPEN. The fix was implemented, broke production, and is reverted.
 **Touches:** `docs/43` (the deliberate 404-vs-5xx logic on the campaign page),
 which is unchanged.
 
@@ -45,16 +45,62 @@ That is a textbook soft 404. Search engines treat it as a thin page to
 index rather than a URL to drop, so every mistyped or retired campaign slug
 anyone ever linked to becomes an indexable empty page.
 
-## The fix
+## ⛔ The fix that was tried, and why it is reverted
 
-`noStore()` before `notFound()` — **the device this very file already uses**
-one branch above, for the `unavailable` case. Marking the render dynamic
-keeps it out of the ISR entry, so the 404 reaches the client.
+`noStore()` before `notFound()` — the device this very file already uses
+one branch above, for the `unavailable` case. Applied to all three routes,
+it **turned every one of them into an HTTP 500** in production.
 
-The symmetry is the point: a response about whether an appeal exists must
-not be served from a cache that cannot carry the answer. `docs/43`
-established that for the "database did not answer" case; this extends it to
-"the database answered: no".
+```
+GET /campaigns/definitely-not-real-xyz123      -> HTTP 500
+GET /blog/definitely-not-real-xyz123           -> HTTP 500
+GET /campaigns/category/not-a-category-xyz     -> HTTP 500
+```
+
+Reverted the same day. A 500 is worse than the soft 404 it replaced: it
+breaks the page for a person and tells a crawler the server is broken
+rather than that the page is thin.
+
+### Why it fails
+
+On an unknown slug, Next renders the page **through on-demand ISR
+generation** — it is producing a cache entry, not serving a dynamic
+response. Opting out of the cache from inside that render is a
+dynamic-server bail-out, not a cache hint, and the bail-out surfaces as a
+server error instead of a 404.
+
+That it works in the `unavailable` branch is a coincidence of outcome, not
+evidence that it is safe here: that branch throws
+`CampaignUnavailableError` and is *meant* to produce a 5xx, so the
+bail-out is invisible.
+
+### How it got to production
+
+This is the part worth keeping.
+
+- `npm run lint`, `npm run typecheck` and **5,679 unit tests** all passed.
+- A local check on `next dev` returned **200**, not 500 — because dev does
+  not use ISR at all, so the failing path never executed.
+- The unit test asserting the new behaviour passed, because it drives the
+  page function directly and never goes near Next's cache.
+
+Nothing short of a production build exercises on-demand ISR generation.
+`docs/63` recorded the same lesson for hydration — `next dev` is not a
+model of production — and this is the second time in one session it has
+been the thing that mattered.
+
+**Before retrying: reproduce against `next build && next start`.** All
+three call sites carry a comment saying so.
+
+### What the real fix probably costs
+
+The not-found render has to not be cached, and `revalidate` on the segment
+is what caches it. Removing `revalidate` from the page and moving caching
+down to the data layer (`unstable_cache` around the queries, or `fetch`
+level) would give a dynamic page with cached data and a real 404 — at the
+cost of re-working the caching model of three pages, and a line in the ISR
+tally `docs/26` §5 keeps. That is a deliberate piece of work, not a
+one-line fix, which is precisely what the one-line fix pretended to be.
 
 ## It was not one route
 
@@ -67,25 +113,28 @@ Grepping for the combination rather than fixing the reported symptom found
 | `blog/[slug]` | database |
 | `campaigns/category/[category]` | a static content map |
 
-All three had the same defect and all three are fixed. The category one is
-worth noting: its miss is a pure static lookup with no database involved,
-which shows the bug belongs to the caching combination and not to anything
-about queries.
+All three have the same defect and all three are **still soft 404s**. The
+category one is worth noting: its miss is a pure static lookup with no
+database involved, which shows the bug belongs to the caching combination
+and not to anything about queries — and that the eventual fix has to work
+for a route that never touches Postgres.
 
-## Keeping it fixed
+## Keeping the knowledge
 
-`src/app/soft-404.test.ts` finds every `page.tsx` that exports `revalidate`
-**and** calls `notFound()`, and asserts each one calls `noStore()` first. It
-is structural because the invariant is structural — it is a property of how
-routes are configured, not a behaviour of any one of them, and the next
-route to acquire both will be caught the day it is written.
+The structural ratchet written for the reverted fix
+(`src/app/soft-404.test.ts`, asserting every `revalidate` + `notFound()`
+route calls `noStore()`) was **deleted with the fix**. A test that asserts
+a behaviour we have proven wrong is worse than no test.
 
-The test strips comments before matching, after an earlier test in this
-session reported a fix as a defect because the comment explaining it
-contained the string being searched for.
+What remains instead:
 
-A guard on the count is included too: if the at-risk set ever drops to
-zero, the filter has broken rather than the codebase having improved.
+- the existing assertion in `page.lookup.test.tsx` that the 404 render
+  does **not** call `noStore()` — which was there before today with no
+  reason recorded, was reversed, and is now restored **with** the reason,
+  so the next person to try this finds the evidence instead of the bare
+  assertion that invited the attempt;
+- a comment at all three call sites naming what was tried, what it did,
+  and what to reproduce against before retrying.
 
 ## Not changed
 

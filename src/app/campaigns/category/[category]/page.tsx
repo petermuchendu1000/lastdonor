@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { unstable_noStore as noStore } from 'next/cache';
 import { notFound } from 'next/navigation';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
@@ -54,20 +53,9 @@ const PAGE_SIZE = 12;
 export default async function CategoryPage({ params }: PageProps) {
   const { category } = await params;
   const content = getCategoryContent(category);
-  /*
-    `noStore()` before `notFound()`, for the status code.
-
-    This route sets `revalidate`, so without it the not-found render is
-    written into the ISR entry for the unknown slug and replayed as
-    `HTTP 200` with `x-nextjs-cache: HIT` — a soft 404, which search
-    engines index as a thin page instead of dropping. Proven against
-    production on `/campaigns/[slug]` 2026-10-17; this route had the same
-    shape. See docs/80.
-  */
-  if (!content) {
-    noStore();
-    notFound();
-  }
+  // Soft 404: answers 200, not 404. See docs/80 - `noStore()` here was
+  // tried and reverted, it 500s under on-demand ISR generation.
+  if (!content) notFound();
 
   const categorySlug = content.slug as CampaignCategory;
 

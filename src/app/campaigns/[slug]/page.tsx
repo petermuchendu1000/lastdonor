@@ -306,23 +306,28 @@ export default async function CampaignDetailPage({ params }: PageProps) {
       The query answered and matched nothing. This is the only evidence that
       justifies a 404, and it is reached without waiting on any timeout.
 
-      `noStore()` first, for the status code rather than the content.
-      Verified against production 2026-10-17: a nonexistent slug answered
-      `HTTP 200` with `x-nextjs-cache: HIT` and `x-nextjs-prerender: 1`.
-      This route sets `revalidate = 60`, so the not-found render was being
-      written into the ISR entry for that slug and replayed from cache,
-      and a cached entry is served 200 regardless of the status the render
-      asked for. The body said "Campaign Not Found" while the response
-      said "here it is" - a textbook soft 404, which search engines treat
-      as a thin page to index rather than a page to drop.
+      ⚠️ KNOWN DEFECT, still open: this answers HTTP 200, not 404.
+      Measured 2026-10-17 - a nonexistent slug returns `200` with
+      `x-nextjs-cache: HIT` and `x-nextjs-prerender: 1`, because this
+      route sets `revalidate = 60` and a cached ISR entry is served 200
+      whatever status its render asked for. A soft 404.
 
-      Marking the render dynamic keeps it out of the ISR entry, so
-      `notFound()` reaches the client as a real 404. Same device, and the
-      same reason, as the `unavailable` branch above: a response about
-      whether an appeal exists must not be served from a cache that cannot
-      carry the answer.
+      `noStore()` here is NOT the fix, though it is the obvious one and it
+      is what the `unavailable` branch above uses. Tried on 2026-10-17 and
+      reverted the same day: on an unknown slug Next renders this page
+      through on-demand ISR generation, and opting out of the cache from
+      inside that render is a dynamic-server bail-out rather than a cache
+      hint, which surfaced as **HTTP 500** on this route, `/blog/[slug]`
+      and `/campaigns/category/[category]`.
+
+      It passed lint, typecheck, 5,679 unit tests and a local `next dev`
+      check first: dev does not use ISR and answers 200 either way. The
+      only thing that showed it was production.
+
+      Do not retry `noStore()`, `connection()`, or a `dynamic` export here
+      without first reproducing against `next build && next start`. See
+      docs/80 for what the real fix probably costs.
     */
-    noStore();
     notFound();
   }
 
