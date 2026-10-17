@@ -252,7 +252,23 @@ export const users = pgTable('users', {
   totalDonated: integer('total_donated').notNull().default(0),
   campaignsSupported: integer('campaigns_supported').notNull().default(0),
   lastDonorCount: integer('last_donor_count').notNull().default(0),
+  /*
+    Free text, admin-editable, never validated. Kept as the display value
+    a human typed; `phoneE164` below is the one anything sends to.
+  */
   phone: text('phone'),
+  /*
+    The sendable number, normalised by `src/lib/phone.ts`. Nothing may SMS
+    a person from `phone` above. See docs/82.
+
+    `phoneVerifiedAt` and `smsConsentAt` are timestamps rather than
+    booleans for the same reason the mail consent in docs/41 is: for a
+    message somebody did not ask for, "did they agree" is not the question
+    anyone ends up needing answered - "when, and is that still current" is.
+  */
+  phoneE164: text('phone_e164'),
+  phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
+  smsConsentAt: timestamp('sms_consent_at', { withTimezone: true }),
   donorType: donorTypeEnum('donor_type').notNull().default('individual'),
   organizationName: text('organization_name'),
   address: jsonb('address'),
