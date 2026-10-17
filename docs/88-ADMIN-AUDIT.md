@@ -269,6 +269,10 @@ campaigns/new.
 | **F1** | `/admin/verification` renders `VerificationQueue`; `VerificationDashboard` (380 lines) deleted | Live row menu: `View Documents (0)`, `Approve Identity (T1)`, `Approve Full (T2)`, `Request more info`, `Reject`. |
 | **F7** | `pending` no longer excluded from either verification query | A campaign in Didit's manual review is now listed. `unverified` stays excluded: nothing has started. |
 | **F6** | Dashboard pending-review filters on `status = 'under_review'` alone; section always renders | Live: `/admin` shows the section with all 12 queued campaigns. |
+| **F3** | `FundReleaseDashboard` deleted (508 lines, byte-identical to `PayoutsDashboard`) | Imported by nothing; `/admin/fund-releases` already redirected to `/admin/payouts`. |
+| **F4** | Every admin currency render goes through `Money` / `centsToDollars` | Was FIVE independent implementations, none using the shared one. |
+| **F5** | The two wrong formatters corrected | Live, same campaign: `/admin/payouts` `$1,250.5` -> `$1,250.50`, `$1,200` -> `$1,200.00`. `/admin` already showed `$1,250.50` for that row. |
+| **F15** | Period boundaries come from `src/lib/reporting-timezone.ts`; screens name the zone | Live: `/admin` now prints "Periods are counted in UTC." |
 | **F2** | `GET /api/v1/admin/verification-documents/[id]` signs and 302s; the queue links to it | Live, with a real PDF in the private bucket: `302` -> signed URL -> `200 application/pdf`, body starts `%PDF-1.4`. Before: list returned `supabase-private://…` and the route answered `405`. |
 
 Notes on each, since the *reason* matters more than the diff:
@@ -326,9 +330,21 @@ is an internal storage path on the wire for no reason.
 
 ## Still open from this audit
 
-F2 (`DocumentViewerModal` — now reachable via "View Documents", NOT yet
-verified end to end), F3 (508-line dead `FundReleaseDashboard`), F4/F5
-(no `<Money>` in admin; two formatters wrong), F8, F10, F14, F15 (UTC
-dates labelled "Today"), F16, F18, and the unfinished pass-2 work:
-12 of 24 pages unmeasured at 390px, per-screen copy, and write actions
-beyond campaigns.
+**Fixed and deployed:** F1, F2, F3, F4, F5, F6, F7, F12, F13, F15.
+
+**Still open:**
+- **F8** `/admin/campaigns` has no LIMIT (unbounded as the table grows).
+- **F10** `/api/v1/admin/dashboard` is an orphan endpoint duplicating the
+  page's own stats.
+- **F14** 13 admin pages carry an inert `revalidate = 60` (measured: no
+  caching happens, `auth()` forces dynamic rendering). Misleading, not broken.
+- **F16** `/admin/users` prints the true `count(*)` in the filter tile and
+  the capped fetch length in the footer, so above 200 users one screen
+  shows two different totals. Likely the same shape on the other capped
+  lists; only UsersList is verified.
+- **F18** `/admin/audit-log` (+66px) and `/admin/governance` (+7px) tables
+  overflow their container at 390px.
+
+**Pass-2 gaps:** 12 of 24 pages unmeasured at 390px, per-screen copy, and
+write actions beyond campaigns (refund batches, fund-pool
+allocate/disburse, bulk email, blog publish, user edits).
