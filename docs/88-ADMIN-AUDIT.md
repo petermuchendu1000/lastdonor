@@ -269,6 +269,7 @@ campaigns/new.
 | **F1** | `/admin/verification` renders `VerificationQueue`; `VerificationDashboard` (380 lines) deleted | Live row menu: `View Documents (0)`, `Approve Identity (T1)`, `Approve Full (T2)`, `Request more info`, `Reject`. |
 | **F7** | `pending` no longer excluded from either verification query | A campaign in Didit's manual review is now listed. `unverified` stays excluded: nothing has started. |
 | **F6** | Dashboard pending-review filters on `status = 'under_review'` alone; section always renders | Live: `/admin` shows the section with all 12 queued campaigns. |
+| **F2** | `GET /api/v1/admin/verification-documents/[id]` signs and 302s; the queue links to it | Live, with a real PDF in the private bucket: `302` -> signed URL -> `200 application/pdf`, body starts `%PDF-1.4`. Before: list returned `supabase-private://…` and the route answered `405`. |
 
 Notes on each, since the *reason* matters more than the diff:
 
@@ -287,6 +288,41 @@ Notes on each, since the *reason* matters more than the diff:
 
 22 tests added across the three fixes. The seven F13 cases and the ten F1
 reachability cases both fail against the pre-fix code.
+
+## F2 in detail
+
+`verificationDocuments.fileUrl` holds `supabase-private://<bucket>/<key>`.
+The admin list endpoint returned it raw and the queue rendered
+`<a href={doc.fileUrl}>View</a>`, handing the browser an unknown URL
+scheme. Measured against production BEFORE the fix, with a real PDF
+uploaded to the private bucket:
+
+```
+list endpoint fileUrl : supabase-private://verification/...
+openable by a browser : false
+GET on the doc route  : 405   (no GET existed)
+public bucket read    : 400   (bucket correctly private)
+```
+
+So there was no path to the bytes at all. The organiser side had signed
+correctly the whole time, and `parseStorageRef` carries a comment saying
+it tolerates legacy URLs "so admin review keeps working" - the admin
+side never called it.
+
+A redirect rather than a JSON url: the queue renders an ordinary anchor,
+so the href stays a stable same-origin link, the URL is minted at click
+time, no signed URL is created for a document nobody opens, and none can
+go stale in a list. `Cache-Control: no-store, private`, because the
+target is a time-limited credential.
+
+`DocumentViewerModal` (411 lines) was deleted: still orphaned after the
+F1 fix, because the queue has its own inline viewer. Dead duplicate code
+of exactly the kind that produced F1.
+
+**Noted, not fixed:** the list endpoint still returns `fileUrl` in its
+payload even though nothing consumes it now. Harmless (an admin-only
+response, and the key alone grants no access to a private bucket) but it
+is an internal storage path on the wire for no reason.
 
 ## Still open from this audit
 
