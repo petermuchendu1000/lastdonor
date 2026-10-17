@@ -190,8 +190,15 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Campaigns</h1>
+          {/*
+            One count here, the true one. This used to read
+            "{total} total - {filtered.length} shown", which with
+            pagination became a third number disagreeing with both the
+            tiles and the footer: "200 shown" over 25 rendered rows.
+            What is on screen is ListCount's job (docs/88 F16).
+          */}
           <p className="mt-1 text-sm text-muted-foreground">
-            {totalCount} total · {filtered.length} shown
+            {totalCount.toLocaleString()} {totalCount === 1 ? 'campaign' : 'campaigns'}
           </p>
         </div>
         <Link
