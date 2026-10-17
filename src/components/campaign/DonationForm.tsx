@@ -1119,10 +1119,21 @@ export function DonationForm({
           <p className="text-sm font-semibold text-card-foreground">
             Your donation is protected
           </p>
+          {/*
+            The first sentence here read "Every campaign is reviewed by a
+            person before it goes live." Removed 2026-10-17: it is not
+            true. `POST /api/v1/user-campaigns` publishes straight to
+            `status: 'active'` with no review gate, and the 12 campaigns
+            currently on the site were auto-published by a cron. I wrote
+            that sentence the day before, carrying the claim over from the
+            rest of the site without checking the code path. See docs/77.
+
+            What remains is the refund policy, which IS what this block is
+            for and IS substantiated by /refund-policy.
+          */}
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            Every campaign is reviewed by a person before it goes live. If a charge is
-            unauthorised, a campaign is removed before funds are released, or it fails
-            verification after you give, we refund donors.{' '}
+            If a charge is unauthorised, a campaign is removed before funds are
+            released, or it fails verification after you give, we refund donors.{' '}
             <Link href="/refund-policy" className="underline underline-offset-2 hover:text-foreground">
               Refund Policy
             </Link>

@@ -123,6 +123,125 @@ describe('advancing keeps one heading per screen', () => {
   });
 });
 
+/**
+ * Render the wizard and stop on `step` — the SAME zero-based index the
+ * component uses, so `advanceTo(5)` is the screen headed "Step 6 of 6".
+ *
+ * Each block fills only what that screen needs to unlock Continue, then
+ * returns if it is the destination. Asserted below by the step indicator,
+ * because an off-by-one here silently tests the wrong screen — which it
+ * did on the first attempt.
+ */
+async function advanceTo(step: number) {
+  const user = userEvent.setup();
+  render(<ShareYourStoryForm />);
+  const next = () => user.click(screen.getByRole('button', { name: /^Continue$/i }));
+
+  await user.click(screen.getAllByRole('radio', { name: /Yourself/i })[0]);
+  if (step > 0) {
+    await next();
+    await user.type(screen.getByLabelText(/fundraising goal amount/i), '25000');
+  }
+  if (step > 1) await next(); // screen 3 requires nothing
+  if (step > 2) {
+    await next();
+    await user.type(screen.getByPlaceholderText(/City, State/i), 'Austin, TX');
+    await user.click(screen.getByRole('radio', { name: /^Medical$/i }));
+  }
+  if (step > 3) {
+    await next();
+    await user.type(
+      screen.getByPlaceholderText(/Help \[Name\] recover|Help .* with/i),
+      'Help the Okonkwo family rebuild after the fire',
+    );
+    await user.type(
+      screen.getByRole('textbox', { name: /story/i }),
+      'A fire destroyed the family home last week and they need help rebuilding it. '.repeat(4),
+    );
+  }
+  if (step > 4) await next();
+
+  expect(screen.getAllByText(new RegExp(`Step ${step + 1} of 6`, 'i')).length).toBeGreaterThan(0);
+  return user;
+}
+
+describe('screens 3 to 5 each say one thing once', () => {
+  it('screen 3 does not head "Add photos or video" and then say it again', async () => {
+    await advanceTo(2);
+    const h = headings();
+    expect(h).toEqual(['Add photos or video']);
+    expect(screen.queryByText(/Add a cover photo or video/i)).toBeNull();
+    expect(screen.queryByText(/Cover media helps tell your story/i)).toBeNull();
+  });
+
+  it('screen 4 asks for a category once, and calls the city field what it is', async () => {
+    await advanceTo(3);
+    const h = headings();
+    expect(h).toContain('What is this fundraiser for?');
+    expect(h).toContain('Category');
+    expect(h).toContain('Where is the person based?');
+    // The duplicate question, and a heading that asked about money over a
+    // field that collects a town.
+    expect(screen.queryByText(/What best describes why you.{1,3}re fundraising/i)).toBeNull();
+    expect(screen.queryByText(/Where will the funds go/i)).toBeNull();
+  });
+
+  it('screen 5 keeps the personalised story heading without repeating the step heading', async () => {
+    await advanceTo(4);
+    const h = headings();
+    expect(h).toContain('Title and story');
+    expect(h).toContain('Campaign title');
+    expect(h.some((t) => /^Tell .*story$/i.test(t))).toBe(true);
+    // The step heading used to be "Tell the story", colliding with the one above.
+    expect(h.filter((t) => /story/i.test(t)).length).toBeLessThanOrEqual(2);
+  });
+
+  it('screen 5 keeps the writing tips, behind a disclosure', async () => {
+    await advanceTo(4);
+    const summary = screen.getByText('Writing tips');
+    expect(summary.closest('details')).not.toBeNull();
+    expect(summary.closest('details')!.open).toBe(false);
+    // Closed, but still in the DOM for anyone who opens it.
+    expect(screen.getByText(/Show strength, not helplessness/i)).toBeInTheDocument();
+  });
+});
+
+describe('screen 6 describes what the button actually does', () => {
+  /*
+    `POST /api/v1/user-campaigns` inserts with status 'active' and
+    publishedAt set, and its own comments say "instant-live" and "campaign
+    is live, no review needed". The screen used to promise an editorial
+    review "typically within 24 hours" and approval before going live.
+    See docs/77.
+  */
+  it('does not promise a review before publication', async () => {
+    await advanceTo(5);
+    expect(screen.queryByText(/typically within 24 hours/i)).toBeNull();
+    expect(screen.queryByText(/Once approved, your campaign goes live/i)).toBeNull();
+    expect(screen.queryByText(/editorial team reviews your campaign/i)).toBeNull();
+  });
+
+  it('says the page goes live straight away, which is what happens', async () => {
+    await advanceTo(5);
+    expect(screen.getByText(/goes live and can accept donations straight away/i)).toBeInTheDocument();
+  });
+
+  it('keeps the two next-steps that are true', async () => {
+    await advanceTo(5);
+    // notifyWelcomeCampaigner fires on this request and its template really
+    // does carry sharing tips.
+    expect(screen.getByText(/tips to maximize your reach/i)).toBeInTheDocument();
+    expect(screen.getByText(/Share your campaign link/i)).toBeInTheDocument();
+  });
+
+  it('states the instruction once, not three times', async () => {
+    await advanceTo(5);
+    expect(screen.queryByText(/Review Your Campaign/i)).toBeNull();
+    expect(screen.queryByText(/Check the details below, then agree/i)).toBeNull();
+    expect(headings()).toContain('Review and submit');
+  });
+});
+
 describe('screen 2 promises nothing the product does not do', () => {
   async function goalScreen() {
     const user = userEvent.setup();

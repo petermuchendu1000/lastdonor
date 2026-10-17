@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ChevronDownIcon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -67,10 +68,21 @@ const CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
 const STEP_HERO: ReadonlyArray<{ title: string; subtitle?: string }> = [
   { title: 'Who are you fundraising for?' },
   { title: 'How much do you want to raise?', subtitle: 'You can change this later.' },
-  { title: 'Add photos', subtitle: 'The cover photo is the first thing a donor sees.' },
+  { title: 'Add photos or video', subtitle: 'The cover photo is the first thing a donor sees.' },
   { title: 'What is this fundraiser for?', subtitle: 'Donors browse by category and by place.' },
-  { title: 'Tell the story', subtitle: 'What happened, and what the money will do.' },
-  { title: 'Review and submit', subtitle: 'A person reads every campaign before it goes live.' },
+  /*
+    "Title and story", not "Tell the story", so the step heading does not
+    collide with the field heading below it - which is personalised
+    ("Tell Maria's story") and worth keeping for that.
+  */
+  { title: 'Title and story', subtitle: 'What happened, and what the money will do.' },
+  /*
+    The subtitle here said "A person reads every campaign before it goes
+    live." I wrote that yesterday, carrying over the claim the screen
+    already made, and it is not true: this flow publishes immediately. See
+    the note on the "What happens next?" list below, and docs/77.
+  */
+  { title: 'Review and submit', subtitle: 'Check everything before your page goes live.' },
 ];
 
 const RELATIONS = [
@@ -768,7 +780,10 @@ export function ShareYourStoryForm() {
               <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              <span>Draft in minutes. Reviewed before publication.</span>
+              {/* Was "Draft in minutes. Reviewed before publication." The
+                  second sentence is the claim this flow does not keep -
+                  it publishes immediately. See docs/77. */}
+              <span>Draft in minutes. Your page is live as soon as you launch it.</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -1045,16 +1060,19 @@ export function ShareYourStoryForm() {
           {/* ── Step 2: Add Media ─────────────────────────────────────── */}
           {step === 2 && (
             <div className="space-y-8">
-              <div className="space-y-3">
-                <h2 className="text-2xl font-bold text-foreground">
-                  Add a cover photo or video
-                </h2>
-                <p className="text-base text-muted-foreground">
-                  Cover media helps tell your story. You can upload up to 5 photos
-                  and add a YouTube video. If you find better media later,
-                  you can always change it.
-                </p>
-              </div>
+              {/*
+                The `h2` here read "Add a cover photo or video" under a step
+                heading reading "Add photos", and the paragraph below it
+                restated the subtitle. Three lines for one instruction, and
+                the two headings did not even agree on whether video counted.
+                The heading now says "Add photos or video" and this is the
+                one line of guidance: the limits, and the fact that nothing
+                here is final.
+              */}
+              <p className="text-base text-muted-foreground">
+                Up to 5 photos, plus a YouTube link if you have one. You can change
+                them later.
+              </p>
 
               {/* ── Photo grid ────────────────────────────────────── */}
               {form.heroImageUrl && (() => {
@@ -1359,13 +1377,31 @@ export function ShareYourStoryForm() {
           {/* ── Step 3: Category & Location ────────────────────────── */}
           {step === 3 && (
             <div className="space-y-10">
+              {/*
+                This asked "Where will the funds go?" over a city field.
+
+                That heading asks about the destination of money - which
+                account, which organisation - and the answer it collects is
+                a town. On a crowdfunding page the difference is not a
+                nuance: a donor-facing promise about where funds go is the
+                thing `docs/41` governs, and this input has nothing to do
+                with it. It is the beneficiary's location, shown on the
+                campaign and used for browsing by place, so the label now
+                says that and nothing more.
+              */}
               <div className="space-y-4">
-                <h2 className="text-xl font-bold text-foreground">Where will the funds go?</h2>
-                <p className="text-base text-muted-foreground">
-                  The location where the person in need is based.
-                </p>
+                {/*
+                  `aria-labelledby`, not a `<label>`: these headings ARE the
+                  field labels visually, but nothing connected them, so the
+                  inputs had no accessible name at all. A screen reader
+                  announced "edit text, blank". Found by a test that could
+                  not locate the story box by its name - the test was right
+                  and the markup was wrong.
+                */}
+                <h2 id="hometown-label" className="text-xl font-bold text-foreground">Where is the person based?</h2>
                 <Input
                   id="subjectHometown"
+                  aria-labelledby="hometown-label"
                   value={form.subjectHometown}
                   onChange={(e) => update('subjectHometown', e.target.value)}
                   maxLength={200}
@@ -1378,7 +1414,13 @@ export function ShareYourStoryForm() {
               </div>
 
               <div className="space-y-4">
-                <h2 className="text-xl font-bold text-foreground">What best describes why you&apos;re fundraising?</h2>
+                {/*
+                  Was "What best describes why you're fundraising?", which
+                  is the step heading ("What is this fundraiser for?")
+                  asked a second time in longer words. One word, because
+                  what follows is 23 category chips that explain themselves.
+                */}
+                <h2 className="text-xl font-bold text-foreground">Category</h2>
                 <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Campaign category">
                   {CATEGORIES.map((cat) => {
                     const selected = form.category === cat.value;
@@ -1409,13 +1451,18 @@ export function ShareYourStoryForm() {
           {step === 4 && (
             <div className="space-y-10">
               <div className="space-y-4">
-                <h2 className="text-2xl font-bold text-foreground">Campaign title</h2>
+                <h2 id="title-label" className="text-2xl font-bold text-foreground">Campaign title</h2>
+                {/*
+                  The placeholder below already shows the shape
+                  ("Help [Name] recover from [situation]"), so the helper
+                  does not need to describe it in a second, longer way.
+                */}
                 <p className="text-base text-muted-foreground">
-                  A specific, person-focused title that tells donors exactly what this
-                  campaign is about.
+                  Name the person and what happened.
                 </p>
                 <Input
                   id="title"
+                  aria-labelledby="title-label"
                   value={form.title}
                   onChange={(e) => update('title', e.target.value)}
                   maxLength={120}
@@ -1437,21 +1484,36 @@ export function ShareYourStoryForm() {
               </div>
 
               <div className="space-y-4">
-                <h2 className="text-2xl font-bold text-foreground">
+                <h2 id="story-label" className="text-2xl font-bold text-foreground">
                   Tell {form.subjectName ? `${form.subjectName}'s` : 'their'} story
                 </h2>
-                <div className="rounded-lg border border-border bg-muted/50 p-5">
-                  <p className="text-base font-semibold text-foreground">Writing tips</p>
-                  <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+                {/*
+                  Collapsed. The tips are good and they stay, but five
+                  bullets and 50 words sat permanently between the heading
+                  and the textarea they describe - advice in front of the
+                  box instead of beside it. Closed by default: someone who
+                  knows what to write should meet the textarea, and someone
+                  who does not has one tap to the guidance.
+                */}
+                <details className="group rounded-lg border border-border bg-muted/50">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 text-left">
+                    <span className="text-base font-semibold text-foreground">Writing tips</span>
+                    <ChevronDownIcon
+                      className="shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <ul className="space-y-1.5 px-5 pb-5 text-sm text-muted-foreground">
                     <li>Use their first name, not &ldquo;the patient&rdquo;</li>
                     <li>Include one personal detail that makes them real: their hometown, a hobby, a family role</li>
                     <li>Explain what happened in plain language, no jargon</li>
                     <li>Be specific about the gap: what do they need that they don&apos;t have?</li>
                     <li>Show strength, not helplessness. These are people, not victims</li>
                   </ul>
-                </div>
+                </details>
                 <Textarea
                   id="story"
+                  aria-labelledby="story-label"
                   value={form.story}
                   onChange={(e) => update('story', e.target.value)}
                   rows={14}
@@ -1477,14 +1539,13 @@ export function ShareYourStoryForm() {
           {step === 5 && (
             <div className="space-y-10">
 
-              <div>
-                <h2 className="text-2xl font-bold text-foreground">
-                  Review Your Campaign
-                </h2>
-                <p className="mt-3 text-base text-muted-foreground">
-                  Check the details below, then agree to our guidelines and submit.
-                </p>
-              </div>
+              {/*
+                The `h2` "Review Your Campaign" and the line under it both
+                restated the step heading ("Review and submit") and the
+                legal notice further down, which already says what agreeing
+                means. Three statements of one instruction at the top of the
+                longest screen in the flow.
+              */}
 
               {/* Auth notice for unauthenticated users */}
               {!session?.user && (
@@ -1715,11 +1776,45 @@ export function ShareYourStoryForm() {
                 )}
               </div>
 
+              {/*
+                CORRECTED 2026-10-17. This list used to read:
+
+                  · Our editorial team reviews your campaign, typically
+                    within 24 hours
+                  · Once approved, your campaign goes live and can start
+                    accepting donations
+
+                Neither happens. `POST /api/v1/user-campaigns` inserts with
+                `status: 'active'` and `publishedAt: new Date()`, writes a
+                `campaign.published` audit event, and its own comments say
+                "instant-live" and "campaign is live, no review needed".
+                The campaign is public before this screen finishes
+                unmounting - which is also why the button beside this list
+                says "Launch fundraiser" and not "Submit for review".
+
+                "typically within 24 hours" was unsupportable twice over:
+                there is no pre-publication review to time, and no
+                user-submitted campaign has ever existed to average (all 12
+                campaigns are `source = 'automated'`), so there is no
+                "typically". Same class as the $5,000 in docs/76.
+
+                The third and fourth lines stayed because they are true:
+                `notifyWelcomeCampaigner` fires on this request and the
+                template really does carry sharing tips.
+
+                ⛔ The wider problem is NOT fixed here. "Reviewed before
+                publication" is claimed in ~30 places across 18 files,
+                including the Organization JSON-LD, /compare (as a
+                competitive claim against GoFundMe), /about, /how-it-works,
+                /editorial-standards and /transparency. Rewriting the
+                platform's central promise is an owner's decision between
+                making review real and changing the claim. See docs/77.
+              */}
               <div className="rounded-lg border border-border bg-muted/50 p-6">
                 <p className="text-base font-semibold text-foreground">What happens next?</p>
                 <ul className="mt-3 space-y-2 text-sm leading-relaxed text-muted-foreground">
-                  <li>Our editorial team reviews your campaign, typically within 24 hours</li>
-                  <li>Once approved, your campaign goes live and can start accepting donations</li>
+                  <li>Your campaign page goes live and can accept donations straight away</li>
+                  <li>LastDonor can review it at any time, and will contact you if anything needs changing</li>
                   <li>Share your campaign link with friends, family, and social media</li>
                   <li>You&apos;ll receive an email with tips to maximize your reach</li>
                 </ul>
