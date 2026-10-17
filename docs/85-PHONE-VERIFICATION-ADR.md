@@ -275,6 +275,27 @@ code being consumed. Both were already green as unit tests; what the walk
 added was the rate-limit scoping, the in-memory tier collision and the
 brute-forceable hash, none of which a unit test was ever going to show.
 
+### The same walk after the pepper landed
+
+```
+2  POST send code            200  {"sent":true,"phone":"+254 ••••••300","sandbox":true}
+3  db row                    attempts:0 phone_e164:+254711082300
+4  code recovered            NO          <- the whole point
+5  PUT wrong code            400  INVALID_CODE
+6  PATCH consent (unverified)400  PHONE_NOT_VERIFIED
+```
+
+**Steps 7-10 cannot be re-run in production, and that is the proof.** The
+only way this walk ever obtained a code was by brute-forcing the stored
+hash; with the pepper it cannot, so neither can anyone holding the table.
+
+Be clear about what that leaves: the mint → verify round trip was proven
+in production **before** the hashing changed, and after it is covered by
+the unit tests, which call the real `hashCode`. Re-proving it end to end
+against production needs somebody to read an actual SMS, which is the
+live-account work below. Both probe accounts were deleted
+(`probe_users: 0`, `codes: 0`).
+
 ---
 
 ## ⛔ Still open
