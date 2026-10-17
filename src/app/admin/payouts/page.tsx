@@ -51,6 +51,12 @@ export default async function AdminFundReleasesPage() {
       .limit(500),
     db
       .select({
+        /*
+          docs/88 F16: the true number of campaigns matching the same
+          predicate as the 500-row fetch above, so the footer can report
+          how much of it was loaded.
+        */
+        totalMatching: sql<number>`count(*)::int`,
         totalFullyVerified: sql<number>`count(*) FILTER (WHERE ${campaigns.verificationStatus} = 'fully_verified')::int`,
         totalReleased: sql<number>`count(*) FILTER (WHERE ${campaigns.totalReleasedAmount} > 0)::int`,
         totalWithdrawn: sql<number>`count(*) FILTER (WHERE ${campaigns.totalWithdrawnAmount} > 0)::int`,

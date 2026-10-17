@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CANCELLATION_REASONS } from '@/lib/validators/verification';
+import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
 import {
   MagnifyingGlassIcon,
@@ -68,6 +69,8 @@ interface GovernanceCampaign {
 
 interface GovernancePanelProps {
   campaigns: GovernanceCampaign[];
+  /** True `count(*)`, before the page's 200-row fetch cap (docs/88 F16). */
+  totalCampaigns: number;
 }
 
 /* ─── Constants ─── */
@@ -93,7 +96,7 @@ function SortIcon({ field, sortField, sortDir }: { field: SortField; sortField: 
 
 /* ─── Component ─── */
 
-export function GovernancePanel({ campaigns: initial }: GovernancePanelProps) {
+export function GovernancePanel({ campaigns: initial, totalCampaigns }: GovernancePanelProps) {
   const [campaigns, setCampaigns] = useState(initial);
   const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -282,119 +285,129 @@ export function GovernancePanel({ campaigns: initial }: GovernancePanelProps) {
 
       {/* Table */}
       <div className="overflow-hidden rounded-lg border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40">
-              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">
-                <button type="button" onClick={() => toggleSort('title')} className="inline-flex items-center">
-                  Campaign <SortIcon field="title" sortField={sortField} sortDir={sortDir} />
-                </button>
-              </th>
-              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">
-                <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center">
-                  Status <SortIcon field="status" sortField={sortField} sortDir={sortDir} />
-                </button>
-              </th>
-              <th className="hidden px-4 py-2.5 text-left text-xs font-medium text-muted-foreground md:table-cell">Verification</th>
-              <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">
-                <button type="button" onClick={() => toggleSort('raisedAmount')} className="inline-flex items-center">
-                  Raised <SortIcon field="raisedAmount" sortField={sortField} sortDir={sortDir} />
-                </button>
-              </th>
-              <th className="hidden px-4 py-2.5 text-right text-xs font-medium text-muted-foreground sm:table-cell">
-                <button type="button" onClick={() => toggleSort('donorCount')} className="inline-flex items-center">
-                  Donors <SortIcon field="donorCount" sortField={sortField} sortDir={sortDir} />
-                </button>
-              </th>
-              <th className="hidden px-4 py-2.5 text-left text-xs font-medium text-muted-foreground lg:table-cell">Creator</th>
-              <th className="w-12 px-2 py-2.5"><span className="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {paged.map((c) => (
-              <tr key={c.id} className="hover:bg-muted/30">
-                <td className="max-w-[280px] px-4 py-3">
-                  <Link href={`/campaigns/${c.slug}`} className="font-medium text-foreground hover:underline" target="_blank" rel="noopener">
-                    {c.title}
-                  </Link>
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">/{c.slug}</p>
-                </td>
-                <td className="px-4 py-3">
-                  <CampaignStatusBadge status={c.status} />
-                </td>
-                <td className="hidden px-4 py-3 capitalize text-muted-foreground md:table-cell">{c.verificationStatus.replace(/_/g, ' ')}</td>
-                <td className="px-4 py-3 text-right font-mono text-foreground">
-                  <Money cents={c.raisedAmount} precision="exact" />
-                </td>
-                <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">{c.donorCount}</td>
-                <td className="hidden max-w-[140px] truncate px-4 py-3 text-muted-foreground lg:table-cell">
-                  {c.creatorName ?? c.creatorEmail ?? '-'}
-                </td>
-                <td className="px-2 py-3 text-right">
-                  {hasActions(c.status) ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          aria-label={`Actions for ${c.title}`}
-                        >
-                          <EllipsisVerticalIcon className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        {canResume(c.status) && (
-                          <DropdownMenuItem onClick={() => openAction(c, 'resume')}>
-                            <PlayIcon className="mr-2 h-4 w-4" />
-                            Resume
-                          </DropdownMenuItem>
-                        )}
-                        {canPause(c.status) && (
-                          <DropdownMenuItem onClick={() => openAction(c, 'pause')}>
-                            <PauseIcon className="mr-2 h-4 w-4" />
-                            Pause
-                          </DropdownMenuItem>
-                        )}
-                        {(canPause(c.status) || canResume(c.status)) && canSuspend(c.status) && <DropdownMenuSeparator />}
-                        {canSuspend(c.status) && (
-                          <DropdownMenuItem onClick={() => openAction(c, 'suspend')}>
-                            <ExclamationTriangleIcon className="mr-2 h-4 w-4" />
-                            Suspend
-                          </DropdownMenuItem>
-                        )}
-                        {canCancel(c.status) && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => openAction(c, 'cancel')}>
-                              <XCircleIcon className="mr-2 h-4 w-4" />
-                              Cancel campaign
+        {/* docs/88 F18: a table narrower than its content needs a scrollable
+    wrapper, or `overflow-hidden` on the card clips the last columns
+    with no way to reach them on a phone. */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">
+                  <button type="button" onClick={() => toggleSort('title')} className="inline-flex items-center">
+                    Campaign <SortIcon field="title" sortField={sortField} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">
+                  <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center">
+                    Status <SortIcon field="status" sortField={sortField} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="hidden px-4 py-2.5 text-left text-xs font-medium text-muted-foreground md:table-cell">Verification</th>
+                <th className="px-4 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                  <button type="button" onClick={() => toggleSort('raisedAmount')} className="inline-flex items-center">
+                    Raised <SortIcon field="raisedAmount" sortField={sortField} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="hidden px-4 py-2.5 text-right text-xs font-medium text-muted-foreground sm:table-cell">
+                  <button type="button" onClick={() => toggleSort('donorCount')} className="inline-flex items-center">
+                    Donors <SortIcon field="donorCount" sortField={sortField} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="hidden px-4 py-2.5 text-left text-xs font-medium text-muted-foreground lg:table-cell">Creator</th>
+                <th className="w-12 px-2 py-2.5"><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {paged.map((c) => (
+                <tr key={c.id} className="hover:bg-muted/30">
+                  <td className="max-w-[280px] px-4 py-3">
+                    <Link href={`/campaigns/${c.slug}`} className="font-medium text-foreground hover:underline" target="_blank" rel="noopener">
+                      {c.title}
+                    </Link>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">/{c.slug}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <CampaignStatusBadge status={c.status} />
+                  </td>
+                  <td className="hidden px-4 py-3 capitalize text-muted-foreground md:table-cell">{c.verificationStatus.replace(/_/g, ' ')}</td>
+                  <td className="px-4 py-3 text-right font-mono text-foreground">
+                    <Money cents={c.raisedAmount} precision="exact" />
+                  </td>
+                  <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">{c.donorCount}</td>
+                  <td className="hidden max-w-[140px] truncate px-4 py-3 text-muted-foreground lg:table-cell">
+                    {c.creatorName ?? c.creatorEmail ?? '-'}
+                  </td>
+                  <td className="px-2 py-3 text-right">
+                    {hasActions(c.status) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Actions for ${c.title}`}
+                          >
+                            <EllipsisVerticalIcon className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          {canResume(c.status) && (
+                            <DropdownMenuItem onClick={() => openAction(c, 'resume')}>
+                              <PlayIcon className="mr-2 h-4 w-4" />
+                              Resume
                             </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <span className="inline-block h-8 w-8" />
-                  )}
-                </td>
-              </tr>
-            ))}
-            {paged.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-16 text-center">
-                  <ShieldExclamationIcon className="mx-auto h-8 w-8 text-muted-foreground/50" />
-                  <p className="mt-2 text-sm text-muted-foreground">No campaigns match this filter.</p>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                          )}
+                          {canPause(c.status) && (
+                            <DropdownMenuItem onClick={() => openAction(c, 'pause')}>
+                              <PauseIcon className="mr-2 h-4 w-4" />
+                              Pause
+                            </DropdownMenuItem>
+                          )}
+                          {(canPause(c.status) || canResume(c.status)) && canSuspend(c.status) && <DropdownMenuSeparator />}
+                          {canSuspend(c.status) && (
+                            <DropdownMenuItem onClick={() => openAction(c, 'suspend')}>
+                              <ExclamationTriangleIcon className="mr-2 h-4 w-4" />
+                              Suspend
+                            </DropdownMenuItem>
+                          )}
+                          {canCancel(c.status) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => openAction(c, 'cancel')}>
+                                <XCircleIcon className="mr-2 h-4 w-4" />
+                                Cancel campaign
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <span className="inline-block h-8 w-8" />
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {paged.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-16 text-center">
+                    <ShieldExclamationIcon className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                    <p className="mt-2 text-sm text-muted-foreground">No campaigns match this filter.</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between text-sm">
-        <p className="text-muted-foreground">
-          Showing {paged.length} of {sorted.length}
-        </p>
+      {/* Count and pagination (docs/88 F16) */}
+      <div className="flex items-start justify-between gap-4 text-sm">
+        <ListCount
+          from={sorted.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+          to={Math.min(page * PAGE_SIZE, sorted.length)}
+          shown={sorted.length}
+          loaded={campaigns.length}
+          total={totalCampaigns}
+          noun="campaigns"
+        />
         {totalPages > 1 && (
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>

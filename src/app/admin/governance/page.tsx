@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
 import { campaigns, users } from '@/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { GovernancePanel } from '@/components/admin/GovernancePanel';
 
 export const metadata: Metadata = {
@@ -42,6 +42,15 @@ export default async function AdminGovernancePage() {
     .orderBy(desc(campaigns.updatedAt))
     .limit(200);
 
+  /*
+    docs/88 F16: the fetch above is capped at 200 and the panel's footer
+    reported the length of that capped set as if it were the table. The
+    true count is cheap and makes the cap visible.
+  */
+  const [{ totalCampaigns }] = await db
+    .select({ totalCampaigns: sql<number>`count(*)::int` })
+    .from(campaigns);
+
   const serialized = rows.map((r) => ({
     ...r,
     createdAt: r.createdAt.toISOString(),
@@ -55,10 +64,10 @@ export default async function AdminGovernancePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Campaign Governance</h1>
         <p className="text-sm text-muted-foreground">
-          {rows.length} campaigns loaded
+          {totalCampaigns} {totalCampaigns === 1 ? 'campaign' : 'campaigns'}
         </p>
       </div>
-      <GovernancePanel campaigns={serialized} />
+      <GovernancePanel campaigns={serialized} totalCampaigns={totalCampaigns} />
     </>
   );
 }

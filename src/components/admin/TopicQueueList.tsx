@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { ListCount } from '@/components/admin/ListCount';
 import {
   MagnifyingGlassIcon,
   ChevronUpIcon,
@@ -569,12 +570,18 @@ export function TopicQueueList({ topics: initialTopics, counts }: TopicQueueList
         </div>
       )}
 
-      {/* ── Pagination ── */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border pt-3">
-          <p className="text-xs text-muted-foreground">
-            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, sorted.length)} of {sorted.length}
-          </p>
+      {/* ── Count and pagination (docs/88 F16) ── */}
+      {(sorted.length > 0 || (counts.total ?? 0) > topics.length) && (
+        <div className="flex items-start justify-between gap-4 border-t border-border pt-3">
+          <ListCount
+            from={sorted.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
+            to={Math.min(safePage * PAGE_SIZE, sorted.length)}
+            shown={sorted.length}
+            loaded={topics.length}
+            total={counts.total ?? 0}
+            noun="topics"
+          />
+          {totalPages > 1 && (
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
@@ -600,6 +607,7 @@ export function TopicQueueList({ topics: initialTopics, counts }: TopicQueueList
               <ChevronRightIcon className="h-4 w-4" />
             </Button>
           </div>
+          )}
         </div>
       )}
 

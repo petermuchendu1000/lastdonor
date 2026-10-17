@@ -26,6 +26,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
+import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
 import {
   MagnifyingGlassIcon,
@@ -380,12 +381,25 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
         </div>
       )}
 
-      {/* ── Pagination ── */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border pt-3">
-          <p className="text-xs text-muted-foreground">
-            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, sorted.length)} of {sorted.length}
-          </p>
+      {/*
+        Count and pagination (docs/88 F16).
+
+        The count renders whenever there is anything to say, not only
+        when there is more than one page: with 238 users and a role
+        filter selecting 3 of the loaded 200, there is one page and the
+        reader still needs to know the other 38 were never fetched.
+      */}
+      {(sorted.length > 0 || totalUsers > users.length) && (
+        <div className="flex items-start justify-between gap-4 border-t border-border pt-3">
+          <ListCount
+            from={sorted.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
+            to={Math.min(safePage * PAGE_SIZE, sorted.length)}
+            shown={sorted.length}
+            loaded={users.length}
+            total={totalUsers}
+            noun="users"
+          />
+          {totalPages > 1 && (
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
@@ -411,6 +425,7 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
               <ChevronRightIcon className="h-4 w-4" />
             </Button>
           </div>
+          )}
         </div>
       )}
 

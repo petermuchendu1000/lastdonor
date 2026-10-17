@@ -30,6 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate, formatRelativeTime } from '@/lib/utils/dates';
+import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
 import {
   MagnifyingGlassIcon,
@@ -82,6 +83,8 @@ interface AdminDocument {
 interface VerificationQueueProps {
   initialItems: VerificationItem[];
   stats: {
+    /** True `count(*)` of the queue, before the page's 500-row cap (docs/88 F16). */
+    totalInQueue: number;
     totalPending: number;
     totalIdentityVerified: number;
     totalFullyVerified: number;
@@ -540,11 +543,16 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
         </div>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between text-sm">
-        <p className="text-muted-foreground">
-          Showing {paged.length} of {sorted.length}
-        </p>
+      {/* Count and pagination (docs/88 F16) */}
+      <div className="flex items-start justify-between gap-4 text-sm">
+        <ListCount
+          from={sorted.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+          to={Math.min(page * PAGE_SIZE, sorted.length)}
+          shown={sorted.length}
+          loaded={items.length}
+          total={stats.totalInQueue}
+          noun="campaigns"
+        />
         {totalPages > 1 && (
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>

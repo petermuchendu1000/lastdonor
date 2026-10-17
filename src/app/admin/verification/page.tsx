@@ -65,6 +65,12 @@ export default async function AdminVerificationPage() {
       .limit(500),
     db
       .select({
+        /*
+          docs/88 F16: the true size of the queue, under the same
+          predicate as the fetch above, so the footer can say how many
+          of it the 500-row cap actually loaded.
+        */
+        totalInQueue: sql<number>`count(*)::int`,
         totalPending: sql<number>`count(*) FILTER (WHERE ${campaigns.verificationStatus} IN ('documents_uploaded','submitted_for_review'))::int`,
         totalIdentityVerified: sql<number>`count(*) FILTER (WHERE ${campaigns.verificationStatus} = 'identity_verified')::int`,
         totalFullyVerified: sql<number>`count(*) FILTER (WHERE ${campaigns.verificationStatus} = 'fully_verified')::int`,

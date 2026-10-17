@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
+import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
 import {
   MagnifyingGlassIcon,
@@ -368,12 +369,23 @@ export function DonationsList({ initialDonations, stats, campaignOptions }: Dona
         </div>
       )}
 
-      {/* ── Pagination ── */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border pt-3">
-          <p className="text-xs text-muted-foreground">
-            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, sorted.length)} of {sorted.length}
-          </p>
+      {/*
+        Count and pagination (docs/88 F16). The fetch is capped at 200
+        while the stat tiles above come from a `count(*)` over the whole
+        table, so the two disagree the moment there are more than 200
+        donations. See ListCount for why both numbers are printed.
+      */}
+      {(sorted.length > 0 || stats.totalCount > donations.length) && (
+        <div className="flex items-start justify-between gap-4 border-t border-border pt-3">
+          <ListCount
+            from={sorted.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}
+            to={Math.min(safePage * PAGE_SIZE, sorted.length)}
+            shown={sorted.length}
+            loaded={donations.length}
+            total={stats.totalCount}
+            noun="donations"
+          />
+          {totalPages > 1 && (
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
@@ -399,6 +411,7 @@ export function DonationsList({ initialDonations, stats, campaignOptions }: Dona
               <ChevronRightIcon className="h-4 w-4" />
             </Button>
           </div>
+          )}
         </div>
       )}
 

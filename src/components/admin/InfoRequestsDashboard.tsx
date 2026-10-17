@@ -184,99 +184,104 @@ export function InfoRequestsDashboard() {
 
       {/* Table */}
       <div className="overflow-hidden rounded-lg border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40">
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Campaign</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
-              <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground sm:table-cell">Campaigner</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
-              <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground md:table-cell">Deadline</th>
-              <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground md:table-cell">Flags</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading...</td>
+        {/* docs/88 F18: a table narrower than its content needs a scrollable
+    wrapper, or `overflow-hidden` on the card clips the last columns
+    with no way to reach them on a phone. */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Campaign</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
+                <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground sm:table-cell">Campaigner</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
+                <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground md:table-cell">Deadline</th>
+                <th className="hidden px-4 py-3 text-left text-xs font-medium text-muted-foreground md:table-cell">Flags</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Actions</th>
               </tr>
-            ) : displayed.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-16 text-center">
-                  <InformationCircleIcon className="mx-auto h-8 w-8 text-muted-foreground/50" />
-                  <p className="mt-2 text-sm text-muted-foreground">No info requests found.</p>
-                </td>
-              </tr>
-            ) : displayed.map((req) => (
-              <tr key={req.id} className="border-b last:border-0 hover:bg-muted/25">
-                <td className="max-w-[200px] truncate px-4 py-3 font-medium">{req.campaignTitle}</td>
-                <td className="px-4 py-3 capitalize">{req.requestType.replace(/_/g, ' ')}</td>
-                <td className="hidden max-w-[150px] truncate px-4 py-3 text-muted-foreground sm:table-cell">
-                  {req.targetName ?? req.targetEmail}
-                </td>
-                <td className="px-4 py-3">
-                  <Badge variant={STATUS_VARIANT[req.status] ?? 'outline'}>
-                    {req.status}
-                  </Badge>
-                </td>
-                <td className="hidden px-4 py-3 md:table-cell">
-                  <span className={isOverdue(req.deadline) && req.status === 'pending' ? 'font-semibold text-destructive' : ''}>
-                    {formatRelativeTime(req.deadline)}
-                  </span>
-                </td>
-                <td className="hidden px-4 py-3 md:table-cell">
-                  <div className="flex gap-1">
-                    {req.reminderSent && <Badge variant="outline" className="text-xs">Reminded</Badge>}
-                    {req.escalated && <Badge variant="destructive" className="text-xs">Escalated</Badge>}
-                    {req.pauseCampaign && <Badge variant="secondary" className="text-xs">Paused</Badge>}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDetailItem(req)}
-                    >
-                      View
-                    </Button>
-                    {req.status !== 'closed' && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" disabled={actionLoading === req.id}>
-                            <EllipsisVerticalIcon className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {req.status === 'pending' && (
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading...</td>
+                </tr>
+              ) : displayed.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-16 text-center">
+                    <InformationCircleIcon className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                    <p className="mt-2 text-sm text-muted-foreground">No info requests found.</p>
+                  </td>
+                </tr>
+              ) : displayed.map((req) => (
+                <tr key={req.id} className="border-b last:border-0 hover:bg-muted/25">
+                  <td className="max-w-[200px] truncate px-4 py-3 font-medium">{req.campaignTitle}</td>
+                  <td className="px-4 py-3 capitalize">{req.requestType.replace(/_/g, ' ')}</td>
+                  <td className="hidden max-w-[150px] truncate px-4 py-3 text-muted-foreground sm:table-cell">
+                    {req.targetName ?? req.targetEmail}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge variant={STATUS_VARIANT[req.status] ?? 'outline'}>
+                      {req.status}
+                    </Badge>
+                  </td>
+                  <td className="hidden px-4 py-3 md:table-cell">
+                    <span className={isOverdue(req.deadline) && req.status === 'pending' ? 'font-semibold text-destructive' : ''}>
+                      {formatRelativeTime(req.deadline)}
+                    </span>
+                  </td>
+                  <td className="hidden px-4 py-3 md:table-cell">
+                    <div className="flex gap-1">
+                      {req.reminderSent && <Badge variant="outline" className="text-xs">Reminded</Badge>}
+                      {req.escalated && <Badge variant="destructive" className="text-xs">Escalated</Badge>}
+                      {req.pauseCampaign && <Badge variant="secondary" className="text-xs">Paused</Badge>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDetailItem(req)}
+                      >
+                        View
+                      </Button>
+                      {req.status !== 'closed' && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" disabled={actionLoading === req.id}>
+                              <EllipsisVerticalIcon className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {req.status === 'pending' && (
+                              <DropdownMenuItem
+                                onClick={() => handleAction(req.id, 'send_reminder')}
+                                disabled={req.reminderSent}
+                              >
+                                Send Reminder
+                              </DropdownMenuItem>
+                            )}
+                            {(req.status === 'pending' || req.status === 'expired') && (
+                              <DropdownMenuItem onClick={() => { setExtendDialog(req); setExtendDays(7); }}>
+                                Extend Deadline
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
-                              onClick={() => handleAction(req.id, 'send_reminder')}
-                              disabled={req.reminderSent}
+                              onClick={() => handleAction(req.id, 'close')}
+                              className="text-destructive"
                             >
-                              Send Reminder
+                              Close Request
                             </DropdownMenuItem>
-                          )}
-                          {(req.status === 'pending' || req.status === 'expired') && (
-                            <DropdownMenuItem onClick={() => { setExtendDialog(req); setExtendDays(7); }}>
-                              Extend Deadline
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem
-                            onClick={() => handleAction(req.id, 'close')}
-                            className="text-destructive"
-                          >
-                            Close Request
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Pagination */}
