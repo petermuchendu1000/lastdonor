@@ -3,7 +3,7 @@ import { db } from '@/db';
 import { campaigns, auditLogs, users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-import { getDiditDecision, mapDiditStatus, DiditNotConfiguredError } from '@/lib/didit';
+import { getDiditDecision, mapDiditStatus, DiditNotConfiguredError, DiditApiError } from '@/lib/didit';
 import { notifyCreatorVerificationApproved, notifyCreatorVerificationRejected } from '@/lib/notifications';
 import type { ApiError } from '@/types/api';
 
@@ -60,8 +60,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, data: { ignored: 'no session id' } });
     }
 
-    // The authenticated read. Everything below comes from this, not the body.
-    const decision = await getDiditDecision(sessionId);
+    /*
+      The authenticated read. Everything below comes from this, not the body.
+
+      A 4xx here means Didit does not recognise the session - the exact
+      case a forged or stale webhook produces - and no amount of retrying
+      turns an unknown id into a known one. That is an ignore, not a
+      failure. Caught 2026-10-17 by posting a zeroed uuid at the deployed
+      route: it answered 500, because `DiditApiError` fell through to the
+      generic handler and invited Didit to retry forever.
+
+      A 5xx or a network fault is different: Didit is there and we could
+      not read it, so that one keeps falling through to the 500 below and
+      is worth a retry.
+    */
+    let decision;
+    try {
+      decision = await getDiditDecision(sessionId);
+    } catch (error) {
+      if (error instanceof DiditApiError && error.status >= 400 && error.status < 500) {
+        console.warn(`[didit/webhook] Didit does not know session ${sessionId} (${error.status})`, { requestId });
+        return NextResponse.json({ ok: true, data: { ignored: 'unknown session' } });
+      }
+      throw error;
+    }
 
     const [campaign] = await db
       .select({
