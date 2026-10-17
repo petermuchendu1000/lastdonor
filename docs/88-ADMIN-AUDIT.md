@@ -72,6 +72,8 @@ The FIRST screen an admin sees reports nothing to review while 12 wait. Regressi
 => the campaigns most needing an admin's eye are the ones filtered out.
 
 ## F8 LOW — /admin/campaigns loads every campaign with no LIMIT
+> **Resolved 2026-10-17.** Capped at 200, tiles moved to SQL, rows paged.
+> See "F8: the two halves had to move together" below.
 `src/app/admin/campaigns/page.tsx:17-18`: `.from(campaigns).orderBy(desc(createdAt))`, no limit/pagination.
 Fine at 12 rows; it is an unbounded query on a table expected to grow. Status tiles are computed in JS
 from the same unbounded fetch.
@@ -93,6 +95,8 @@ NOT a bug.
 The UI mentions neither. An admin toggles `simulation.enabled`, gets a success toast, and nothing occurs.
 
 ## F10 LOW — orphan endpoint
+> **Resolved 2026-10-17** by deleting it. See "F10: three shapes, no
+> consumer" below.
 `/api/v1/admin/dashboard` (returns `{today,month,dailyDonations}`) has no callers; `/admin` computes its own
 stats server-side in `page.tsx`. Two divergent implementations of the same figures, one of them dead.
 
@@ -129,6 +133,10 @@ An admin can permanently delete an `active` campaign with zero donations — and
 `campaignSeedMessages` and `campaignUpdates` rows.
 
 ## F14 LOW (downgraded after measurement) — 13 admin pages carry an INERT `revalidate = 60`
+> **Resolved 2026-10-17.** It was SIXTEEN pages, not 13, and the stated
+> reason was wrong for four of them: blog, blog/topics, monitoring and
+> news-feed never call `auth()`, so the LAYOUT's `force-dynamic` is what
+> makes them dynamic. See "F14: the measurement was the point" below.
 activity, audit-log, blog, blog/topics, donations, governance, monitoring, news-feed, payouts, reports,
 simulation, simulation/analytics, simulation/fund-pool, users, verification. These are authenticated,
 mutating operator views. Whether the full route cache actually engages is UNVERIFIED (they call `auth()`,
@@ -282,6 +290,9 @@ campaigns/new.
 | **F2** | `GET /api/v1/admin/verification-documents/[id]` signs and 302s; the queue links to it | Live, with a real PDF in the private bucket: `302` -> signed URL -> `200 application/pdf`, body starts `%PDF-1.4`. Before: list returned `supabase-private://…` and the route answered `405`. |
 | **F16** | All EIGHT capped admin lists report through `ListCount`: the page range, the loaded count, and the true `count(*)` when they differ | Live with 239 users: footer `Showing 1-25 of 200` + `Loaded the newest 200 of 239 users. Search and filters apply to those 200 only.` Before: `of 200`, with nothing saying 39 rows were never fetched. |
 | **F18** | Six tables in four components wrapped in `overflow-x-auto` | Live `/admin/governance` at 390x844: wrapper `scrollWidth 372 > clientWidth 340`, `overflow-x: auto`, `scrollLeft` reaches 32 and the actions column becomes reachable. Before: `overflow-x: hidden`, 32px unreachable. |
+| **F8** | `/admin/campaigns` capped at 200, tiles counted in SQL, rows paged 25 at a time | Live with 222 campaigns: rendered rows 222 -> 25, page 15,633px -> 2,593px, DOM 4,871 -> 952 nodes, HTML 793,089 -> 238,122 bytes, server ~560ms -> ~350ms. Tiles read `Draft 210, Under Review 12`, exactly `GROUP BY status`. |
+| **F10** | `/api/v1/admin/dashboard` deleted | Live as a signed-in admin: `404 text/html`, while `/api/v1/admin/users` answers `200 application/json` from the same session, so the 404 is the route being gone and not an auth failure. |
+| **F14** | 16 inert `revalidate` exports removed; caching decided once in the admin layout | Live as a signed-in admin, before the change: no `x-nextjs-cache` on any of them, `cache-control: private, no-cache, no-store, max-age=0, must-revalidate`, identical to `/admin/campaigns`, which never carried the directive. |
 
 Notes on each, since the *reason* matters more than the diff:
 
@@ -404,18 +415,110 @@ Two ratchets hold both: no admin component may hand-roll a
 `Showing ... of <array>.length` footer, and no `<table>` under
 `src/components/admin` may appear without a scrollable ancestor.
 
+## F8, F10 and F14 in detail
+
+### F8: the two halves had to move together
+
+The fetch had no LIMIT **and** the status tiles were tallied in JS over
+that same unbounded result. The tiles were therefore correct only
+*because* the query was unbounded. Capping the fetch alone would have
+turned a slow screen into a lying one, and the lying version is worse:
+measured after the fix with 210 drafts loaded 200 at a time, clicking
+the "Draft 210" tile lists 200 rows. Without F16's ListCount underneath
+it, that screen would state 210 and show 200 with nothing in between.
+
+So the tiles moved to `GROUP BY status`, the header total to a real
+`count(*)`, and the cap is reported rather than hidden. The rows are
+paged 25 at a time like the other eight lists.
+
+Measured in production, 222 campaigns, before -> after:
+
+| | before | after |
+|---|---|---|
+| rendered `<tbody>` rows | 222 | 25 |
+| page height | 15,633px | 2,593px |
+| DOM nodes | 4,871 | 952 |
+| HTML bytes | 793,089 | 238,122 |
+| server time (3 runs) | 612, 462, 602ms | 342, 369, 347ms |
+| header | `222 total - 222 shown` | `222 campaigns` |
+| count line | *(none)* | `Showing 1-25 of 200` + the truncation line |
+
+**The HTML did not fall as far as the DOM, and that is the honest
+limit of this fix.** 25 rows render, but all 200 fetched rows are still
+serialised into the payload, because search and the filter tiles run in
+the browser. Real server-side pagination would move filtering into SQL
+and cut the payload with the DOM. Not done here.
+
+A third number also had to go. `{total} total - {filtered.length} shown`
+was fine while the page rendered everything; with pagination it read
+"222 total - 200 shown" above 25 rows, disagreeing with both the tiles
+and the footer. The header states the true total and nothing else.
+
+### F10: three shapes, no consumer
+
+Deleted rather than fixed. `/api/v1/admin/dashboard` had no callers
+anywhere in the repository, and `/admin` computes the same figures in
+its own page, so it was a second implementation of money figures that
+nothing rendered and nobody compared against the screen. By the end
+there were three shapes: docs/07 promised
+`{today, thisMonth, activeCampaigns, recentDonations}`, the route
+returned `{today, month, dailyDonations}`, and the page computed a
+third.
+
+Its one unique output, a 30-day series, would have been wrong the
+moment `REPORTING_TIMEZONE` left UTC: it bucketed with `date_trunc` in
+the database's zone while the figures above it used the reporting zone
+(F15), and its window was `now - 30 days`, a rolling instant, so the
+first bucket was always a partial day. A chart should come from a query
+module the page also calls. docs/07 records the removal and says so.
+
+### F14: the measurement was the point
+
+Sixteen pages carried a caching directive (fifteen `= 60`, one `= 0`)
+and all sixteen were inert, because the admin layout exports
+`dynamic = 'force-dynamic'`, which applies to the whole subtree and
+sets `revalidate` to 0.
+
+Measuring rather than reasoning from the framework docs changed what
+the fix had to say. **Four of the sixteen - blog, blog/topics,
+monitoring, news-feed - never call `auth()` in the page at all.** For
+those four the layout is the only thing keeping them dynamic, and the
+pass-1 explanation ("`auth()` forces dynamic rendering") was therefore
+wrong for a quarter of the list. Live, as a signed-in admin, all four
+answered with no `x-nextjs-cache` header and
+`cache-control: private, no-cache, no-store, max-age=0,
+must-revalidate`, byte-identical to `/admin/campaigns`, which never had
+the directive.
+
+The reasoning now sits next to `force-dynamic` in the layout, where
+someone considering its removal will read it, and a ratchet stops the
+directive coming back. A dead directive is worse than none: the next
+reader either reasons about 60s staleness that cannot happen, or
+deletes the layout's `force-dynamic` believing the pages carry their
+own caching - at which point those four pages really would serve
+cached operator data.
+
+**One withdrawn claim.** A probe reported `/admin/blog` showing "3" for
+"All posts" against a `blog_posts` table of 0. It was my regex matching
+markup, not the page. Rendered, the tiles read 0/0/0 and the database
+holds 0. Not a defect.
+
 ## Still open from this audit
 
-**Fixed and deployed:** F1, F2, F3, F4, F5, F6, F7, F12, F13, F15, F16, F18.
+**Fixed and deployed:** F1, F2, F3, F4, F5, F6, F7, F8, F10, F12, F13, F14,
+F15, F16, F18. Every numbered finding from pass 1 is closed.
 
-**Still open:**
-- **F8** `/admin/campaigns` has no LIMIT (unbounded as the table grows).
-- **F10** `/api/v1/admin/dashboard` is an orphan endpoint duplicating the
-  page's own stats.
-- **F14** 13 admin pages carry an inert `revalidate = 60` (measured: no
-  caching happens, `auth()` forces dynamic rendering). Misleading, not broken.
-(F16 and F18 moved to the fixed section below.)
+**Still open:** F9 (the simulation panel is inert twice over and says so
+nowhere) is the one finding left, and it is not a code fix: it waits on the
+owner decision in docs/33 and on the cron Worker (docs/65, docs/66).
 
 **Pass-2 gaps:** 12 of 24 pages unmeasured at 390px, per-screen copy, and
 write actions beyond campaigns (refund batches, fund-pool
 allocate/disburse, bulk email, blog publish, user edits).
+
+**Noticed while measuring F8/F16, not yet logged as a finding:** every
+admin page renders the public navbar, the newsletter strip, the marketing
+footer and the Tawk.to chat widget. At 1280px that is roughly 1,100px of
+consumer chrome around an operator table, and the footer's "Stay in the
+loop" subscribe form sits under the user table. Needs measuring before it
+is called a defect.
