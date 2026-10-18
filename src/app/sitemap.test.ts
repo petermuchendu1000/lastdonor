@@ -33,6 +33,7 @@ const dialect = new PgDialect();
 interface CampaignRow {
   slug: string;
   status: string;
+  category: string;
   updatedAt: Date | null;
   publishedAt: Date | null;
 }
@@ -101,18 +102,21 @@ const CAMPAIGN_ROWS: CampaignRow[] = [
   {
     slug: 'help-sergeant-reyes',
     status: 'active',
+    category: 'veterans',
     updatedAt: new Date('2026-10-12T09:00:00Z'),
     publishedAt: new Date('2026-10-01T09:00:00Z'),
   },
   {
     slug: 'final-stretch-for-mia',
     status: 'last_donor_zone',
+    category: 'medical',
     updatedAt: new Date('2026-10-14T18:30:00Z'),
     publishedAt: new Date('2026-09-20T09:00:00Z'),
   },
   {
     slug: 'the-okafor-family-fund',
     status: 'completed',
+    category: 'memorial',
     updatedAt: new Date('2026-08-02T12:00:00Z'),
     publishedAt: new Date('2026-07-01T09:00:00Z'),
   },
@@ -341,5 +345,90 @@ describe('the pages that returned 200 before the fix are all still listed', () =
     const { entries } = await runSitemap();
     const listed = urls(entries);
     expect(new Set(listed).size).toBe(listed.length);
+  });
+});
+
+/*
+  The pages whose content IS the campaign set must date themselves from it.
+
+  Found 2026-10-18 while asking why nothing ranks: every URL carried one
+  hand-maintained constant of `2026-04-27`, six months stale, including
+  `/campaigns/category/medical`, which also declared
+  `changeFrequency: 'daily'`. A crawler reading "changes daily, last
+  changed in April" has been told twice, contradictorily, how much to
+  care.
+
+  The derived date is `publishedAt`, not `updatedAt`, because
+  `cron/reconcile` step 5 writes `updated_at = NOW()` on echo-counter
+  drift and a listing page has not changed because a counter was
+  repaired.
+*/
+describe('listing pages date themselves from the campaigns they list', () => {
+  const find = (entries: { url: string; lastModified?: string | Date }[], url: string) =>
+    entries.find((e) => e.url === url);
+
+  it('dates the homepage and /campaigns from the newest live publishedAt', async () => {
+    const { entries } = await runSitemap();
+    // Newest live publishedAt is help-sergeant-reyes at 2026-10-01.
+    // the-okafor-family-fund is completed, so it is not on these pages.
+    const expected = new Date('2026-10-01T09:00:00Z');
+    expect(find(entries, 'https://lastdonor.org')?.lastModified).toEqual(expected);
+    expect(find(entries, 'https://lastdonor.org/campaigns')?.lastModified).toEqual(expected);
+  });
+
+  it('dates each category page from the newest live campaign in THAT category', async () => {
+    const { entries } = await runSitemap();
+    expect(
+      find(entries, 'https://lastdonor.org/campaigns/category/veterans')?.lastModified,
+    ).toEqual(new Date('2026-10-01T09:00:00Z'));
+    expect(
+      find(entries, 'https://lastdonor.org/campaigns/category/medical')?.lastModified,
+    ).toEqual(new Date('2026-09-20T09:00:00Z'));
+  });
+
+  it('does not let a completed campaign date its category page', async () => {
+    // `memorial` holds only the completed campaign, which is not listed on
+    // the category page, so the page must fall back to the editorial date
+    // rather than claim the completed campaign's freshness.
+    const { entries } = await runSitemap();
+    const memorial = find(entries, 'https://lastdonor.org/campaigns/category/memorial');
+    expect(memorial?.lastModified).not.toEqual(new Date('2026-07-01T09:00:00Z'));
+    expect(memorial?.lastModified).toEqual(new Date('2026-10-18'));
+  });
+
+  it('falls back to the editorial date for a category with no live campaign', async () => {
+    const { entries } = await runSitemap();
+    expect(
+      find(entries, 'https://lastdonor.org/campaigns/category/animal')?.lastModified,
+    ).toEqual(new Date('2026-10-18'));
+  });
+
+  it('falls back to the editorial date when the campaign read fails', async () => {
+    state.failing = new Set(['campaigns']);
+    const { entries } = await runSitemap();
+    expect(find(entries, 'https://lastdonor.org')?.lastModified).toEqual(
+      new Date('2026-10-18'),
+    );
+  });
+
+  it('never dates a listing page from the clock', async () => {
+    const { entries } = await runSitemap();
+    const now = Date.now();
+    for (const e of entries) {
+      const t = new Date(e.lastModified as Date).getTime();
+      // A lastmod within a second of now means someone reached for
+      // `new Date()`, which tells Google everything changed every hour.
+      expect(Math.abs(now - t)).toBeGreaterThan(1000);
+    }
+  });
+
+  it('keeps the editorial constant off the clock, but current', async () => {
+    // The constant is hand-maintained; this only pins that it was moved
+    // past the October landing-page rebuild it had been lagging.
+    const { entries } = await runSitemap();
+    const policy = find(entries, 'https://lastdonor.org/privacy');
+    expect(new Date(policy!.lastModified as Date).getTime()).toBeGreaterThan(
+      new Date('2026-10-01').getTime(),
+    );
   });
 });

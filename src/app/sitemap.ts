@@ -5,7 +5,25 @@ import { eq, inArray } from 'drizzle-orm';
 import { ALL_CATEGORY_SLUGS } from '@/lib/category-content';
 
 const BASE_URL = 'https://lastdonor.org';
-const SEO_CONTENT_LAST_MODIFIED = new Date('2026-04-27');
+
+/**
+ * The last time the EDITORIAL copy of the static pages was intentionally
+ * changed. Hand-maintained on purpose - see the note on `staticSitemap`.
+ *
+ * Bumped 2026-10-18 from `2026-04-27`. It had not been touched while the
+ * landing page was rebuilt section by section through October: the navbar
+ * (docs/48), hero (docs/49, docs/53), cards and the six-into-two section
+ * merge (docs/51), the campaign listing (docs/55), the steps section
+ * (docs/56), the fee ledger (docs/59), the category grid (docs/60), the FAQ
+ * collapse (docs/61), the campaign row (docs/62), the how-it-works stepper
+ * (docs/63), the trust bar (docs/64), the footer (docs/69) and the icon
+ * system (docs/70). Every one of those changed the copy a crawler reads,
+ * and the sitemap went on declaring April.
+ *
+ * **When you intentionally change static-page copy, change this date in the
+ * same commit.** A stale `lastmod` is a request not to re-crawl.
+ */
+const SEO_CONTENT_LAST_MODIFIED = new Date('2026-10-18');
 
 /**
  * Regenerate hourly. This line is the whole fix for the defect recorded in
@@ -75,19 +93,47 @@ const CLOSED_SITEMAP_STATUSES = ['completed'] as const;
  * `lastmod`. Gating them on a live campaign count would also make the set of
  * listed URLs flap as campaigns open and close, which is worse for crawl
  * budget than a stable list. Decision recorded in docs/46.
+ *
+ * ── Why some of these dates are derived and others are not ───────────
+ *
+ * Added 2026-10-18. Every URL here used to carry one hand-maintained
+ * constant, including the pages whose content is a list of campaigns. That
+ * is a contradiction a crawler can see: `/campaigns/category/medical`
+ * declared `changeFrequency: daily` and a `lastmod` six months old.
+ *
+ * So the pages whose content IS the campaign set now derive their date from
+ * that set, and only the pages whose content is editorial copy keep the
+ * constant.
+ *
+ * The derived date is the newest `publishedAt`, NOT the newest `updatedAt`.
+ * `updatedAt` moves when a maintenance job touches a row - `cron/reconcile`
+ * step 5 sets `updated_at = NOW()` on any campaign whose echo counters
+ * drift - and a listing page has not changed because a counter was
+ * repaired. `publishedAt` moves when a campaign goes live, which is exactly
+ * when these pages change. (The per-campaign URLs below still use
+ * `updatedAt`, because for one campaign's own page an edit IS the change
+ * worth re-crawling; that trade-off is noted there too.)
  */
-function staticSitemap(): MetadataRoute.Sitemap {
+function staticSitemap(dates: DerivedDates): MetadataRoute.Sitemap {
+  // A category with no live campaign has no campaign-driven date, so it
+  // falls back to the editorial constant rather than claiming freshness.
+  const categoryDate = (slug: string) =>
+    dates.newestByCategory.get(slug) ?? SEO_CONTENT_LAST_MODIFIED;
+  const listingDate = dates.newestPublished ?? SEO_CONTENT_LAST_MODIFIED;
   const staticPages: MetadataRoute.Sitemap = [
-    // lastModified must be a deterministic date representing the last intentional
-    // content change, not new Date(). A perpetually-changing lastmod causes Google
-    // to treat the homepage as constantly mutating, wasting crawl budget and
-    // creating a temporal contradiction when content is actually stable under ISR.
-    // Update this value whenever the homepage copy, H1, or schema is intentionally changed.
-    { url: BASE_URL, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'daily', priority: 1.0 },
+    // Every date here must be deterministic - never `new Date()`. A lastmod
+    // that moves on every regeneration tells Google the page changes hourly
+    // and devalues the signal for the pages that actually did change.
+    //
+    // The homepage takes `listingDate` because its content is largely the
+    // campaign row (docs/62); its editorial copy changing is covered by
+    // SEO_CONTENT_LAST_MODIFIED moving too, since that is bumped by hand in
+    // the same commit as a copy change.
+    { url: BASE_URL, lastModified: listingDate, changeFrequency: 'daily', priority: 1.0 },
     { url: `${BASE_URL}/about`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${BASE_URL}/how-it-works`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${BASE_URL}/transparency`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'weekly', priority: 0.8 },
-    { url: `${BASE_URL}/campaigns`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'daily', priority: 0.9 },
+    { url: `${BASE_URL}/campaigns`, lastModified: listingDate, changeFrequency: 'daily', priority: 0.9 },
     { url: `${BASE_URL}/compare`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE_URL}/completed-campaigns`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'weekly', priority: 0.6 },
     { url: `${BASE_URL}/blog`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'daily', priority: 0.7 },
@@ -106,7 +152,7 @@ function staticSitemap(): MetadataRoute.Sitemap {
 
   const categoryPages: MetadataRoute.Sitemap = ALL_CATEGORY_SLUGS.map((slug) => ({
     url: `${BASE_URL}/campaigns/category/${slug}`,
-    lastModified: SEO_CONTENT_LAST_MODIFIED,
+    lastModified: categoryDate(slug),
     changeFrequency: 'daily' as const,
     priority: 0.7,
   }));
@@ -130,10 +176,11 @@ function staticSitemap(): MetadataRoute.Sitemap {
  * with a short sitemap is irreversible, and `revalidate` means the next
  * regeneration an hour later repairs it with no deploy. See docs/46.
  */
-async function sitemapSection(
+async function sitemapSection<T>(
   name: string,
-  load: () => Promise<MetadataRoute.Sitemap>,
-): Promise<MetadataRoute.Sitemap> {
+  load: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
   try {
     return await load();
   } catch (err) {
@@ -141,15 +188,40 @@ async function sitemapSection(
       `[sitemap] ${name} could not be read; serving the sitemap without it:`,
       err,
     );
-    return [];
+    return fallback;
   }
 }
 
-async function campaignSitemap(): Promise<MetadataRoute.Sitemap> {
+/**
+ * Dates the static section borrows from the campaign section.
+ *
+ * These come out of the campaign query that already runs - no extra round
+ * trip. That matters: the three-concurrent-query cap (CLAUDE.md, docs/87
+ * amendment 5) is a hard budget on a `max: 5` pool, and this route is
+ * allowed two. Adding a `SELECT max(published_at) GROUP BY category` would
+ * have spent the third for data already in hand.
+ */
+type DerivedDates = {
+  /** Newest `publishedAt` across every live campaign, or null if none. */
+  newestPublished: Date | null;
+  /** Newest `publishedAt` per category slug, live campaigns only. */
+  newestByCategory: Map<string, Date>;
+};
+
+const NO_DERIVED_DATES: DerivedDates = {
+  newestPublished: null,
+  newestByCategory: new Map(),
+};
+
+async function campaignSitemap(): Promise<{
+  urls: MetadataRoute.Sitemap;
+  dates: DerivedDates;
+}> {
   const rows = await db
     .select({
       slug: campaigns.slug,
       status: campaigns.status,
+      category: campaigns.category,
       updatedAt: campaigns.updatedAt,
       publishedAt: campaigns.publishedAt,
     })
@@ -161,7 +233,25 @@ async function campaignSitemap(): Promise<MetadataRoute.Sitemap> {
       ]),
     );
 
-  return rows.map((c) => {
+  // Only LIVE campaigns feed the listing and category dates: those pages
+  // show the live set, and a `completed` campaign is not on them.
+  const dates: DerivedDates = {
+    newestPublished: null,
+    newestByCategory: new Map<string, Date>(),
+  };
+  for (const c of rows) {
+    if (!(LIVE_SITEMAP_STATUSES as readonly string[]).includes(c.status)) continue;
+    if (!c.publishedAt) continue;
+    if (!dates.newestPublished || c.publishedAt > dates.newestPublished) {
+      dates.newestPublished = c.publishedAt;
+    }
+    const current = dates.newestByCategory.get(c.category);
+    if (!current || c.publishedAt > current) {
+      dates.newestByCategory.set(c.category, c.publishedAt);
+    }
+  }
+
+  const urls = rows.map((c) => {
     const isLive = (LIVE_SITEMAP_STATUSES as readonly string[]).includes(c.status);
     return {
       url: `${BASE_URL}/campaigns/${c.slug}`,
@@ -170,11 +260,22 @@ async function campaignSitemap(): Promise<MetadataRoute.Sitemap> {
       // that default. Never `new Date()` - a lastmod that changes on every
       // regeneration tells Google every campaign changed every hour and
       // devalues the signal for the ones that actually did.
+      //
+      // Known imprecision, accepted: `updatedAt` also moves when a
+      // maintenance job writes to the row - `cron/reconcile` step 5 sets
+      // `updated_at = NOW()` on echo-counter drift. For ONE campaign's own
+      // page an edit is genuinely the thing worth re-crawling, so
+      // `updatedAt` is still the right column here; the listing and
+      // category pages use `publishedAt` precisely to avoid inheriting
+      // this. Since docs/89 the counters are maintained at the source and
+      // reconcile should now find nothing, so the churn should be rare.
       lastModified: c.updatedAt ?? c.publishedAt ?? SEO_CONTENT_LAST_MODIFIED,
       changeFrequency: isLive ? ('daily' as const) : ('monthly' as const),
       priority: isLive ? 0.8 : 0.3,
     };
   });
+
+  return { urls, dates };
 }
 
 async function blogSitemap(): Promise<MetadataRoute.Sitemap> {
@@ -195,10 +296,17 @@ async function blogSitemap(): Promise<MetadataRoute.Sitemap> {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [campaignPages, blogPages] = await Promise.all([
-    sitemapSection('campaigns', campaignSitemap),
-    sitemapSection('blog posts', blogSitemap),
+  const [campaignResult, blogPages] = await Promise.all([
+    sitemapSection('campaigns', campaignSitemap, { urls: [], dates: NO_DERIVED_DATES }),
+    sitemapSection('blog posts', blogSitemap, [] as MetadataRoute.Sitemap),
   ]);
 
-  return [...staticSitemap(), ...campaignPages, ...blogPages];
+  // If the campaign read failed, the derived dates fall back to the
+  // editorial constant rather than disappearing - a sitemap with honest
+  // static dates is still a sitemap.
+  return [
+    ...staticSitemap(campaignResult.dates),
+    ...campaignResult.urls,
+    ...blogPages,
+  ];
 }
