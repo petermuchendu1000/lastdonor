@@ -1,4 +1,5 @@
 ﻿import { db } from '@/db';
+import { insertCampaignUpdate, insertCampaignMessage } from '@/lib/echo-counters';
 import * as schema from '@/db/schema';
 import { eq, and, sql, inArray, desc } from 'drizzle-orm';
 import { seedAmountCents } from './amount-generator';
@@ -313,7 +314,7 @@ async function commitSeedDonation(write: SeedDonationWrite): Promise<boolean> {
 
     // 3. Mirror the message onto the public wall.
     if (write.message) {
-      await tx.insert(schema.campaignMessages).values({
+      await insertCampaignMessage({
         campaignId: write.campaignId,
         donorName: write.wallDonorName,
         donorLocation: write.wallDonorLocation,
@@ -321,7 +322,7 @@ async function commitSeedDonation(write: SeedDonationWrite): Promise<boolean> {
         isAnonymous: write.isAnonymous,
         donationId: donationRecord.id,
         createdAt: write.createdAt,
-      });
+      }, tx);
     }
 
     return true;
@@ -687,7 +688,7 @@ async function handlePhaseTransition(campaign: Campaign, newPhase: DonationPhase
       previousUpdates.map((u) => u.title),
     );
 
-    await db.insert(schema.campaignUpdates).values({
+    await insertCampaignUpdate({
       campaignId: campaign.id,
       title,
       bodyHtml: `<p>${updateText}</p>`,
@@ -768,7 +769,7 @@ Write a celebration post announcing the campaign has reached its goal.`,
       .map((p) => `<p>${p.trim()}</p>`)
       .join('\n');
 
-    await db.insert(schema.campaignUpdates).values({
+    await insertCampaignUpdate({
       campaignId: campaign.id,
       title: `${campaign.subjectName}'s campaign is fully funded!${donorMention ? ' ðŸŽ‰' : ''}`,
       bodyHtml: celebrationHtml,
@@ -777,7 +778,7 @@ Write a celebration post announcing the campaign has reached its goal.`,
   } catch (error) {
     console.error(`Celebration update failed for ${campaign.id}:`, error);
     // Fallback: insert a simple completion update so the campaign always has one
-    await db.insert(schema.campaignUpdates).values({
+    await insertCampaignUpdate({
       campaignId: campaign.id,
       title: `${campaign.subjectName}'s campaign is fully funded!`,
       bodyHtml: `<p>${campaign.subjectName}'s campaign has reached its goal of $${(campaign.goalAmount / 100).toLocaleString()}! Thank you to every single donor who made this possible.</p>`,
@@ -842,7 +843,7 @@ Thank all donors warmly. If a last donor name is provided, give them a special m
     .map((p) => `<p>${p.trim()}</p>`)
     .join('\n');
 
-  await db.insert(schema.campaignUpdates).values({
+  await insertCampaignUpdate({
     campaignId: campaign.id,
     title: `A message from ${organizer.name}: Thank you`,
     bodyHtml,
@@ -889,7 +890,7 @@ async function generateImpactReport(
     .map((p) => `<p>${p.trim()}</p>`)
     .join('\n');
 
-  await db.insert(schema.campaignUpdates).values({
+  await insertCampaignUpdate({
     campaignId: campaign.id,
     title: `Impact Report: ${campaign.subjectName}'s Campaign`,
     bodyHtml,

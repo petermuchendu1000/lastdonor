@@ -223,7 +223,13 @@ describe('no route oversubscribes the connection pool (docs/87 amendment 5)', ()
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it(`no entry point issues more than ${MAX_CONCURRENT_QUERIES} concurrent queries`, () => {
+  /*
+    A whole-repo AST walk that resolves imports three levels deep. It
+    took 4.6s of the default 5s budget the day it was written and
+    tipped over as soon as a file was added, so the budget is explicit
+    rather than coincidental.
+  */
+  it(`no entry point issues more than ${MAX_CONCURRENT_QUERIES} concurrent queries`, { timeout: 60_000 }, () => {
     const offenders: string[] = [];
     for (const f of files) {
       const sf = source(f);

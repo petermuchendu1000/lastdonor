@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
+import { insertCampaignUpdate } from '@/lib/echo-counters';
 import { campaigns, campaignUpdates } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
@@ -112,15 +113,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
     const { title, bodyHtml, imageUrl } = parsed.data;
 
-    const [created] = await db
-      .insert(campaignUpdates)
-      .values({
-        campaignId,
-        title: title.trim(),
-        bodyHtml: sanitizeHtml(bodyHtml),
-        imageUrl: imageUrl?.trim() ?? null,
-      })
-      .returning();
+    const created = await insertCampaignUpdate({
+      campaignId,
+      title: title.trim(),
+      bodyHtml: sanitizeHtml(bodyHtml),
+      imageUrl: imageUrl?.trim() ?? null,
+    });
 
     revalidatePath(`/campaigns/${campaign.slug}`);
     revalidatePath(`/admin/campaigns/${campaignId}`);

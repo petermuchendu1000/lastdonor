@@ -166,18 +166,27 @@ describe('runSimulation donation writes (P1-11)', () => {
     expect(transactionCount).toBe(1);
   });
 
-  it('puts the donation, the message mirror and the tally in ONE transaction', async () => {
+  it('puts the donation, the message mirror, the tally and the counter in ONE transaction', async () => {
     await runSimulation(1.0);
 
-    // All three, same transaction, nothing outside it.
+    // All of them, same transaction, nothing outside it.
     expect(calls.every((c) => c.inTx)).toBe(true);
     expect(transactionCount).toBe(1);
 
     const ops = calls.map((c) => `${c.op}:${c.table}`);
-    expect(ops).toHaveLength(3);
-    expect(ops).toContain('update:campaigns');
     expect(ops).toContain('insert:donations');
     expect(ops).toContain('insert:campaign_messages');
+
+    /*
+      FOUR operations, not three. The fourth is `message_count`,
+      which `insertCampaignMessage` moves in the same transaction as
+      the row it counts (2026-10-18). Before that the counter was
+      never incremented anywhere and `cron/reconcile` repaired it
+      after the fact; this assertion used to read `toHaveLength(3)`
+      and correctly noticed the change.
+    */
+    expect(ops).toHaveLength(4);
+    expect(ops.filter((o) => o === 'update:campaigns')).toHaveLength(2);
   });
 
   it('takes the campaign row lock first, before inserting anything', async () => {

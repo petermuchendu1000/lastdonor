@@ -11,6 +11,10 @@ export default defineConfig({
     exclude: ['e2e/**', 'src/**/*.integration.test.{ts,tsx}'],
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      // See test/stubs/server-only.ts for why.
+      'server-only': path.resolve(__dirname, './test/stubs/server-only.ts'),
+    },
   },
 });

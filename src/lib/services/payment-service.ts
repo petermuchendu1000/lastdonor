@@ -9,10 +9,8 @@
  */
 
 import { db } from '@/db';
-import {
-  campaigns, donations, users, auditLogs, fundPoolAllocations,
-  campaignMessages, campaignUpdates, donorCampaignSubscriptions,
-} from '@/db/schema';
+import { insertCampaignUpdate, insertCampaignMessage } from '@/lib/echo-counters';
+import { campaigns, donations, users, auditLogs, fundPoolAllocations, donorCampaignSubscriptions } from '@/db/schema';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { getCampaignPhase } from '@/lib/utils/phase';
@@ -238,12 +236,12 @@ async function processPaymentTransaction(
 
         // Celebration update
         const lastDonorDisplay = isAnonymous ? 'An anonymous donor' : donorName;
-        await tx.insert(campaignUpdates).values({
+        await insertCampaignUpdate({
           campaignId,
           title: 'Campaign Goal Reached!',
           bodyHtml: `<p><strong>${lastDonorDisplay}</strong> just made the final donation of $${(amount / 100).toFixed(2)}, pushing this campaign past its goal of $${(goalAmount / 100).toFixed(2)}!</p><p>Thank you to every single donor who made this possible. This campaign has now been fully funded.</p>`,
           updateType: 'celebration',
-        });
+        }, tx);
       }
     } else if (newRaised >= goalAmount * 0.9 && currentStatus === 'active') {
       await tx.update(campaigns).set({ status: 'last_donor_zone' }).where(eq(campaigns.id, campaignId));
@@ -288,7 +286,7 @@ async function processPaymentTransaction(
 
     // Insert campaign message if donor left one
     if (message) {
-      await tx.insert(campaignMessages).values({
+      await insertCampaignMessage({
         campaignId,
         userId,
         donorName: isAnonymous ? 'Anonymous' : donorName,
@@ -296,7 +294,7 @@ async function processPaymentTransaction(
         message,
         isAnonymous,
         donationId,
-      });
+      }, tx);
     }
 
     return { newRaised, goalAmount, justCompleted, donorCount: newDonorCount, isFirstDonation, donationId };

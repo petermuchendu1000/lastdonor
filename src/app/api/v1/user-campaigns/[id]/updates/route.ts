@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
+import { insertCampaignUpdate } from '@/lib/echo-counters';
 import { campaigns, campaignUpdates } from '@/db/schema';
 import { eq, and, gte } from 'drizzle-orm';
 import { auth, UnauthorizedError, ForbiddenError } from '@/lib/auth';
@@ -93,15 +94,12 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json(response, { status: 200 });
     }
 
-    const [update] = await db
-      .insert(campaignUpdates)
-      .values({
-        campaignId: id,
-        title: parsed.data.title,
-        bodyHtml,
-        updateType: 'progress',
-      })
-      .returning({ id: campaignUpdates.id, title: campaignUpdates.title, createdAt: campaignUpdates.createdAt });
+    const update = await insertCampaignUpdate({
+      campaignId: id,
+      title: parsed.data.title,
+      bodyHtml,
+      updateType: 'progress',
+    });
 
     revalidatePath(`/campaigns/${campaign.slug}`);
 

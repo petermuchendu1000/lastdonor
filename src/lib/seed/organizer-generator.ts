@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { insertCampaignUpdate } from '@/lib/echo-counters';
 import * as schema from '@/db/schema';
 import { eq, desc, count } from 'drizzle-orm';
 import { callAI } from '@/lib/ai/call-ai';
@@ -279,7 +280,7 @@ export async function generateOrganizerUpdate(campaign: Campaign): Promise<void>
     const previousTitles = previousUpdates.map((u) => u.title);
     const title = buildUpdateTitle(updateType, organizer.name, campaign.subjectName, useEditorial, previousTitles);
 
-    await db.insert(schema.campaignUpdates).values({
+    await insertCampaignUpdate({
       campaignId: campaign.id,
       title,
       bodyHtml: `<p>${updateText}</p>`,

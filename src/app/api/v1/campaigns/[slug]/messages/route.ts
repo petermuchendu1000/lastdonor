@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
+import { insertCampaignMessage } from '@/lib/echo-counters';
 import { campaigns, campaignMessages, users } from '@/db/schema';
 import { publicMessageSelect } from '@/db/public-select';
 import { eq, and, desc, gte, sql, or } from 'drizzle-orm';
@@ -130,17 +131,14 @@ export const POST = withApiHandler(async (request, { requestId, session, params 
     }, { status: 200 });
   }
 
-  const [message] = await db
-    .insert(campaignMessages)
-    .values({
-      campaignId: campaign.id,
-      userId: auth.session.user.id,
-      donorName,
-      donorLocation,
-      message: parsed.data.message,
-      isAnonymous: parsed.data.isAnonymous,
-    })
-    .returning({ id: campaignMessages.id, createdAt: campaignMessages.createdAt });
+  const message = await insertCampaignMessage({
+    campaignId: campaign.id,
+    userId: auth.session.user.id,
+    donorName,
+    donorLocation,
+    message: parsed.data.message,
+    isAnonymous: parsed.data.isAnonymous,
+  });
 
   // Best-effort: drop this instance's ISR entry for the campaign page so the
   // crawler-visible HTML and a no-JS reload pick the message up. It is NOT
