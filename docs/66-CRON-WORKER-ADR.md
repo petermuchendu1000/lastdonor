@@ -128,6 +128,43 @@ The available token is **read-only for Workers**. `wrangler deploy` fails at
 either: the stored `CF_USERNAME` is not an email address, and Cloudflare
 rejects it with `6102 Invalid format for X-Auth-Email`.
 
+### Re-probed 2026-10-18: the credential situation is WORSE than above
+
+Every Cloudflare credential in the session was re-tested. Values were
+never printed; only shapes and API responses.
+
+| credential | `/user/tokens/verify` | list workers | **write probe** |
+|---|---|---|---|
+| `CF_API_TOKEN` | **401 invalid** | 401 | 401 |
+| `CF_USER_TOKEN` | 200 valid | 200 (0 scripts) | **403 no access** |
+| `CF_WORKERS_AI_KEY` | 401 invalid | 200 | **403 no access** |
+| `CF_GLOBAL_KEY` | 401 as a bearer token | - | - |
+
+The write probe is `DELETE /accounts/{id}/workers/scripts/<a name that
+does not exist>`: 404 would mean allowed, 403 means refused. It is the
+cheapest way to ask "may I write?" without writing.
+
+Two things changed since 2026-10-16:
+
+- **`CF_API_TOKEN` is now invalid outright**, not merely read-only. It
+  was answering 200 on reads two days ago.
+- **`CF_GLOBAL_KEY` is not a global API key.** It is 52 characters and
+  not hexadecimal; a Cloudflare global key is 37 hex characters. It
+  fails as a global key (`9103 Unknown X-Auth-Key or X-Auth-Email`)
+  *and* as a bearer token (`1000 Invalid API Token`). **So option (b)
+  below cannot work however correct the email is** - the key itself is
+  not a usable Cloudflare credential. Supplying an email would have
+  looked like the fix and changed nothing.
+
+The account email could not be discovered either: `/user`, `/accounts`
+and `/accounts/{id}/members` are all forbidden to `CF_USER_TOKEN`.
+`/zones` works and lists 20 zones including `lastdonor.org`, which
+confirms the token is bound to the right account.
+
+`wrangler deploy --dry-run` succeeds, so nothing is wrong with the
+Worker: **Total Upload: 3.03 KiB / gzip: 1.07 KiB**. The only missing
+piece is a credential that may write.
+
 ### To finish, one of:
 
 **(a) An API token with write access** — Cloudflare dashboard → My Profile →
@@ -136,7 +173,10 @@ API Tokens → Create Token, with:
 - *Account → Workers Scripts → **Edit***
 - *Account → Account Settings → **Read*** (wrangler reads account info)
 
-**(b) The account's email address**, to use the existing global key.
+**(b) ~~The account's email address, to use the existing global key.~~**
+**RULED OUT 2026-10-18**: what is stored is not a global key (see the
+table above). This needs the real 37-hex-character global key *and* the
+email, which is strictly more credential than option (a).
 
 ### Then
 
