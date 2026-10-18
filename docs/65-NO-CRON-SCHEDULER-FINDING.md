@@ -1,5 +1,11 @@
 # 65 — FINDING: no cron scheduler exists in production
 
+> **RESOLVED 2026-10-18.** The Cloudflare Worker is deployed and the
+> first scheduled job in production history ran at 00:55:03Z. See
+> `docs/66`. One correction to this document: it states the account
+> has 0 Workers. It had three, all another product's - the read-only
+> token used here could not see them.
+
 **Date:** 2026-10-16
 **Status:** ⛔ **OPEN — not fixed in this change.** Copy corrected; the
 infrastructure gap remains.

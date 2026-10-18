@@ -1,7 +1,9 @@
 # 66 — The cron Worker: one trigger, nine jobs
 
 **Date:** 2026-10-16
-**Status:** Built, tested, **NOT DEPLOYED — blocked on a Cloudflare token**
+**Status:** **DEPLOYED AND VERIFIED FIRING 2026-10-18.** See the final
+section; the blocked history below is kept because the credential dead
+ends are worth not re-walking.
 **Closes:** the mechanism half of `docs/65`. The finding there stays open
 until this is deployed.
 
@@ -237,3 +239,105 @@ cadence:
 curl -H "Authorization: Bearer $CRON_SECRET" \
   https://lastdonor.fly.dev/api/v1/cron/reconcile
 ```
+
+
+---
+
+# DEPLOYED 2026-10-18 — the scheduler runs
+
+The first scheduled job in this platform's production history ran at
+**2026-10-18T00:55:03Z**. `docs/65` is resolved.
+
+## What it took
+
+A Cloudflare API token with Workers write. Three dead ends first, all
+recorded above and in the re-probe table: `CF_API_TOKEN` had gone
+invalid, `CF_WORKERS_AI_KEY` cannot write, and the thing stored as
+`CF_GLOBAL_KEY` is not a Cloudflare global key at all.
+
+A fourth dead end was of my own making. The new token was created with
+**Client IP address filtering**, on my advice, using an egress address
+I measured with `curl` — `160.79.106.0/24`. The actual API calls leave
+from somewhere else entirely, and not consistently:
+
+| measured with | egress Cloudflare saw |
+|---|---|
+| `curl` | `160.79.106.16/.20/.131/.139` |
+| the real failing call | `34.58.71.169` |
+| Node, six samples | `34.72.45.172` ×6 |
+
+The token verified fine and every real call returned
+`9109 Cannot use the access token from location: …`. **Measure the
+path the actual calls take, not a convenient proxy for it.** The filter
+was removed; the token value did not need rotating.
+
+## Deployment
+
+```
+Total Upload: 3.03 KiB / gzip: 1.07 KiB
+Uploaded lastdonor-cron (0.91 sec)
+Deployed lastdonor-cron triggers (0.82 sec)
+  schedule: */5 * * * *
+Version ID: 28c95d7c-0b3f-406f-b873-368dde27ea0d
+```
+
+`CRON_SECRET` set with `wrangler secret put`, from the value rotated
+onto Fly on 2026-10-16.
+
+**The account is shared.** It already held three Workers, all another
+product's (`pantheons-jobs-staging`, `pantheons-staging-preview`,
+`pantheons-web-staging`), which is also why `docs/65`'s "the account
+has 0 workers" was wrong — the read-only token could not see them. The
+deploy touched only `lastdonor-cron`. The `*/5` trigger is the first of
+the account's five free Cron Triggers; the other product now has four
+left, which it shares with us.
+
+## Verified, twice, end to end
+
+**The Worker's own log** (`wrangler tail`), 00:55 tick:
+
+```
+[cron] 2026-10-18T00:55:03.916Z dispatching 1: update-phases
+[cron] update-phases ok 200
+outcome: ok   cpuTime: 1 ms   wallTime: 421 ms   exceptions: []
+```
+
+1 ms of CPU against the free plan's 10 ms ceiling, which is what
+`waitUntil` and not reading response bodies buys.
+
+**A database write**, 01:00 tick, when three jobs are due:
+
+```
+cron.publish_campaigns  2026-10-18 01:00:05.897+00
+  {"errors": [], "published": 0, "rateLimited": [], "volumeLimited": 0, "qualifiedItems": 0}
+```
+
+The 200 is itself proof the secret matches on both sides: a mismatch
+returns 401, which the Worker logs as `REJECTED`.
+
+**No HTTP surface**, as designed: `https://lastdonor-cron.<subdomain>.workers.dev`
+answers `500 error code 1101` — no `fetch` handler exists. It can only
+be invoked by its own schedule.
+
+## What now runs, and when (UTC)
+
+| job | schedule | first run after deploy |
+|---|---|---|
+| `update-phases` | `*/5 * * * *` | 00:55, confirmed |
+| `ingest-news`, `publish-campaigns` | `*/30 * * * *` | 01:00, confirmed |
+| `fetch-news` | `0 */6 * * *` | 06:00 |
+| `reconcile` | `0 4 * * *` | 04:00 |
+| `blog-topics` | `0 6 * * *` | 06:00 |
+| `blog-generate` | `0 8 * * *` | 08:00 |
+| `send-newsletter` | `0 14 * * 4` | next Thursday |
+| `blog-refresh` | `0 10 * * 0` | next Sunday |
+
+Two consequences worth stating plainly:
+
+- **`reconcile` becomes a live financial control at 04:00 daily.** It
+  is the job whose absence `docs/65` called out, and the one that
+  repairs the echo columns (`docs/66` above, and CLAUDE.md's note).
+- **The news pipeline is live again.** It drafts to `under_review`
+  only (`docs/79`), so nothing reaches the public without a person
+  approving it, but the admin review queue will start growing every 30
+  minutes.
