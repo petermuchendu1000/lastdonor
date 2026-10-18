@@ -259,32 +259,67 @@ export async function runNewsPipeline(
   // Classification accuracy is dramatically better with full body text
   // vs. the 1-2 sentence summary from GNews.
   const bodyMap = new Map<string, string>();
-  /*
-    Each item in a batch does an UPDATE, so the batch size is also a
-    count of concurrent database connections. Five is the whole pool
-    (`src/db/index.ts`), which would leave nothing for anything else
-    running on the machine. Three, per docs/87 amendment 5.
-  */
-  const bodyBatchSize = 3;
 
-  for (let i = 0; i < newArticles.length; i += bodyBatchSize) {
-    const batch = newArticles.slice(i, i + bodyBatchSize);
+  /*
+    HTTP concurrency and database concurrency are separated here, and
+    they must stay separated.
+
+    This used to do both in one batch: fetch the body and UPDATE the
+    row inside the same `Promise.allSettled`, so the batch size was at
+    once an HTTP fan-out and a count of pooled connections. Five was
+    chosen for the HTTP side and happened to be the entire connection
+    pool (`src/db/index.ts`, `max: 5`).
+
+    Narrowing that single number to 3 for the pool's sake (docs/87
+    amendment 5) silently broke this route's time budget, which the
+    comment on MAX_NEW_ARTICLES_PER_RUN states explicitly: "40 bodies
+    at 5-wide plus 40 classifications at 5-wide is 16 sequential
+    waves, which fits maxDuration = 300 with headroom". At 3-wide the
+    body stage alone becomes 14 waves instead of 8, and a manual run
+    on 2026-10-18 did not return within 290 seconds or write its audit
+    row at all.
+
+    One knob could not serve both: HTTP wants width, the pool wants
+    restraint. So the bodies are fetched wide (no database involved)
+    and then written in ONE statement, which costs a single connection
+    regardless of how many articles came back.
+  */
+  const BODY_FETCH_CONCURRENCY = 8;
+
+  const fetched: { url: string; body: string }[] = [];
+  for (let i = 0; i < newArticles.length; i += BODY_FETCH_CONCURRENCY) {
+    const batch = newArticles.slice(i, i + BODY_FETCH_CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (article) => {
         const body = await fetchArticleBody(article.url, article.summary);
         bodyMap.set(article.url, body);
-
-        // Persist fetched body to DB for future reference
-        await db
-          .update(schema.newsItems)
-          .set({ articleBody: body })
-          .where(eq(schema.newsItems.url, article.url));
+        return { url: article.url, body };
       }),
     );
     for (const r of results) {
-      if (r.status === 'rejected') {
-        pushError(result, `Body fetch error: ${String(r.reason)}`);
-      }
+      if (r.status === 'fulfilled') fetched.push(r.value);
+      else pushError(result, `Body fetch error: ${String(r.reason)}`);
+    }
+  }
+
+  /*
+    One UPDATE for every body, via a VALUES list joined on url. One
+    connection, one round trip, however many articles.
+  */
+  if (fetched.length > 0) {
+    try {
+      const tuples = sql.join(
+        fetched.map((f) => sql`(${f.url}, ${f.body})`),
+        sql`, `,
+      );
+      await db.execute(sql`
+        UPDATE ${schema.newsItems} AS n
+        SET article_body = v.body
+        FROM (VALUES ${tuples}) AS v(url, body)
+        WHERE n.url = v.url
+      `);
+    } catch (error) {
+      pushError(result, `Body persist error: ${String(error)}`);
     }
   }
 

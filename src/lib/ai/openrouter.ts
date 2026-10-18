@@ -85,9 +85,45 @@ export function __resetAiClientsForTests(): void {
   _aiFallback = undefined;
 }
 
-// Model identity is configuration, not a transport concern. The fallback ladder
-// below (paid primary → two free models → the `openrouter/free` meta-router) is
-// intentional; P1-12 bounds the transport only and leaves it alone.
+/*
+  Model identity is configuration, not a transport concern. The fallback
+  ladder (paid primary -> two free models -> the `openrouter/free`
+  meta-router) is intentional; P1-12 bounds the transport only.
+
+  ── Slugs rot. These were dead and nothing noticed ───────────────────
+
+  Probed against OpenRouter on 2026-10-18, every rung of the ladder
+  failed:
+
+    qwen/qwen3-coder                        402 Insufficient credits
+    nvidia/nemotron-3-nano-30b-a3b:free     404 no longer free
+    meta-llama/llama-3.3-70b-instruct:free  404 no longer free
+    openrouter/free                         429 free-models-per-day
+
+  Both `:free` slugs had been WITHDRAWN from the free tier. A 404 is
+  not a transient failure and no retry recovers it, so every
+  classification in `fetch-news` failed: 1,461 articles fetched, 9
+  classified, 32 identical errors.
+
+  It went unseen because nothing ran. The news pipeline had no
+  scheduler for the platform's whole life (docs/65) and was deployed
+  on 2026-10-18 (docs/66); the first scheduled run is what surfaced
+  it. A model slug is a dependency on someone else's catalogue, and
+  it decays silently.
+
+  The two free rungs below were chosen from OpenRouter's live model
+  list on 2026-10-18 and each returns 429 (daily free quota) rather
+  than 404, which proves the slug resolves. **They are slug-verified,
+  NOT output-verified** - the account's free-models-per-day quota was
+  exhausted at the time, so no completion could be obtained to check
+  that either model returns parseable JSON for the classifier.
+  Verify that before trusting a classification run.
+
+  ⛔ The live blocker is not the slugs. It is the account: the paid
+  rungs answer 402 "never purchased credits" and the free tier answers
+  429 "Add 10 credits to unlock 1000 free model requests per day". No
+  code change fixes that one.
+*/
 export const PRIMARY_MODEL = 'qwen/qwen3-coder';
-export const FALLBACK_MODEL = 'nvidia/nemotron-3-nano-30b-a3b:free';
-export const TERTIARY_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
+export const FALLBACK_MODEL = 'nvidia/nemotron-3.5-lightning:free';
+export const TERTIARY_MODEL = 'xingchen-agi/xing4.0-29b-a4b:free';

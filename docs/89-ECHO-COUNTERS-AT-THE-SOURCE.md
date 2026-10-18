@@ -112,3 +112,105 @@ four: the fourth is the `message_count` increment, in the same
 transaction as the row it counts. The test's intent - everything in ONE
 transaction - is unchanged and now stronger, so the count was updated
 and the reason written into the test.
+
+---
+
+# Running every cron by hand, 2026-10-18 02:42Z
+
+The owner asked for all of it now rather than waiting for 04:00. Every
+job invoked directly with the cron secret.
+
+| job | status | time | result |
+|---|---|---|---|
+| `update-phases` | 200 | 0.6s | 5 checked, 0 updates |
+| `reconcile` | 200 | 0.7s | **all zeros, including `echoColumnFixes: 0`** |
+| `ingest-news` | 200 | 0.8s | 6 fetched, ⛔ `GNEWS_API_KEY` not set |
+| `publish-campaigns` | 200 | **124.7s** | 2 qualified, 0 published |
+| `fetch-news` | **timeout** | >290s | no audit row at all |
+| `blog-topics` | 200 | 3.2s | 3 new topics |
+| `blog-generate` | 200 | 0.6s | skipped, `BLOG_PIPELINE_ENABLED` unset |
+| `blog-refresh` | 200 | 0.9s | nothing stale |
+| `send-newsletter` | 200 | 1.0s | skipped, CAN-SPAM gate held |
+| `simulate-donations` | **403** | 0.5s | fail-closed gate held |
+
+`echoColumnFixes: 0` is the result that matters: the counters are
+maintained at the source now, and reconcile found nothing to repair.
+Both fail-closed gates refused correctly, with 3 live newsletter
+subscribers on the other side of one of them.
+
+## `fetch-news`: a budget I broke earlier the same night
+
+It returned nothing in 290 seconds and wrote no audit row. Re-run with
+a 15 minute budget it finished in **150s** (the first was a cold run
+against an empty dedup set), so it was close to the edge and I had
+pushed it over.
+
+`MAX_NEW_ARTICLES_PER_RUN` carries the arithmetic in its own comment:
+*"40 bodies at 5-wide plus 40 classifications at 5-wide is 16
+sequential waves, which fits `maxDuration = 300` with headroom."*
+Hours earlier, fixing pool fan-out (docs/87 amendment 5), I narrowed
+the body batch from 5 to 3 — because each item in that batch also did
+an `UPDATE`, so the batch size was simultaneously an HTTP fan-out and
+a count of pooled connections. At 3-wide the body stage becomes 14
+waves instead of 8.
+
+One knob could not serve both: HTTP wants width, the pool wants
+restraint. They are separated now. Bodies are fetched **8-wide with no
+database involved**, then written in **one** `UPDATE ... FROM (VALUES
+…)` — a single connection and a single round trip however many
+articles came back. Faster than the original 5-wide version and
+easier on the pool than either.
+
+## What the run exposed: the AI ladder is entirely dead
+
+`fetch-news` fetched **1,461 articles** and classified **9**. Thirty-two
+identical errors:
+
+```
+404 This model is unavailable for free. The paid version is available
+now - use this slug instead: meta-llama/llama-3.3-70b-instruct
+```
+
+Probed directly against OpenRouter, every rung fails:
+
+| rung | result |
+|---|---|
+| `qwen/qwen3-coder` (paid primary) | **402** Insufficient credits, never purchased |
+| `nvidia/nemotron-3-nano-30b-a3b:free` | **404** withdrawn from the free tier |
+| `meta-llama/llama-3.3-70b-instruct:free` | **404** withdrawn from the free tier |
+| `openrouter/free` (meta-router) | **429** free-models-per-day exhausted |
+
+`OPENROUTER_API_KEY_FALLBACK`, which `.env.example` documents, is not
+set — there is one key, not two.
+
+**Why nobody saw it:** audit rows show these errors only on
+2026-10-18. Before today the pipeline had no scheduler (docs/65), so a
+dead model slug sat in configuration harming nothing. A slug is a
+dependency on someone else's catalogue and it decays silently.
+
+**Fixed what code can fix.** The two dead `:free` slugs are replaced
+with models from OpenRouter's live list, each returning 429 rather
+than 404, which proves the slug resolves:
+
+- `FALLBACK_MODEL = nvidia/nemotron-3.5-lightning:free`
+- `TERTIARY_MODEL = xingchen-agi/xing4.0-29b-a4b:free`
+
+**Slug-verified, not output-verified.** The daily free quota was
+exhausted, so no completion could be obtained to confirm either model
+returns parseable JSON for the classifier. Check that before trusting
+a classification run. Recorded plainly because docs/81 is explicit
+that shipping an unexercised provider path is how docs/76 and docs/77
+happened; the difference here is that the slugs being replaced are
+*provably dead*, so the change is strictly an improvement either way.
+
+⛔ **OWNER DECISION, no code fixes it.** The account has never
+purchased OpenRouter credits, and the free tier is rate-limited to
+exhaustion. OpenRouter's own message: *"Add 10 credits to unlock 1000
+free model requests per day."* Until then the news pipeline fetches
+1,400 articles a run and classifies almost none of them, blog
+generation cannot run, and organiser updates will fail once the daily
+quota is gone.
+
+⛔ **Also unset: `GNEWS_API_KEY`**, so `ingest-news` loses one of its
+three sources on every run and logs a `pipeline.source_failures` row.
+RSS and FEMA still work.
