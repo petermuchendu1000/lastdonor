@@ -815,3 +815,46 @@ terminating a pid another instance already took is a no-op.
 the interval handle, which only exists after the randomised initial
 delay, so a second `startWedgeWatchdog()` inside that window would have
 armed a second watchdog. Now keyed on a flag set when arming begins.
+
+## Deployed, and what production has and has not proven
+
+Deployed 2026-10-18. Production log, with the age floor briefly set to
+60s and the period to 20s for the test, then both unset:
+
+```
+[db-watchdog] armed: terminating active/ClientRead backends with a
+              transaction older than 60s, every 20s.
+[db-watchdog] first sweep ok: 0 wedged backend(s) found.
+...
+[db-watchdog] armed: ... older than 300s, every 60s.      (defaults restored)
+[db-watchdog] first sweep ok: 0 wedged backend(s) found.
+```
+
+That proves the deployed watchdog opens its own connection through
+Supavisor, that its statement parses and runs against Supabase's
+catalog (`make_interval(secs => …)` and
+`application_name IS DISTINCT FROM` included), and that it is sweeping
+rather than silently absent.
+
+**The first-sweep line exists because of `docs/65`.** A watchdog that
+finds nothing logs nothing, which reads exactly like one that never
+started, and polling `pg_stat_activity` cannot tell them apart: a sweep
+opens, queries and closes in about 100ms, so eight polls over 32
+seconds caught its connection zero times. Nine cron jobs went unrun for
+weeks for want of a line like this.
+
+⛔ **NOT proven in production: the terminate path.** That needs a real
+wedged backend, and one could not be manufactured there - the
+Management API cleans up an abandoned request rather than leaving the
+transaction open, so the `COPY FROM STDIN` trick that works locally
+does not reproduce through it. The terminate path is proven in the lab
+against the identical signature, and the next real wedge will be the
+production proof, logged at error level with the pid, the age and the
+statement.
+
+One thing to watch: through Supavisor, `application_name` may not reach
+the server backend, which would make the self-exclusion clause a no-op.
+It is a second guard only - `pid <> pg_backend_pid()` already excludes
+the sweeping session, and a watchdog's own backend is never `active` in
+`ClientRead` with an old transaction - but if the logs ever show a
+watchdog terminating a watchdog, that is the reason.
