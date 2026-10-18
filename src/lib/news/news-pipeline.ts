@@ -1,8 +1,8 @@
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { eq, and, lt, gt, gte, ne, inArray, sql, desc } from 'drizzle-orm';
-import { fetchGNewsArticles } from './gnews-client';
-import { fetchAllRssFeeds } from './rss-parser';
+import { fetchGNewsArticles, isGNewsConfigured } from './gnews-client';
+import { fetchAllRssFeedsWithHealth } from './rss-parser';
 import { fetchFemaDeclarations } from './fema-client';
 import { fetchWeatherAlerts } from './weather-alerts';
 import {
@@ -144,8 +144,23 @@ export async function runNewsPipeline(
   let articles: NormalizedNewsItem[] = [];
 
   if (mode === 'ingest') {
+    /*
+      GNews is skipped, not called, when no key is configured.
+
+      It used to be called unconditionally; `fetchGNewsArticles` threw
+      "GNEWS_API_KEY environment variable is not set", and the
+      `sourceFailures` branch below wrote a `pipeline.source_failures`
+      audit row at severity `warning`. Harmless while nothing ran - but
+      the scheduler went live on 2026-10-18 (docs/66) and `ingest-news`
+      now fires every 30 minutes, so an unset optional key would file 48
+      warnings a day about a configuration choice. A missing key is not
+      a source failure, and burying the real ones under it is how a real
+      one gets missed.
+    */
+    const gnewsConfigured = isGNewsConfigured();
+
     const [gnewsArticles, femaItems, nwsAlerts] = await Promise.allSettled([
-      fetchGNewsArticles(),
+      gnewsConfigured ? fetchGNewsArticles() : Promise.resolve([]),
       fetchFemaDeclarations(),
       fetchWeatherAlerts(),
     ]);
@@ -189,7 +204,41 @@ export async function runNewsPipeline(
       for (const failure of sourceFailures) pushError(result, failure);
     }
   } else {
-    articles = await fetchAllRssFeeds();
+    const rss = await fetchAllRssFeedsWithHealth();
+    articles = rss.items;
+
+    /*
+      Feed health, recorded every run.
+
+      Until 2026-10-18 a feed that 404'd returned `[]`, exactly like a
+      feed with nothing new, so 48 of 125 configured feeds had died
+      without a trace - both wire services and the entire
+      first-responders category among them. The list is the pipeline's
+      whole reach in this mode, and a silently shrinking reach is the
+      failure mode that produced docs/83: nothing broke, something just
+      quietly stopped covering anything.
+
+      The threshold is a proportion rather than a count so that it
+      tracks the list as it grows. `warning`, not `critical`: a handful
+      of publishers rate-limiting at once is normal, and the blackout
+      case below is what is actually urgent.
+    */
+    const failingRatio = rss.health.failing.length / Math.max(rss.health.total, 1);
+    if (failingRatio > 0.25) {
+      await db.insert(schema.auditLogs).values({
+        eventType: 'pipeline.feed_health',
+        severity: 'warning',
+        details: {
+          total: rss.health.total,
+          ok: rss.health.ok,
+          failingCount: rss.health.failing.length,
+          // Bounded: the point is to name them, not to store the list twice.
+          failing: rss.health.failing
+            .slice(0, 30)
+            .map((f) => `${f.source} ${f.verdict} ${f.status}`),
+        },
+      });
+    }
 
     // `fetchAllRssFeeds` settles each of the 125 feeds and silently drops the
     // rejections, so a total RSS blackout is indistinguishable from a quiet

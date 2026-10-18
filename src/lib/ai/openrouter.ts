@@ -111,19 +111,59 @@ export function __resetAiClientsForTests(): void {
   it. A model slug is a dependency on someone else's catalogue, and
   it decays silently.
 
-  The two free rungs below were chosen from OpenRouter's live model
-  list on 2026-10-18 and each returns 429 (daily free quota) rather
-  than 404, which proves the slug resolves. **They are slug-verified,
-  NOT output-verified** - the account's free-models-per-day quota was
-  exhausted at the time, so no completion could be obtained to check
-  that either model returns parseable JSON for the classifier.
-  Verify that before trusting a classification run.
+  ── Slug-verified is not verified ────────────────────────────────────
 
-  ⛔ The live blocker is not the slugs. It is the account: the paid
-  rungs answer 402 "never purchased credits" and the free tier answers
-  429 "Add 10 credits to unlock 1000 free model requests per day". No
-  code change fixes that one.
+  The first two replacements were chosen because they answered 429
+  rather than 404, which proves only that the slug resolves. On a new
+  key with quota (2026-10-18) they were put to the REAL classifier
+  prompt and both failed:
+
+    nvidia/nemotron-3.5-lightning:free      empty content, all 400
+                                            tokens spent on reasoning;
+                                            at the caller's real
+                                            max_tokens (4096) no answer
+                                            inside 90s
+    xingchen-agi/xing4.0-29b-a4b:free       chain-of-thought prose
+                                            ("1. **Analyze the
+                                            Request:**..."), no JSON;
+                                            same timeout at 4096
+
+  The production client's timeout is 60s (`AI_REQUEST_TIMEOUT_MS`), so
+  neither could ever have succeeded. Two rungs that are certain to
+  burn 60s each are worse than no rungs: `AI_CALL_DEADLINE_MS` is
+  120s, so a primary failure spent the entire deadline on them and the
+  ladder never reached `openrouter/free`.
+
+  ── What replaced them, and how it was established ───────────────────
+
+  All 16 of OpenRouter's free models list `reasoning` as a supported
+  parameter, so "pick one that is not a reasoning model" is not an
+  available move. Each candidate was instead sent the real
+  `classify-news` system prompt and a real article, called exactly the
+  way `call-ai.ts` calls it (no `reasoning` parameter, max_tokens
+  4096, temperature 0.7), with the response put through `call-ai.ts`'s
+  own fence-stripping and brace-matching before `JSON.parse`. Measured
+  2026-10-18:
+
+    nvidia/nemotron-3-super-120b-a12b:free   3.8s  parsed OK
+    nvidia/nemotron-3.5-super-vl:free        3.9s  parsed OK
+    dots-studio/dots-3-note-preview:free    12.1s  parsed OK
+    google/gemma-4-26b-a4b-it:free             -   429 upstream
+    google/gemma-4-31b-it:free                 -   429 upstream
+    liquid/lfm-2.5-2.6b:free                   -   400, reasoning
+                                                   cannot be disabled
+    qwen/qwen3-coder (primary, paid)         1.1s  parsed OK
+
+  Both chosen rungs emit reasoning (566 and 2,018 characters) and
+  still return parseable JSON in the content field, which is the only
+  property that matters here. `dots-3-note-preview` also works and is
+  the next candidate if one of these rots.
+
+  The primary is live again on the key supplied 2026-10-18 and costs
+  $0.00020774 for a 257p/84c classification - about $0.30 for a
+  1,461-article `fetch-news` run. The account still shows
+  `total_credits: 0`; the key carries a $100 spend cap of its own.
 */
 export const PRIMARY_MODEL = 'qwen/qwen3-coder';
-export const FALLBACK_MODEL = 'nvidia/nemotron-3.5-lightning:free';
-export const TERTIARY_MODEL = 'xingchen-agi/xing4.0-29b-a4b:free';
+export const FALLBACK_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+export const TERTIARY_MODEL = 'nvidia/nemotron-3.5-super-vl:free';

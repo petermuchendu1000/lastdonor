@@ -80,6 +80,13 @@ vi.mock('./fetch-article-body', () => ({
 const mockFetchAllRssFeeds = vi.fn();
 vi.mock('./rss-parser', () => ({
   fetchAllRssFeeds: () => mockFetchAllRssFeeds(),
+  // The pipeline reads feed health as well as items now. Report every
+  // feed healthy by default so the health branch stays out of the way
+  // of tests about something else; the tests that care set their own.
+  fetchAllRssFeedsWithHealth: async () => {
+    const items = await mockFetchAllRssFeeds();
+    return { items, health: { total: 1, ok: 1, failing: [] } };
+  },
 }));
 
 vi.mock('@/lib/news/image-validation', () => ({
@@ -144,10 +151,21 @@ describe('runNewsPipeline', () => {
   });
 
   describe('total blackout detection', () => {
+    /*
+      A blackout now means every source FAILED, which is not the same as
+      every source being absent.
+
+      These tests used to delete `GNEWS_API_KEY` and count the resulting
+      throw as a GNews failure. Two things were wrong with that. An
+      unset optional key is a configuration choice, not an outage - and
+      it was the ONLY way `fetchGNewsArticles` ever rejected, because it
+      caught every per-keyword error and returned what it had. So the
+      detector could not have caught a real GNews outage. A key is set
+      here and the network is dead underneath it, which is the real
+      shape.
+    */
     it('writes a critical pipeline.all_sources_failed row when all three sources fail', async () => {
-      // GNews throws on the missing key; FEMA and NWS go through the real
-      // clients onto a dead network.
-      delete process.env.GNEWS_API_KEY;
+      process.env.GNEWS_API_KEY = 'test-key';
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('ENETDOWN')) as never;
 
       const result = await runNewsPipeline('ingest');
@@ -159,7 +177,7 @@ describe('runNewsPipeline', () => {
     });
 
     it('names each failed source in the critical row, so the cause is diagnosable', async () => {
-      delete process.env.GNEWS_API_KEY;
+      process.env.GNEWS_API_KEY = 'test-key';
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('ENETDOWN')) as never;
 
       await runNewsPipeline('ingest');
@@ -171,7 +189,7 @@ describe('runNewsPipeline', () => {
     });
 
     it('does not report a blackout at severity info', async () => {
-      delete process.env.GNEWS_API_KEY;
+      process.env.GNEWS_API_KEY = 'test-key';
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('ENETDOWN')) as never;
 
       await runNewsPipeline('ingest');
