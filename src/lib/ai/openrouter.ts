@@ -160,9 +160,13 @@ export function __resetAiClientsForTests(): void {
   the next candidate if one of these rots.
 
   The primary is live again on the key supplied 2026-10-18 and costs
-  $0.00020774 for a 257p/84c classification - about $0.30 for a
-  1,461-article `fetch-news` run. The account still shows
-  `total_credits: 0`; the key carries a $100 spend cap of its own.
+  $0.00020774 for a 257p/84c classification. A whole `fetch-news` run
+  against production measured $0.0146 - the run cap
+  (`MAX_NEW_ARTICLES_PER_RUN`) classifies roughly 400 of the ~1,900
+  articles fetched, not all of them. That run classified 40 articles
+  with ZERO AI errors, against 9 classified and 32 identical errors
+  before. The account still shows `total_credits: 0`; the key carries a
+  $100 spend cap of its own and 50 free-model requests a day.
 */
 export const PRIMARY_MODEL = 'qwen/qwen3-coder';
 export const FALLBACK_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';

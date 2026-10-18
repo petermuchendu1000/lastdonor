@@ -239,7 +239,7 @@ Calls (15), National Fallen Firefighters Foundation (10), The Standard Kenya
 (10).
 
 Dropped with no replacement found: Police1, FireRescue1, EMS1, Firehouse,
-Stars and Stripes, USA Today, Washington Post, Arizona Republic, Detroit News,
+Stars and Stripes, USA Today, Arizona Republic, Detroit News,
 Chicago Tribune, Denver Post, Houston Chronicle, Dallas Morning News, Atlanta
 Journal-Constitution, SF Chronicle, Seattle Times, Guardian Nigeria, Chronicle
 Zimbabwe, Manila Bulletin, Korea Herald, NZ Herald, CTV News, SWI swissinfo,
@@ -249,8 +249,32 @@ Citizen.
 **Feeds deliberately kept despite failing.** A hard, repeatable failure (404,
 403, 402, 406, or 200 with no items) is treated as dead. A timeout, 429, 502 or
 503 is treated as transient and kept — Miami Herald, Kansas City Star, Trinidad
-Express, NHK World and CBC World among them. The health reporting below is what
-catches a "transient" failure that is really permanent.
+Express, NHK World, CBC World and the Washington Post (502) among them. The
+health reporting below is what catches a "transient" failure that is really
+permanent.
+
+### Measured after the change
+
+The same probe, same machine, against the new list:
+
+> **94 live · 0 empty · 7 failing** — of 101.
+
+**58 % → 93 %.** All seven remaining failures are the transient kind the rule
+above deliberately keeps: five timeouts (NHK World, CBC News, CBC World,
+Kansas City Star, Miami Herald), one `fetch failed` (RNZ, which was live two
+hours earlier) and the Washington Post's 502. None is a 404.
+
+And in the pipeline itself, `fetch-news` run against production immediately
+after the deploy:
+
+| | before | after |
+|---|---|---|
+| articles fetched | 1,461 | **1,899** |
+| classified | 9 | **40** |
+| AI errors | 32 identical | **0** |
+
+The two errors in the new run are both `low extraction confidence` skips, which
+are the pipeline working as designed, not a model failing.
 
 ---
 
@@ -316,8 +340,12 @@ reply put through `call-ai.ts`'s own fence-stripping before `JSON.parse`:
 | `liquid/lfm-2.5-2.6b:free` | 400, reasoning cannot be disabled |
 
 The primary is live again on the key supplied 2026-10-18 and costs
-**$0.00020774** for a 257p/84c classification — about **$0.30** for a
-1,461-article `fetch-news` run. The account still reports `total_credits: 0`;
+**$0.00020774** for a 257p/84c classification. An earlier draft of this
+document extrapolated that to "about $0.30 per `fetch-news` run"; the real run
+was then measured at **$0.0146**, because `MAX_NEW_ARTICLES_PER_RUN` caps the
+run at roughly 400 of the articles fetched rather than classifying all 1,899.
+The extrapolation was wrong by 20×, in the safe direction, and is recorded here
+rather than quietly deleted. The account still reports `total_credits: 0`;
 the key carries a $100 spend cap of its own and 50 free-model requests a day.
 
 **Do not rotate that OpenRouter key** without setting the replacement on Fly —
@@ -330,11 +358,12 @@ it is production configuration now, not a sandbox credential.
 - **No wire service.** AP and Reuters have no public RSS and the only route to
   AP is Google News RSS, rejected above. Coverage leans on NPR, PBS, ABC, NBC,
   CBS, BBC, The Guardian, the NYT, France 24 and Al Jazeera instead.
-- **Thirty-two feeds removed outright.** Each was a hard repeatable failure, so
-  the loss is nominal — but the list is now 102, not 125, and a future reader
-  should not mistake the smaller number for shrinking ambition.
+- **Thirty-one feeds removed outright.** Each was a hard repeatable failure, so
+  the loss is nominal — but the list is now 101, not 125, and a future reader
+  should not mistake the smaller number for shrinking ambition. It carries 94
+  working feeds against the old list's 72.
 - **A 25 % failure threshold is a judgement, not a measurement.** At the
-  current 102 feeds it fires at 26 failures. It was chosen to sit well above
+  current 101 feeds it fires at 26 failures, against the 7 seen today. It was chosen to sit well above
   normal publisher flakiness and well below the 38 % that went unnoticed for
   years. Revisit it once a few weeks of `pipeline.feed_health` rows exist.
 - **NewsData.io is recommended on its own documentation, not on a live call.**
