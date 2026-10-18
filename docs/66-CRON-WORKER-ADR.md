@@ -341,3 +341,55 @@ Two consequences worth stating plainly:
   only (`docs/79`), so nothing reaches the public without a person
   approving it, but the admin review queue will start growing every 30
   minutes.
+
+## A control that had quietly stopped controlling anything
+
+Found while taking a baseline for the first `reconcile` run, 2026-10-18.
+
+`reconcile` step 4 is the integrity check on `campaigns.raised_amount`:
+it recomputes the figure from the donation rows, logs a
+`reconcile.integrity_drift`, and auto-corrects. It selected
+`WHERE c.status IN ('active', 'last_donor_zone', 'paused')`.
+
+That was true when it was written. `docs/79` then gated **both**
+campaign creation paths to `under_review`, so by the time the
+scheduler finally ran, **all 12 campaigns on the platform were in a
+status this query did not select**. The financial drift detector would
+have run every night against an empty set, reporting
+`activeCampaignDrifts: 0` and meaning nothing by it.
+
+Nothing failed. A check stopped covering anything as a side effect of
+a change in a different file, which is the shape `docs/83` records.
+
+**Fixed by inverting it to an exclusion list.** An inclusion list has
+to be remembered whenever a status is added or becomes the norm; an
+exclusion list fails the other way, covering a new status by default
+and forcing anyone who wants one skipped to write down why.
+
+```sql
+WHERE c.status::text NOT IN ('completed', 'archived')
+```
+
+`completed` and `archived` stay out on purpose: funds may already have
+been released against the stored figure, so silently rewriting it is
+the wrong default. Step 1 logs a `reconcile.discrepancy` for completed
+campaigns instead, for a person to read.
+
+Verified before deploying, because this is a money control:
+
+- the new predicate run against production returns **0 rows**, so the
+  first run cannot produce a surprise mass-correction;
+- every campaign is `under_review` with `raised_amount`, derived total
+  and released total all **0**, measured per status;
+- four tests pin the scope, including that `under_review`, `paused`,
+  `suspended` and `cancelled` may never appear as exclusions.
+
+The literals are written into the statement rather than bound, so they
+appear in `pg_stat_activity` when someone is working out why a campaign
+was or was not corrected. They are **not** built with `sql.raw`:
+`test/security/oblique-p9-12.test.ts` bans it outright under
+`src/app/api`, and it caught the first attempt. The ban is worth more
+than the convenience.
+
+**Noted, not fixed:** step 1 audits `completed` but not `archived`, so
+archived campaigns get neither the audit nor the correction.

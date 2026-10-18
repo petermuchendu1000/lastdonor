@@ -240,6 +240,64 @@ describe('reconcile step 1 auto-correction', () => {
   });
 });
 
+// ─── Step 4 · which campaigns it even looks at ──────────────────────────────
+
+/*
+  The check used to read `status IN ('active', 'last_donor_zone',
+  'paused')`. docs/79 then gated both creation paths to `under_review`,
+  and by 2026-10-18 every campaign on the platform sat in a status this
+  query did not select - a financial integrity control running against
+  an empty set every night, silently.
+
+  It is an exclusion list now, so a status added later is covered by
+  default and leaving one out has to be written down.
+*/
+describe('reconcile step 4 scope (docs/87-era regression)', () => {
+  function driftQuery(): string {
+    const q = world.executed.find((text) => text.includes('derived') && text.includes('raised_amount'));
+    expect(q, 'step 4 drift query was never executed').toBeTruthy();
+    return q!;
+  }
+
+  it('does not restrict itself to a fixed list of live statuses', async () => {
+    await GET(request());
+    expect(driftQuery()).not.toMatch(/status\s+IN\s*\(/i);
+  });
+
+  it('excludes only completed and archived, which step 1 audits instead', async () => {
+    await GET(request());
+    const q = driftQuery();
+    expect(q).toContain('completed');
+    expect(q).toContain('archived');
+    expect(q).toMatch(/NOT\s+IN/i);
+  });
+
+  it('therefore covers under_review, paused, suspended and cancelled', async () => {
+    await GET(request());
+    const q = driftQuery();
+    // None of these may appear as an exclusion. A campaign can hold
+    // donations in every one of them.
+    for (const status of ['under_review', 'paused', 'suspended', 'cancelled', 'active', 'last_donor_zone']) {
+      expect(q, `${status} must not be excluded from the drift check`).not.toContain(`'${status}'`);
+    }
+  });
+
+  it('still corrects a drifting under_review campaign end to end', async () => {
+    const row = campaign(C2, { status: 'under_review', raisedAmount: 7_500, totalReleasedAmount: 0 });
+    world.campaignsById.set(C2, row);
+    world.drifts = [{ id: C2, slug: 'keisha-wallace', stored: 7_500, derived: 0 }];
+    currentTarget = C2;
+
+    const res = await GET(request());
+    const payload = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(payload.data.activeCampaignDrifts).toBe(1);
+    expect(payload.data.errors).toEqual([]);
+    expect(row.raisedAmount).toBe(0);
+  });
+});
+
 // ─── Step 4 · active-campaign drift ─────────────────────────────────────────
 
 describe('reconcile step 4 drift correction', () => {

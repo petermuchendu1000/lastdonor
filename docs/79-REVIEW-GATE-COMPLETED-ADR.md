@@ -1,5 +1,12 @@
 # 79 — Closing the review gate: the news generator, and the 12 live campaigns
 
+> **Side effect found 2026-10-18, fixed:** gating everything to
+> `under_review` also took every campaign out of scope of
+> `reconcile` step 4, whose `raised_amount` integrity check selected
+> `status IN ('active','last_donor_zone','paused')`. The financial
+> drift detector would have inspected nothing, nightly, while
+> reporting success. It is an exclusion list now. See `docs/66`.
+
 **Date:** 2026-10-17
 **Status:** Implemented. The claim now holds without qualification.
 **Completes:** `docs/78` (which gated user submissions only).

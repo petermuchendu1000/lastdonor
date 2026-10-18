@@ -155,8 +155,44 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 4. Transaction Salt: Reconcile ALL active campaigns (not just completed)
-    // Detects drift caused by non-atomic operations, ORM bugs, or manual DB edits
+    /*
+      4. Transaction Salt: `raised_amount` against the donations that
+      justify it. Catches drift from non-atomic writes, ORM bugs and
+      manual edits, and auto-corrects it.
+
+      ── Why this is an EXCLUSION list, not an inclusion list ──────────
+
+      It used to read `status IN ('active', 'last_donor_zone',
+      'paused')`. That was true when it was written and silently became
+      false: docs/79 gated both creation paths to `under_review`, so by
+      2026-10-18 every campaign on the platform was in a status this
+      check did not look at. A financial integrity control was running
+      against an empty set every night, and nothing said so. Same shape
+      as docs/83 - a thing stopped covering anything as a side effect of
+      work in another file.
+
+      An inclusion list has to be remembered whenever a status is added
+      or becomes the norm. An exclusion list fails the other way: a new
+      status is checked by default, and leaving it out has to be a
+      decision someone writes down here.
+
+      The two exclusions are written as literals in the statement
+      rather than bound, so they show up in `pg_stat_activity` and in
+      any logged query when someone is working out why a campaign was
+      or was not corrected. They are NOT built with `sql.raw`:
+      `test/security/oblique-p9-12.test.ts` bans it outright under
+      `src/app/api`, and that ban is worth more than the convenience.
+
+      `completed` and `archived` are the two exclusions, and they are
+      audit-only on purpose. Funds may already have been released
+      against the stored figure, so silently rewriting it is the wrong
+      default: step 1 above logs a `reconcile.discrepancy` for completed
+      campaigns instead, for a person to look at.
+
+      (Noted, not fixed here: step 1 covers `completed` but not
+      `archived`, so archived campaigns get neither the audit nor the
+      correction.)
+    */
     const activeCampaignDrifts = await db.execute<{
       id: string;
       slug: string;
@@ -167,7 +203,7 @@ export async function GET(request: NextRequest) {
              COALESCE(SUM(d.amount) FILTER (WHERE d.refunded = false), 0)::int AS derived
       FROM campaigns c
       LEFT JOIN donations d ON d.campaign_id = c.id
-      WHERE c.status IN ('active', 'last_donor_zone', 'paused')
+      WHERE c.status::text NOT IN ('completed', 'archived')
       GROUP BY c.id
       HAVING c.raised_amount != COALESCE(SUM(d.amount) FILTER (WHERE d.refunded = false), 0)::int
     `);
