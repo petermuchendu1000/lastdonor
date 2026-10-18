@@ -221,13 +221,31 @@ export function startWedgeWatchdog(config: WatchdogConfig = watchdogConfig()): b
   arming = true;
 
   const periodMs = config.intervalSeconds * 1000;
-  const sweep = () => {
-    void sweepWedgedBackends(config);
+
+  /*
+    The first sweep reports its outcome even when it finds nothing;
+    later ones stay quiet unless they do. Without that line there is no
+    way to tell a watchdog that is running and finding nothing from one
+    that never started, and "it is probably fine" is how `docs/65`
+    happened: nine cron jobs that had never run once, for weeks,
+    because nothing said so either way.
+  */
+  let first = true;
+  const sweep = async () => {
+    const result = await sweepWedgedBackends(config);
+    if (first) {
+      first = false;
+      console.log(
+        result.checked
+          ? `[db-watchdog] first sweep ok: ${result.found} wedged backend(s) found.`
+          : `[db-watchdog] first sweep did not run: ${result.error ?? 'disabled'}.`,
+      );
+    }
   };
 
   setTimeout(() => {
-    sweep();
-    timer = setInterval(sweep, periodMs);
+    void sweep();
+    timer = setInterval(() => void sweep(), periodMs);
     timer.unref?.();
   }, Math.floor(Math.random() * periodMs)).unref?.();
 
