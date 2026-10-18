@@ -264,22 +264,43 @@ describe('reconcile step 4 scope (docs/87-era regression)', () => {
     expect(driftQuery()).not.toMatch(/status\s+IN\s*\(/i);
   });
 
-  it('excludes only completed and archived, which step 1 audits instead', async () => {
+  it('filters on no status at all, so every campaign is checked', async () => {
     await GET(request());
     const q = driftQuery();
-    expect(q).toContain('completed');
-    expect(q).toContain('archived');
-    expect(q).toMatch(/NOT\s+IN/i);
+    // An exclusion list was the first fix and was itself wrong: step 1
+    // auto-corrects `completed` rather than merely auditing it, so
+    // excluding it protected nothing, and excluding `archived` left
+    // that status covered by neither step.
+    expect(q).not.toMatch(/NOT\s+IN/i);
+    expect(q).not.toMatch(/status/i);
   });
 
-  it('therefore covers under_review, paused, suspended and cancelled', async () => {
+  it('names no status as an exception, including completed and archived', async () => {
     await GET(request());
     const q = driftQuery();
-    // None of these may appear as an exclusion. A campaign can hold
-    // donations in every one of them.
-    for (const status of ['under_review', 'paused', 'suspended', 'cancelled', 'active', 'last_donor_zone']) {
+    for (const status of [
+      'under_review', 'paused', 'suspended', 'cancelled',
+      'active', 'last_donor_zone', 'completed', 'archived', 'draft',
+    ]) {
       expect(q, `${status} must not be excluded from the drift check`).not.toContain(`'${status}'`);
     }
+  });
+
+  it('corrects a drifting ARCHIVED campaign, which nothing used to check', async () => {
+    const row = campaign(C2, { status: 'archived', raisedAmount: 5_000, totalReleasedAmount: 5_000 });
+    world.campaignsById.set(C2, row);
+    world.drifts = [{ id: C2, slug: 'old-appeal', stored: 5_000, derived: 1_200 }];
+    currentTarget = C2;
+
+    const res = await GET(request());
+    const payload = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(payload.data.activeCampaignDrifts).toBe(1);
+    expect(payload.data.errors).toEqual([]);
+    expect(row.raisedAmount).toBe(1_200);
+    // Clamped, or `campaigns_released_lte_raised` would have thrown.
+    expect(row.totalReleasedAmount).toBe(1_200);
   });
 
   it('still corrects a drifting under_review campaign end to end', async () => {

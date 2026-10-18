@@ -209,6 +209,21 @@ These exist for a reason; changing them has consequences beyond the local file.
 
 ---
 
+## Working autonomously
+
+Owner instruction, 2026-10-18: **when you find a bug or a defect while
+doing something else, fix it.** Do not stop to ask whether a clear
+defect is in scope - investigate it, fix it, test it, document it, and
+say what you did. Reserve questions for things only the owner can
+decide: a credential, a product or policy call, a trade-off with no
+right answer, or an action that destroys data.
+
+This is why several docs here read as "found while doing something
+else". That is the intended way to work on this codebase, not a
+digression.
+
+---
+
 ## Claims and verification
 
 This project handles other people's money and publishes appeals on behalf of

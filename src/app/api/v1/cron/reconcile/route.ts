@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
       justify it. Catches drift from non-atomic writes, ORM bugs and
       manual edits, and auto-corrects it.
 
-      ── Why this is an EXCLUSION list, not an inclusion list ──────────
+      ── Why it filters on no status at all ───────────────────────────
 
       It used to read `status IN ('active', 'last_donor_zone',
       'paused')`. That was true when it was written and silently became
@@ -171,27 +171,35 @@ export async function GET(request: NextRequest) {
       as docs/83 - a thing stopped covering anything as a side effect of
       work in another file.
 
-      An inclusion list has to be remembered whenever a status is added
-      or becomes the norm. An exclusion list fails the other way: a new
-      status is checked by default, and leaving it out has to be a
-      decision someone writes down here.
+      The first fix replaced that with an exclusion list of `completed`
+      and `archived`, reasoning that funds may already have been
+      released against the stored figure, so a silent rewrite is the
+      wrong default, and that step 1 audits completed campaigns
+      instead. **That reasoning was wrong.** Step 1 does not merely
+      audit: it auto-corrects, with the same `LEAST` clamp this loop
+      uses (see step 1 above). So excluding `completed` protected
+      nothing, and excluding `archived` left it covered by neither step
+      - no audit and no correction, for a status that can hold real
+      money. There are now no exclusions.
 
-      The two exclusions are written as literals in the statement
-      rather than bound, so they show up in `pg_stat_activity` and in
-      any logged query when someone is working out why a campaign was
-      or was not corrected. They are NOT built with `sql.raw`:
-      `test/security/oblique-p9-12.test.ts` bans it outright under
-      `src/app/api`, and that ban is worth more than the convenience.
+      What the two steps actually are:
 
-      `completed` and `archived` are the two exclusions, and they are
-      audit-only on purpose. Funds may already have been released
-      against the stored figure, so silently rewriting it is the wrong
-      default: step 1 above logs a `reconcile.discrepancy` for completed
-      campaigns instead, for a person to look at.
+        step 1  `completed` only, drift > $1, logs
+                `reconcile.discrepancy` AND corrects.
+        step 4  every status, ANY drift, logs
+                `reconcile.integrity_drift` AND corrects.
 
-      (Noted, not fixed here: step 1 covers `completed` but not
-      `archived`, so archived campaigns get neither the audit nor the
-      correction.)
+      Step 1 runs first, so a completed campaign with a large drift is
+      corrected there and re-derived as clean here: no double
+      correction and no duplicate audit row. What step 4 adds is the
+      sub-dollar drift step 1 tolerates, and every status step 1 never
+      looked at.
+
+      Correcting an archived or completed campaign is as safe as
+      correcting any other: `total_released_amount` is clamped in the
+      same statement, so a corrected figure can never fall below what
+      has already been released and trip
+      `campaigns_released_lte_raised`.
     */
     const activeCampaignDrifts = await db.execute<{
       id: string;
@@ -203,7 +211,6 @@ export async function GET(request: NextRequest) {
              COALESCE(SUM(d.amount) FILTER (WHERE d.refunded = false), 0)::int AS derived
       FROM campaigns c
       LEFT JOIN donations d ON d.campaign_id = c.id
-      WHERE c.status::text NOT IN ('completed', 'archived')
       GROUP BY c.id
       HAVING c.raised_amount != COALESCE(SUM(d.amount) FILTER (WHERE d.refunded = false), 0)::int
     `);

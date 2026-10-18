@@ -361,19 +361,37 @@ have run every night against an empty set, reporting
 Nothing failed. A check stopped covering anything as a side effect of
 a change in a different file, which is the shape `docs/83` records.
 
-**Fixed by inverting it to an exclusion list.** An inclusion list has
-to be remembered whenever a status is added or becomes the norm; an
-exclusion list fails the other way, covering a new status by default
-and forcing anyone who wants one skipped to write down why.
+**Fixed by removing the status filter entirely.** Every campaign, in
+every status, is now checked.
 
-```sql
-WHERE c.status::text NOT IN ('completed', 'archived')
-```
+The first attempt replaced the inclusion list with an exclusion list of
+`completed` and `archived`, on the reasoning that funds may already
+have been released against the stored figure and that step 1 audits
+completed campaigns instead.
 
-`completed` and `archived` stay out on purpose: funds may already have
-been released against the stored figure, so silently rewriting it is
-the wrong default. Step 1 logs a `reconcile.discrepancy` for completed
-campaigns instead, for a person to read.
+**That reasoning was wrong, and this corrects it.** Step 1 does not
+merely audit: it logs `reconcile.discrepancy` *and* auto-corrects
+(`route.ts` step 1, with the same `LEAST` clamp). So excluding
+`completed` protected nothing, and excluding `archived` left it
+covered by neither step - no audit and no correction - which is the
+very gap this section was written to close.
+
+What the two steps are, stated once:
+
+| | covers | threshold | logs | corrects |
+|---|---|---|---|---|
+| step 1 | `completed` only | drift > $1 | `reconcile.discrepancy` | yes |
+| step 4 | **every status** | any drift | `reconcile.integrity_drift` | yes |
+
+Step 1 runs first, so a completed campaign with a large drift is
+corrected there and re-derived as clean by step 4: no double
+correction, no duplicate audit row. What step 4 adds is the sub-dollar
+drift step 1 tolerates, and every status step 1 never looked at.
+
+Correcting an archived campaign is as safe as correcting any other:
+`total_released_amount` is clamped in the same statement, so a
+corrected figure can never fall below what has been released and trip
+`campaigns_released_lte_raised`. A test now pins exactly that case.
 
 Verified before deploying, because this is a money control:
 
@@ -381,8 +399,9 @@ Verified before deploying, because this is a money control:
   first run cannot produce a surprise mass-correction;
 - every campaign is `under_review` with `raised_amount`, derived total
   and released total all **0**, measured per status;
-- four tests pin the scope, including that `under_review`, `paused`,
-  `suspended` and `cancelled` may never appear as exclusions.
+- five tests pin the scope: the query may name no status at all, no
+  status may appear as an exclusion, and a drifting `archived`
+  campaign is corrected with its released figure clamped.
 
 The literals are written into the statement rather than bound, so they
 appear in `pg_stat_activity` when someone is working out why a campaign
@@ -391,5 +410,5 @@ was or was not corrected. They are **not** built with `sql.raw`:
 `src/app/api`, and it caught the first attempt. The ban is worth more
 than the convenience.
 
-**Noted, not fixed:** step 1 audits `completed` but not `archived`, so
-archived campaigns get neither the audit nor the correction.
+**The `archived` gap is closed** by the same change: step 4 now covers
+it. There is no status that drift detection skips.
