@@ -53,8 +53,14 @@ const PAGE_SIZE = 12;
 export default async function CategoryPage({ params }: PageProps) {
   const { category } = await params;
   const content = getCategoryContent(category);
-  // Soft 404: answers 200, not 404. See docs/80 - `noStore()` here was
-  // tried and reverted, it 500s under on-demand ISR generation.
+  // Answers a real 404 since 2026-10-18, verified against
+  // `next build && next start`: an unknown category went 200 -> 404
+  // while `/campaigns/category/medical` stayed 200. The cause was
+  // `src/app/campaigns/loading.tsx` wrapping this route in an implicit
+  // Suspense boundary, flushing the status before this line; it now
+  // lives at `campaigns/(index)/loading.tsx`. This route is the one
+  // that proved the mechanism, because its miss is a pure static lookup
+  // with no database in it. See docs/80.
   if (!content) notFound();
 
   const categorySlug = content.slug as CampaignCategory;

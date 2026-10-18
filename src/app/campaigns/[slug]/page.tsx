@@ -306,27 +306,36 @@ export default async function CampaignDetailPage({ params }: PageProps) {
       The query answered and matched nothing. This is the only evidence that
       justifies a 404, and it is reached without waiting on any timeout.
 
-      ⚠️ KNOWN DEFECT, still open: this answers HTTP 200, not 404.
-      Measured 2026-10-17 - a nonexistent slug returns `200` with
-      `x-nextjs-cache: HIT` and `x-nextjs-prerender: 1`, because this
-      route sets `revalidate = 60` and a cached ISR entry is served 200
-      whatever status its render asked for. A soft 404.
+      RESOLVED 2026-10-18. This answers a real 404 now. What follows is
+      the history, because the obvious retry is the one that fails.
 
-      `noStore()` here is NOT the fix, though it is the obvious one and it
-      is what the `unavailable` branch above uses. Tried on 2026-10-17 and
-      reverted the same day: on an unknown slug Next renders this page
-      through on-demand ISR generation, and opting out of the cache from
-      inside that render is a dynamic-server bail-out rather than a cache
-      hint, which surfaced as **HTTP 500** on this route, `/blog/[slug]`
-      and `/campaigns/category/[category]`.
+      It used to answer HTTP 200 with a "Campaign Not Found" body.
+      ISR was blamed for it and was innocent. The cause was
+      `loading.tsx`: it puts an implicit `<Suspense>` boundary around
+      every route beneath its segment, React streams the shell as soon
+      as it suspends, and the 200 status line is on the wire before
+      this function finishes. `notFound()` could still swap the body -
+      which is why the body was always right - but not the status.
 
-      It passed lint, typecheck, 5,679 unit tests and a local `next dev`
-      check first: dev does not use ISR and answers 200 either way. The
-      only thing that showed it was production.
+      Proven with probe routes in real production builds: a page whose
+      literal first statement is `notFound()`, `force-dynamic`, nothing
+      awaited, no caching at all, still answered 200. Remove
+      `src/app/loading.tsx`, rebuild, and every one of those becomes a
+      404 - including the `revalidate = 60` case.
 
-      Do not retry `noStore()`, `connection()`, or a `dynamic` export here
-      without first reproducing against `next build && next start`. See
-      docs/80 for what the real fix probably costs.
+      The fix was to scope each `loading.tsx` into a route group so none
+      sits above a route that calls `notFound()`. This route lost its
+      skeleton outright; to get one back, put an explicit `<Suspense>`
+      INSIDE this page, below this lookup, so the status is settled
+      before anything streams.
+
+      `src/app/soft-404.ratchet.test.ts` fails the build if a
+      `loading.tsx` reappears above this route.
+
+      Still do not reach for `noStore()` here. It was tried on
+      2026-10-17 and 500'd all three routes, for an unrelated reason:
+      opting out of the cache during on-demand ISR generation is a
+      dynamic-server bail-out, not a cache hint. See docs/80.
     */
     notFound();
   }

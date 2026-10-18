@@ -70,7 +70,11 @@ describe('one currency renderer across the admin (F4/F5)', () => {
 
 describe('no server-local period boundaries (F15)', () => {
   const SERVER_FILES = [
-    'src/app/admin/page.tsx',
+    // `(index)` is a route group, so this is still `/admin`. It moved there
+    // on 2026-10-18 so that `admin/loading.tsx` stops wrapping the
+    // `admin/*/[id]` pages in a Suspense boundary, which was turning their
+    // `notFound()` into HTTP 200 - see docs/80.
+    'src/app/admin/(index)/page.tsx',
     'src/app/admin/reports/page.tsx',
     // `src/app/api/v1/admin/dashboard/route.ts` was here until docs/88
     // F10 deleted it as an orphan. Nothing called it.

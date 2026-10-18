@@ -131,8 +131,13 @@ export default async function BlogPostPage({ params }: PageProps) {
     .where(and(eq(blogPosts.slug, slug), eq(blogPosts.published, true)))
     .limit(1);
 
-  // Soft 404: answers 200, not 404. See docs/80 - `noStore()` here was
-  // tried and reverted, it 500s under on-demand ISR generation.
+  // Answers a real 404 since 2026-10-18. It used to answer 200 with a
+  // "not found" body, because `src/app/blog/loading.tsx` wrapped this
+  // route in an implicit Suspense boundary and the status was flushed
+  // with the streamed shell before this line ran. That file now lives at
+  // `blog/(index)/loading.tsx`, scoped to the listing. ISR was blamed
+  // and was innocent. See docs/80, and the ratchet in
+  // `src/app/soft-404.ratchet.test.ts`.
   if (!post) notFound();
 
   // Related posts: same category, exclude current, up to 3

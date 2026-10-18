@@ -44,7 +44,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(''),
 }));
 
-const CampaignsPage = (await import('./page')).default;
+const CampaignsPage = (await import('./(index)/page')).default;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                           */
