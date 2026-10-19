@@ -24,9 +24,9 @@ import {
 import type { CampaignCategory } from '@/types';
 
 const SORT_OPTIONS = [
-  { value: 'most_funded', label: 'Most Funded' },
-  { value: 'newest', label: 'Recently Completed' },
-  { value: 'least_funded', label: 'Least Funded' },
+  { value: 'most_funded', label: 'Most money raised' },
+  { value: 'newest', label: 'Finished most recently' },
+  { value: 'least_funded', label: 'Least money raised' },
 ] as const;
 
 interface CompletedCampaignFiltersProps {
@@ -85,7 +85,7 @@ export function CompletedCampaignFilters({
     ? CAMPAIGN_CATEGORIES.find((c) => c.value === activeCategory)?.label
     : null;
 
-  const sortLabel = SORT_OPTIONS.find((o) => o.value === activeSort)?.label ?? 'Most Funded';
+  const sortLabel = SORT_OPTIONS.find((o) => o.value === activeSort)?.label ?? 'Most money raised';
 
   return (
     <div data-pending={isPending ? '' : undefined} className="space-y-4">
@@ -97,7 +97,8 @@ export function CompletedCampaignFilters({
             type="search"
             value={localQuery}
             onChange={(e) => setLocalQuery(e.target.value)}
-            placeholder="Search completed campaigns by name, person, or location"
+            aria-label="Search campaigns that reached their goal"
+            placeholder="Search by name, person, or place"
             className="w-full rounded-full border border-border bg-muted/50 py-3 pl-12 pr-4 text-base text-foreground placeholder:text-muted-foreground focus:border-primary focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -135,7 +136,7 @@ export function CompletedCampaignFilters({
             <div className="flex-1 overflow-y-auto px-6">
               {/* Category section */}
               <div className="pb-8">
-                <h3 className="text-base font-bold text-foreground">Category</h3>
+                <h3 className="text-base font-bold text-foreground">What it was for</h3>
                 <p className="mt-1 text-sm text-muted-foreground">Choose one</p>
                 <div className="mt-4 flex flex-wrap gap-2.5">
                   {CAMPAIGN_CATEGORIES.map((cat) => (
@@ -164,7 +165,7 @@ export function CompletedCampaignFilters({
 
               {/* Location section */}
               <div className="py-8">
-                <h3 className="text-base font-bold text-foreground">Location</h3>
+                <h3 className="text-base font-bold text-foreground">Where they live</h3>
                 <p className="mt-1 text-sm text-muted-foreground">City, state, or region</p>
                 <form
                   className="mt-4"
@@ -178,6 +179,7 @@ export function CompletedCampaignFilters({
                     <MapPinIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
+                      aria-label="Town, city or state"
                       value={localLocation}
                       onChange={(e) => setLocalLocation(e.target.value)}
                       placeholder="e.g. Texas, San Diego"
@@ -193,7 +195,7 @@ export function CompletedCampaignFilters({
                       }}
                       className="mt-3 text-sm font-medium text-primary hover:text-primary/80"
                     >
-                      Clear location
+                      Clear this place
                     </button>
                   )}
                 </form>
@@ -203,7 +205,7 @@ export function CompletedCampaignFilters({
 
               {/* Sort section */}
               <div className="py-8">
-                <h3 className="text-base font-bold text-foreground">Sort by</h3>
+                <h3 className="text-base font-bold text-foreground">Order the list</h3>
                 <div className="mt-4 space-y-1">
                   {SORT_OPTIONS.map((opt) => (
                     <button
@@ -235,14 +237,14 @@ export function CompletedCampaignFilters({
                 }}
                 className="flex-1 rounded-full border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
               >
-                Reset
+                Clear all
               </button>
               <SheetClose asChild>
                 <button
                   type="button"
                   className="flex-1 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  See results
+                  Show results
                 </button>
               </SheetClose>
             </SheetFooter>
@@ -261,7 +263,7 @@ export function CompletedCampaignFilters({
                   : 'border-border text-foreground hover:bg-muted',
               )}
             >
-              {categoryLabel ?? 'Category'}
+              {categoryLabel ?? 'What it was for'}
               <ChevronDownIcon className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
@@ -294,7 +296,7 @@ export function CompletedCampaignFilters({
                 onClick={() => updateParams({ category: null })}
                 className="mt-3 text-sm text-primary hover:text-primary/80"
               >
-                Clear Selection
+                Clear this choice
               </button>
             )}
           </PopoverContent>
@@ -313,7 +315,7 @@ export function CompletedCampaignFilters({
               )}
             >
               <MapPinIcon className="h-3.5 w-3.5" />
-              {activeLocation || 'Location'}
+              {activeLocation || 'Where they live'}
               <ChevronDownIcon className="h-3.5 w-3.5" />
             </button>
           </PopoverTrigger>
@@ -330,6 +332,7 @@ export function CompletedCampaignFilters({
                 <MapPinIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
+                  aria-label="Town, city or state"
                   value={localLocation}
                   onChange={(e) => setLocalLocation(e.target.value)}
                   placeholder="e.g. Texas, San Diego"
@@ -346,7 +349,7 @@ export function CompletedCampaignFilters({
                     }}
                     className="text-sm text-primary hover:text-primary/80"
                   >
-                    Clear
+                    Clear this place
                   </button>
                 ) : (
                   <span />
@@ -355,7 +358,7 @@ export function CompletedCampaignFilters({
                   type="submit"
                   className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  Apply
+                  Show results
                 </button>
               </div>
             </form>

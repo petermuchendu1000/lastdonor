@@ -1,6 +1,3 @@
-import { db } from '@/db';
-import * as schema from '@/db/schema';
-import { eq } from 'drizzle-orm';
 import type { CampaignCategory } from '@/types';
 import { selectNextKeyword } from './keyword-rotation';
 

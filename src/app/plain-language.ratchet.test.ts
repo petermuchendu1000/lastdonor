@@ -58,15 +58,54 @@ function walk(dir: string, out: string[] = []): string[] {
 /** The copy fields that carry prose, as single-quoted literals. */
 const COPY_FIELD = /\b(?:question|answer|description|title|subtitle|body)\s*:\s*\n?\s*'((?:[^'\\]|\\.){25,})'/g;
 
+/*
+  JSX body text, which is most of the prose on a policy page.
+
+  Added 2026-10-19. The first version of this test read only the copy
+  FIELDS above, so every `<p>` and `<li>` was invisible to it - and the
+  policy pages are almost entirely `<p>` and `<li>`. It passed on the
+  old `/editorial-standards` (reading ease 36) exactly as happily as on
+  the rewritten one (77). A guard that cannot see the thing it guards
+  is the same fault this codebase hit with the pool fan-out ratchet
+  earlier the same day.
+
+  Matches a run of text between two tags that contains no `{`, `}` or
+  `<`, so JSX expressions and nested elements are skipped rather than
+  mangled. That under-reads a sentence split across an inline `<Link>`,
+  which is the accepted limit: it is better to miss some prose than to
+  score template syntax as English.
+*/
+const JSX_TEXT = />([^<>{}]{25,}?)</g;
+
 type Finding = { file: string; text: string; why: string };
 
 function copyStrings(): { file: string; text: string }[] {
   const out: { file: string; text: string }[] = [];
   for (const dir of COPY_DIRS) {
     for (const f of walk(dir)) {
-      const src = readFileSync(f, 'utf8');
+      const raw = readFileSync(f, 'utf8');
+      const rel = f.slice(process.cwd().length + 1);
+      /*
+        Strip comments BEFORE looking for JSX text. Without this the
+        text matcher pairs a `>` inside a JSDoc block with a `<` further
+        down and reports the explanation as user-facing copy - this file
+        caught 15 "violations" on its first run and every one of them
+        was a code comment. The comments in this repo are long on
+        purpose; they must not be scored as prose shown to donors.
+      */
+      const src = raw
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
       for (const m of src.matchAll(COPY_FIELD)) {
-        out.push({ file: f.slice(process.cwd().length + 1), text: m[1].replace(/\\'/g, "'") });
+        out.push({ file: rel, text: m[1].replace(/\\'/g, "'") });
+      }
+      for (const m of src.matchAll(JSX_TEXT)) {
+        const text = m[1].replace(/\s+/g, ' ').trim();
+        // Needs a lower-case letter and a space to be prose rather than
+        // a className, a URL fragment or an enum value.
+        if (!/[a-z]/.test(text) || !text.includes(' ')) continue;
+        if (/^[A-Za-z-]+$/.test(text)) continue;
+        out.push({ file: rel, text });
       }
     }
   }

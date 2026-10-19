@@ -4,18 +4,18 @@ import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 import { seoKeywords } from '@/lib/seo/keywords';
 
 export const metadata: Metadata = {
-  title: 'About LastDonor.org | Reviewed Crowdfunding with 0% Platform Fees',
+  title: 'About LastDonor.org | Reviewed Campaigns, 0% Platform Fee',
   description:
-    'LastDonor.org is a fundraising site for people facing medical bills, funerals, disasters and family emergencies. Campaigns are reviewed before publication, platform fees are 0%, and donors can follow campaign progress and impact updates.',
+    'LastDonor raises money for medical bills, funerals, disasters and family emergencies. A person reads every campaign. We take 0% of what you raise.',
   keywords: seoKeywords('core', 'trust', 'campaigns', 'nonprofit', 'medical', 'emergency', 'memorial'),
   alternates: { canonical: 'https://lastdonor.org/about' },
   openGraph: {
     title: 'About LastDonor.org',
     description:
-      'Reviewed crowdfunding for real needs with 0% platform fees on fundraisers and visible impact updates.',
+      'A person reads every campaign before it goes live. We take 0% of what you raise.',
     images: [
       {
-        url: '/api/v1/og/page?title=About+LastDonor.org&subtitle=Reviewed+crowdfunding+with+0%25+platform+fees.',
+        url: '/api/v1/og/page?title=About+LastDonor.org&subtitle=A+person+reads+every+campaign.+We+take+0%25.',
         width: 1200,
         height: 630,
         alt: 'About LastDonor.org',
@@ -32,7 +32,7 @@ export default function AboutPage() {
     url: 'https://lastdonor.org/about',
     name: 'About LastDonor.org',
     description:
-      'LastDonor.org is a reviewed crowdfunding platform with 0% platform fees on fundraisers, campaign review before publication, and visible impact updates.',
+      'LastDonor is a fundraising site. A person reads every campaign before it goes live. We take 0% of what you raise, and you can follow the total at any time.',
     isPartOf: { '@id': 'https://lastdonor.org/#website' },
     about: { '@id': 'https://lastdonor.org/#organization' },
     speakable: {
@@ -56,106 +56,100 @@ export default function AboutPage() {
             Reviewed crowdfunding
           </span>
           <h1 className="mt-4 font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            Reviewed crowdfunding built for visible impact.
+            LastDonor takes 0% of what you raise.
           </h1>
           <p
             id="ai-answer"
             data-speakable="true"
             className="mt-4 text-lg leading-relaxed text-muted-foreground"
           >
-            LastDonor helps people support medical, emergency, memorial, veteran,
-            family, and disaster relief fundraisers that are reviewed before
-            publication. Donors see campaign progress, fee details, and impact
-            updates from donation to outcome.
+            LastDonor is a place to raise money for a medical bill, a funeral,
+            a disaster, or a family emergency. A person on our team reads every
+            campaign before it goes live. You can see how much a campaign has
+            raised at any time.
           </p>
         </div>
 
         <section className="mt-12 space-y-6">
-          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Why we exist</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Why we built this</h2>
           <p className="leading-relaxed text-muted-foreground">
-            People use fundraising sites when life is already hard: medical bills,
-            funeral expenses, house fires, veteran support, first responder
-            families, tuition gaps, pet surgery, and everyday emergencies.
-            LastDonor.org was built to make those fundraisers easier to
-            understand before anyone gives.
+            People come to a fundraising site on a bad day. A hospital bill. A
+            funeral. A house fire. A pet that needs surgery. We built LastDonor
+            so you can understand what you are giving to before you give.
           </p>
           <p className="leading-relaxed text-muted-foreground">
-            We review campaigns before publication, show the fundraising goal,
-            publish campaign progress, and close campaigns when the goal is met.
-            When the last dollar comes in, the person who gave it earns the title
-            of <strong className="text-foreground">Last Donor</strong>, and the
-            campaign is done.
+            We read every campaign first. We show the goal and the running
+            total. When a campaign reaches its goal, it closes. The person who
+            gave the last dollar becomes the{' '}
+            <strong className="text-foreground">Last Donor</strong>.
           </p>
         </section>
 
         <section className="mt-12" aria-label="Platform terminology">
-          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Key terms</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">What the words mean</h2>
           <dl className="mt-6 space-y-5 text-sm leading-relaxed">
             <div>
               <dt className="font-semibold text-foreground">LastDonor.org</dt>
               <dd className="mt-1 text-muted-foreground">
-                A reviewed crowdfunding platform that charges 0% platform fees
-                on fundraisers, publishes campaigns after editorial review, and
-                shows donors progress and impact updates. Campaigns close when
-                the stated goal is reached.
+                A fundraising site. We take 0% of what you raise. A person
+                reads every campaign before it goes live. A campaign closes
+                when it reaches its goal.
               </dd>
             </div>
             <div>
               <dt className="font-semibold text-foreground">The Last Donor</dt>
               <dd className="mt-1 text-muted-foreground">
-                The individual donor whose contribution brings a campaign to its
-                final goal. The Last Donor is recognized on the campaign page as
-                confirmation that the fundraiser is complete.
+                The person whose gift takes a campaign to its goal. We name
+                them on the Last Donor Wall.
               </dd>
             </div>
             <div>
-              <dt className="font-semibold text-foreground">Human-Reviewed Campaign</dt>
+              <dt className="font-semibold text-foreground">Reviewed campaign</dt>
               <dd className="mt-1 text-muted-foreground">
-                A fundraising campaign reviewed by a LastDonor.org editor before
-                publication. Depending on the campaign, review can include
-                documents, photos, official letters, bills, public records, or
-                direct organizer follow-up.
+                A campaign that a person on our team read before it went live.
+                We can ask for a bill, an official letter, a photo, or a public
+                record.
               </dd>
             </div>
           </dl>
         </section>
 
         <section className="mt-12">
-          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">What donors can check</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">What you can check</h2>
           <div className="mt-6 overflow-x-auto rounded-2xl border border-border shadow-[--shadow-elevation-1]">
             <table className="w-full text-sm leading-relaxed">
               <thead>
                 <tr className="bg-muted/60 text-left">
                   <th scope="col" className="px-4 py-3 font-semibold text-foreground">Question</th>
-                  <th scope="col" className="px-4 py-3 font-semibold text-primary">LastDonor answer</th>
+                  <th scope="col" className="px-4 py-3 font-semibold text-primary">Answer</th>
                   <th scope="col" className="px-4 py-3 font-semibold text-muted-foreground">Where to look</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 <tr className="bg-card">
-                  <td className="px-4 py-3 font-medium text-foreground">Does LastDonor take a platform fee?</td>
-                  <td className="px-4 py-3 text-primary">0% platform fees on fundraisers</td>
-                  <td className="px-4 py-3 text-muted-foreground">Fee disclosure on the transparency page</td>
+                  <td className="px-4 py-3 font-medium text-foreground">Do you take a cut?</td>
+                  <td className="px-4 py-3 text-primary">No. We take 0%.</td>
+                  <td className="px-4 py-3 text-muted-foreground">Transparency page</td>
                 </tr>
                 <tr className="bg-card/60">
-                  <td className="px-4 py-3 font-medium text-foreground">Are campaigns reviewed first?</td>
-                  <td className="px-4 py-3 text-primary">A person reviews the campaign before it goes live</td>
-                  <td className="px-4 py-3 text-muted-foreground">Campaign page and editorial standards</td>
+                  <td className="px-4 py-3 font-medium text-foreground">Does a person check the campaign?</td>
+                  <td className="px-4 py-3 text-primary">Yes, before it goes live.</td>
+                  <td className="px-4 py-3 text-muted-foreground">Editorial standards</td>
                 </tr>
                 <tr className="bg-card">
-                  <td className="px-4 py-3 font-medium text-foreground">Can donors follow progress?</td>
-                  <td className="px-4 py-3 text-primary">Campaign totals, donor count, updates, and completion status are visible</td>
-                  <td className="px-4 py-3 text-muted-foreground">Campaign pages and impact updates</td>
+                  <td className="px-4 py-3 font-medium text-foreground">Can I follow the money?</td>
+                  <td className="px-4 py-3 text-primary">Yes. The total, the number of donors, and updates are on the page.</td>
+                  <td className="px-4 py-3 text-muted-foreground">Campaign page</td>
                 </tr>
                 <tr className="bg-card/60">
-                  <td className="px-4 py-3 font-medium text-foreground">What happens after completion?</td>
-                  <td className="px-4 py-3 text-primary">Completed campaigns can include impact updates, photos, receipts, or outcome notes</td>
-                  <td className="px-4 py-3 text-muted-foreground">Blog, campaign updates, and Last Donor Wall</td>
+                  <td className="px-4 py-3 font-medium text-foreground">What happens after it ends?</td>
+                  <td className="px-4 py-3 text-primary">The campaign can post photos, receipts, and a note on what the money paid for.</td>
+                  <td className="px-4 py-3 text-muted-foreground">Campaign updates and the blog</td>
                 </tr>
                 <tr className="bg-card">
-                  <td className="px-4 py-3 font-medium text-foreground">When does fundraising stop?</td>
-                  <td className="px-4 py-3 text-primary">Campaigns close automatically when the goal is met</td>
-                  <td className="px-4 py-3 text-muted-foreground">Campaign status and Last Donor Wall</td>
+                  <td className="px-4 py-3 font-medium text-foreground">When does giving stop?</td>
+                  <td className="px-4 py-3 text-primary">The campaign closes when it reaches its goal.</td>
+                  <td className="px-4 py-3 text-muted-foreground">Last Donor Wall</td>
                 </tr>
               </tbody>
             </table>
@@ -163,42 +157,41 @@ export default function AboutPage() {
         </section>
 
         <section className="mt-12 space-y-6">
-          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">How LastDonor is funded</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">How we pay our bills</h2>
           <p className="leading-relaxed text-muted-foreground">
-            LastDonor charges 0% platform fees on fundraisers. We fund platform
-            operations separately through general fund donations, grants,
-            sponsorships, and operating support. That support helps pay for
-            campaign review, verification work, donor support, hosting, payment
-            operations, and impact updates. Standard Stripe processing fees are
-            separate.
+            We take 0%. Stripe charges 2.9% plus 30 cents on a US card. 
+            payment. On a $50 donation that is $1.75, so the campaign gets
+            $48.25.
+          </p>
+          <p className="leading-relaxed text-muted-foreground">
+            You can give to LastDonor itself instead of to a campaign. We also
+            look for grants and sponsors. That money pays for campaign review,
+            hosting, and donor support.
           </p>
 
           <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Who we help</h2>
           <p className="leading-relaxed text-muted-foreground">
-            Military families. Veterans. First responders. Parents facing
-            medical bills. Families picking up the pieces after a disaster.
-            Students trying to cover tuition. People whose pets need surgery.
-            Communities trying to rebuild. If the need is specific and
-            reviewable, we can help it become a fundraiser donors can
-            understand.
+            Military families and veterans. First responders. Parents facing
+            medical bills. Families rebuilding after a disaster. Students short
+            on tuition. People whose pet needs surgery. If the need is clear
+            and we can check it, we can help you ask.
           </p>
 
           <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Our team</h2>
           <p className="leading-relaxed text-muted-foreground">
-            We&apos;re a small team building a fundraising platform around
-            review, plain-language campaign pages, visible progress, and donor
-            updates. Our editorial process favors specific claims, clear amounts,
-            and supportable campaign details.
+            We are a small team. We build for clear campaign pages, visible
+            progress, and updates for donors. When we read a campaign, we ask
+            for a plain story, an amount you can explain, and a claim we can
+            check.
           </p>
 
-          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Nonprofit status</h2>
+          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Our tax status</h2>
           <p className="leading-relaxed text-muted-foreground">
-            LastDonor.org operates as a nonprofit fundraising initiative while
-            federal tax-exempt status and EIN details are being finalized. Until
-            that status is confirmed, donors should not assume donations are
-            deductible for tax purposes. We will publish tax status updates and annual
-            reports when they are available. Live platform statistics are
-            available on our{' '}
+            LastDonor runs as a nonprofit fundraising effort. Our federal
+            tax-exempt status and EIN are not finished yet. Until they are, do
+            not assume your gift is tax deductible. We will publish our tax
+            status and our yearly reports when we have them. Live numbers are
+            on our{' '}
             <a href="/transparency" className="text-brand-teal underline underline-offset-2 hover:opacity-80">Transparency page</a>.
           </p>
         </section>

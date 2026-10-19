@@ -32,6 +32,86 @@ export default function PrivacyPage() {
         Last updated: April 1, 2026
       </p>
 
+      <section
+        aria-labelledby="plain-english-summary"
+        className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-[--shadow-elevation-1] sm:p-8"
+      >
+        <h2
+          id="plain-english-summary"
+          className="font-display text-xl font-bold text-foreground"
+        >
+          In plain English
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+          This is a short summary of the policy below. It is here to help you
+          read it. The full policy below is the one that counts legally.
+        </p>
+        <ul className="mt-5 space-y-4 text-muted-foreground leading-relaxed">
+          <li>
+            <strong className="text-foreground">What we collect.</strong> Your
+            name and email address. Your donation amount and any message you
+            add. Your card details go straight to Stripe and are never stored
+            on our servers.
+          </li>
+          <li>
+            <strong className="text-foreground">What we use it for.</strong> To
+            take your donation, email you a receipt and send campaign updates.
+            We send newsletter emails only if you ask for them.
+          </li>
+          <li>
+            <strong className="text-foreground">What other people see.</strong>{' '}
+            Your donor name is shown on the campaign page. It is hidden if you
+            give anonymously.
+          </li>
+          <li>
+            <strong className="text-foreground">Do we sell your data.</strong>{' '}
+            No. We do not sell, rent or trade your personal information.
+          </li>
+          <li>
+            <strong className="text-foreground">Who else sees it.</strong>{' '}
+            Stripe handles payments. Resend sends our emails. Our hosting and
+            database providers store the data. Those are the services that make
+            the platform work.
+          </li>
+          <li>
+            <strong className="text-foreground">Cookies.</strong> Our analytics
+            tool sets no cookies and collects no personal data. Our own cookies
+            only keep you signed in and remember your theme.
+          </li>
+          <li>
+            <strong className="text-foreground">
+              Seeing or deleting your data.
+            </strong>{' '}
+            Email{' '}
+            <a
+              href="mailto:privacy@lastdonor.org"
+              className="text-primary underline underline-offset-4"
+            >
+              privacy@lastdonor.org
+            </a>
+            . You can ask for a copy of your data, or ask us to delete it. We
+            reply within 30 days. Where you live may give you extra rights, set
+            out in section 5.
+          </li>
+          <li>
+            <strong className="text-foreground">What we have to keep.</strong>{' '}
+            Donation records are kept for at least 7 years for tax and
+            financial rules. If you delete your account, we remove your
+            personal details within 30 days.
+          </li>
+          <li>
+            <strong className="text-foreground">Who to contact.</strong> Email{' '}
+            <a
+              href="mailto:privacy@lastdonor.org"
+              className="text-primary underline underline-offset-4"
+            >
+              privacy@lastdonor.org
+            </a>{' '}
+            with any privacy question. Ask there for postal details too.
+          </li>
+        </ul>
+      </section>
+
       <p className="mt-4 text-muted-foreground leading-relaxed">
         We keep this simple because we think privacy policies should be readable
         by normal people, not just lawyers. Here is what we collect, why, and

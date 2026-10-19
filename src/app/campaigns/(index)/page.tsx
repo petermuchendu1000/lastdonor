@@ -16,7 +16,7 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns | LastDonor',
   description:
-    'Real people who need help with medical bills, a disaster, or a family emergency. A person has checked every campaign. Every campaign is reviewed before publication. 0% platform fees.',
+    'Real people who need help with medical bills, a disaster, or a family emergency. A person reviews every campaign before it goes live. 0% platform fees.',
   keywords: seoKeywords('campaigns', 'medical', 'emergency', 'disaster', 'memorial', 'family', 'nonprofit', 'trust'),
   alternates: { canonical: 'https://lastdonor.org/campaigns' },
   openGraph: {
@@ -63,7 +63,7 @@ const faqs = [
   {
     question: 'Are campaigns reviewed before they appear here?',
     answer:
-      'Yes. Campaigns listed on this page are reviewed before publication so donors can understand the need, the fundraising goal, and the available supporting context.',
+      'Yes. A person reads every campaign before it goes live. That way you can see what the money is for and how much it needs to raise.',
   },
   {
     question: 'Can I search by cause or location?',

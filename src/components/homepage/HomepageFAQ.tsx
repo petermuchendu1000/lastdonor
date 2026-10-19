@@ -28,7 +28,7 @@ const faqs = [
   {
     question: 'Does LastDonor take a cut of my donation?',
     answer:
-      'No. We take 0%. Stripe handles the card payment and charges 2.9% plus 30 cents. On a $50 donation that is $1.75, so the campaign receives $48.25. None of that fee comes to us.',
+      'No. We take 0%. Stripe handles the card payment and charges 2.9% plus 30 cents on a US card. On a $50 donation that is $1.75, so the campaign receives $48.25. None of that fee comes to us.',
   },
   {
     question: 'If you take 0%, how do you pay your bills?',

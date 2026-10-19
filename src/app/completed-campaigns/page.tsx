@@ -13,16 +13,16 @@ export const revalidate = 300; // ISR: refresh every 5 minutes
 export const metadata: Metadata = {
   title: 'Completed Campaigns | LastDonor.org',
   description:
-    'Campaigns that reached their goal. See what the money paid for.',
+    'Campaigns that reached their goal. They are closed now, but you can still read each story.',
   keywords: seoKeywords('campaigns', 'trust', 'medical', 'emergency', 'memorial', 'family'),
   alternates: { canonical: 'https://lastdonor.org/completed-campaigns' },
   openGraph: {
     title: 'Completed Campaigns | LastDonor.org',
     description:
-      'Campaigns that reached their goals. Every dollar made a difference.',
+      'Campaigns that reached their goal and closed. You can still read each story.',
     images: [
       {
-        url: '/api/v1/og/page?title=Completed+Campaigns&subtitle=See+the+impact+your+donations+made.',
+        url: '/api/v1/og/page?title=Completed+Campaigns&subtitle=Campaigns+that+reached+their+goal.',
         width: 1200,
         height: 630,
         alt: 'Completed Campaigns on LastDonor.org',
@@ -54,19 +54,19 @@ const PAGE_SIZE = 12;
 
 const faqs = [
   {
-    question: 'What is a completed campaign?',
+    question: 'What does completed mean?',
     answer:
-      'A completed campaign is a fundraiser that reached its goal or was archived after completion. Completed campaign pages help donors review outcomes and impact updates.',
+      'It means the campaign reached its goal and closed. The page stays up, so you can still read the story and any updates.',
   },
   {
-    question: 'Can I browse completed medical or emergency fundraisers?',
+    question: 'Can I look for medical or emergency campaigns?',
     answer:
-      'Yes. Filter by what the money was for, or by where the person lives.',
+      'Yes. Use the filters to pick what the money was for. You can also filter by where the person lives.',
   },
   {
     question: 'What is the Last Donor?',
     answer:
-      'The Last Donor is the person whose donation completes a campaign goal. Completed campaigns may also appear on the Last Donor Wall.',
+      'The Last Donor is the person whose gift takes a campaign to its goal. Their name can show on the Last Donor Wall.',
   },
 ];
 
@@ -179,11 +179,12 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
           href="/campaigns"
           className="text-sm font-medium text-primary hover:text-primary/80"
         >
-          Browse active campaigns
+          Campaigns still open
         </Link>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
-        Campaigns that successfully reached their goals. See the impact your donations made.
+        These campaigns reached their goal. They are closed, so you cannot give
+        to them now. You can still read each story.
       </p>
 
       <div className="mt-6">
@@ -206,20 +207,20 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
         locationFilter={locationFilter}
         extraParams={{ status: 'completed' }}
         emptyMessage={categoryFilter
-          ? 'No completed campaigns in this category yet.'
-          : 'No completed campaigns yet. Check back soon.'}
+          ? 'No campaign of this kind has reached its goal yet.'
+          : 'No campaign has reached its goal yet. This page fills up as campaigns finish.'}
         emptyAction={
           <Link
             href="/campaigns"
             className="mt-4 inline-block text-sm font-medium text-primary hover:text-primary/80"
           >
-            Browse active campaigns
+            See campaigns still open
           </Link>
         }
       />
       <section className="mt-12 border-t border-border pt-10" aria-labelledby="completed-faq">
         <h2 id="completed-faq" className="font-display text-2xl font-bold text-foreground">
-          Completed Campaign FAQ
+          Common questions
         </h2>
         <dl className="mt-5 grid gap-5 md:grid-cols-3">
           {faqs.map((faq) => (

@@ -80,7 +80,7 @@ export default async function CancelledCampaignsPage() {
       {cancelledCampaigns.length === 0 ? (
         <div className="mt-16 text-center">
           <p className="text-lg text-muted-foreground">
-            No campaigns have been rejected at this time.
+            We have not rejected any campaigns yet.
           </p>
         </div>
       ) : (

@@ -5,12 +5,12 @@ import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 export const metadata: Metadata = {
   title: 'Refund, Cancellation, and Dispute Policy',
   description:
-    'How LastDonor handles donation refunds, recurring donation cancellations, duplicate charges, campaign removals, and payment disputes.',
+    'What happens when you ask for a refund, cancel a monthly donation, or dispute a charge on LastDonor.',
   alternates: { canonical: 'https://lastdonor.org/refund-policy' },
   openGraph: {
     title: 'Refund, Cancellation, and Dispute Policy | LastDonor.org',
     description:
-      'Clear rules for donation refunds, recurring donation cancellations, duplicate charges, campaign removals, and disputes.',
+      'Clear rules for refunds, monthly cancellations, and card disputes.',
     images: [
       {
         url: '/api/v1/og/page?title=Refund+Policy&subtitle=Clear+rules+for+donations%2C+cancellations%2C+and+disputes.',
@@ -33,106 +33,118 @@ export default function RefundPolicyPage() {
         Last updated: April 27, 2026
       </p>
       <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-        LastDonor accepts donations, not purchases of goods or services. There
-        is no shipping, delivery, return window, or product warranty. This
-        policy explains when a donation may be refunded and how donors can cancel
-        recurring donations.
+        When you give on LastDonor, you make a donation. You are not buying a
+        product or a service. So there is nothing to ship, nothing to deliver,
+        no return window, and no warranty. This page explains when we may refund
+        a donation. It also explains how to stop a monthly donation.
       </p>
 
       <div className="mt-10 space-y-9 text-muted-foreground">
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            Donation Payments
+            How donation payments work
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
-            <li>Donations are charged in U.S. dollars.</li>
-            <li>The minimum donation is $5.00 and the maximum is $100,000.00 per transaction.</li>
-            <li>Stripe securely processes payment details. LastDonor does not store full card numbers.</li>
-            <li>LastDonor charges 0% platform fees on fundraisers. Stripe processing fees may apply.</li>
-            <li>Donor names and donation amounts may appear publicly unless the donor selects anonymous.</li>
+            <li>We charge donations in US dollars.</li>
+            <li>The smallest donation is $5.00. The largest is $100,000.00 per payment.</li>
+            <li>Stripe handles your card details securely. We do not store your full card number.</li>
+            <li>
+              We take 0%. Stripe charges 2.9% plus 30 cents on a US card. 
+              payment. On a $50 donation that is $1.75, so the campaign gets
+              $48.25.
+            </li>
+            <li>Your name and the amount you gave may show in public. They do not if you choose to give anonymously.</li>
           </ul>
         </section>
 
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            When Refunds Are Available
+            When refunds are possible
           </h2>
           <p className="mt-3 leading-relaxed">
-            Donations are generally final after processing, but we review refund
-            requests in the following situations:
+            A donation is usually final once it goes through. We do review
+            refund requests in these cases:
           </p>
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
-            <li>An unauthorized or fraudulent transaction is reported.</li>
-            <li>A technical issue creates a duplicate charge or wrong donation amount.</li>
-            <li>A campaign is cancelled, suspended, or removed before funds are released.</li>
-            <li>A campaign fails required verification after donors have contributed.</li>
-            <li>A compliance, sanctions, payment network, or legal requirement requires a refund.</li>
-            <li>LastDonor determines that refunding donors is the fairest outcome for a campaign.</li>
+            <li>A charge is reported as unauthorized or fraudulent.</li>
+            <li>A technical problem charges you twice, or charges the wrong amount.</li>
+            <li>A campaign is cancelled, suspended, or removed before the money is released.</li>
+            <li>A campaign fails a required verification check after donors have given.</li>
+            <li>A rule requires a refund. That can be a compliance rule, a sanctions rule, a payment network rule, or the law.</li>
+            <li>We decide that refunding donors is the fairest outcome for a campaign.</li>
           </ul>
         </section>
 
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            When Refunds May Not Be Available
+            When refunds may not be possible
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
-            <li>A donor changes their mind after funds have already been released to a verified campaign recipient.</li>
-            <li>The campaign remains active, accurate, and eligible under LastDonor policies.</li>
-            <li>The refund request is submitted after card network or payment processor deadlines.</li>
-            <li>The donation was part of a recurring subscription period that already processed and funded a campaign.</li>
+            <li>You change your mind after the money has already gone to a verified campaign recipient.</li>
+            <li>The campaign is still active, still accurate, and still allowed under our rules.</li>
+            <li>You ask after the deadline set by the card network or the payment processor.</li>
+            <li>The donation was part of a monthly subscription period that already went through and funded a campaign.</li>
           </ul>
         </section>
 
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            How To Request a Refund
+            How to ask for a refund
           </h2>
           <p className="mt-3 leading-relaxed">
             Email{' '}
             <a href="mailto:support@lastdonor.org" className="text-primary underline underline-offset-4">
               support@lastdonor.org
             </a>{' '}
-            within 30 days of the donation when possible. Include the donor
-            email address, donation date, campaign name, amount, and a short
-            explanation. We usually review refund requests within 5 business
-            days. If approved, the refund is submitted through Stripe and may
-            take 5 to 10 business days to appear on the original payment method.
+            within 30 days of the donation if you can. Tell us:
+          </p>
+          <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
+            <li>the email address you donated with</li>
+            <li>the date of the donation</li>
+            <li>the campaign name</li>
+            <li>the amount</li>
+            <li>a short explanation</li>
+          </ul>
+          <p className="mt-3 leading-relaxed">
+            We usually review a refund request within 5 business days. If we
+            approve it, we send the refund through Stripe. It can take 5 to 10
+            business days to show up on the payment method you used.
           </p>
         </section>
 
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            Recurring Donation Cancellations
+            How to stop a monthly donation
           </h2>
           <p className="mt-3 leading-relaxed">
-            Monthly donations can be cancelled at any time before the next billing
-            date. Donors can manage subscriptions from their account when
-            available or email{' '}
+            You can cancel a monthly donation at any time before the next
+            payment date. Cancel it in your account, where that option is
+            available. You can also email{' '}
             <a href="mailto:support@lastdonor.org" className="text-primary underline underline-offset-4">
               support@lastdonor.org
             </a>
-            . Cancellation stops future charges; it does not automatically refund
+            . Cancelling stops future charges. It does not automatically refund
             past donations.
           </p>
         </section>
 
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            Payment Disputes
+            Payment disputes
           </h2>
           <p className="mt-3 leading-relaxed">
-            If something looks wrong, contact us before filing a card dispute so
-            we can investigate quickly. If a dispute is opened through a bank or
-            card issuer, Stripe and the payment network may request transaction,
-            donation, and campaign records from LastDonor. We cooperate with
-            legitimate dispute investigations and may pause a campaign while the
-            issue is reviewed.
+            If something looks wrong, tell us before you file a card dispute.
+            Then we can look into it quickly. If a dispute is opened through a
+            bank or card issuer, Stripe and the payment network may ask us for
+            records. That can include transaction, donation, and campaign
+            records. We work with genuine dispute investigations. We may pause a
+            campaign while the issue is reviewed.
           </p>
         </section>
 
         <section>
           <h2 className="font-display text-2xl font-bold text-foreground">
-            Related Policies
+            Related policies
           </h2>
           <div className="mt-3 flex flex-wrap gap-3 text-sm">
             <Link href="/fund-release-policy" className="rounded-md border border-border px-3 py-2 text-foreground hover:bg-muted">

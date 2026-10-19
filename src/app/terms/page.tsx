@@ -38,6 +38,131 @@ export default function TermsPage() {
         sense, email us and we will explain it in plain English.
       </p>
 
+      <section
+        aria-labelledby="plain-english"
+        className="mt-8 rounded-lg border border-border bg-muted/40 p-5 sm:p-6"
+      >
+        <h2
+          id="plain-english"
+          className="font-display text-xl font-bold text-foreground"
+        >
+          In plain English
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+          This is a short summary of the terms below. It is not the agreement
+          itself. If the two ever differ, the full terms below are the ones
+          that count legally.
+        </p>
+
+        <ul className="mt-4 space-y-3 text-muted-foreground leading-relaxed">
+          <li>
+            <strong className="text-foreground">
+              Using the site means you agree.
+            </strong>{' '}
+            If you do not agree with these terms, please do not use
+            LastDonor.org.
+          </li>
+          <li>
+            <strong className="text-foreground">You must be 18 or older</strong>{' '}
+            to open an account or to give money.
+          </li>
+          <li>
+            <strong className="text-foreground">A donation is a gift.</strong>{' '}
+            You are not buying anything. We do not sell goods. There is nothing
+            to ship and nothing to return.
+          </li>
+          <li>
+            <strong className="text-foreground">How much you can give.</strong>{' '}
+            The smallest donation is $5.00. The largest is $100,000.00 in one
+            payment. Stripe handles the payment.
+          </li>
+          <li>
+            <strong className="text-foreground">Tax is not settled yet.</strong>{' '}
+            Our tax-exempt status is not confirmed. Please do not assume your
+            donation can be deducted from your taxes. Ask a tax advisor about
+            your own case.
+          </li>
+          <li>
+            <strong className="text-foreground">
+              Your name may be shown.
+            </strong>{' '}
+            Your name and the amount appear on the campaign page. They stay
+            hidden if you choose to give anonymously.
+          </li>
+          <li>
+            <strong className="text-foreground">Refunds are limited.</strong> A
+            donation is usually final. We refund a fraudulent or unauthorized
+            charge. We refund a duplicate charge caused by a technical error.
+            We refund every donor if we cancel a campaign over editorial
+            concerns. Email{' '}
+            <a
+              href="mailto:support@lastdonor.org"
+              className="text-primary underline underline-offset-4"
+            >
+              support@lastdonor.org
+            </a>{' '}
+            within 30 days if you can. The{' '}
+            <Link
+              href="/refund-policy"
+              className="text-primary underline underline-offset-4"
+            >
+              Refund Policy
+            </Link>{' '}
+            has the full detail.
+          </li>
+          <li>
+            <strong className="text-foreground">
+              You can stop a monthly donation.
+            </strong>{' '}
+            Cancel it at any time. Use your account tools where they are
+            available, or email support.
+          </li>
+          <li>
+            <strong className="text-foreground">What you may not post.</strong>{' '}
+            No hate speech, threats or harassment. No false or misleading
+            information. No spam and no ads. Nothing that breaks the law.
+            We can remove content that breaks these rules.
+          </li>
+          <li>
+            <strong className="text-foreground">Look after your account.</strong>{' '}
+            Keep your password private. Give us true and complete details. We
+            can suspend or close an account that breaks these terms.
+          </li>
+          <li>
+            <strong className="text-foreground">
+              We can review any campaign.
+            </strong>{' '}
+            We can reject it, pause it, remove it, or ask for more information.
+            Before we release money we may ask for identity checks and
+            documents.
+          </li>
+          <li>
+            <strong className="text-foreground">
+              The site comes &quot;as is&quot;.
+            </strong>{' '}
+            We do not promise it will always work. Section 9 below sets out the
+            limits on what we are liable for.
+          </li>
+          <li>
+            <strong className="text-foreground">Who to contact.</strong> Email{' '}
+            <a
+              href="mailto:legal@lastdonor.org"
+              className="text-primary underline underline-offset-4"
+            >
+              legal@lastdonor.org
+            </a>{' '}
+            about these terms. Email{' '}
+            <a
+              href="mailto:support@lastdonor.org"
+              className="text-primary underline underline-offset-4"
+            >
+              support@lastdonor.org
+            </a>{' '}
+            about a refund or a monthly donation.
+          </li>
+        </ul>
+      </section>
+
       <div className="mt-8 space-y-8 text-muted-foreground leading-relaxed">
         <section>
           <h2 className="font-display text-xl font-bold text-foreground">

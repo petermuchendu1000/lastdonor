@@ -8,18 +8,18 @@ import { centsToDollars } from '@/lib/utils/currency';
 import { seoKeywords } from '@/lib/seo/keywords';
 
 export const metadata: Metadata = {
-  title: 'Transparency | Donation Tracking and Impact Updates',
+  title: 'Transparency | Our Numbers, Our Fees, Our Promises',
   description:
-    'Our numbers, in the open: what has been raised, which campaigns finished, and where the money went.',
+    'Our numbers in the open. See what donors have given, how many campaigns are live, and what the fees are.',
   keywords: seoKeywords('trust', 'donor', 'core', 'campaigns'),
   alternates: { canonical: 'https://lastdonor.org/transparency' },
   openGraph: {
     title: 'Transparency | LastDonor.org',
     description:
-      'Platform statistics, donation tracking, impact updates, and fund allocation policies.',
+      'Our numbers, our fees, and the promises we make to donors.',
     images: [
       {
-        url: '/api/v1/og/page?title=Transparency&subtitle=We+publish+our+numbers+because+we+think+you+deserve+to+see+them.',
+        url: '/api/v1/og/page?title=Transparency&subtitle=We+publish+our+numbers.+You+can+check+them+before+you+give.',
         width: 1200,
         height: 630,
         alt: 'Transparency Report by LastDonor.org',
@@ -29,6 +29,40 @@ export const metadata: Metadata = {
 };
 
 export const revalidate = 300;
+
+/*
+  Stripe's published US rate, the same two figures the homepage ledger uses
+  (docs/59). The example amounts below are worked out from them rather than
+  typed, so the arithmetic on this page cannot drift from the rate.
+*/
+const STRIPE_PERCENT = 0.029;
+const STRIPE_FIXED_CENTS = 30;
+/** The example gift, the same $50 used on the homepage and in the donor FAQ. */
+const EXAMPLE_CENTS = 5000;
+const STRIPE_FEE_CENTS =
+  Math.round(EXAMPLE_CENTS * STRIPE_PERCENT) + STRIPE_FIXED_CENTS;
+const TO_CAMPAIGN_CENTS = EXAMPLE_CENTS - STRIPE_FEE_CENTS;
+
+const FEE_ROWS = [
+  {
+    label: 'The campaign gets',
+    note: 'This is what is left after the card fee.',
+    amount: centsToDollars(TO_CAMPAIGN_CENTS),
+    tone: 'text-primary',
+  },
+  {
+    label: 'Stripe takes',
+    note: 'Stripe runs the card payment. We never get any part of this.',
+    amount: centsToDollars(STRIPE_FEE_CENTS),
+    tone: 'text-brand-amber',
+  },
+  {
+    label: 'We take',
+    note: 'There is no platform fee. We take nothing out of your gift.',
+    amount: centsToDollars(0),
+    tone: 'text-muted-foreground',
+  },
+];
 
 async function getTransparencyData() {
   const [stats] = await db
@@ -65,18 +99,18 @@ export default async function TransparencyPage() {
         Transparency
       </h1>
       <p className="mt-3 text-lg text-muted-foreground">
-        Donors should be able to understand platform activity, campaign progress,
-        and fund allocation before they give. This page publishes LastDonor
-        statistics and policies in one place.
+        We publish our numbers so you can check them before you give. The
+        figures below come from our own database. The money figures count real
+        donations only, not sample data.
       </p>
 
       {/* Platform Stats */}
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: 'Raised So Far', value: centsToDollars(data.totalRaised) },
-          { label: 'People Who Gave', value: data.totalDonors.toLocaleString('en-US') },
-          { label: 'Campaigns Funded', value: data.completedCampaigns.toString() },
-          { label: 'Campaigns Live Now', value: data.activeCampaigns.toString() },
+          { label: 'Donated so far', value: centsToDollars(data.totalRaised) },
+          { label: 'People who gave', value: data.totalDonors.toLocaleString('en-US') },
+          { label: 'Campaigns finished', value: data.completedCampaigns.toString() },
+          { label: 'Campaigns live now', value: data.activeCampaigns.toString() },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -93,103 +127,94 @@ export default async function TransparencyPage() {
       {/* Fee Disclosure */}
       <section className="mt-12">
         <h2 className="font-display text-2xl font-bold text-foreground">
-          Fee Disclosure
+          What a donation costs
         </h2>
-        <p className="mt-2 text-muted-foreground">
-          LastDonor charges 0% platform fees on fundraisers. Standard Stripe
-          processing fees apply.
+        <p className="mt-2 leading-relaxed text-muted-foreground">
+          We take 0%. Stripe charges 2.9% plus 30 cents on a US card.
+          On a $50 donation that is $1.75, so the campaign gets $48.25.
         </p>
         <div className="mt-6 space-y-4">
-          <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
-            <div>
-              <p className="font-semibold text-foreground">Campaign Support</p>
-              <p className="text-sm text-muted-foreground">
-                Your donation supports the individual, family, organization, or project named in the fundraiser.
-              </p>
+          {FEE_ROWS.map((row) => (
+            <div
+              key={row.label}
+              className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4"
+            >
+              <div>
+                <p className="font-semibold text-foreground">{row.label}</p>
+                <p className="text-sm text-muted-foreground">{row.note}</p>
+              </div>
+              <span className={`font-mono text-2xl font-bold ${row.tone}`}>
+                {row.amount}
+              </span>
             </div>
-            <span className="font-mono text-2xl font-bold text-primary">Donation</span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
-            <div>
-              <p className="font-semibold text-foreground">Payment Processing</p>
-              <p className="text-sm text-muted-foreground">
-                Stripe charges its standard card processing fee. LastDonor does not receive this fee.
-              </p>
-            </div>
-            <span className="font-mono text-2xl font-bold text-brand-amber">Stripe</span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
-            <div>
-              <p className="font-semibold text-foreground">Platform Fee</p>
-              <p className="text-sm text-muted-foreground">
-                LastDonor charges 0% platform fees on fundraisers.
-              </p>
-            </div>
-            <span className="font-mono text-2xl font-bold text-muted-foreground">0%</span>
-          </div>
+          ))}
         </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Those three amounts are for a {centsToDollars(EXAMPLE_CENTS)}{' '}
+          donation. On a bigger or smaller gift, the card fee is still 2.9% plus
+          30 cents on a US card. A card from outside the US costs a little more.
+        </p>
       </section>
 
       <section className="mt-12">
         <h2 className="font-display text-2xl font-bold text-foreground">
-          How LastDonor Is Funded
+          How we pay our own bills
         </h2>
         <p className="mt-2 leading-relaxed text-muted-foreground">
-          The 0% platform-fee model works because LastDonor funds its own
-          operations separately from campaign donations. General fund donations,
-          grants, sponsorships, and operating support help pay for campaign
-          review, verification work, donor support, hosting, payment operations,
-          and impact updates. General fund support is separate from a donation
-          to a specific fundraiser.
+          We take 0% of what a campaign raises. So we pay for our own work in
+          other ways. Some people give to our general fund instead of to a
+          campaign. We also look for grants and sponsors. That money pays for
+          campaign review, donor support, hosting, and payment costs. Giving to
+          the general fund is not the same as giving to a campaign.
         </p>
         <Link
           href="/donate"
           className="mt-4 inline-flex rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
         >
-          Support the general fund
+          Give to the general fund
         </Link>
       </section>
 
       {/* Policies */}
       <section className="mt-12 space-y-6">
         <h2 className="font-display text-2xl font-bold text-foreground">
-          What We Promise
+          What we promise
         </h2>
         <ul className="list-disc space-y-3 pl-6 text-muted-foreground">
           <li>
-            Every donation is publicly recorded with the donor&apos;s name (or
-            &quot;Anonymous&quot; if they choose), amount, date, and campaign.
+            We show every donation on the campaign page. You see the amount,
+            the date, and the name. A donor who picks anonymous shows as
+            &quot;Anonymous&quot;.
           </li>
           <li>
-            Every published campaign is reviewed before it goes live. If we
-            cannot review the core details, we do not publish it.
+            A person reads every campaign before it goes live. If we cannot
+            check the main facts, we do not publish it.
           </li>
           <li>
-            We publish a full breakdown after every completed campaign showing
-            how the funds were used.
+            When a campaign ends, we publish what the money paid for.
           </li>
           <li>
-            Tax status updates and annual reports will be published when
-            they are available.
+            We will publish our tax status and our yearly reports when we have
+            them.
           </li>
           <li>
-            We never sell, share, or monetize donor data.
+            We never sell or share donor data.
           </li>
           <li>
-            If you ever have a question about where your money went, you can
-            reach a real person who will actually answer it.
+            Ask us where your money went and a real person will answer. Email
+            support@lastdonor.org.
           </li>
         </ul>
       </section>
 
       <section className="mt-12">
         <h2 className="font-display text-2xl font-bold text-foreground">
-          Payment and Fund-Flow Policies
+          Where to read the rules
         </h2>
         <p className="mt-2 leading-relaxed text-muted-foreground">
-          Donors should understand what happens before they give. These pages
-          explain refunds, campaign review, prohibited campaigns, fund release,
-          recurring donation cancellation, and donor privacy.
+          These pages give the full detail. They cover refunds and campaign
+          review. They also cover when a campaign gets the money, which
+          campaigns we turn down, how to stop a monthly gift, and your privacy.
         </p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {[

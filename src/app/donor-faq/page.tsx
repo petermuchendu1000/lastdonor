@@ -21,7 +21,7 @@ const faqs = [
   {
     question: 'How much of my donation reaches the campaign?',
     answer:
-      'We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25.',
+      'We take 0%. Stripe charges 2.9% plus 30 cents on a US card. On a $50 donation that is $1.75, so the campaign gets $48.25.',
   },
   {
     question: 'If you take nothing, how do you survive?',
@@ -116,9 +116,8 @@ export default function DonorFaqPage() {
           Donor FAQ
         </h1>
         <p className="mt-3 text-lg leading-relaxed text-muted-foreground">
-          Plain answers about donating through LastDonor, including payment
-          processing, refunds, recurring donations, campaign review, and fund
-          release.
+          Plain answers about paying, refunds, giving anonymously, and when
+          campaigns get the money.
         </p>
 
         <dl className="mt-10 divide-y divide-border">

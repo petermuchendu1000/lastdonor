@@ -64,7 +64,7 @@ describe('/donate general fund', () => {
     expect(screen.queryByLabelText(/email address/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /donate/i })).not.toBeInTheDocument();
     expect(
-      screen.getByText(/general fund is not accepting donations right now/i),
+      screen.getByText(/general fund is closed right now/i),
     ).toBeInTheDocument();
   });
 
@@ -87,7 +87,7 @@ describe('/donate general fund', () => {
 
     expect(screen.queryByLabelText(/email address/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/general fund is not accepting donations right now/i),
+      screen.getByText(/general fund is closed right now/i),
     ).toBeInTheDocument();
   });
 
@@ -97,7 +97,7 @@ describe('/donate general fund', () => {
 
     expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
     expect(
-      screen.queryByText(/general fund is not accepting donations right now/i),
+      screen.queryByText(/general fund is closed right now/i),
     ).not.toBeInTheDocument();
   });
 });

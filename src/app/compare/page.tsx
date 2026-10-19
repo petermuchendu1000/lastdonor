@@ -7,29 +7,29 @@ const faqs = [
   {
     question: 'Is LastDonor a GoFundMe alternative?',
     answer:
-      'Yes. LastDonor is an alternative fundraising platform for people who want reviewed campaigns, 0% platform fees from LastDonor, and visible campaign progress.',
+      'Yes. We take 0% of what a campaign raises. A person reads every campaign before it goes live. You can see how much it has raised at any time.',
   },
   {
     question: 'Does LastDonor charge a platform fee?',
     answer:
-      'No. We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
+      'No. We take 0%. Stripe charges 2.9% plus 30 cents on a US card. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
   },
   {
     question: 'Does LastDonor guarantee fundraising results?',
     answer:
-      'No. How much a campaign raises depends on the story, who sees it, and how widely it is shared. No site can promise a result.',
+      'No. How much a campaign raises depends on the story. It also depends on who sees it and how widely it is shared. No site can promise a result.',
   },
   {
     question: 'How should I compare fundraising platforms?',
     answer:
-      'Compare what each site charges, who checks campaigns, and how clearly they tell you where your money goes.',
+      'Ask three questions. What does the site charge? Who reads a campaign before it goes live? And what can you see after you give?',
   },
 ];
 
 export const metadata: Metadata = {
   title: 'GoFundMe Alternative | Compare Fundraising Platforms',
   description:
-    'How LastDonor compares with the big fundraising sites on fees, checks, and how clearly each one explains where money goes.',
+    'See how LastDonor compares with the big fundraising sites. Three things to check: the fees, the campaign checks, and where your money goes.',
   keywords: [
     'GoFundMe alternative',
     'GoFundMe vs LastDonor',
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'GoFundMe Alternative | LastDonor.org',
     description:
-      'A factual comparison checklist for choosing a fundraising platform with 0% platform fees, reviewed campaigns, and visible progress updates.',
+      'A checklist for choosing a fundraising site: what it charges, who checks the campaigns, and what you can see after you give.',
     url: 'https://lastdonor.org/compare',
     type: 'website',
     images: [
@@ -67,7 +67,7 @@ export default function ComparePage() {
         url: 'https://lastdonor.org/compare',
         name: 'GoFundMe Alternative: Compare Fundraising Platforms',
         description:
-          'A factual comparison page for choosing between LastDonor and large fundraising platforms.',
+          'A page to help you choose between LastDonor and the large fundraising sites.',
         isPartOf: { '@id': 'https://lastdonor.org/#website' },
         about: { '@id': 'https://lastdonor.org/#organization' },
       },
@@ -100,21 +100,22 @@ export default function ComparePage() {
             Fundraising platform comparison
           </p>
           <h1 className="mt-3 font-display text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            GoFundMe alternative for reviewed fundraising with 0% platform fees.
+            A GoFundMe alternative. We take 0%, and a person checks every
+            campaign.
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-            LastDonor is built for donors and organizers who want clear fee
-            disclosure, campaign review before publication, and visible progress
-            updates. This page avoids unverifiable success claims and focuses on
-            criteria you can check before choosing any fundraising platform.
+            Choosing where to fundraise comes down to a few facts you can check.
+            What does the site charge? Who reads a campaign before it goes live?
+            What can donors see afterwards? Here are our answers, so you can ask
+            any other site the same thing.
           </p>
         </div>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-3">
           {[
-            ['LastDonor platform fee', '0%'],
-            ['Payment processing', 'Standard Stripe fees'],
-            ['Campaign review', 'Before publication'],
+            ['What LastDonor takes', '0%'],
+            ['What Stripe charges', '2.9% + 30c, US card'],
+            ['A person checks it', 'Before it goes live'],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl border border-border bg-card p-5">
               <p className="text-sm text-muted-foreground">{label}</p>
@@ -127,42 +128,42 @@ export default function ComparePage() {
       <section className="border-y border-border bg-muted/30">
         <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
-            Compare the things that actually affect trust
+            What to check on any fundraising site
           </h2>
           <div className="mt-8 overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-border bg-muted/60">
                 <tr>
-                  <th scope="col" className="px-4 py-3 font-semibold text-foreground">Decision factor</th>
-                  <th scope="col" className="px-4 py-3 font-semibold text-foreground">What to check on any platform</th>
+                  <th scope="col" className="px-4 py-3 font-semibold text-foreground">What to compare</th>
+                  <th scope="col" className="px-4 py-3 font-semibold text-foreground">What to ask</th>
                   <th scope="col" className="px-4 py-3 font-semibold text-primary">LastDonor</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 <tr>
-                  <td className="px-4 py-4 font-medium text-foreground">Platform fees</td>
-                  <td className="px-4 py-4 text-muted-foreground">Whether the platform takes a percentage or asks donors for platform tips.</td>
-                  <td className="px-4 py-4 text-foreground">0% platform fees on fundraisers from LastDonor.</td>
+                  <td className="px-4 py-4 font-medium text-foreground">Fees</td>
+                  <td className="px-4 py-4 text-muted-foreground">Does the site take a cut? Does it ask donors for a tip on top?</td>
+                  <td className="px-4 py-4 text-foreground">We take 0% of what a campaign raises.</td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-4 font-medium text-foreground">Payment processing</td>
-                  <td className="px-4 py-4 text-muted-foreground">The card processing fee and who keeps it.</td>
-                  <td className="px-4 py-4 text-foreground">Stripe charges 2.9% + 30c per donation. We get none of it.</td>
+                  <td className="px-4 py-4 font-medium text-foreground">Card fees</td>
+                  <td className="px-4 py-4 text-muted-foreground">What does the card payment cost, and who keeps that money?</td>
+                  <td className="px-4 py-4 text-foreground">Stripe charges 2.9% plus 30 cents on a US card. On a $50 donation that is $1.75, so the campaign gets $48.25. We get none of it.</td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-4 font-medium text-foreground">Campaign review</td>
-                  <td className="px-4 py-4 text-muted-foreground">Whether campaign details are reviewed before or only after reports.</td>
-                  <td className="px-4 py-4 text-foreground">Campaigns are reviewed before publication.</td>
+                  <td className="px-4 py-4 font-medium text-foreground">Checks</td>
+                  <td className="px-4 py-4 text-muted-foreground">Does a person read a campaign before it goes live, or only after a complaint?</td>
+                  <td className="px-4 py-4 text-foreground">A person reads every campaign before it goes live.</td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-4 font-medium text-foreground">Donor updates</td>
-                  <td className="px-4 py-4 text-muted-foreground">How donors can follow progress, updates, and completion status.</td>
-                  <td className="px-4 py-4 text-foreground">Campaign progress, donor counts, updates, and completion status are visible.</td>
+                  <td className="px-4 py-4 font-medium text-foreground">Updates</td>
+                  <td className="px-4 py-4 text-muted-foreground">Can you follow a campaign after you give?</td>
+                  <td className="px-4 py-4 text-foreground">You can see the money raised, how many people gave, and every update.</td>
                 </tr>
                 <tr>
                   <td className="px-4 py-4 font-medium text-foreground">Support</td>
-                  <td className="px-4 py-4 text-muted-foreground">Whether organizers and donors can contact a real support channel.</td>
-                  <td className="px-4 py-4 text-foreground">Support, editorial, privacy, and legal contact channels are published.</td>
+                  <td className="px-4 py-4 text-muted-foreground">Is there a real person you can email?</td>
+                  <td className="px-4 py-4 text-foreground">Yes. We publish an address for support, editorial, privacy, and legal.</td>
                 </tr>
               </tbody>
             </table>
@@ -176,19 +177,20 @@ export default function ComparePage() {
             When LastDonor is a good fit
           </h2>
           <ul className="mt-6 space-y-3 text-muted-foreground">
-            <li>You want a reviewed medical, emergency, memorial, family, veteran, or disaster relief fundraiser.</li>
-            <li>You want 0% platform fees on fundraisers from LastDonor, with only standard Stripe processing fees applying.</li>
-            <li>You want campaign pages that show progress and updates instead of only a donation button.</li>
-            <li>You want donor-facing language that is careful about tax status, refunds, and fee disclosure.</li>
+            <li>You need money for a medical bill, a funeral, or a family emergency.</li>
+            <li>You want to keep as much as you can. We take 0%, and only the Stripe fee comes off.</li>
+            <li>You want a page that shows progress and updates, not just a donate button.</li>
+            <li>You want plain answers about tax, refunds, and fees before you give.</li>
           </ul>
         </div>
         <aside className="rounded-xl border border-border bg-card p-6">
           <h2 className="font-display text-xl font-bold text-foreground">
-            Start with a reviewed campaign
+            Start a campaign
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Share the story, category, goal, location, photos, and supporting
-            context. The campaign is reviewed before it appears publicly.
+            Tell us the story. Say who the money is for, how much you need, and
+            where you live. Add photos if you have them. A person reads it
+            before it goes live.
           </p>
           <Link
             href="/share-your-story"
@@ -201,7 +203,7 @@ export default function ComparePage() {
 
       <section id="faq" className="mx-auto max-w-5xl px-4 pb-16 sm:px-6 lg:px-8">
         <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
-          Fundraising platform comparison FAQ
+          Questions about choosing a platform
         </h2>
         <dl className="mt-6 grid gap-5 md:grid-cols-2">
           {faqs.map((faq) => (

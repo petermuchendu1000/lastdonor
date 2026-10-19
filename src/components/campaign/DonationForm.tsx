@@ -1019,7 +1019,7 @@ export function DonationForm({
           </dd>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          Stripe&rsquo;s processing fee (2.9% + $0.30) comes out of the payout, not your
+          Stripe&rsquo;s fee on a US card (2.9% + $0.30) comes out of the payout, not your
           card. LastDonor takes no cut and adds no tip request.
         </p>
       </dl>

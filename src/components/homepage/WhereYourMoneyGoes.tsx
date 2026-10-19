@@ -71,7 +71,7 @@ interface LedgerRow {
 const ROWS: LedgerRow[] = [
   {
     label: 'Payment processing',
-    note: 'Stripe’s standard rate (2.9% + $0.30). We never receive any part of it.',
+    note: 'Stripe’s rate on a US card (2.9% + $0.30). We never receive any part of it.',
     amount: `− ${usd(processingCents)}`,
   },
   {

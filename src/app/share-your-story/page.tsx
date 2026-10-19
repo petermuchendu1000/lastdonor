@@ -43,7 +43,7 @@ const faqs = [
   {
     question: 'Does LastDonor charge a setup fee?',
     answer:
-      'No. We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
+      'No. We take 0%. Stripe charges 2.9% plus 30 cents on a US card. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
   },
 ];
 

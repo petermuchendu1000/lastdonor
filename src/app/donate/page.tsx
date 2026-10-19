@@ -60,13 +60,13 @@ async function generalFundIsDonatable(): Promise<boolean> {
 export const metadata: Metadata = {
   title: 'Donate to the General Fund',
   description:
-    'Support LastDonor.org directly. General fund donations help cover campaign review, payment processing, platform hosting, donor support, and impact updates.',
+    'Give to the general fund. It pays the people who check campaigns, answer donors, and keep the site running.',
   keywords: seoKeywords('donor', 'trust', 'core'),
   alternates: { canonical: 'https://lastdonor.org/donate' },
   openGraph: {
     title: 'Donate to the General Fund | LastDonor.org',
     description:
-      'General fund donations keep the lights on so we can respond fast when someone needs help.',
+      'The general fund pays for the work behind every campaign on LastDonor.',
     images: [
       {
         url: '/api/v1/og/page?title=Donate+to+the+General+Fund&subtitle=Support+LastDonor.org+directly.',
@@ -85,7 +85,7 @@ export default async function DonatePage() {
     {
       question: 'What does the LastDonor general fund support?',
       answer:
-        'Giving to the general fund pays our staff to check campaigns, answer donors, and keep the site running.',
+        'Your gift pays our staff. They check campaigns, answer donors, and keep the site running.',
     },
     {
       question: 'Can I donate directly to a specific fundraiser instead?',
@@ -95,22 +95,22 @@ export default async function DonatePage() {
     {
       question: 'Does LastDonor charge a platform fee on donations?',
       answer:
-        'We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
+        'We take 0%. Stripe charges 2.9% plus 30 cents on a US card. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
     },
     {
       question: 'Can I cancel a monthly general fund donation?',
       answer:
-        'Yes. Monthly donations can be cancelled before the next billing date from your account when available or by contacting support@lastdonor.org.',
+        'Yes, any time before the next payment date. Stop it in your account, or email support@lastdonor.org and we will do it for you.',
     },
     {
       question: 'Are general fund donations refundable?',
       answer:
-        'Donations are generally final after processing, but LastDonor reviews refund requests for duplicate charges, unauthorized transactions, technical errors, and compliance issues.',
+        'Usually a donation is final once it goes through. We do refund you in some cases. The charge was not yours. You were charged twice. Something went wrong on our side. Or the law requires it. Email support@lastdonor.org.',
     },
     {
       question: 'Is anything shipped after I donate?',
       answer:
-        'No. LastDonor accepts donations only. There are no physical goods, shipping charges, delivery dates, returns, or product warranties.',
+        'No. A donation is a gift, not a purchase. There is nothing to ship, return, or exchange.',
     },
   ];
 
@@ -139,19 +139,20 @@ export default async function DonatePage() {
           Support the General Fund
         </h1>
         <p className="mt-3 text-muted-foreground">
-          General fund donations help LastDonor review fundraisers, keep
-          campaign pages online, process payments, support donors, and publish
-          impact updates. If you want to support a specific person or family,
-          you can browse active campaigns instead.
+          This fund pays for the work behind every campaign. We read each one
+          before it goes live. We answer donors, run the site, and publish
+          updates. If you would rather help one person or family, browse the
+          campaigns instead.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          LastDonor charges 0% platform fees on fundraisers. The general fund is
-          how donors, grantmakers, sponsors, and operating supporters help cover
-          the platform work behind those fundraisers.
+          We take 0% of what a campaign raises. Stripe charges 2.9% plus 30
+          cents on a US card. On a $50 donation that is $1.75, so the
+          campaign gets $48.25. A card from outside the US costs a little
+          more. This fund is how we pay for everything else.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Donations are processed in U.S. dollars by Stripe. LastDonor does not
-          sell or ship physical goods. See the{' '}
+          Stripe takes the payment, in U.S. dollars. We do not sell or ship
+          anything. Read the{' '}
           <Link href="/refund-policy" className="text-primary underline underline-offset-4">
             Refund Policy
           </Link>{' '}
@@ -159,7 +160,7 @@ export default async function DonatePage() {
           <Link href="/donor-faq" className="text-primary underline underline-offset-4">
             Donor FAQ
           </Link>{' '}
-          before giving.
+          before you give.
         </p>
 
         {fundAcceptsDonations ? (
@@ -171,17 +172,17 @@ export default async function DonatePage() {
              that 404s on every submit is worse than no form. */
           <div className="mt-8 rounded-xl border border-border bg-card p-6" role="status">
             <h2 className="font-display text-xl font-bold text-card-foreground">
-              The general fund is not accepting donations right now
+              The general fund is closed right now
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              We are not able to take general fund donations at the moment, so
-              we are not going to show you a payment form that cannot complete.
-              Nothing is wrong with your card or your account.
+              We cannot take general fund donations today. So we are not showing
+              you a form that would fail. Nothing is wrong with your card or
+              your account.
             </p>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Individual fundraisers are unaffected and can still receive
-              donations. If you came here to support the platform itself,
-              email support@lastdonor.org and we will tell you when the fund reopens.
+              Campaigns still work. You can give to any of them. If you came to
+              support LastDonor itself, email support@lastdonor.org. We will
+              tell you when the fund reopens.
             </p>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <Link
