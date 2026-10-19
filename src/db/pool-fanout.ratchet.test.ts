@@ -317,4 +317,28 @@ describe('no route oversubscribes the connection pool (docs/87 amendment 5)', ()
     const dbIndex = readFileSync(join(SRC, 'db/index.ts'), 'utf8');
     expect(dbIndex).toMatch(/max:\s*5\b/);
   });
+
+  it('collapses the pool to one connection during the production build', () => {
+    /*
+      Added 2026-10-19. `next build` pre-renders 24+ database-backed
+      routes across several worker processes, each opening its own pool
+      against a SESSION-mode URL whose whole-project ceiling is
+      `pool_size: 15`. At `max: 5` that is exhausted, the build-phase
+      fail-soft swallows the error by design, and the affected routes
+      pre-render EMPTY.
+
+      It shipped: `/sitemap.xml` served 42 URLs and not one
+      `/campaigns/<slug>` while the database held 13 active campaigns,
+      so the only pages that can take money were absent from the
+      sitemap Google fetches - for up to an hour after every deploy,
+      because the route sets `revalidate = 3600`.
+
+      This asserts the build-phase override is still there. It is the
+      kind of line a later cleanup deletes as redundant, and nothing
+      else would fail: the build still succeeds, because failing soft
+      is exactly what it is designed to do.
+    */
+    const dbIndex = readFileSync(join(SRC, 'db/index.ts'), 'utf8');
+    expect(dbIndex).toMatch(/IS_PRODUCTION_BUILD\s*\?\s*\{\s*max:\s*1\s*\}/);
+  });
 });
