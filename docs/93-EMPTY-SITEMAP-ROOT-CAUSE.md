@@ -153,6 +153,23 @@ build log will show.
 wedges to wide fan-out on this pool, and the three-query cap exists because of
 it.
 
+## Verified result
+
+**Measured** on the deploy that carried the fix, 2026-10-19:
+
+| | Before | After |
+|---|---|---|
+| `database read failed` lines in the build log | 3 | **0** |
+| URLs in `/sitemap.xml` | 42 | **55** |
+| Individual `/campaigns/<slug>` URLs | **0** | **13** |
+
+Thirteen matches the `active` count in the database exactly. All thirteen were
+then fetched individually and **all returned HTTP 200** — submitting URLs that
+404 would have been worse than omitting them.
+
+Blog URLs remain 0, and that is **correct, not a second casualty**: `blog_posts`
+holds zero rows (**verified** by query, 2026-10-19).
+
 ## Trade-off accepted
 
 The build now opens fewer connections and so pre-renders slightly less in
