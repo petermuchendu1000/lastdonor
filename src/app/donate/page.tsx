@@ -85,17 +85,17 @@ export default async function DonatePage() {
     {
       question: 'What does the LastDonor general fund support?',
       answer:
-        'General fund donations help pay for campaign review, verification work, payment operations, hosting, donor support, and the work required to publish campaign updates.',
+        'Giving to the general fund pays our staff to check campaigns, answer donors, and keep the site running.',
     },
     {
       question: 'Can I donate directly to a specific fundraiser instead?',
       answer:
-        'Yes. Browse active fundraisers to support a specific medical, emergency, memorial, family, veteran, disaster relief, education, animal, or community campaign.',
+        'Yes. Pick someone to help. Every campaign has been checked by a person before going live.',
     },
     {
       question: 'Does LastDonor charge a platform fee on donations?',
       answer:
-        'LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees apply. LastDonor funds operations separately through general fund donations, grants, sponsorships, and operating support.',
+        'We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
     },
     {
       question: 'Can I cancel a monthly general fund donation?',

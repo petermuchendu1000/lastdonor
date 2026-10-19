@@ -33,7 +33,7 @@ export default function EditorialStandardsPage() {
     {
       question: 'What documents help with campaign verification?',
       answer:
-        'Helpful materials can include bills, official letters, public records, photos, school documents, disaster reports, veterinary estimates, memorial information, or other evidence related to the campaign.',
+        'A bill. An official letter. A photo. A vet or school document. Anything that shows the need is real.',
     },
     {
       question: 'Can campaign details change after publication?',

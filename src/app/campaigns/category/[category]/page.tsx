@@ -116,7 +116,7 @@ export default async function CategoryPage({ params }: PageProps) {
     },
     {
       question: `What details help a ${categoryLabel} fundraiser earn donor trust?`,
-      answer: 'A clear title, specific location, realistic fundraising goal, beneficiary details, supporting documentation, strong photo, and regular campaign updates all help donors understand the fundraiser.',
+      answer: 'Say plainly who needs help and where. Ask for an amount you can explain. Add a clear photo and a document if you have one. Post updates as things change.',
     },
   ];
   const faqJsonLd = {

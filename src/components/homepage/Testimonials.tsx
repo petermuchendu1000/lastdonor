@@ -27,7 +27,7 @@ const trustSignals = [
     icon: ShieldCheckIcon,
     title: '0% platform fees',
     body:
-      'LastDonor does not take a platform cut. Standard Stripe processing fees apply.',
+      'We take 0%. Stripe charges 2.9% plus 30 cents per donation, and we get none of it.',
     detail: 'Stripe-secured payments',
   },
 ];

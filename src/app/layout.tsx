@@ -24,7 +24,7 @@ const siteSchemaGraph = {
         height: 180,
       },
       description:
-        'LastDonor is a reviewed crowdfunding platform that charges 0% platform fees on fundraisers, reviews campaigns before publication, and provides visible campaign progress and impact updates, serving medical, emergency, veteran, and family fundraising in the United States.',
+        'LastDonor is a US fundraising site that takes 0% of what you raise. A person checks every campaign before it goes live, and campaigns show where the money went.',
       foundingDate: '2024-01-01',
       areaServed: { '@type': 'Country', name: 'United States' },
       knowsAbout: [

@@ -16,7 +16,7 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns | LastDonor',
   description:
-    'Browse reviewed crowdfunding campaigns for medical fundraising, emergency relief, disaster fundraising, medical bills, veteran families, first responders, education, and family emergency fundraising. Every campaign is reviewed before publication. 0% platform fees.',
+    'Real people who need help with medical bills, a disaster, or a family emergency. A person has checked every campaign. Every campaign is reviewed before publication. 0% platform fees.',
   keywords: seoKeywords('campaigns', 'medical', 'emergency', 'disaster', 'memorial', 'family', 'nonprofit', 'trust'),
   alternates: { canonical: 'https://lastdonor.org/campaigns' },
   openGraph: {
@@ -58,7 +58,7 @@ const faqs = [
   {
     question: 'What fundraisers can I browse on LastDonor?',
     answer:
-      'You can browse reviewed medical fundraisers, emergency fundraisers, memorial funds, disaster relief fundraisers, family emergency campaigns, veteran fundraisers, education fundraisers, animal fundraisers, and community fundraisers.',
+      'Medical bills, funerals, disasters and families in crisis. A person has checked every one.',
   },
   {
     question: 'Are campaigns reviewed before they appear here?',
@@ -68,7 +68,7 @@ const faqs = [
   {
     question: 'Can I search by cause or location?',
     answer:
-      'Yes. Use the filters to search by fundraiser category, location, campaign status, or keywords such as medical bills, funeral expenses, house fire, tuition, pet surgery, or veteran support.',
+      'Yes. Filter by what the money is for, or by where the person lives. You can also search by word, such as \'house fire\'.',
   },
   {
     question: 'What does close to target mean?',

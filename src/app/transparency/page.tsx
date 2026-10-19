@@ -10,7 +10,7 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'Transparency | Donation Tracking and Impact Updates',
   description:
-    'See LastDonor platform statistics, donation tracking, completed campaigns, impact updates, payment processing, and fund allocation policies.',
+    'Our numbers, in the open: what has been raised, which campaigns finished, and where the money went.',
   keywords: seoKeywords('trust', 'donor', 'core', 'campaigns'),
   alternates: { canonical: 'https://lastdonor.org/transparency' },
   openGraph: {

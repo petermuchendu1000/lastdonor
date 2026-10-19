@@ -167,7 +167,7 @@ export default async function Home() {
         url: 'https://lastdonor.org',
         name: 'LastDonor - Reviewed Crowdfunding with 0% Platform Fees',
         description:
-          'Reviewed crowdfunding campaigns for medical, emergency, disaster relief, veteran, memorial, and family fundraising with 0% platform fees on fundraisers and visible campaign progress.',
+          'Help real people with medical bills, funerals, disasters and family emergencies. We take 0%. A person checks every campaign.',
         isPartOf: { '@id': 'https://lastdonor.org/#website' },
         about: { '@id': 'https://lastdonor.org/#organization' },
         primaryImageOfPage: {

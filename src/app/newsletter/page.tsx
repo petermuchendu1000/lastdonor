@@ -6,7 +6,7 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'Newsletter',
   description:
-    'Updates on reviewed campaigns, impact stories, and ways to help medical, emergency, memorial, family, and community fundraisers.',
+    'New campaigns, stories of what your money paid for, and ways to help.',
   keywords: seoKeywords('campaigns', 'trust', 'donor', 'medical', 'emergency'),
   alternates: { canonical: 'https://lastdonor.org/newsletter' },
   openGraph: {

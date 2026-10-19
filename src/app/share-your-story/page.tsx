@@ -6,13 +6,13 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'Start a Fundraiser | Create a Reviewed Campaign',
   description:
-    'Start a fundraiser for medical bills, emergencies, memorial costs, disaster relief, family needs, pets, tuition, veterans, or community projects. Submit your story for review before publication.',
+    'Raise money for medical bills, a funeral, a disaster, school fees, or a family in crisis. Submit your story for review before publication.',
   keywords: seoKeywords('start', 'campaigns', 'medical', 'emergency', 'memorial', 'family', 'nonprofit'),
   alternates: { canonical: 'https://lastdonor.org/share-your-story' },
   openGraph: {
     title: 'Start a Fundraiser | LastDonor.org',
     description:
-      'Create a reviewed fundraiser for a medical, emergency, memorial, family, animal, education, veteran, or community need.',
+      'Start a fundraiser. A person checks it before it goes live.',
     images: [
       {
         url: '/api/v1/og/page?title=Start+a+Fundraiser&subtitle=Share+your+story.+We+review+it.+Your+community+funds+it.',
@@ -28,12 +28,12 @@ const faqs = [
   {
     question: 'What kind of fundraiser can I start on LastDonor?',
     answer:
-      'You can start a fundraiser for medical bills, surgery, emergency expenses, funeral costs, memorial support, disaster relief, family needs, vet bills, tuition, veteran support, first responder families, small businesses, events, or community projects.',
+      'Almost any real need. Medical bills. A funeral. A fire or flood. School fees. Vet bills. Help for a veteran or a first responder family.',
   },
   {
     question: 'What information helps a fundraiser get reviewed?',
     answer:
-      'A clear beneficiary, location, campaign category, realistic fundraising goal, cover photo, detailed story, and supporting documents all help reviewers understand the need before publication.',
+      'Name the person the money is for. Say where they live. Ask for an amount you can explain. Add a clear photo, the full story, and a document if you have one.',
   },
   {
     question: 'Can I raise money for myself or someone else?',
@@ -43,7 +43,7 @@ const faqs = [
   {
     question: 'Does LastDonor charge a setup fee?',
     answer:
-      'No. LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees apply. Operations are funded separately through general fund donations, grants, sponsorships, and operating support.',
+      'No. We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
   },
 ];
 

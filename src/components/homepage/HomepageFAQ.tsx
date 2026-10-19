@@ -1,40 +1,64 @@
 import { ChevronDownIcon } from '@heroicons/react/24/outline';
 
+/*
+  Plain English, on purpose.
+
+  Measured 2026-10-19, the homepage scored 51 on Flesch Reading Ease
+  and the site averaged 40 - "difficult". The target for an audience
+  that includes ESL and EFL readers is 60+ and a reading grade at or
+  under 8.
+
+  Three rules were applied to every answer here, and should be applied
+  to any answer added later:
+
+    1. One idea per sentence, and short sentences. A reader who loses
+       the thread of a 40-word sentence about money does not ask; they
+       leave.
+    2. The common word, not the formal one: "pay for" not "cover",
+       "check" not "verify", "money" not "funds".
+    3. Where there is a number, show the arithmetic. "Standard
+       processing fees apply" is not an answer to "how much of my $50
+       arrives" - it is a way of not answering it.
+
+  The 2.9% + $0.30 figure is Stripe's published US rate, already cited
+  in `WhereYourMoneyGoes.tsx` (docs/59). Do not restate it anywhere
+  without checking it is still current.
+*/
 const faqs = [
   {
-    question: 'Does LastDonor charge platform fees?',
+    question: 'Does LastDonor take a cut of my donation?',
     answer:
-      'No. LastDonor charges 0% platform fees on fundraisers. Standard Stripe payment processing fees apply.',
+      'No. We take 0%. Stripe handles the card payment and charges 2.9% plus 30 cents. On a $50 donation that is $1.75, so the campaign receives $48.25. None of that fee comes to us.',
   },
   {
-    question: 'How does LastDonor stay funded with 0% platform fees?',
+    question: 'If you take 0%, how do you pay your bills?',
     answer:
-      'LastDonor funds operations separately through general fund donations, grants, sponsorships, and operating support. That support helps cover campaign review, verification work, donor support, hosting, payment operations, and impact updates.',
+      'People donate to LastDonor itself, separately from campaigns. We also look for grants and sponsors. That money pays for checking campaigns, helping donors, and running the website.',
   },
   {
-    question: 'How does LastDonor review campaigns before publication?',
+    question: 'Who checks a campaign before it goes live?',
     answer:
-      'Every campaign is reviewed by a real person before going live. Depending on the story, we may check supporting documents such as bills, official letters, photos, or other evidence that helps donors understand the need.',
+      'A person on our team reads every campaign first. We often ask for proof, such as a bill, an official letter, or a photo. Nothing goes live until that check is done.',
   },
   {
-    question: 'Where does my donation money go?',
+    question: 'Where does my money go?',
     answer:
-      'Your donation supports the campaign you choose. LastDonor takes no platform cut from it, and publishes campaign updates so donors can follow progress and impact.',
+      'All of it goes to the campaign you picked, minus the Stripe payment fee. We take nothing. The campaign then posts updates so you can see what your money paid for.',
   },
   {
-    question: 'What types of fundraisers can I support?',
+    question: 'What kinds of campaigns can I support?',
     answer:
-      'LastDonor supports reviewed campaigns for medical bills, emergencies, memorial funds, military and veteran families, first responders, education, disaster relief, community needs, and family crises.',
+      'Medical bills. Funerals. Fires, floods and storms. Families in a crisis. Veterans and their families. Police, firefighters and paramedics. Schools and students.',
   },
   {
-    question: 'What makes LastDonor different from other fundraising sites?',
+    question: 'How is LastDonor different from other fundraising sites?',
     answer:
-      'LastDonor charges 0% platform fees on fundraisers, reviews campaigns before publication, and gives donors updates that show campaign progress and impact.',
+      'Three things. We take 0% of what you raise. A person checks every campaign before it goes live. And campaigns post updates showing where the money went.',
   },
   {
-    question: 'Can I donate without creating an account?',
+    question: 'Do I need an account to donate?',
     answer:
-      'Yes. You can donate as a guest without creating an account. No signup is required to browse campaigns or donate. You will receive an email receipt confirming your contribution.',
+      'No. You can donate as a guest. We email you a receipt.',
   },
 ];
 

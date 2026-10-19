@@ -13,7 +13,7 @@ export const revalidate = 300; // ISR: refresh every 5 minutes
 export const metadata: Metadata = {
   title: 'Completed Campaigns | LastDonor.org',
   description:
-    'Browse completed medical, emergency, memorial, family, disaster relief, and community fundraisers that reached their goals on LastDonor.',
+    'Campaigns that reached their goal. See what the money paid for.',
   keywords: seoKeywords('campaigns', 'trust', 'medical', 'emergency', 'memorial', 'family'),
   alternates: { canonical: 'https://lastdonor.org/completed-campaigns' },
   openGraph: {
@@ -61,7 +61,7 @@ const faqs = [
   {
     question: 'Can I browse completed medical or emergency fundraisers?',
     answer:
-      'Yes. Use the filters to browse completed medical fundraisers, emergency fundraisers, memorial funds, disaster relief campaigns, family fundraisers, and other categories.',
+      'Yes. Filter by what the money was for, or by where the person lives.',
   },
   {
     question: 'What is the Last Donor?',

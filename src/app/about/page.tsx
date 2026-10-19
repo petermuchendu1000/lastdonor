@@ -6,7 +6,7 @@ import { seoKeywords } from '@/lib/seo/keywords';
 export const metadata: Metadata = {
   title: 'About LastDonor.org | Reviewed Crowdfunding with 0% Platform Fees',
   description:
-    'LastDonor.org is a reviewed crowdfunding platform for medical, emergency, memorial, veteran, family, and disaster relief fundraisers. Campaigns are reviewed before publication, platform fees are 0%, and donors can follow campaign progress and impact updates.',
+    'LastDonor.org is a fundraising site for people facing medical bills, funerals, disasters and family emergencies. Campaigns are reviewed before publication, platform fees are 0%, and donors can follow campaign progress and impact updates.',
   keywords: seoKeywords('core', 'trust', 'campaigns', 'nonprofit', 'medical', 'emergency', 'memorial'),
   alternates: { canonical: 'https://lastdonor.org/about' },
   openGraph: {

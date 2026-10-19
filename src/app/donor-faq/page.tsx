@@ -6,79 +6,79 @@ const faqs = [
   {
     question: 'What am I paying for when I donate?',
     answer:
-      'You are making a donation to the campaign or general fund named at checkout. Campaign donations support the stated fundraiser. General fund donations support LastDonor operations such as campaign review, hosting, donor support, payment processing, and impact updates.',
+      'You are giving money to the campaign you chose at checkout. If you chose the general fund instead, your money pays for running LastDonor itself.',
   },
   {
-    question: 'Does LastDonor sell physical goods or ship anything?',
+    question: 'Will you send me anything?',
     answer:
-      'No. LastDonor accepts donations only. There are no physical goods, shipping charges, delivery dates, returns, or product warranties.',
+      'No. A donation is a gift, not a purchase. There is nothing to ship, return, or exchange.',
   },
   {
-    question: 'Who processes my payment?',
+    question: 'Who takes my card details?',
     answer:
-      'Stripe processes card and wallet payments securely. LastDonor does not store full payment card numbers on its servers.',
+      'Stripe does. They handle payments for millions of businesses. We never see or keep your full card number.',
   },
   {
-    question: 'Does LastDonor charge a platform fee?',
+    question: 'How much of my donation reaches the campaign?',
     answer:
-      'LastDonor charges 0% platform fees on fundraisers. Standard Stripe processing fees may apply. LastDonor funds its operations separately through general fund donations, grants, sponsorships, and operating support.',
+      'We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25.',
   },
   {
-    question: 'What is LastDonor\'s business model?',
+    question: 'If you take nothing, how do you survive?',
     answer:
-      'LastDonor is supported separately from campaign donations. General fund donations, grants, sponsorships, and operating support help pay for campaign review, verification work, donor support, hosting, payment operations, and impact updates.',
+      'Some people donate to LastDonor itself instead of to a campaign. We also look for grants and sponsors. That money pays our staff and our bills.',
   },
   {
-    question: 'Are donations tax deductible?',
+    question: 'Can I claim this on my taxes?',
     answer:
-      'Do not assume a donation is tax deductible unless the donation flow, confirmation, or campaign page clearly says it is. LastDonor publishes tax status updates when they are available. Donors should consult a tax advisor for their own situation.',
+      'Assume no. Only claim it if the donation page or your receipt says you can. Tax rules differ by country and by person, so ask a tax adviser about your own case.',
   },
   {
-    question: 'Can I donate anonymously?',
+    question: 'Can I give without my name showing?',
     answer:
-      'Yes. If you choose anonymous, the campaign page displays Anonymous instead of your public donor name. LastDonor still keeps transaction records needed for support, fraud prevention, and compliance.',
+      'Yes. Tick the anonymous box and the campaign page shows "Anonymous". We still keep a private record so we can help you if something goes wrong.',
   },
   {
-    question: 'Can I cancel a monthly donation?',
+    question: 'Can I stop a monthly donation?',
     answer:
-      'Yes. Monthly donations can be cancelled before the next billing date from your account when available or by contacting support@lastdonor.org.',
+      'Yes, any time before the next payment date. Stop it in your account, or email support@lastdonor.org and we will do it.',
   },
   {
-    question: 'Can I get a refund?',
+    question: 'Can I get my money back?',
     answer:
-      'Donations are generally final after processing, but refund requests are reviewed for duplicate charges, unauthorized transactions, campaign removals, failed verification, and compliance issues.',
+      'Usually a donation is final once it goes through. We do refund you in four cases. The charge was not yours. You were charged twice. We took the campaign down. Or the law requires it. Email support@lastdonor.org within 30 days.',
   },
   {
-    question: 'What happens if a campaign is removed?',
+    question: 'What if you take a campaign down after I gave?',
     answer:
-      'LastDonor may pause, suspend, or remove a campaign that cannot be verified or violates policy. Donors are notified when a campaign removal affects their donation, and refunds are processed where applicable.',
+      'We email you. If the money has not reached the campaign yet, we refund you.',
   },
   {
-    question: 'How are campaign recipients verified?',
+    question: 'How do you check who is behind a campaign?',
     answer:
-      'Campaigns are reviewed before publication, and fund release requires additional verification. Depending on the campaign, review can include identity checks, supporting documents, bills, official letters, public records, photos, or organizer follow-up.',
+      'A person on our team reads every campaign before it goes live. Before any money is paid out, we check the campaign again. We can ask for ID, a bill, an official letter, or a photo.',
   },
   {
-    question: 'When do campaign recipients receive funds?',
+    question: 'When does the campaign actually get the money?',
     answer:
-      'Funds are released only after required verification is complete and the campaign passes review. Eligible recipients receive funds through Stripe-connected payout rails or another approved method.',
+      'After those checks are done. We send it to their bank account through Stripe.',
   },
   {
-    question: 'How do I report a problem?',
+    question: 'Something is wrong. Who do I tell?',
     answer:
-      'Email support@lastdonor.org for payment or account issues, editorial@lastdonor.org to report inaccurate campaign information, or legal@lastdonor.org for legal concerns.',
+      'Email support@lastdonor.org about a payment or your account. Email editorial@lastdonor.org if a campaign looks untrue. Email legal@lastdonor.org about a legal problem.',
   },
 ];
 
 export const metadata: Metadata = {
   title: 'Donor FAQ',
   description:
-    'Answers for LastDonor donors about payments, refunds, recurring donations, anonymous donations, tax status, campaign verification, and fund release.',
+    'Plain answers about paying, refunds, giving anonymously, and when campaigns get the money.',
   alternates: { canonical: 'https://lastdonor.org/donor-faq' },
   openGraph: {
     title: 'Donor FAQ | LastDonor.org',
     description:
-      'Payments, refunds, recurring donations, anonymous donations, tax status, campaign verification, and fund release.',
+      'Paying, refunds, giving anonymously, and when campaigns get the money.',
     images: [
       {
         url: '/api/v1/og/page?title=Donor+FAQ&subtitle=Payments%2C+refunds%2C+verification%2C+and+fund+release.',

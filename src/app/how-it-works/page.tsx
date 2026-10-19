@@ -34,21 +34,21 @@ const STEPS = [
     number: '01',
     title: 'A campaign is submitted or sourced',
     description:
-      'Campaigns can begin through the Share Your Story form or through our editorial sourcing. The strongest submissions include a clear need, a specific fundraising goal, a location, a beneficiary, and supporting details donors can understand.',
+      'Anyone can start a campaign using the Share Your Story form. Our team also finds people in need and offers to help. The best campaigns say plainly who needs help, where they are, and how much money is needed.',
     icon: MagnifyingGlassIcon,
   },
   {
     number: '02',
     title: 'A person reviews the fundraiser',
     description:
-      'Before publication, a real person reviews the campaign for clarity, category fit, goal amount, beneficiary details, and supportable claims. Depending on the fundraiser, review may include bills, letters, photos, public records, or organizer follow-up.',
+      'A person on our team reads the campaign before anyone can see it. We check who the money is for, that the amount makes sense, and that the story is true. We often ask for a bill, a letter, or a photo as proof.',
     icon: CurrencyDollarIcon,
   },
   {
     number: '03',
     title: 'Donors give and track impact',
     description:
-      'Donors choose a reviewed medical fundraiser, emergency fundraiser, memorial fund, family campaign, or other cause and see campaign progress as it moves toward its goal. After completion, updates can show receipts, photos, notes, or other outcome details.',
+      'You pick a campaign and give. You can see how much it has raised at any time. When the money is spent, the campaign posts photos and receipts showing what it paid for.',
     icon: EyeIcon,
   },
 ];
@@ -57,27 +57,27 @@ const faqs = [
   {
     question: 'How do I start a fundraiser online with LastDonor?',
     answer:
-      'Use the Share Your Story form to create a fundraiser, set a goal, choose a category, add media, and submit the campaign for review before publication.',
+      'Fill in the Share Your Story form. Say how much you need and why, and add photos. Then send it to us. A person reads it before it goes live.',
   },
   {
-    question: 'Can I raise money for medical bills or emergency expenses?',
+    question: 'Can I raise money for medical bills or an emergency?',
     answer:
-      'Yes. LastDonor supports reviewed medical fundraisers, hospital bill fundraisers, emergency fundraisers, family emergency campaigns, memorial funds, disaster relief fundraisers, and other specific needs.',
+      'Yes. Medical bills are one of the most common reasons people use LastDonor. You can also raise money for a funeral, a fire or flood, or a family emergency.',
   },
   {
-    question: 'Does LastDonor charge platform fees?',
+    question: 'What does LastDonor charge?',
     answer:
-      'LastDonor charges 0% platform fees on fundraisers. Standard payment processing fees apply. Operations are funded separately through general fund donations, grants, sponsorships, and operating support.',
+      'Nothing. We take 0% of what you raise. Stripe handles the card payment and charges 2.9% plus 30 cents per donation. On a $50 donation that is $1.75, so you receive $48.25. We pay our own bills from separate donations and grants.',
   },
   {
     question: 'What makes a fundraiser easier to review?',
     answer:
-      'A specific beneficiary, clear location, realistic goal, supporting documents or public sources, and a plain-language story all help reviewers understand the fundraiser before it goes live.',
+      'Name the person the money is for. Say where they live. Ask for an amount you can explain. Add a bill or letter if you have one. Write the story the way you would tell a friend.',
   },
   {
     question: 'How do donors know what happened after a campaign closes?',
     answer:
-      'Campaign pages and impact stories can include updates, donor messages, receipts, photos, and outcome notes after a fundraiser reaches its goal.',
+      'The campaign posts an update on its page. It can include photos, receipts, and a note about what the money paid for. You get an email when it does.',
   },
 ];
 

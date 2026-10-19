@@ -12,24 +12,24 @@ const faqs = [
   {
     question: 'Does LastDonor charge a platform fee?',
     answer:
-      'No. LastDonor charges 0% platform fees on fundraisers. Standard Stripe payment processing fees apply. Operations are funded separately through general fund donations, grants, sponsorships, and operating support.',
+      'No. We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
   },
   {
     question: 'Does LastDonor guarantee fundraising results?',
     answer:
-      'No. Fundraising results depend on the campaign story, audience, urgency, sharing, donor trust, and many factors outside any platform control.',
+      'No. How much a campaign raises depends on the story, who sees it, and how widely it is shared. No site can promise a result.',
   },
   {
     question: 'How should I compare fundraising platforms?',
     answer:
-      'Compare platform fees, payment processing fees, campaign review standards, donor update tools, refund policies, support channels, and how clearly each platform explains where money goes.',
+      'Compare what each site charges, who checks campaigns, and how clearly they tell you where your money goes.',
   },
 ];
 
 export const metadata: Metadata = {
   title: 'GoFundMe Alternative | Compare Fundraising Platforms',
   description:
-    'Compare LastDonor with large fundraising platforms using factual criteria: platform fees, payment processing, campaign review, donor updates, support, and transparency.',
+    'How LastDonor compares with the big fundraising sites on fees, checks, and how clearly each one explains where money goes.',
   keywords: [
     'GoFundMe alternative',
     'GoFundMe vs LastDonor',
@@ -147,7 +147,7 @@ export default function ComparePage() {
                 <tr>
                   <td className="px-4 py-4 font-medium text-foreground">Payment processing</td>
                   <td className="px-4 py-4 text-muted-foreground">The card processing fee and who keeps it.</td>
-                  <td className="px-4 py-4 text-foreground">Standard Stripe processing fees apply; LastDonor receives none of them.</td>
+                  <td className="px-4 py-4 text-foreground">Stripe charges 2.9% + 30c per donation. We get none of it.</td>
                 </tr>
                 <tr>
                   <td className="px-4 py-4 font-medium text-foreground">Campaign review</td>
