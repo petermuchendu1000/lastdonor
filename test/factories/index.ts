@@ -76,7 +76,10 @@ export function buildDonation(overrides: Partial<Donation> = {}): Donation {
     campaignId: overrides.campaignId ?? nextId(),
     userId: null,
     stripePaymentId: `pi_test_${id}`,
+    provider: 'stripe',
+    providerReference: `pi_test_${id}`,
     amount: 5000, // $50.00
+    currency: 'usd',
     donorName: 'Jane Doe',
     donorEmail: 'jane@example.com',
     donorLocation: 'Portland, OR',

@@ -390,8 +390,46 @@ export const donations = pgTable(
       .notNull()
       .references(() => campaigns.id),
     userId: uuid('user_id').references(() => users.id),
-    stripePaymentId: text('stripe_payment_id').notNull(),
+    /**
+     * Stripe's PaymentIntent id. NULLABLE since 2026-10-19, because a
+     * donation taken on the FinoQ rail has no Stripe id and inventing one
+     * to satisfy a NOT NULL would corrupt the only replay protection we
+     * have.
+     *
+     * The unique index below is unchanged and still the thing CLAUDE.md
+     * says never to drop. Postgres unique indexes permit multiple NULLs,
+     * so FinoQ rows do not collide with each other or weaken it, and the
+     * `donations_stripe_id_present` check below keeps the guarantee that a
+     * Stripe donation always carries one. See docs/94.
+     */
+    stripePaymentId: text('stripe_payment_id'),
+    /**
+     * Which rail took the money. Defaulted to `stripe` so every existing
+     * row - and every row written by code that predates the second rail -
+     * is correctly labelled without a backfill.
+     */
+    provider: text('provider').notNull().default('stripe'),
+    /**
+     * The provider's own id for this payment, whichever provider it was.
+     * For Stripe this duplicates `stripe_payment_id`; for FinoQ it is the
+     * `external_reference` we mint and match the callback against.
+     *
+     * Nullable only so the column could be added to a live table; the
+     * uniqueness that provides cross-provider replay protection is on
+     * (provider, provider_reference) below.
+     */
+    providerReference: text('provider_reference'),
     amount: integer('amount').notNull(),
+    /**
+     * ISO 4217, lowercase, in MINOR units alongside `amount`.
+     *
+     * Added 2026-10-19. Every amount in this table was USD by assumption
+     * and nothing recorded it, so a second rail would have had
+     * `SUM(amount)` adding shillings to dollars and publishing the result
+     * as dollars on /transparency. Defaulted to the platform currency, so
+     * the existing rows are right without a backfill. See docs/94.
+     */
+    currency: text('currency').notNull().default('usd'),
     donorName: text('donor_name').notNull().default('Anonymous'),
     donorEmail: text('donor_email').notNull(),
     donorLocation: text('donor_location'),
@@ -415,6 +453,32 @@ export const donations = pgTable(
     index('idx_donations_user_id').on(table.userId),
     index('idx_donations_created_at').on(table.createdAt),
     uniqueIndex('idx_donations_stripe_payment_id').on(table.stripePaymentId),
+    /**
+     * Replay protection for every rail, not just Stripe. A provider that
+     * redelivers a webhook - which both of ours do - must not be able to
+     * write the donation twice.
+     */
+    uniqueIndex('idx_donations_provider_reference').on(
+      table.provider,
+      table.providerReference,
+    ),
+    /**
+     * A Stripe donation always has a Stripe id. This is what `notNull()`
+     * on `stripe_payment_id` used to guarantee before FinoQ rows needed
+     * to omit it.
+     */
+    check(
+      'donations_stripe_id_present',
+      sql`${table.provider} <> 'stripe' OR ${table.stripePaymentId} IS NOT NULL`,
+    ),
+    /*
+      NOTE, deliberately not changed here: the minimum below is 500 MINOR
+      units of whatever currency the row is in. As $5.00 that is the
+      documented floor; as KES 5.00 it is about four US cents. A
+      per-currency minimum is a product decision (what is the smallest
+      donation worth taking in each market), so it is recorded in docs/94
+      rather than guessed at in a CHECK constraint.
+    */
     check('donations_amount_check', sql`${table.amount} >= 500`),
   ],
 );
