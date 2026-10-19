@@ -137,8 +137,8 @@ the test; each entry appeared in the measured copy.
 
 | | Before | After |
 |---|---|---|
-| Mean reading ease, 18 pages | 40 | **72.4** |
-| Pages below 60 | 17 | **2** |
+| Mean reading ease, 18 pages | 40 | **72.9** |
+| Pages below 60 | 17 | **1** |
 
 Per page, measured after deploy:
 
@@ -147,7 +147,7 @@ Per page, measured after deploy:
 | `/compare` | 53 | 85 |
 | `/how-it-works` | 82 | 83 |
 | `/donate` | 56 | 82 |
-| `/transparency` | 43 | 81 |
+| `/transparency` | 43 | 82 |
 | `/completed-campaigns` | 58 | 81 |
 | `/about` | 41 | 80 |
 | `/donor-faq` | 78 | 80 |
@@ -158,24 +158,34 @@ Per page, measured after deploy:
 | `/last-donor-wall` | 70 | 70 |
 | `/refund-policy` | 42 | 68 |
 | `/` | 65 | 65 |
-| `/terms` | 47 | 63 |
+| `/terms` | 47 | 65 |
+| `/privacy` | 38 | 61 |
 | `/campaign-rules` | 28 | 61 |
-| `/privacy` | 38 | 54 |
 | `/campaigns` | 40 | 46 |
 
-### The two that are still below 60, and why
+`/privacy` is the result worth noting: it rose from 38 to 61 **while growing
+from 520 to 973 words**, because this pass added the phone, identity-document
+and data-processor disclosures it had been missing. Plainer and longer, not
+plainer by cutting.
 
-**`/privacy` (54).** The worst two sentences on the whole site were its
-statutory rights lists — one of 51 words with 7 commas. They were invisible to
-the ratchet because `SKIP` excluded `/privacy/` and `/terms/`, on the
-reasoning that legal pages need exact wording more than short sentences.
+### The skip list that hid the worst pages
 
-That exclusion is now removed, and it was hiding four real violations. This is
-the **third** guard in two days found blind to its own subject: the pool
-fan-out ratchet (docs/87), the copy-fields-only matcher above, and now this
-file's own skip list. **A guard's exclusions deserve the same scrutiny as its
-checks.** The statutory rights are a *list*; they are now sentences a person
-can read, and nothing legally operative was dropped.
+`/privacy` and `/terms` were excluded from the ratchet by `SKIP`, on the
+reasoning that legal pages need exact wording more than short sentences. When
+the deployed site was measured after the first pass, they came out as the two
+worst pages on it.
+
+The exclusion was hiding four real violations, the worst a 51-word sentence
+with 7 commas listing the GDPR rights. It is removed. The statutory rights are
+a *list*; each right is still stated and the complaint route (ICO / national
+authority) is kept, but as sentences a person can read.
+
+This is the **third** guard in two days found blind to its own subject: the
+pool fan-out ratchet (docs/87), the copy-fields-only matcher above, and now
+this file's own skip list. **A guard's exclusions deserve the same scrutiny as
+its checks.**
+
+### The one still below 60
 
 **`/campaigns` (46).** Largely the measurement artifact described above: the
 card grid is 62% of the page's words and 1 of its 11 sentences, so the prose is
