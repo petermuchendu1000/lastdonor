@@ -78,9 +78,8 @@ export default function TermsPage() {
           </li>
           <li>
             <strong className="text-foreground">Tax is not settled yet.</strong>{' '}
-            Our tax-exempt status is not confirmed. Please do not assume your
-            donation can be deducted from your taxes. Ask a tax advisor about
-            your own case.
+            Please do not assume your donation can be deducted from your
+            taxes. Ask a tax adviser about your own case.
           </li>
           <li>
             <strong className="text-foreground">
@@ -198,9 +197,8 @@ export default function TermsPage() {
               $100,000.00 USD per transaction.
             </li>
             <li>
-              LastDonor.org is finalizing its federal tax-exempt status and EIN
-              details. Until that status is confirmed, do not assume donations are
-              deductible for tax purposes. Consult a tax advisor for your specific situation.
+              Do not assume your donation can be deducted from your taxes.
+              Ask a tax adviser about your own case.
             </li>
             <li>
               Recurring donations can be canceled at any time by contacting

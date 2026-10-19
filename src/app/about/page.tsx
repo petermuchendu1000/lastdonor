@@ -187,11 +187,10 @@ export default function AboutPage() {
 
           <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Our tax status</h2>
           <p className="leading-relaxed text-muted-foreground">
-            LastDonor runs as a nonprofit fundraising effort. Our federal
-            tax-exempt status and EIN are not finished yet. Until they are, do
-            not assume your gift is tax deductible. We will publish our tax
-            status and our yearly reports when we have them. Live numbers are
-            on our{' '}
+            LastDonor runs as a nonprofit fundraising effort. Do not assume
+            your gift is tax deductible. Ask a tax adviser about your own
+            case. We will publish our tax status and our yearly reports when
+            we have them. Live numbers are on our{' '}
             <a href="/transparency" className="text-brand-teal underline underline-offset-2 hover:opacity-80">Transparency page</a>.
           </p>
         </section>
