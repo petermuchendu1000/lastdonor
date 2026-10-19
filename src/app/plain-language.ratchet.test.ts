@@ -43,8 +43,26 @@ const COPY_DIRS = [
   join(SRC, 'components', 'homepage'),
 ];
 
-/** Not user-facing, or not prose. */
-const SKIP = /\/(api|admin|dashboard)\/|\.test\.|\/privacy\/|\/terms\//;
+/*
+  Not user-facing, or not prose.
+
+  `/privacy/` and `/terms/` were excluded here until 2026-10-19, on the
+  reasoning that legal pages need exact wording more than they need short
+  sentences. Measuring the deployed site after the rewrite showed what
+  that exclusion cost: they came out as the two worst pages on the site,
+  /privacy at reading ease 54 against a mean of 72. The excluded pages
+  were the ones that needed the guard.
+
+  This is the THIRD guard in this codebase found blind to its own
+  subject in two days - the pool fan-out ratchet (docs/87), the copy
+  fields in this very file, and now its own skip list. A guard's
+  exclusions deserve the same scrutiny as its checks.
+
+  Legal text can still be exact in short sentences. Where it genuinely
+  cannot, the list of statutory rights is a LIST, and belongs in <li>
+  elements rather than one 59-word sentence joined by commas.
+*/
+const SKIP = /\/(api|admin|dashboard)\/|\.test\./;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

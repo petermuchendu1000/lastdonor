@@ -242,10 +242,18 @@ export default function PrivacyPage() {
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-6">
             <li>
-              <strong>California (CCPA):</strong> Right to know what personal information we collect, right to request deletion, right to opt out of data sales (we do not sell data), and right to non-discrimination for exercising these rights.
+              <strong>California (CCPA).</strong> You can ask what personal
+              information we hold about you. You can ask us to delete it. You
+              can tell us not to sell it, though we do not sell data to
+              anyone. We will not treat you any differently for asking.
             </li>
             <li>
-              <strong>European Economic Area / UK (GDPR / UK GDPR):</strong> Right of access, right to rectification, right to erasure (&ldquo;right to be forgotten&rdquo;), right to restriction of processing, right to data portability, right to object to processing, and the right to lodge a complaint with your national supervisory authority (e.g., the ICO in the UK or a EU Data Protection Authority).
+              <strong>European Economic Area and UK (GDPR / UK GDPR).</strong>{' '}
+              You can ask for a copy of your data. You can ask us to correct
+              it or delete it. You can ask us to stop using it, or to use it
+              in fewer ways. You can ask us to send it to you in a form you
+              can reuse. You can also complain to your national data
+              protection authority, such as the ICO in the UK.
             </li>
           </ul>
           <p className="mt-3">

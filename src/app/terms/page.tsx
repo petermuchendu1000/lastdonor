@@ -283,8 +283,7 @@ export default function TermsPage() {
               registration.
             </li>
             <li>
-              We reserve the right to suspend or terminate accounts that
-              violate these terms.
+              We can pause or close an account that breaks these terms.
             </li>
           </ul>
         </section>
@@ -318,9 +317,8 @@ export default function TermsPage() {
             8. Intellectual Property
           </h2>
           <p className="mt-3">
-            All content on LastDonor.org, including text, images, design, and
-            code, is the property of LastDonor.org or its content suppliers and
-            is protected by copyright law.
+            The text, images, design and code on LastDonor.org belong to us or
+            to the people we got them from. Copyright law protects them.
           </p>
         </section>
 
