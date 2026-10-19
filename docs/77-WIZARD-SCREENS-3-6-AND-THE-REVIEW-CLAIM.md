@@ -1,13 +1,31 @@
 # 77 — Wizard screens 3–6, and a claim the platform makes everywhere but does not keep
 
 **Date:** 2026-10-17
-**Status:** Screens 3–6 implemented. **⛔ The review claim is OPEN and needs an
-owner decision.**
+**Status:** Screens 3–6 implemented. **The review claim is RESOLVED** — see
+the amendment below.
 **Completes:** `docs/75` (screens 1 and the shared chrome), `docs/76` (screen 2).
+**Resolved by:** `docs/78` (the user path) and `docs/79` (the news pipeline).
+
+> **Amendment, 2026-10-19.** This document stood at "⛔ OPEN, needs an owner
+> decision" for two days after that decision had been taken and shipped, and
+> the `CLAUDE.md` index repeated it. Anyone scanning either would have
+> concluded the platform still claims a review it does not perform — which is
+> the opposite of true, and the most damaging direction for the error to point
+> on a page asking strangers for money.
+>
+> Verified 2026-10-19 by reading both insert paths:
+> `POST /api/v1/user-campaigns` inserts `status: 'under_review'` with
+> `publishedAt: null` (route.ts:184,190), and
+> `src/lib/news/campaign-publisher.ts` does the same (line 392). Both
+> creation paths are gated, so "every campaign is reviewed by a person
+> before it goes live" is accurate without qualification.
+>
+> The finding below is kept as written, because it is the record of what was
+> wrong and why. Read it as history, not as current state.
 
 ---
 
-## ⛔ The finding: campaigns are not reviewed before publication
+## The finding (RESOLVED — history): campaigns were not reviewed before publication
 
 `POST /api/v1/user-campaigns`, the endpoint the wizard's "Launch fundraiser"
 button calls:
