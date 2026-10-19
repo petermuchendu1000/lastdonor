@@ -69,7 +69,7 @@ address to every person who writes in.
 |---|---|---|---|---|
 | **Cloudflare Email Routing** | ✅ | ❌ | Free | DNS already here. ~10 minutes. **Verified** above |
 | Cloudflare Routing **+ Gmail "Send mail as"** over Resend SMTP | ✅ | ✅ | Free | Gmail sends through our existing Resend credentials. More moving parts; Resend account is shared (docs/73) |
-| **Zoho Mail** | ✅ | ✅ | Free tier, or ~$1/user/mo | *Third-party figures, not verified against Zoho:* free tier reported as 5 users / 5 GB, **webmail only, no IMAP/POP** |
+| **Zoho Mail** | ✅ | ✅ | per user — **see the correction below before buying** | One mailbox carries **30 aliases**, so one user can hold every address |
 | **Google Workspace** | ✅ | ✅ | *Reported* ~$7/user/mo annual | Everyone knows how to use it. Most expensive |
 | Resend | ❌ | ✅ (already) | — | Sending only. Not a mailbox provider |
 
@@ -141,3 +141,63 @@ end rather than assuming it worked.
 - Touching the Resend setup: the `send.` subdomain records are the sending
   path and are **not** the inbound fix
 - Believing docs/73's title: it is about outbound mail only
+
+---
+
+## Correction, 2026-10-19: I published vendor pricing I had not verified
+
+The first version of this doc put two numbers in front of the owner —
+"free tier reported as 5 users / 5 GB" and "~$1/user/mo" — sourced from
+third-party comparison sites, flagged as unverified, and **wrong enough
+to cost money**. The owner bought Zoho on the strength of them and got
+one mailbox for one user.
+
+Flagging a number as unverified does not undo the fact that it anchors a
+decision. This project's own rule is explicit: *"Vendor limits drift;
+undated numbers rot silently and are worse than no number."* I should
+have verified at the vendor, or given no figure at all and said which
+page to look at. The hedge was not a substitute for the check.
+
+It is the same failure docs/90 records about GNews and docs/86 about
+TalkNTalk — a capability taken from a secondary source instead of the
+primary one — except those two were caught before anything was bought.
+
+### What is actually true, verified at Zoho's own limits page (2026-10-19)
+
+| | |
+|---|---|
+| Aliases per mailbox | **30** — "29 additional aliases plus 1 primary address" |
+| Does the alias limit vary by plan? | **No.** The page states the limit applies to "All users" |
+| Extra cost per alias | **None.** The page lists no per-alias charge |
+| Domains, free/trial | **1** — "Limited to single domain" |
+| Domains, paid | **30** per organization |
+
+Deliberately **not** restated here: the per-user price and the free
+tier's user count. I have not verified either at Zoho's own pricing page,
+and that is exactly what caused this. Read them off Zoho's pricing page
+at the time of purchase.
+
+### The practical consequence: one paid mailbox is enough
+
+LastDonor publishes **ten** addresses. All ten fit inside the 30-alias
+limit of the **single** mailbox already paid for, at no extra cost, and
+Zoho can send *as* an alias — so replies come from `support@lastdonor.org`
+rather than a personal address, which was the whole reason to prefer a
+mailbox over Cloudflare forwarding.
+
+What aliases do **not** give you is a separate login per address. If
+`legal@` or `editorial@` ever needs its own person with their own
+password, that is a second user. For a one-person operation it is not.
+
+This also changes the recommendation above: **Cloudflare Email Routing is
+now optional, not the first step.** With Zoho holding the domain's MX and
+all ten addresses as aliases, routing adds nothing. Keep Cloudflare
+Routing in mind only if addresses later need to land in *different*
+people's existing inboxes.
+
+### Rule for next time
+
+Do not put a vendor's price, tier or quota in front of the owner unless
+it was read from that vendor's own page in the same session. If it has
+not been checked there, name the page and say it needs checking — do not
+supply the number with a hedge attached.
