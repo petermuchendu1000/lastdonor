@@ -146,6 +146,19 @@ export default function PrivacyPage() {
               <strong>Story submissions:</strong> Name, email, and story
               details submitted via the Share Your Story form.
             </li>
+            <li>
+              <strong>Phone number:</strong> Only if you add one. We send a
+              six-digit code by text to check the number works. Checking your
+              number is not permission to send you anything else. We ask for
+              that separately.
+            </li>
+            <li>
+              <strong>Identity checks:</strong> If you run a campaign, we ask
+              you to prove who you are before we release money. Our checking
+              partner collects your ID document and a photo of your face. We
+              also keep any document you upload to us directly. Only our staff
+              can open these.
+            </li>
           </ul>
         </section>
 
@@ -158,6 +171,8 @@ export default function PrivacyPage() {
             <li>Send donation confirmations and campaign updates</li>
             <li>Display public donor names on campaign pages (unless anonymous)</li>
             <li>Send newsletter updates (with your consent)</li>
+            <li>Send a text message, but only if you gave us your number and said yes to texts</li>
+            <li>Check that a campaign organiser is a real person before money is released</li>
             <li>Improve platform functionality and user experience</li>
             <li>Comply with legal and regulatory requirements</li>
           </ul>
@@ -192,10 +207,28 @@ export default function PrivacyPage() {
               <strong>Resend:</strong> For transactional emails
             </li>
             <li>
-              <strong>Supabase:</strong> For database hosting
+              <strong>Supabase:</strong> Database and file storage
             </li>
             <li>
-              <strong>Vercel:</strong> For application hosting
+              <strong>Fly.io:</strong> Runs the site itself
+            </li>
+            <li>
+              <strong>Cloudflare:</strong> Sits in front of the site and
+              handles scheduled jobs
+            </li>
+            <li>
+              <strong>Didit:</strong> Checks the identity of campaign
+              organisers
+            </li>
+            <li>
+              <strong>Africa&apos;s Talking:</strong> Sends text messages
+            </li>
+            <li>
+              <strong>Sentry:</strong> Records errors so we can fix them
+            </li>
+            <li>
+              <strong>Plausible:</strong> Counts page visits. It does not use
+              cookies and does not collect personal data.
             </li>
           </ul>
         </section>

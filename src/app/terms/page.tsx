@@ -253,8 +253,9 @@ export default function TermsPage() {
             5. Campaign Review and Fund Release
           </h2>
           <p className="mt-3">
-            LastDonor may review, reject, pause, suspend, remove, or request
-            more information about any campaign. Fund release may require
+            A person reviews every campaign before it goes live. We may also
+            reject, pause, suspend, remove, or request more information about
+            any campaign at any time. Fund release may require
             identity checks, supporting documents, Stripe Connect onboarding,
             fraud review, and compliance review. See the{' '}
             <Link href="/campaign-verification-policy" className="text-primary underline underline-offset-4">

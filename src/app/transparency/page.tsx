@@ -68,7 +68,15 @@ async function getTransparencyData() {
   const [stats] = await db
     .select({
       totalRaised: sql<number>`COALESCE(SUM(CASE WHEN ${donations.source} = 'real' AND ${donations.refunded} = false THEN ${donations.amount} ELSE 0 END), 0)`,
-      totalDonors: sql<number>`COALESCE(COUNT(DISTINCT CASE WHEN ${donations.source} = 'real' THEN ${donations.donorEmail} END), 0)`,
+      /*
+        Refunded donations are excluded here too. Without the filter this
+        was the only one of the three figures that counted them, so a
+        donor whose single gift was refunded still appeared under "People
+        who gave" while their money appeared in neither of the other two.
+        On a page whose whole purpose is honest numbers, the three have to
+        agree on what counts.
+      */
+      totalDonors: sql<number>`COALESCE(COUNT(DISTINCT CASE WHEN ${donations.source} = 'real' AND ${donations.refunded} = false THEN ${donations.donorEmail} END), 0)`,
       totalDonations: sql<number>`COALESCE(COUNT(CASE WHEN ${donations.source} = 'real' AND ${donations.refunded} = false THEN 1 END), 0)`,
     })
     .from(donations);
@@ -109,7 +117,7 @@ export default async function TransparencyPage() {
         {[
           { label: 'Donated so far', value: centsToDollars(data.totalRaised) },
           { label: 'People who gave', value: data.totalDonors.toLocaleString('en-US') },
-          { label: 'Campaigns finished', value: data.completedCampaigns.toString() },
+          { label: 'Campaigns closed', value: data.completedCampaigns.toString() },
           { label: 'Campaigns live now', value: data.activeCampaigns.toString() },
         ].map((stat) => (
           <div
@@ -123,6 +131,12 @@ export default async function TransparencyPage() {
           </div>
         ))}
       </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        What these count: money and donor counts leave out refunds.
+        &quot;Campaigns closed&quot; means a campaign that reached its end or
+        was taken down, not only ones that hit their goal. Numbers refresh
+        every five minutes.
+      </p>
 
       {/* Fee Disclosure */}
       <section className="mt-12">
