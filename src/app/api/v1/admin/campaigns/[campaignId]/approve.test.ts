@@ -13,6 +13,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
+/*
+  `revalidatePath` needs Next's static-generation store, which does not
+  exist when a route handler is called directly like this. Mocked the
+  same way `payment-service.test.ts` and `page.lookup.test.tsx` do.
+
+  The spy is asserted below rather than merely silenced: approval is the
+  one status transition that was missing its purge, and an approved
+  campaign kept serving the cached 404 from while it was under review
+  (observed on `nicholas-cabo`, 2026-10-19).
+*/
+const cacheMock = vi.hoisted(() => ({ revalidatePath: vi.fn() }));
+vi.mock('next/cache', () => ({
+  revalidatePath: cacheMock.revalidatePath,
+  revalidateTag: vi.fn(),
+}));
+
 const CAMPAIGN_ID = '22222222-2222-2222-2222-222222222222';
 const CREATOR_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -85,6 +101,15 @@ beforeEach(() => {
 
 describe('approving a campaign that has never been published', () => {
   beforeEach(() => given({ status: 'under_review', publishedAt: null }));
+
+  it('purges the cached page, which was serving a 404 from while it was under review', async () => {
+    await PATCH(patch('active'), { params });
+    // While under_review the detail query does not match the campaign, so
+    // the page 404s and Next caches that. Without this purge the approved
+    // campaign keeps serving 404 until the entry happens to age out.
+    expect(cacheMock.revalidatePath).toHaveBeenCalledWith('/campaigns/help-grace');
+    expect(cacheMock.revalidatePath).toHaveBeenCalledWith('/campaigns');
+  });
 
   it('stamps publishedAt', async () => {
     const res = await PATCH(patch('active'), { params });

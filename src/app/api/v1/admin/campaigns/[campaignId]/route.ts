@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { campaigns, donations, campaignUpdates, campaignSeedMessages, auditLogs, users } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
@@ -175,6 +176,35 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       newStatus,
       goalAmount: full?.goalAmount ?? 0,
     }).catch((err) => console.error('[campaign.status_changed] notification error:', err));
+
+    /*
+      Purge the cached page for this slug. Every sibling status route -
+      suspend, resume, pause, cancel - already did this; the route that
+      makes a campaign public for the FIRST time did not, which is the
+      one transition where a stale entry is guaranteed to exist.
+
+      While a campaign sits in `under_review` the detail query does not
+      match it (the status list in `campaigns/[slug]/page.tsx` excludes
+      it), so the page calls `notFound()`. Since the soft-404 fix of
+      2026-10-18 (docs/80) that is a REAL 404, and Next caches it as an
+      ISR entry. Approving the campaign changed the database and left
+      that entry in place, so an approved, live campaign served HTTP 404
+      until the next revalidation happened to regenerate it.
+
+      Observed in production 2026-10-19: `nicholas-cabo` was `active`
+      with `published_at` set to the previous morning and answered 404,
+      then 200 a few minutes later once the entry aged out. Before the
+      soft-404 fix the same staleness served a 200 with a "not found"
+      body - equally wrong, but it did not tell a crawler the appeal was
+      gone, which is the thing docs/43 exists to prevent.
+
+      The listing pages are purged too: a newly approved campaign has to
+      appear on them, and they were relying on their own `revalidate`
+      windows to notice.
+    */
+    revalidatePath(`/campaigns/${campaign.slug}`);
+    revalidatePath('/campaigns');
+    revalidatePath('/');
 
     return NextResponse.json({ ok: true, data: { id: campaignId, status: newStatus } });
   } catch (error) {
