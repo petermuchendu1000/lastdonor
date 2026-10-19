@@ -105,27 +105,53 @@ export function Footer() {
               Organization JSON-LD publishes as `sameAs`, so the footer and
               the entity graph cannot disagree about which accounts exist.
 
-              The list is empty today and this renders nothing. That is
-              deliberate: the two profiles `sameAs` used to claim both
-              returned 404 (see `src/lib/social-links.ts`). An empty row of
-              icons, or links to accounts that do not exist, would be worse
-              than no row.
+              An entry whose `href` is null is a platform we are not on yet.
+              It renders as inert text, never as a link, and `layout.tsx`
+              reads `PUBLISHED_SOCIAL_LINKS` so it cannot reach `sameAs` -
+              which is an ownership assertion, not a link. The two profiles
+              `sameAs` used to claim both returned 404 (docs/76); this is the
+              arrangement that lets the row exist before the accounts do
+              without repeating that. See docs/91.
+
+              Text, not brand icons, and deliberately: the icon system is
+              stroke-only (`fill="none"`, one stroke width - docs/70), so
+              X, Instagram and the rest would have to be redrawn as outlines,
+              which misrepresents marks their owners publish as filled
+              shapes. Real brand SVGs can be added with the real URLs, as a
+              documented exception to that system rather than a silent one.
             */}
             {SOCIAL_LINKS.length > 0 && (
               <nav aria-label="LastDonor on social media" className="mt-4">
                 <ul className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {SOCIAL_LINKS.map((link) => (
-                    <li key={link.href}>
-                      <a
-                        href={link.href}
-                        target="_blank"
-                        rel="me noopener noreferrer"
-                        className="inline-block py-0.5 text-sm text-gray-400 transition-colors hover:text-white"
-                      >
-                        {link.name}
-                      </a>
-                    </li>
-                  ))}
+                  {SOCIAL_LINKS.map((link) =>
+                    link.href === null ? (
+                      /*
+                        No `href`, so it is not a link and not focusable -
+                        a keyboard user tabbing the footer should not land
+                        on something that does nothing. The visible text is
+                        the platform name alone, kept dim; the screen-reader
+                        name carries "coming soon" so the state is not
+                        conveyed by colour only (WCAG 1.4.1).
+                      */
+                      <li key={link.name}>
+                        <span className="inline-block py-0.5 text-sm text-gray-600">
+                          <span aria-hidden="true">{link.name}</span>
+                          <span className="sr-only">{link.name} - coming soon</span>
+                        </span>
+                      </li>
+                    ) : (
+                      <li key={link.name}>
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="me noopener noreferrer"
+                          className="inline-block py-0.5 text-sm text-gray-400 transition-colors hover:text-white"
+                        >
+                          {link.name}
+                        </a>
+                      </li>
+                    ),
+                  )}
                 </ul>
               </nav>
             )}

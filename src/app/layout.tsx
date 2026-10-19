@@ -2,7 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { DM_Serif_Display, DM_Sans, DM_Mono } from 'next/font/google';
 import { seoKeywords } from '@/lib/seo/keywords';
-import { SOCIAL_LINKS } from '@/lib/social-links';
+import { PUBLISHED_SOCIAL_LINKS } from '@/lib/social-links';
 
 const BASE_URL = 'https://lastdonor.org';
 
@@ -44,9 +44,16 @@ const siteSchemaGraph = {
 
         Omitted entirely while the list is empty: `sameAs: []` is a claim
         about nothing, and absent is the honest encoding of "none yet".
+
+        Reads `PUBLISHED_SOCIAL_LINKS`, not `SOCIAL_LINKS`. Since
+        2026-10-19 the footer also renders placeholder entries whose
+        `href` is null, and those must never reach here: a `sameAs` URL
+        is an ownership assertion, and the placeholders are by definition
+        accounts that do not exist yet. The filter is the type-level
+        guarantee of that; `social-links.test.ts` pins it. See docs/91.
       */
-      ...(SOCIAL_LINKS.length > 0
-        ? { sameAs: SOCIAL_LINKS.map((link) => link.href) }
+      ...(PUBLISHED_SOCIAL_LINKS.length > 0
+        ? { sameAs: PUBLISHED_SOCIAL_LINKS.map((link) => link.href) }
         : {}),
       contactPoint: {
         '@type': 'ContactPoint',
