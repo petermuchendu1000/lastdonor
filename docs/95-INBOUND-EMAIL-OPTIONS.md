@@ -201,3 +201,79 @@ Do not put a vendor's price, tier or quota in front of the owner unless
 it was read from that vendor's own page in the same session. If it has
 not been checked there, name the page and say it needs checking — do not
 supply the number with a hedge attached.
+
+---
+
+## Second pass, 2026-10-19: after the Zoho account was created as "Personal"
+
+Zoho's sign-up offers **Personal** or **Business**, and only Business attaches
+a custom domain. **Verified** on Zoho's own login-help page: Zoho Mail provides
+the service for *business accounts* to get "custom domain-based email
+addresses"; a Personal account gets a Zoho-supplied address. This compounds the
+alias finding above — Zoho's admin docs say aliases exist only for users whose
+**domain is configured in Zoho Mail**, never on an `@zoho.com` address. So the
+Personal branch gives neither the domain nor the ten addresses.
+
+The owner asked for a different provider. Everything below was read from the
+vendor's own page on 2026-10-19, per the rule recorded above.
+
+### ⚠️ Gmail "Send mail as" is not a foundation to build on
+
+The obvious free trick — Cloudflare forwards in, Gmail sends as
+`support@lastdonor.org` over an SMTP relay — has two problems, both from
+**Google's own support page**:
+
+1. The custom-SMTP step is documented **for work or school accounts**. The page
+   does not say a personal Gmail account can use its own SMTP server.
+2. **"Starting January 2027, 'Send as' will no longer support third-party
+   addresses such as Yahoo or Outlook."** Google Workspace aliases and other
+   Gmail addresses are stated as unaffected.
+
+Whether a custom-domain address relayed through our own SMTP counts as
+"third-party" is **not stated** — so it is an open risk, roughly two months
+out, on the one feature the whole arrangement depends on. Recorded as a reason
+not to build the support desk on it, not as a confirmed breakage.
+
+### Migadu — verified at migadu.com/pricing, 2026-10-19
+
+The distinguishing feature is that **pricing is flat per account, not per
+mailbox or per domain** — the page says so in those words. That is the exact
+trap that cost money here.
+
+| Plan | Yearly | Monthly | Incoming/day | Outgoing/day | Storage |
+|---|---|---|---|---|---|
+| Micro | **$19** | not offered | 200 | 20 | 5 GB |
+| Mini | $90 | $9 | 1,000 | 100 | 30 GB |
+| Standard | $290 | $29 | 3,000 | 500 | 100 GB |
+
+Addresses are **unlimited** on these plans with no extra cost per address, and
+domains are unlimited on Mini and above (Micro has no enforced cap but heavy
+use may prompt an upgrade). There is a **"Try for Free" sign-up with "No credit
+card required"**; the page does not state the trial length. The old free plan
+is discontinued.
+
+Micro's limits are the ones to sanity-check against our actual volume, and they
+are comfortable: the platform has taken **zero donations** (docs/72) and sent
+**seven emails in its lifetime** (docs/73). The 20/day outgoing cap applies
+only to human replies typed from the mailbox — **all application mail keeps
+going through Resend**, which is already verified and untouched by any of this.
+
+### Recommendation
+
+1. **Start the Migadu free trial** (no card). Point the MX at it, add all ten
+   addresses, send a test to `support@` and reply from it.
+2. **Pay the $19/year only once that round-trip works.** Nothing here has been
+   proven against our domain yet, and this doc's whole correction history is
+   about paying before proving.
+
+Kept as the zero-cost fallback: **Cloudflare Email Routing** for receiving,
+with replies sent from a desktop or mobile mail client configured against
+`smtp.resend.com` (**verified**: ports 465/2465 implicit TLS, 25/587/2587
+STARTTLS, username `resend`, password = the Resend API key, domain already
+verified). This avoids Gmail's send-as restriction entirely because it is not
+Gmail. It is free and uses only infrastructure already working, at the cost of
+a mail client to configure.
+
+Also still true, and cheapest of all if the owner is willing: the existing Zoho
+purchase works if an **organization** account is created on the same login. The
+owner has asked to move on, and that is recorded rather than argued with.
