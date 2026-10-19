@@ -136,6 +136,7 @@ function freshArticles(count: number) {
 describe('runNewsPipeline', () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.GNEWS_API_KEY;
+  const originalNewsDataKey = process.env.NEWSDATA_API_KEY;
 
   beforeEach(() => {
     // The real FEMA/NWS clients log before rethrowing; that is intended
@@ -148,6 +149,11 @@ describe('runNewsPipeline', () => {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.GNEWS_API_KEY;
     else process.env.GNEWS_API_KEY = originalKey;
+    // NewsData joined the blackout set on 2026-10-19; a blackout now
+    // means all FOUR sources failed, so it has to be configured for
+    // these cases to exercise the detector at all.
+    if (originalNewsDataKey === undefined) delete process.env.NEWSDATA_API_KEY;
+    else process.env.NEWSDATA_API_KEY = originalNewsDataKey;
   });
 
   describe('total blackout detection', () => {
@@ -166,6 +172,7 @@ describe('runNewsPipeline', () => {
     */
     it('writes a critical pipeline.all_sources_failed row when all three sources fail', async () => {
       process.env.GNEWS_API_KEY = 'test-key';
+      process.env.NEWSDATA_API_KEY = 'test-key';
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('ENETDOWN')) as never;
 
       const result = await runNewsPipeline('ingest');
@@ -178,6 +185,7 @@ describe('runNewsPipeline', () => {
 
     it('names each failed source in the critical row, so the cause is diagnosable', async () => {
       process.env.GNEWS_API_KEY = 'test-key';
+      process.env.NEWSDATA_API_KEY = 'test-key';
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('ENETDOWN')) as never;
 
       await runNewsPipeline('ingest');
@@ -190,6 +198,7 @@ describe('runNewsPipeline', () => {
 
     it('does not report a blackout at severity info', async () => {
       process.env.GNEWS_API_KEY = 'test-key';
+      process.env.NEWSDATA_API_KEY = 'test-key';
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('ENETDOWN')) as never;
 
       await runNewsPipeline('ingest');

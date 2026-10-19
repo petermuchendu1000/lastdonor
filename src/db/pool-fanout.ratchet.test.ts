@@ -173,7 +173,21 @@ function fanOut(node: ts.Node | undefined, file: string, depth = 0, seen = new S
             next.add(key);
             const body = (target.fn as ts.FunctionLikeDeclaration).body ?? target.fn;
             const r = fanOut(body, target.file, depth + 1, next);
-            if (r.width > 1) consider({ width: r.width, notes: [...r.notes, `via ${name}()`] });
+            /*
+              `>= 1`, not `> 1`. It was `> 1` until 2026-10-19, which meant a
+              helper that issues ONE query contributed nothing - so
+              `Promise.all([a(), b(), c(), d()])` over four single-query
+              helpers scored ZERO and sailed through, while the same four
+              queries written inline scored 4 and failed. Proven with a pair
+              of fixture files: the inline one was caught, the helper one was
+              invisible.
+
+              That is the more common shape, not the rarer one. It is how
+              `/campaigns/[slug]` came to issue five concurrent queries on a
+              `max: 5` pool - the exact condition docs/87 ties to the wedges -
+              with this test green the whole time.
+            */
+            if (r.width >= 1) consider({ width: r.width, notes: [...r.notes, `via ${name}()`] });
           }
         }
       }
@@ -229,16 +243,72 @@ describe('no route oversubscribes the connection pool (docs/87 amendment 5)', ()
     tipped over as soon as a file was added, so the budget is explicit
     rather than coincidental.
   */
+  /*
+    Known offenders, uncovered on 2026-10-19 the moment the helper bug
+    above was fixed. Every one of these was invisible before, because
+    each fans out through single-query helpers.
+
+    They are listed rather than fixed in the same commit for the reason
+    the icon ratchet gives: rewriting all of them at once is how
+    migrations get abandoned. This list may only SHRINK. A file not on
+    it that exceeds the cap fails, and when one of these is fixed,
+    delete its line in the same commit.
+
+      admin/monitoring/page.tsx        14  ⛔ worst in the codebase, on a
+      api/v1/admin/monitoring/route.ts 14     pool of 5. Both fan out
+                                             through pipeline-health.
+      lib/monitoring/pipeline-health.ts 5  ⛔ the shared cause of both
+      dashboard/impact/page.tsx         4
+
+    `/admin/monitoring` issuing fourteen concurrent queries against a
+    `max: 5` pool is the wide-fan-out condition docs/87 ties to seven
+    production wedges, and it is a bigger instance of the one that took
+    `/admin/settings` to 15,330ms. Fixing it is its own piece of work:
+    collapse the counts into FILTER aggregates, as docs/87 describes.
+  */
+  const KNOWN_OFFENDERS = new Map<string, number>([
+    ['src/app/admin/monitoring/page.tsx', 14],
+    ['src/app/api/v1/admin/monitoring/route.ts', 14],
+    ['src/lib/monitoring/pipeline-health.ts', 5],
+    ['src/app/dashboard/impact/page.tsx', 4],
+  ]);
+
   it(`no entry point issues more than ${MAX_CONCURRENT_QUERIES} concurrent queries`, { timeout: 60_000 }, () => {
     const offenders: string[] = [];
+    const improved: string[] = [];
     for (const f of files) {
       const sf = source(f);
       const r = fanOut(sf, f, 0, new Set());
+      const rel = f.slice(ROOT.length + 1);
+      const known = KNOWN_OFFENDERS.get(rel);
+      if (known !== undefined) {
+        // A known offender must not get worse, and when it gets better
+        // the baseline comes down with it.
+        if (r.width > known) {
+          offenders.push(`${rel} = ${r.width}, worse than its baseline of ${known}`);
+        } else if (r.width <= MAX_CONCURRENT_QUERIES) {
+          improved.push(`${rel} is now ${r.width}: delete it from KNOWN_OFFENDERS`);
+        }
+        continue;
+      }
       if (r.width > MAX_CONCURRENT_QUERIES) {
-        offenders.push(`${f.slice(ROOT.length + 1)} = ${r.width}${r.notes.length ? ` (${r.notes.join(', ')})` : ''}`);
+        offenders.push(`${rel} = ${r.width}${r.notes.length ? ` (${r.notes.join(', ')})` : ''}`);
       }
     }
     expect(offenders).toEqual([]);
+    expect(improved).toEqual([]);
+  });
+
+  it('counts fan-out through single-query helpers, not just inline queries', () => {
+    /*
+      The regression test for the bug this file had until 2026-10-19.
+      Proven with fixture files at the time: four queries written inline
+      scored 4 and failed; the same four behind one-query helpers scored
+      0 and passed. `campaigns/[slug]` sat at five that way.
+    */
+    const campaignPage = join(SRC, 'app/campaigns/[slug]/page.tsx');
+    const r = fanOut(source(campaignPage), campaignPage, 0, new Set());
+    expect(r.width).toBeLessThanOrEqual(MAX_CONCURRENT_QUERIES);
   });
 
   it('still matches the pool the driver actually opens', () => {

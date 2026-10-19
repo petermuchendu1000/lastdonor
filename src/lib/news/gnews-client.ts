@@ -2,6 +2,7 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import type { CampaignCategory } from '@/types';
+import { selectNextKeyword } from './keyword-rotation';
 
 export type NormalizedNewsItem = {
   title: string;
@@ -173,6 +174,15 @@ const US_ONLY_CATEGORIES = new Set<CampaignCategory>([
 const GNEWS_BASE_URL = 'https://gnews.io/api/v4/search';
 
 /**
+ * Requests per run, against a free quota of 100 per DAY.
+ *
+ * `ingest-news` runs 48 times a day, so this must stay at 1 or the
+ * quota is gone before morning. Read the note in `fetchGNewsArticles`
+ * before changing it.
+ */
+export const MAX_REQUESTS_PER_RUN = 1;
+
+/**
  * Whether a GNews key is configured at all.
  *
  * GNews is an optional source. Calling `fetchGNewsArticles` without a
@@ -200,7 +210,33 @@ export async function fetchGNewsArticles(
     throw new Error('GNEWS_API_KEY environment variable is not set');
   }
 
-  const targetCategories = categories ?? (Object.keys(KEYWORD_SETS) as CampaignCategory[]);
+  /*
+    ONE request per run, not twenty-three.
+
+    This used to issue one request per category. With 23 categories and
+    `ingest-news` on `*​/30` (48 runs a day, `src/lib/cron-schedule.ts`)
+    that is 1,104 requests a day against a free quota of **100 requests
+    per day** - verified from GNews's own docs on 2026-10-18 (docs/90).
+    It would have exhausted the quota by about 02:00 and 429'd until
+    midnight, every day.
+
+    Nobody had noticed because `GNEWS_API_KEY` was never set: the guard
+    at the top of this function threw before any request was made, so
+    the loop had never once run against the network. The key arrived
+    2026-10-19 and the bug would have been live immediately.
+
+    One request per run is 48 a day, leaving 52 for manual runs and
+    retries. Coverage comes from `selectNextKeyword` rotating across
+    runs rather than from breadth within one, which is the same trade
+    NewsData's client makes with a budget of three.
+
+    Measured 2026-10-19 with a real key: a broad query returns the full
+    page of 10 articles, and four requests spaced 3-15s apart all
+    answered 200 - so the 429 seen on two back-to-back calls is a burst
+    limit, not the daily quota.
+  */
+  const allCategories = categories ?? (Object.keys(KEYWORD_SETS) as CampaignCategory[]);
+  const targetCategories = allCategories.slice(0, MAX_REQUESTS_PER_RUN);
   const results: NormalizedNewsItem[] = [];
   /*
     Attempted vs failed, so a total outage can be told from a quiet day.
@@ -227,7 +263,9 @@ export async function fetchGNewsArticles(
     const params = new URLSearchParams({
       q: keyword,
       lang: 'en',
-      max: '5',
+      // The free plan returns up to 10 per request and the request
+      // costs the same either way, so asking for 5 wasted half of it.
+      max: '10',
       apikey: apiKey,
     });
 
@@ -289,58 +327,3 @@ export async function fetchGNewsArticles(
   return results;
 }
 
-/**
- * Select the next keyword for a category using round-robin rotation.
- * Picks the keyword that was least recently used (or never used).
- * Records usage in the keyword_rotation table.
- */
-async function selectNextKeyword(
-  category: CampaignCategory,
-  keywords: string[],
-): Promise<string> {
-  try {
-    // Get all recorded usages for this category
-    const usages = await db
-      .select({
-        keyword: schema.keywordRotation.keyword,
-        usedAt: schema.keywordRotation.usedAt,
-      })
-      .from(schema.keywordRotation)
-      .where(eq(schema.keywordRotation.category, category));
-
-    const usageMap = new Map(usages.map((u) => [u.keyword, u.usedAt]));
-
-    // Find keywords never used, or pick the least recently used
-    const neverUsed = keywords.filter((k) => !usageMap.has(k));
-    let selected: string;
-
-    if (neverUsed.length > 0) {
-      selected = neverUsed[0];
-    } else {
-      // All keywords have been used - pick the one used longest ago
-      selected = keywords.reduce((oldest, k) => {
-        const kTime = usageMap.get(k)?.getTime() ?? 0;
-        const oTime = usageMap.get(oldest)?.getTime() ?? 0;
-        return kTime < oTime ? k : oldest;
-      });
-    }
-
-    // Upsert usage timestamp
-    await db
-      .insert(schema.keywordRotation)
-      .values({
-        category,
-        keyword: selected,
-        usedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [schema.keywordRotation.category, schema.keywordRotation.keyword],
-        set: { usedAt: new Date() },
-      });
-
-    return selected;
-  } catch {
-    // DB error - fall back to random selection (don't block pipeline)
-    return keywords[Math.floor(Math.random() * keywords.length)];
-  }
-}

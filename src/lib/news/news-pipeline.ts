@@ -2,6 +2,7 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { eq, and, lt, gt, gte, ne, inArray, sql, desc } from 'drizzle-orm';
 import { fetchGNewsArticles, isGNewsConfigured } from './gnews-client';
+import { fetchNewsDataArticles, isNewsDataConfigured } from './newsdata-client';
 import { fetchAllRssFeedsWithHealth } from './rss-parser';
 import { fetchFemaDeclarations } from './fema-client';
 import { fetchWeatherAlerts } from './weather-alerts';
@@ -158,19 +159,34 @@ export async function runNewsPipeline(
       one gets missed.
     */
     const gnewsConfigured = isGNewsConfigured();
+    /*
+      NewsData.io, added 2026-10-19 (docs/90, docs/92). It is the
+      country-coverage source: GNews's `country` parameter accepts 37
+      values with Egypt the only African one, while NewsData takes any
+      ISO 3166-1 code, five per request, rotated across runs.
 
-    const [gnewsArticles, femaItems, nwsAlerts] = await Promise.allSettled([
+      Skipped rather than called when unconfigured, for the same reason
+      GNews is: an unset optional key is a configuration choice, and
+      filing it as a source failure 48 times a day is how a real
+      failure gets buried.
+    */
+    const newsDataConfigured = isNewsDataConfigured();
+
+    const [gnewsArticles, newsDataArticles, femaItems, nwsAlerts] = await Promise.allSettled([
       gnewsConfigured ? fetchGNewsArticles() : Promise.resolve([]),
+      newsDataConfigured ? fetchNewsDataArticles() : Promise.resolve([]),
       fetchFemaDeclarations(),
       fetchWeatherAlerts(),
     ]);
 
     const allFailed =
       gnewsArticles.status === 'rejected' &&
+      newsDataArticles.status === 'rejected' &&
       femaItems.status === 'rejected' &&
       nwsAlerts.status === 'rejected';
 
     if (gnewsArticles.status === 'fulfilled') articles.push(...gnewsArticles.value);
+    if (newsDataArticles.status === 'fulfilled') articles.push(...newsDataArticles.value);
     if (femaItems.status === 'fulfilled') articles.push(...femaItems.value);
     if (nwsAlerts.status === 'fulfilled') articles.push(...nwsAlerts.value);
 
@@ -181,6 +197,7 @@ export async function runNewsPipeline(
         severity: 'critical',
         details: {
           gnews: gnewsArticles.status === 'rejected' ? String(gnewsArticles.reason) : null,
+          newsdata: newsDataArticles.status === 'rejected' ? String(newsDataArticles.reason) : null,
           fema: femaItems.status === 'rejected' ? String(femaItems.reason) : null,
           nws: nwsAlerts.status === 'rejected' ? String(nwsAlerts.reason) : null,
         },
@@ -192,6 +209,7 @@ export async function runNewsPipeline(
     // Log individual source failures at warning level
     const sourceFailures: string[] = [];
     if (gnewsArticles.status === 'rejected') sourceFailures.push(`GNews: ${String(gnewsArticles.reason)}`);
+    if (newsDataArticles.status === 'rejected') sourceFailures.push(`NewsData: ${String(newsDataArticles.reason)}`);
     if (femaItems.status === 'rejected') sourceFailures.push(`FEMA: ${String(femaItems.reason)}`);
     if (nwsAlerts.status === 'rejected') sourceFailures.push(`NWS: ${String(nwsAlerts.reason)}`);
 

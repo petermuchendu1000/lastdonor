@@ -4,23 +4,21 @@ import { notFound } from 'next/navigation';
 import { unstable_noStore as noStore } from 'next/cache';
 import { db } from '@/db';
 import { CampaignUnavailableError, lookupCampaign } from '@/lib/campaign-lookup';
-import { campaigns, donations, campaignUpdates, campaignMessages, impactUpdates } from '@/db/schema';
-import { publicCampaignSelect, publicMessageSelect } from '@/db/public-select';
-import { eq, and, desc, or } from 'drizzle-orm';
+import { campaigns } from '@/db/schema';
+import { publicCampaignSelect } from '@/db/public-select';
+import { eq, and, or } from 'drizzle-orm';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
 import { Suspense } from 'react';
-import { type DonorFeedItem } from '@/components/campaign/DonorFeed';
-import { CampaignUpdates } from '@/components/campaign/CampaignUpdates';
 import { ShareButtons } from '@/components/campaign/ShareButtons';
 import { CATEGORY_LABELS } from '@/lib/categories';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 import { MediaGallery } from '@/components/campaign/MediaGallery';
-import { ImpactUpdate } from '@/components/campaign/ImpactUpdate';
 import { centsToDollars } from '@/lib/utils/currency';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
-import { CampaignSidebarClient, CampaignCommunityClient } from './client';
+import { CampaignSidebarClient } from './client';
+import { CampaignActivity, CampaignActivitySkeleton } from './CampaignActivity';
 import { SubscribeButton } from '@/components/campaign/SubscribeButton';
 import type { ImpactTier, CampaignCategory } from '@/types';
 import { categorySeoKeywords } from '@/lib/seo/keywords';
@@ -97,88 +95,9 @@ const getCampaignLookup = cache((slug: string) =>
   lookupCampaign(() => getCampaign(slug)),
 );
 
-async function getRecentDonors(campaignId: string): Promise<DonorFeedItem[]> {
-  const rows = await db
-    .select({
-      id: donations.id,
-      donorName: donations.donorName,
-      donorLocation: donations.donorLocation,
-      amount: donations.amount,
-      message: donations.message,
-      isAnonymous: donations.isAnonymous,
-      createdAt: donations.createdAt,
-    })
-    .from(donations)
-    .where(eq(donations.campaignId, campaignId))
-    .orderBy(desc(donations.createdAt))
-    .limit(10);
 
-  return rows.map((r) => ({
-    id: r.id,
-    donorName: r.isAnonymous ? 'Anonymous' : r.donorName,
-    donorLocation: r.isAnonymous ? null : r.donorLocation,
-    amount: r.amount,
-    message: r.message,
-    isAnonymous: r.isAnonymous,
-    createdAt: r.createdAt.toISOString(),
-  }));
-}
 
-async function getUpdates(campaignId: string) {
-  return db
-    .select({
-      id: campaignUpdates.id,
-      title: campaignUpdates.title,
-      bodyHtml: campaignUpdates.bodyHtml,
-      imageUrl: campaignUpdates.imageUrl,
-      createdAt: campaignUpdates.createdAt,
-    })
-    .from(campaignUpdates)
-    .where(eq(campaignUpdates.campaignId, campaignId))
-    .orderBy(desc(campaignUpdates.createdAt))
-    .limit(50);
-}
 
-async function getMessages(campaignId: string) {
-  const rows = await db
-    .select(publicMessageSelect)
-    .from(campaignMessages)
-    .where(
-      and(
-        eq(campaignMessages.campaignId, campaignId),
-        eq(campaignMessages.hidden, false),
-      ),
-    )
-    .orderBy(desc(campaignMessages.createdAt))
-    .limit(20);
-
-  return rows.map((m) => ({
-    id: m.id,
-    donorName: m.isAnonymous ? 'Anonymous' : m.donorName,
-    donorLocation: m.isAnonymous ? null : m.donorLocation,
-    message: m.message,
-    isAnonymous: m.isAnonymous,
-    createdAt: m.createdAt.toISOString(),
-  }));
-}
-
-async function getImpactUpdate(campaignId: string) {
-  const [row] = await db
-    .select({
-      title: impactUpdates.title,
-      bodyHtml: impactUpdates.bodyHtml,
-      photos: impactUpdates.photos,
-      receiptUrls: impactUpdates.receiptUrls,
-      status: impactUpdates.status,
-      submittedAt: impactUpdates.submittedAt,
-      reviewedAt: impactUpdates.reviewedAt,
-    })
-    .from(impactUpdates)
-    .where(eq(impactUpdates.campaignId, campaignId))
-    .limit(1);
-
-  return row ?? null;
-}
 
 async function getRelatedCampaigns(category: CampaignCategory, _currentId: string) {
   return db
@@ -342,13 +261,24 @@ export default async function CampaignDetailPage({ params }: PageProps) {
 
   const campaign = lookup.campaign;
 
-  const [recentDonors, updates, relatedRaw, initialMessages, impactUpdate] = await Promise.all([
-    getRecentDonors(campaign.id),
-    getUpdates(campaign.id),
-    getRelatedCampaigns(campaign.category, campaign.id),
-    getMessages(campaign.id),
-    getImpactUpdate(campaign.id),
-  ]);
+  /*
+    ONE query here, not five.
+
+    This was `Promise.all` over five single-query helpers, on a pool of
+    `max: 5` (`src/db/index.ts`) shared by every request on the machine -
+    four more than CLAUDE.md's cap of three, and the exact wide-fan-out
+    condition docs/87 ties to seven production wedges. The AST ratchet
+    was green throughout because it only counted a resolved helper when
+    it contributed MORE than one query, so five one-query helpers summed
+    to zero. Fixed in `pool-fanout.ratchet.test.ts` in the same commit,
+    which is how this was found.
+
+    The other four moved into `<CampaignActivity>`, below a `<Suspense>`
+    boundary, where they run in staged batches of two. Related campaigns
+    stays here because it renders outside that boundary, and a second
+    sibling boundary would just restore the concurrency this removes.
+  */
+  const relatedRaw = await getRelatedCampaigns(campaign.category, campaign.id);
 
   const relatedCampaigns = relatedRaw
     .filter((c) => c.id !== campaign.id)
@@ -369,25 +299,6 @@ export default async function CampaignDetailPage({ params }: PageProps) {
   ].filter((image): image is string => typeof image === 'string' && image.length > 0);
   const campaignDescription =
     `Reviewed ${categoryLabel.toLowerCase()} fundraiser for ${campaign.subjectName}. ${percent}% funded with ${centsToDollars(campaign.raisedAmount)} raised toward ${centsToDollars(campaign.goalAmount)}.`;
-
-  const formattedUpdates = updates.map((u) => ({
-    id: u.id,
-    title: u.title,
-    bodyHtml: u.bodyHtml,
-    imageUrl: u.imageUrl,
-    createdAt: u.createdAt.toISOString(),
-  }));
-
-  // Format impact update for client component
-  const formattedImpactUpdate = impactUpdate ? {
-    title: impactUpdate.title,
-    bodyHtml: impactUpdate.bodyHtml,
-    photos: (impactUpdate.photos ?? []) as string[],
-    receiptUrls: (impactUpdate.receiptUrls ?? []) as string[],
-    status: impactUpdate.status,
-    submittedAt: impactUpdate.submittedAt?.toISOString() ?? null,
-    reviewedAt: impactUpdate.reviewedAt?.toISOString() ?? null,
-  } : null;
 
   // JSON-LD structured data
   const jsonLd = {
@@ -555,24 +466,27 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               dangerouslySetInnerHTML={{ __html: sanitizedStory }}
             />
 
-            {/* Impact update - below the story for transparency */}
-            {formattedImpactUpdate && (
-              <ImpactUpdate impactUpdate={formattedImpactUpdate} />
-            )}
+            {/*
+              Impact update, updates and community, streamed.
 
-            {/* Updates */}
-            {formattedUpdates.length > 0 && (
-              <CampaignUpdates updates={formattedUpdates} />
-            )}
+              The boundary is HERE rather than in a `loading.tsx`, and
+              that placement is the whole point: a `loading.tsx` wraps
+              the route above the page, so the shell flushes with a 200
+              before `notFound()` can run, which is what made every
+              unknown slug a soft 404 (docs/80). Below the lookup, the
+              status is already settled, so the skeleton costs nothing.
 
-            {/* Community: donors + messages (below story, not in sidebar) */}
-            {isDonatable && (
-              <CampaignCommunityClient
+              The visitor gets the hero, totals, story and donate button
+              immediately - strictly more than the deleted `loading.tsx`
+              gave, which blanked the whole page.
+            */}
+            <Suspense fallback={<CampaignActivitySkeleton />}>
+              <CampaignActivity
+                campaignId={campaign.id}
                 campaignSlug={campaign.slug}
-                initialDonors={recentDonors}
-                initialMessages={initialMessages}
+                isDonatable={isDonatable}
               />
-            )}
+            </Suspense>
 
             {/* Share + Subscribe */}
             <div className="flex flex-wrap items-center gap-3">
