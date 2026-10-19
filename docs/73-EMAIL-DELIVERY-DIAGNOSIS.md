@@ -126,3 +126,71 @@ against another product's mail can affect this one, and the API key in
 `RESEND_API_KEY` can read and send on behalf of every domain in the account.
 A separate Resend account, or at minimum a domain-scoped key, is the right
 end state. Recorded rather than acted on: it is an account decision.
+
+---
+
+## Amendment, 2026-10-19: this doc is about SENDING. We cannot RECEIVE at all.
+
+The title of this doc — "Mail delivery is NOT broken" — is true and
+misleading. It was written about outbound mail, and someone reading it
+would reasonably conclude that email on this domain is fine. Half of it
+is missing.
+
+**Verified 2026-10-19 by DNS query: `lastdonor.org` has NO MX record.**
+
+```
+$ dig +short MX lastdonor.org
+(no answer)
+```
+
+Every address the site publishes therefore **bounces**. There are ten of
+them, counted across `src/`:
+
+| Address | Uses | What the site promises |
+|---|---|---|
+| `support@lastdonor.org` | 69 | the contact route on nearly every page |
+| `verify@lastdonor.org` | 29 | |
+| `privacy@lastdonor.org` | 11 | **"To exercise any of these rights, email privacy@lastdonor.org. We will respond within 30 days."** |
+| `editorial@lastdonor.org` | 8 | |
+| `noreply@lastdonor.org` | 6 | send-only by intent, so unaffected |
+| `legal@lastdonor.org` | 5 | |
+| `deleted@lastdonor.org` | 4 | |
+| `receipts@lastdonor.org` | 3 | |
+| `contact@lastdonor.org` | 2 | |
+| `newsletter@lastdonor.org` | 1 | |
+
+The `privacy@` one is the serious one: it is a **GDPR/CCPA commitment with
+a stated 30-day response window**, pointing at an address that cannot
+receive a request. Under docs/41 the refund and unsubscribe paths also
+tell people to email `support@`, and docs/74's forgot-password mail tells
+people to contact support if they did not request it.
+
+### Why the sending side looked complete
+
+Because it is. **Verified** by DNS, same date:
+
+- `resend._domainkey.lastdonor.org` — DKIM public key present
+- `send.lastdonor.org` — Resend's SPF/return-path subdomain, with MX
+  `send.forge.rmta.net` and `10 feedback.forge.rmta.net`
+- `_dmarc.lastdonor.org` — `v=DMARC1; p=none;`
+- `resend-domain-verification=...` TXT at the apex
+
+Those MX records are **on the `send.` subdomain** and are Resend's bounce
+and feedback handling. They do not deliver mail to a human, and there is
+nothing at the apex. So the domain can send as `support@lastdonor.org`
+and nobody can reply to it.
+
+**The lesson is the docs/83 one again:** that doc recorded a Didit flow
+that worked perfectly and that no user could reach, because nobody traced
+the path a person actually takes. Here, nobody sent mail *to* the address
+the site asks people to use. An integration is not proven by the half of
+it you happened to test.
+
+### Fix
+
+Receiving needs either an MX pointing at a forwarder or a real mailbox
+provider; the sending setup above is unaffected either way and should be
+left alone. Options and the recommendation are in docs/95.
+
+**Until it is fixed, do not add another published address**, and treat
+the `privacy@` response-time promise as currently unmeetable.
