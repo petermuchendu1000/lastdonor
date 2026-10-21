@@ -520,7 +520,13 @@ omit one, caps them at the current 18, and fails the build if that grows.
 
 1. **Nothing is deployed.** The routes, the form and the callback exist only
    on `claude/sharp-carson-c92fuf`. Production still cannot take an M-Pesa
-   donation through a browser. The callback URL is unreachable until it ships.
+   donation through a browser, and the callback URL is unreachable until it
+   ships. Deployment also needs three secrets that are **not currently set on
+   Fly**: `PAYHERO_API_USERNAME`, `PAYHERO_API_PASSWORD` and
+   `PAYHERO_CHANNEL_ID` (12226 for this account). Migrations 0005 and 0006 are
+   already applied to production and are backwards-compatible with the
+   currently-deployed code, so the database is ready and the order is
+   expand-then-deploy.
 2. **A KES campaign cannot be paid out.** Stripe Connect cannot settle KES,
    and the withdrawal route now correctly refuses a non-USD campaign. A KES
    campaign can be funded and not withdrawn. PayHero exposes a withdrawal
@@ -543,15 +549,53 @@ omit one, caps them at the current 18, and fails the build if that grows.
 6. **PayHero's blank-reference leak** is reported upstream and unfixed. The
    client guards against it; nothing else should rely on it being fixed.
 
-### Credentials found dead, 2026-10-21
+### Credential audit, 2026-10-21 — and one verdict of mine that was wrong
 
-Verified at the start of the session, before any code was written:
+Checked at the start of the session, **re-checked properly afterwards.** The
+first pass got the Cloudflare verdict wrong and did not distinguish "this key
+is dead" from "this is not the key production uses".
 
-| Credential | Result |
-|---|---|
-| `RESEND_API_KEY` | **400 `API key is invalid`** — so no outbound mail works at all, including the donation receipt this work now sends. `docs/73` concluded mail delivery was healthy; that is no longer true. |
-| Cloudflare API token | **401 `Invalid API Token`** — the cron Worker of `docs/66` cannot be redeployed or inspected with it. |
-| Upstash credential | **401 `token contains an invalid number of segments`** — this looks like the wrong credential type for the management API rather than a dead key; the runtime `UPSTASH_REDIS_REST_*` pair was not supplied and is what rate limiting and cron locks actually use. |
+| Credential | Verdict | Evidence |
+|---|---|---|
+| Cloudflare API token | **VALID AND ACTIVE** | Corrected. It is an **account-owned** token (`cfat_` prefix), which verifies at `GET /accounts/{id}/tokens/verify` — **200, `"This API Token is valid and active"`**. My first pass called `/user/tokens/verify`, which is for user-owned tokens and answers **401 `Invalid API Token`** for this one. The 401 was my wrong endpoint, not a dead key. Confirmed working against `/accounts/{id}`, `/workers/scripts` and `/r2/buckets`. |
+| R2 S3 credentials | **VALID** | `ListBuckets` 200. The access key id is the Cloudflare token's own id, which is how R2 derives S3 credentials. Buckets are `nostrel-kyc` and `pantheons-web-staging-opennext-cache` — neither is LastDonor's, consistent with uploads going to Supabase Storage (`docs/68`), not R2. |
+| `RESEND_API_KEY` (as supplied) | **Rejected by Resend** | `400 {"statusCode":400,"message":"API key is invalid","name":"validation_error"}`, consistently, from three different clients. |
+| `RESEND_API_KEY` (production) | **Exists, and is a different key** | Fly's `lastdonor` app has 29 secrets set, `RESEND_API_KEY` among them. Values are not readable, so the two cannot be compared directly — but production having its own means the supplied key is most likely **stale or rotated rather than production's**. This reconciles with `docs/73`, which found the production key working and all 7 emails delivered; **that finding is NOT overturned.** |
+| Upstash credential (as supplied) | **Wrong credential type** | `401 token contains an invalid number of segments` from the management API. |
+| Upstash (production) | **Set and in use** | `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are both set on Fly. These are what rate limiting and cron locks actually read, so neither is degraded. |
+| `PAYHERO_*` | **NOT SET on Fly** | None of `PAYHERO_API_USERNAME`, `PAYHERO_API_PASSWORD`, `PAYHERO_CHANNEL_ID` exists in production's 29 secrets. This is a deployment prerequisite, not a fault. |
+| Namecheap | Reached the API | Refused only for an IP allow-list, expected from a sandbox. |
+
+**Why the first Resend pass could have been an edge block rather than a key
+verdict, and how that was ruled out.** On re-test, `api.resend.com` answered
+`403` with the bare body `error code: 1010` — which is *Cloudflare's* block
+page, not Resend's JSON, so those requests never reached Resend at all.
+Setting any ordinary `User-Agent` got through, after which Resend itself
+returned the `400 API key is invalid` above. The sandbox's default
+user-agent-less request is blocked at Resend's edge on browser signature.
+
+That is the `docs/90` shape — where the same probe reported 49 live feeds from
+the sandbox and 72 from Fly, because four publishers 403 the sandbox proxy at
+IP/ASN level. **Always check whether a 4xx came from the service or from
+something in front of it.** A bare `error code: NNNN` text body is Cloudflare;
+a JSON envelope is the service.
+
+### What this means for the work in this document
+
+`docs/92` previously said mail delivery was broken and that the donation
+receipt would not send. **That was overstated.** Production holds its own
+Resend key and `docs/73`'s finding stands; the receipt path is untested only
+because no donation had ever existed before this one, and the KES 50
+collection was recorded by a script that does not send mail. Whether
+production's key still works is **unverified** — confirming it means asking
+production to send, which has not been done.
+
+The `docs/66` cron Worker is also confirmed alive with this token:
+`lastdonor-cron`, one `*/5 * * * *` trigger, created 2026-10-18T00:41:45Z,
+exactly as that doc records. Account-wide there are now **4 Workers and 2 cron
+triggers** (`lastdonor-cron`, `pantheons-jobs-staging`), so against the free
+cap of 5 per account there is headroom for three more — `docs/66` was written
+when the shared account looked tighter than it currently is.
 
 Namecheap's key reached the API and was refused only for an IP allow-list
 (expected from a sandbox). The direct `DATABASE_URL` could not be verified
