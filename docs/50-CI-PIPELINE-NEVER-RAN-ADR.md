@@ -247,9 +247,43 @@ claim it:
 |---|---|
 | The pre-fix workflow genuinely did not parse | **Verified** (quoted error, with line and column) |
 | The account is locked for billing, and that stopped run 1's jobs | **Verified** (quoted annotation) |
-| Pushing `4604cae` (parse already fixed) to `main` created **no run** | **Verified** (`total_count: 1`, and that one is `workflow_dispatch`) |
-| The billing lock is what suppresses push-triggered run *creation* | **Assumed.** It is the only candidate consistent with the row above, since the pushed commit contains the fix and the repo-level setting is "Allow all actions" (owner screenshot). Not independently confirmed. |
+| Pushing a commit whose workflow parses to `main` creates **no run** | **Verified twice** — `4604cae` and later `2455285`. After both pushes the repository still held only manually dispatched runs. |
+| The billing lock is what suppresses push-triggered run *creation* | **Assumed**, now on two observations rather than one. It remains the only candidate consistent with the row above, since both pushed commits contain the fix and the repo-level setting is "Allow all actions" (owner screenshot). Still not confirmed from GitHub's side. |
 | When the lock began | **Unknown.** No repo-scoped endpoint carries it. |
+
+### Raising the spending budget does not clear it
+
+Tested directly on 2026-10-21: the owner raised the Actions budget to 100 and
+run 2 was dispatched immediately after. Its jobs failed in three seconds with
+no runner, carrying the **identical** annotation, word for word:
+
+> `The job was not started because your account is locked due to a billing issue.`
+
+**Verified.** That null result is worth more than it looks, because it
+separates two states that are easy to conflate. GitHub words a cap problem
+differently — *"recent account payments have failed or your spending limit
+needs to be increased"*. A **lock** is not a cap, so raising the cap cannot
+lift it; what is required is settling the payment. The account billing and
+invoice endpoints are blocked by this session's proxy, so which invoice is
+outstanding **cannot be read from here**.
+
+### Correction to this amendment's own wording
+
+Above, this doc said the failure is "not a minutes overage". That was too
+strong, and the owner's metered-usage page (2026-10-21) shows why: the account
+has consumed **2,000 of 2,000 included Actions minutes** and carries **$50.00
+billable** ($66.81 consumed less $16.81 discounts), resetting in 11 days.
+
+What survives the correction is the part that governs *this* repository.
+`lastdonor` is public; GitHub's own note on that page states discounts cover
+Actions usage in public repositories, and `lastdonor` does not appear among the
+five repositories carrying the spend (`invest254` $44.15, `CEBUPAY` $12.20,
+`elopis` $4.80, `handshakeai_oline` $3.95, `invest254-platform-template`
+$1.70 — all private). So the account-level pool is genuinely exhausted, while
+CI on this repository should still cost nothing once the lock is lifted.
+
+That distinction matters for the decision this doc exists to support: turning
+this pipeline on does not add to that bill.
 
 So both defects were real and each is independently sufficient to produce
 "zero runs". Fixing the YAML was necessary; amendment 1's "whatever blocks it
