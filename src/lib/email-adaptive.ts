@@ -288,15 +288,15 @@ export function adaptiveDonationReceiptEmail(p: {
     ctaSection = `
       <p style="font-weight: 600; margin-top: 20px;">There is one thing you can do that the money cannot:</p>
       <p>Send this to one person you think would care. A public post reaches everyone and asks no one. A message asks someone, by name, and it comes from you, who already gave.</p>
-      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Share This Campaign')}
+      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Share this campaign')}
     `;
   } else if (isRepeat) {
     ctaSection = `
       <p style="font-weight: 600; margin-top: 20px;">Looking for more campaigns that need your help?</p>
-      ${ctaButton(`${BASE_URL}/campaigns`, 'Explore Campaigns')}
+      ${ctaButton(`${BASE_URL}/campaigns`, 'See other campaigns')}
     `;
   } else {
-    ctaSection = ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign Progress');
+    ctaSection = ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'See the campaign');
   }
 
   return {
@@ -351,7 +351,7 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
           <p>Hi ${donorName},</p>
           <p>We noticed you started a donation${amountHint} to <strong>"${campaignTitle}"</strong> but didn't finish. No worries at all. Life gets busy.</p>
           <p>If you'd still like to help, the campaign is right where you left it. Every contribution, no matter the size, moves things forward.</p>
-          ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Continue Your Donation')}
+          ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Finish your gift')}
           <p style="color: #666; font-size: 14px;">Not interested anymore? That's completely okay. You can ignore this email and we won't send another about it.</p>
         `),
       };
@@ -371,7 +371,7 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
             <p style="margin: 8px 0 0; color: #666; font-size: 14px;">${progressPercent}% of goal reached</p>
           </div>
           <p>Your donation would help close the remaining gap. But only if it feels right to you.</p>
-          ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Donate Now')}
+          ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Give now')}
           <p style="color: #666; font-size: 14px;">This is the second of three reminders. Reply "stop" to opt out.</p>
         `),
       };
@@ -385,9 +385,9 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
           <p>Hi ${donorName},</p>
           <p>This is our last message about <strong>"${campaignTitle}."</strong> We respect your time and your inbox.</p>
           <p>If this campaign moved you, the link is still here. If not, no hard feelings. There are many ways to make a difference, and donating is just one of them.</p>
-          ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign')}
+          ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'See the campaign')}
           <p>Or if a different cause speaks to you:</p>
-          ${ctaButton(`${BASE_URL}/campaigns`, 'Browse All Campaigns', '#666')}
+          ${ctaButton(`${BASE_URL}/campaigns`, 'See all campaigns', '#666')}
           <p style="color: #666; font-size: 14px;">You won't receive any more reminders about this donation.</p>
         `),
       };
@@ -430,7 +430,7 @@ export function adaptiveRefundEmail(p: {
   if (p.refundReason === 'campaign_cancelled') {
     openingSection = `
       <p>Hi ${name},</p>
-      <p>We're writing because the campaign <strong>"${campaignTitle}"</strong> has been cancelled, and your donation of <strong>${formatCents(p.amount)}</strong> is being returned to you in full.</p>
+      <p>We have stopped the campaign <strong>"${campaignTitle}"</strong>. We are sending back all of your <strong>${formatCents(p.amount)}</strong>.</p>
       <p>We know that's not the outcome you hoped for when you gave. We're sorry about that.</p>
     `;
   } else if (isRepeat) {
@@ -481,7 +481,7 @@ export function adaptiveRefundEmail(p: {
       <h2 style="color: #0F766E; font-size: 18px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Other campaigns that could use your help</h2>
         <p>If you'd like to redirect your generosity, here are reviewed campaigns in a similar area:</p>
       ${campaignCards}
-      ${ctaButton(`${BASE_URL}/campaigns`, 'Browse All Campaigns')}
+      ${ctaButton(`${BASE_URL}/campaigns`, 'See all campaigns')}
     `;
   }
 
@@ -543,7 +543,7 @@ export function creatorMotivationEmail(p: {
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Campaign Has Momentum</h1>
           <p>Hi ${creatorName},</p>
           <p>Your campaign <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(c.raisedCents)}</strong> from <strong>${c.donorCount}</strong> donor${c.donorCount === 1 ? '' : 's'} so far. That's real progress.</p>
-          <p>Donors love hearing from the people they're helping. A quick update goes a long way. Even a short message like "Here's where things stand" keeps people invested and encourages them to share your campaign with others.</p>
+          <p>People who gave money like to hear from you. Even a few lines help. Tell them where things stand. They are then far more likely to share your page.</p>
           ${calloutBox(
             `<strong>Quick tip:</strong> Your donors have no way of knowing what their money did unless you tell them. Five minutes and one photo is the difference between a receipt and a reason to give again.`
           )}
@@ -560,7 +560,7 @@ export function creatorMotivationEmail(p: {
         html: wrap(`
           <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donors Are Wondering</h1>
           <p>Hi ${creatorName},</p>
-          <p>It's been <strong>${daysSince} days</strong> since you last updated <strong>"${campaignTitle}."</strong> Your <strong>${c.donorCount}</strong> donor${c.donorCount === 1 ? '' : 's'} gave because they believe in your cause, and they'd love to know how things are going.</p>
+          <p>You last wrote about <strong>"${campaignTitle}"</strong> <strong>${daysSince} days</strong> ago. <strong>${c.donorCount}</strong> ${c.donorCount === 1 ? 'person' : 'people'} gave because they believe in you. They would like to know how it is going.</p>
           <p>We've seen campaigns lose momentum when supporters don't hear back. It doesn't have to be long. Even a sentence or two can reignite interest and bring in new donations.</p>
           <p style="font-weight: 600;">Here are three ideas for a quick update:</p>
           <ol style="line-height: 2; color: #333;">
@@ -588,11 +588,11 @@ export function creatorMotivationEmail(p: {
             <li><strong>Ask a friend to share on your behalf.</strong> Sometimes a third-party endorsement carries more weight.</li>
           </ol>
           ${calloutBox(
-            `<strong>Not sure what to say?</strong> Reply to this email and our team will help you write an update that gets donors re-engaged. We've helped dozens of campaigners in the same situation.`,
+            `<strong>Not sure what to say?</strong> Reply to this email. We will help you write it.`,
             '#EA580C',
             '#fff7ed'
           )}
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Update Your Campaign')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Write an update')}
           <p style="color: #666; font-size: 14px;">If your situation has changed and you need to pause or close the campaign, that's okay too. We can help with that. Contact us at <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a>.</p>
         `),
       };
@@ -608,7 +608,7 @@ export function creatorMotivationEmail(p: {
           <p>Something worth celebrating: <strong>${milestone} people</strong> have now donated to your campaign <strong>"${campaignTitle}."</strong> That's not just a number. That's ${milestone} people who read your story and decided to help.</p>
           <p>You've raised <strong>${formatCents(c.raisedCents)}</strong> so far, which is <strong>${progressPercent}%</strong> of your goal.</p>
           ${calloutBox(`<strong>Celebrate this milestone!</strong> Share it on social media or send a thank-you update to your donors. People love being part of a growing community.`)}
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Thank Your Donors')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Thank the people who gave')}
         `),
       };
     }
@@ -620,7 +620,7 @@ export function creatorMotivationEmail(p: {
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You're Halfway There!</h1>
           <p>Hi ${creatorName},</p>
           <p>Your campaign <strong>"${campaignTitle}"</strong> just crossed the 50% mark. You've raised <strong>${formatCents(c.raisedCents)}</strong> from <strong>${c.donorCount}</strong> supporter${c.donorCount === 1 ? '' : 's'}.</p>
-          <p>This is a big deal. Research shows that campaigns that reach 50% are far more likely to reach their full goal. The hardest part is behind you.</p>
+          <p>This is a big step. The hardest part is usually the start, and you are past it.</p>
           <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="background: #e5e7eb; border-radius: 4px; height: 16px; overflow: hidden;">
               <div style="background: #0F766E; height: 100%; width: ${progressPercent}%; border-radius: 4px;"></div>
@@ -633,7 +633,7 @@ export function creatorMotivationEmail(p: {
             <li>Share the progress bar on social media. People are drawn to campaigns that are already making progress.</li>
             <li>Reach out to 5 people who haven't donated yet. The personal ask is always the most effective.</li>
           </ol>
-          ${ctaButton(`${BASE_URL}/campaigns/${c.campaignSlug}`, 'Share Your Progress')}
+          ${ctaButton(`${BASE_URL}/campaigns/${c.campaignSlug}`, 'Share your progress')}
         `),
       };
     }
@@ -652,7 +652,7 @@ export function creatorMotivationEmail(p: {
           <h3 style="color: #333; margin: 20px 0 8px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">3. Tell the story, not the ask</h3>
           <p>When sharing, lead with why this campaign exists, not how much you need. People connect with stories. The money follows the emotion.</p>
           ${calloutBox(`<strong>Your campaign link:</strong><br/><a href="${BASE_URL}/campaigns/${c.campaignSlug}" style="color: #0F766E; word-break: break-all;">${BASE_URL}/campaigns/${c.campaignSlug}</a>`)}
-          ${ctaButton(`${BASE_URL}/campaigns/${c.campaignSlug}`, 'View Your Campaign')}
+          ${ctaButton(`${BASE_URL}/campaigns/${c.campaignSlug}`, 'See your campaign')}
         `),
       };
     }
@@ -684,7 +684,7 @@ export function creatorMotivationEmail(p: {
             </tr>
           </table>
           ${c.updateCount === 0
-            ? `<p>You haven't posted any updates yet. Even a short one can boost donations this week.</p>${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Post Your First Update')}`
+            ? `<p>You haven't posted any updates yet. Even a short one can boost donations this week.</p>${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Write your first update')}`
             : ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'View Dashboard')
           }
         `),
@@ -732,8 +732,8 @@ export function verificationEscalationEmail(p: {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You Did It!</h1>
           <p>Hi ${creatorName},</p>
-          <p>Take a moment to let this sink in: <strong>${p.donorCount}</strong> people donated a total of <strong>${formatCents(p.goalAmount)}</strong> to your campaign <strong>"${campaignTitle}."</strong> That's real.</p>
-          <p>Now, to get those funds into your hands, there's a simple verification process. It exists to protect you and your donors, and most people finish it in under 10 minutes.</p>
+          <p>Stop and take this in. <strong>${p.donorCount}</strong> people gave <strong>${formatCents(p.goalAmount)}</strong> to <strong>"${campaignTitle}."</strong></p>
+          <p>Before we send you the money, we check a few things. This keeps you safe, and it keeps the people who gave safe too.</p>
           <p style="font-weight: 600;">Here's what you'll need:</p>
           <ol style="line-height: 2; color: #333;">
             <li>A government-issued photo ID</li>
@@ -790,7 +790,7 @@ export function verificationEscalationEmail(p: {
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donors Are Watching</h1>
           <p>Hi ${creatorName},</p>
           <p><strong>${p.donorCount}</strong> people donated to <strong>"${campaignTitle}"</strong> because they trust you. Completing verification shows them their trust was well placed.</p>
-          <p>We haven't received your verification documents yet. This is the step that unlocks your <strong>${formatCents(p.goalAmount)}</strong> in raised funds.</p>
+          <p>We have not had your papers yet. We need them before we can send you your <strong>${formatCents(p.goalAmount)}</strong>.</p>
           ${calloutBox(
             `You have <strong>${p.daysRemaining} days remaining</strong> to complete verification. After that, we may need to return funds to donors.`,
             '#D97706',
@@ -817,7 +817,7 @@ export function verificationEscalationEmail(p: {
             <li>Don't have receipts yet? We can extend your timeline.</li>
             <li>Confused about the process? Reply to this email and we'll guide you step by step.</li>
           </ul>
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${p.campaignId}/verification`, 'Complete Verification Now')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${p.campaignId}/verification`, 'Finish your checks')}
           <p style="color: #666; font-size: 14px;">Direct line: <a href="mailto:verify@lastdonor.org" style="color: #0F766E;">verify@lastdonor.org</a></p>
         `),
       };
@@ -829,15 +829,15 @@ export function verificationEscalationEmail(p: {
         html: wrap(`
           <h1 style="color: #DC2626; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Final Notice</h1>
           <p>Hi ${creatorName},</p>
-          <p>This is the last reminder about verification for your campaign <strong>"${campaignTitle}."</strong></p>
-          <p>Without verification in the next <strong>${p.daysRemaining} days</strong>, we will begin returning <strong>${formatCents(p.goalAmount)}</strong> to the <strong>${p.donorCount}</strong> people who donated to you.</p>
-          <p>We've reached out several times, and we genuinely want to help you receive these funds. If you're going through something that's making this hard, please just let us know. We can almost certainly find a solution.</p>
+          <p>This is our last reminder about <strong>"${campaignTitle}."</strong></p>
+          <p>You have <strong>${p.daysRemaining} days</strong> left. After that we start sending the <strong>${formatCents(p.goalAmount)}</strong> back to the <strong>${p.donorCount}</strong> people who gave it.</p>
+          <p>We have written to you a few times. We want you to get this money. If something is making this hard, tell us. We can usually help.</p>
           ${calloutBox(
-            `<strong>Call us directly:</strong> Email <a href="mailto:verify@lastdonor.org" style="color: #DC2626;">verify@lastdonor.org</a> with "URGENT" in the subject line, and someone from our team will respond within 4 hours.`,
+            `<strong>Need help now?</strong> Email <a href="mailto:verify@lastdonor.org" style="color: #DC2626;">verify@lastdonor.org</a>. Put the word URGENT in the subject line.`,
             '#DC2626',
             '#fef2f2'
           )}
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${p.campaignId}/verification`, 'Complete Verification Now', '#DC2626')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${p.campaignId}/verification`, 'Finish your checks', '#DC2626')}
         `),
       };
     }
@@ -885,7 +885,7 @@ export function donorReengagementEmail(p: {
           <p>It's been a little while since your last donation. We hope you're doing well.</p>
           <p>A few new campaigns have launched since then, and we thought you might want to take a look:</p>
           ${campaignsList}
-          ${ctaButton(`${BASE_URL}/campaigns`, 'Browse All Campaigns')}
+          ${ctaButton(`${BASE_URL}/campaigns`, 'See all campaigns')}
           <p style="color: #666; font-size: 14px;">Not interested right now? No problem at all. We'll check in again in a few weeks.</p>
         `),
       };
@@ -912,7 +912,7 @@ export function donorReengagementEmail(p: {
             `
             : ''
           }
-          ${ctaButton(`${BASE_URL}/campaigns`, 'Explore Campaigns')}
+          ${ctaButton(`${BASE_URL}/campaigns`, 'See other campaigns')}
         `),
       };
     }
@@ -961,14 +961,13 @@ export function highValueDonorThankYouEmail(p: {
       <p>Your donation of <strong>${formatCents(p.amount)}</strong> to <strong>"${campaignTitle}"</strong> is remarkable. We don't say that lightly.</p>
       ${isRepeat
         ? `<p>You've now donated <strong>${formatCents(p.donorContext.totalDonatedCents)}</strong> across <strong>${p.donorContext.campaignsSupported}</strong> campaigns on LastDonor. You're among the people who make this platform possible.</p>`
-        : `<p>A donation of this size carries real weight. It moves the needle in a way that smaller donations, as valuable as they are, simply can't match on their own.</p>`
+        : `<p>A gift this size makes a real difference. It moves this campaign much closer to its goal.</p>`
       }
       ${calloutBox(
-        `<strong>Your impact:</strong> "${campaignTitle}" is now <strong>${p.campaignProgressPercent}%</strong> funded. Your donation alone accounts for a significant portion of that progress.`
+        `<strong>What you did:</strong> "${campaignTitle}" is now <strong>${p.campaignProgressPercent}%</strong> funded. A large part of that is your gift.`
       )}
-      <p>As a major supporter, you'll automatically receive priority updates about this campaign's progress. If you ever want to know more about how funds are being used, just reply to this email. Our team will get back to you personally.</p>
-      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign Progress')}
-      <p style="color: #666; font-size: 14px;">This email was sent by a real person on our team, not an automated system. If you have questions about your donation or our platform, just hit reply.</p>
+      <p>Want to know how the money is used? Reply to this email and ask. A person will read it.</p>
+      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'See the campaign')}
     `),
   };
 }
@@ -1050,7 +1049,7 @@ export function creatorThankYouUpdateEmail(p: {
         <p style="margin: 12px 0 0; color: #666; font-size: 14px; font-style: italic;">- ${creatorName}</p>
       </div>
       <p>The campaign is currently <strong>${p.progressPercent}%</strong> funded.</p>
-      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign')}
+      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'See the campaign')}
       ${campaignUnsubscribeFooter({ campaignId: p.campaignId, campaignSlug: p.campaignSlug, donorEmail: p.donorEmail })}
     `),
   };

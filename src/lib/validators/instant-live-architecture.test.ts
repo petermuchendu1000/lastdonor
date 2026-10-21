@@ -213,7 +213,7 @@ describe('Email templates - new lifecycle templates', () => {
     });
 
     it('has a celebratory subject line', () => {
-      expect(email.subject).toContain('First Donation');
+      expect(email.subject).toMatch(/first gift/i);
       expect(email.subject).toContain('Help Alice');
     });
 
@@ -234,7 +234,10 @@ describe('Email templates - new lifecycle templates', () => {
     });
 
     it('includes sharing tips', () => {
-      expect(email.html).toContain('momentum');
+      // Anchored on the advice, not on one word. The plain-language pass
+      // (docs/94) dropped "momentum"; the three next steps are the point.
+      expect(email.html).toMatch(/Tell people the news/i);
+      expect(email.html).toMatch(/Send your link to 5 more people/i);
     });
 
     it('does NOT request verification documents', () => {
@@ -255,7 +258,7 @@ describe('Email templates - new lifecycle templates', () => {
     });
 
     it('has a congratulatory subject line', () => {
-      expect(email.subject).toContain('Fully Funded');
+      expect(email.subject).toMatch(/reached its goal/i);
       expect(email.subject).toContain('Help Alice');
     });
 
@@ -273,14 +276,15 @@ describe('Email templates - new lifecycle templates', () => {
 
     it('links to verification page CTA', () => {
       expect(email.html).toContain('/dashboard/campaigns/help-alice-123/verification');
-      expect(email.html).toContain('Start Verification Now');
+      expect(email.html).toMatch(/Start now/i);
     });
 
     it('explains the verification and withdrawal process', () => {
-      expect(email.html).toContain('Verify your identity');
-      expect(email.html).toContain('Upload supporting documents');
-      expect(email.html).toContain('Admin review');
-      expect(email.html).toContain('Withdraw your funds');
+      // Still four steps, in order, in plain words (docs/94).
+      expect(email.html).toMatch(/Show us who you are/i);
+      expect(email.html).toMatch(/Send your papers/i);
+      expect(email.html).toMatch(/Wait for our check/i);
+      expect(email.html).toMatch(/Get your money/i);
     });
 
     it('mentions 14-day deadline', () => {
@@ -300,8 +304,9 @@ describe('Email templates - new lifecycle templates', () => {
         donorCount: 1,
         documentRequirementsHtml: docHtml,
       });
-      expect(singleEmail.html).toContain('1</strong> generous donor');
-      expect(singleEmail.html).not.toContain('1</strong> generous donors');
+      // Singular/plural still agrees; the adjective went in docs/94.
+      expect(singleEmail.html).toContain('1 person gave');
+      expect(singleEmail.html).not.toContain('people gave');
     });
   });
 
@@ -316,35 +321,36 @@ describe('Email templates - new lifecycle templates', () => {
 
     it('gentle urgency has green heading', () => {
       const email = verificationReminderEmail({ ...baseParams, urgencyLevel: 'gentle' });
-      expect(email.subject).toContain('Reminder');
-      expect(email.html).toContain('Friendly Reminder');
+      expect(email.subject).toMatch(/reminder/i);
+      expect(email.html).toMatch(/A reminder/i);
       expect(email.html).toContain('#0F766E');
     });
 
     it('firm urgency mentions days left', () => {
       const email = verificationReminderEmail({ ...baseParams, urgencyLevel: 'firm' });
-      expect(email.subject).toContain('11 Days Left');
-      expect(email.html).toContain('Verification Reminder');
+      expect(email.subject).toMatch(/11 days left/i);
+      expect(email.html).toMatch(/finish your checks/i);
     });
 
     it('warning urgency turns orange', () => {
       const email = verificationReminderEmail({ ...baseParams, deadlineDays: 5, urgencyLevel: 'warning' });
-      expect(email.subject).toContain('Important');
+      expect(email.subject).toMatch(/only 5 days left/i);
       expect(email.html).toContain('#EA580C');
     });
 
     it('final urgency turns orange', () => {
       const email = verificationReminderEmail({ ...baseParams, deadlineDays: 2, urgencyLevel: 'final' });
-      expect(email.subject).toContain('Last Reminder');
+      expect(email.subject).toMatch(/last reminder/i);
       expect(email.html).toContain('#EA580C');
-      expect(email.html).toContain('return');
+      // Still warns that the money goes back.
+      expect(email.html).toMatch(/send the money back/i);
     });
 
     it('all urgency levels link to verification page', () => {
       for (const level of ['gentle', 'firm', 'warning', 'final'] as const) {
         const email = verificationReminderEmail({ ...baseParams, urgencyLevel: level });
         expect(email.html).toContain('/dashboard/campaigns/help-alice-123/verification');
-        expect(email.html).toContain('Complete Verification Now');
+        expect(email.html).toMatch(/Finish your checks/i);
       }
     });
 
@@ -385,11 +391,14 @@ describe('Email templates - updated for instant-live', () => {
     });
 
     it('includes sharing tips', () => {
-      expect(email.html).toContain('5 close friends');
+      expect(email.html).toMatch(/Message 5 people/i);
     });
 
-    it('mentions first donation stat', () => {
-      expect(email.html).toContain('first donation');
+    it('explains why the first gift matters', () => {
+      // Was 'first donation'; docs/94 says "gift" and explains the reason
+      // rather than asserting a statistic we cannot source.
+      expect(email.html).toMatch(/Give the first gift yourself/i);
+      expect(email.html).toMatch(/Why the first gift matters/i);
     });
 
     it('does NOT request documents', () => {

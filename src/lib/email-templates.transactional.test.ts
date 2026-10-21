@@ -78,7 +78,9 @@ describe('the two emails that previously did not exist', () => {
   it('the no-account one does not confirm or deny anything to a third party', () => {
     const html = passwordResetNoAccountEmail().html;
     // It is sent only to the typed address, and it says so explicitly.
-    expect(html).toMatch(/was not told whether this address is registered/i);
+    // Wording changed in the plain-language pass (docs/94); the promise
+    // being pinned is unchanged - the sender learns nothing either way.
+    expect(html).toMatch(/did not tell the person whether this address is in use/i);
   });
 
   it('the provider one names the provider, because that is the whole answer', () => {
@@ -89,7 +91,9 @@ describe('the two emails that previously did not exist', () => {
 
   it('the provider one still reads correctly with no provider known', () => {
     const html = passwordResetOauthOnlyEmail({ provider: null }).html;
-    expect(html).toMatch(/connected account/i);
+    // Plain-language pass (docs/94): "a connected account" became
+    // "another account". Still says there is no password and no reset.
+    expect(html).toMatch(/sign in through another account/i);
     expect(html).not.toMatch(/undefined|null/);
   });
 
@@ -157,7 +161,9 @@ describe('the donation receipt escapes everything it interpolates', () => {
     }).html;
 
     expect(html).not.toContain('Grace');
-    expect(html).toContain('Dear Donor');
+    // "Dear" became "Hi" in the plain-language pass (docs/94). The
+    // invariant being pinned is the fallback greeting, not the salutation.
+    expect(html).toContain('Hi Donor');
   });
 
   it('states the amount in dollars, and stamps the date in UTC', () => {

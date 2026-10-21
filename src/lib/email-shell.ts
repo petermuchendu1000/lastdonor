@@ -200,7 +200,24 @@ export function emailHeading(text: string): string {
  */
 export function renderEmail(opts: EmailShellOptions): string {
   const { body, commercial = false, footerLinks } = opts;
-  const preheader = opts.preheader ?? derivePreheader(body);
+  /*
+    An EXPLICIT preheader is escaped here; a derived one is not.
+
+    The difference is where the text came from. `derivePreheader` reads the
+    body, which every template has already escaped, and then decodes a few
+    entities for readability - escaping that again would print `&amp;amp;`
+    in the inbox preview.
+
+    An explicit preheader is a fresh string built by the caller, and the
+    natural way to build one is `We got your gift to ${p.campaignTitle}`.
+    That interpolates raw, attacker-controlled text straight into the
+    markup below. Caught by the receipt's escaping test the moment explicit
+    preheaders were introduced: a campaign titled with an `<img onerror>`
+    tag reached the document as a real tag. Escaping here fixes the whole
+    class rather than asking 20 call sites to remember `esc()`.
+  */
+  const preheader =
+    opts.preheader !== undefined ? escapeHtml(opts.preheader) : derivePreheader(body);
 
   const postal = process.env.MAILING_POSTAL_ADDRESS?.trim() || null;
 
