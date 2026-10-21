@@ -171,3 +171,134 @@ Two consequences, both live:
 **This is an owner action and it is the highest-value one outstanding.** A
 pipeline that is configured, documented, relied upon in writing, and has never
 executed is worse than no pipeline, because people reason as though it ran.
+
+---
+
+## Amendment 2, 2026-10-21 — run 1 exists. There were TWO blockers, and the second is owner-only
+
+CI has now produced **run 1**, the first workflow run in this repository's
+history (`run_number: 1`, id `39563731420`, event `workflow_dispatch`, head
+`4604cae`). It failed. Both facts are progress, and the reasons are worth
+separating carefully, because amendment 1 above drew a conclusion that was
+half wrong.
+
+### Blocker 1 (in the repository, fixed): the workflow did not parse
+
+`ci-complete` contained:
+
+```yaml
+results='${{ join(needs.*.result, " ") }}'
+```
+
+GitHub Actions expressions accept **only single-quoted** string literals.
+Dispatching the workflow returned, verbatim:
+
+```
+failed to parse workflow: (Line: 181, Col: 14): Unexpected symbol: '"'.
+Located at position 22 within expression: join(needs.*.result, " ")
+```
+
+**Verified.** A workflow that fails to parse is never queued, so it emits no
+run, no check run and no annotation — which is precisely the signature
+amendment 1 recorded and could not explain. The failure mode of a fatal error
+and the failure mode of nothing happening are indistinguishable from outside.
+
+Why five days of local checks missed it: **the YAML was always valid.** A YAML
+parser reads that line as an ordinary string. It is GitHub's *expression*
+parser — a second language nested inside the YAML — that rejects it, and that
+parser does not run until a dispatch reaches GitHub. Fixed by one character
+class; see blocker 1's ratchet below.
+
+### Blocker 2 (NOT in the repository, still open): the account is locked
+
+With the parse fixed, the dispatch answered "Workflow run has been queued" and
+run 1 appeared. All four jobs with no `needs` then failed in **three seconds**,
+with `runner_id: 0`, `runner_name: ""`, and no step logs at all (the log
+download 404s). The dependent jobs skipped.
+
+The reason, quoted verbatim from the check-run annotation:
+
+> `The job was not started because your account is locked due to a billing issue.`
+
+**Verified.** Read from
+`GET /repos/petermuchendu1000/lastdonor/check-runs/{id}/annotations` — a
+**repository-scoped** path, and therefore one this session *can* reach.
+
+Note what this corrects methodologically. Amendment 1 said the answer was
+unreadable because `GET /actions/permissions` and the account billing endpoints
+are blocked by the session proxy — still true, both re-confirmed 403 today. But
+the answer was never actually behind those endpoints. It was in an annotation
+hanging off a run, on a path that was always permitted. It could not be read
+only because **no run existed to hang it on**. Fixing blocker 1 is what made
+blocker 2 legible.
+
+This is also not a minutes overage: the repository is **public**
+(`"visibility": "public"`, verified), where GitHub-hosted Actions minutes are
+free and unlimited. A billing lock suspends Actions regardless of repository
+visibility.
+
+### Which blocker caused the zero-run history? Unresolved, and both are sufficient
+
+It is tempting to say the parse error caused the four-year silence. The honest
+position is that **this cannot be separated from here**, and the doc should not
+claim it:
+
+| Claim | Status |
+|---|---|
+| The pre-fix workflow genuinely did not parse | **Verified** (quoted error, with line and column) |
+| The account is locked for billing, and that stopped run 1's jobs | **Verified** (quoted annotation) |
+| Pushing `4604cae` (parse already fixed) to `main` created **no run** | **Verified** (`total_count: 1`, and that one is `workflow_dispatch`) |
+| The billing lock is what suppresses push-triggered run *creation* | **Assumed.** It is the only candidate consistent with the row above, since the pushed commit contains the fix and the repo-level setting is "Allow all actions" (owner screenshot). Not independently confirmed. |
+| When the lock began | **Unknown.** No repo-scoped endpoint carries it. |
+
+So both defects were real and each is independently sufficient to produce
+"zero runs". Fixing the YAML was necessary; amendment 1's "whatever blocks it
+is **not** in the repository" was wrong about blocker 1 and right about
+blocker 2.
+
+### The owner action
+
+**Unlock the account's billing.** Nothing in this repository can affect it, and
+no further engineering will make CI run until it is done:
+GitHub → Settings → **Billing and licensing** → resolve the payment or raise
+the spending limit. Then re-run the pipeline (Actions → CI → Run workflow, or
+just push) and read run 2.
+
+Until then the whole of §3 above still holds exactly as written: the integration
+and E2E suites gate nothing, and `CLAUDE.md`'s pipeline description remains a
+statement about configuration, not about anything that has run.
+
+### Two changes made while here
+
+**1. The runner image is pinned.** Run 1's annotations also carried GitHub's own
+notice: *"The ubuntu-latest label will migrate to Ubuntu 26 beginning October
+19, 2026"* — i.e. it is migrating now. All eight jobs now say `ubuntu-24.04`,
+which is what the floating label meant up to this point. A pipeline that has
+never been green should not absorb an OS bump on its first run: a failure then
+could be the code or the image, with no green baseline to tell them apart. Bump
+it deliberately once a run has passed.
+
+The label is written out in each job rather than hoisted into the top-level
+`env:` block, because **`runs-on` cannot read the `env` context** (only
+`github`, `needs`, `strategy`, `matrix`, `vars`, `inputs`). `${{ env.X }}` there
+resolves to empty and invalidates the job — the same class of defect as blocker
+1, and equally invisible locally. This was caught while making the change, not
+after.
+
+**2. A ratchet for the nested language.** `src/ci-workflows.ratchet.test.ts`
+encodes the Actions-expression rules that no YAML parser can see, and runs in
+the unit suite — the gate that actually executes. Four rules, each a defect this
+project hit or came one edit away from hitting:
+
+| Rule | Why it is fatal |
+|---|---|
+| No `"` inside `${{ }}` | Blocker 1. Workflow never queues. |
+| No `env.` in `runs-on` | Context unavailable; job invalid. |
+| No `secrets.` in a job-level `if:` | Evaluates false and skips **silently** — the §2.3 failure mode, and the reason the `config` job exists. |
+| No `needs:` on a job that does not exist | Invalidates the whole workflow. |
+
+Each rule was proven by injecting the defect into `ci.yml` and confirming that
+rule — and only that rule — fails, then restoring the file byte-identical. A
+ratchet that has not been seen to fail is not known to ratchet. It deliberately
+is not a general Actions validator; `actionlint` would be, but it is a Go binary
+and is not installed in this environment.

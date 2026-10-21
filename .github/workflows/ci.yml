@@ -16,13 +16,28 @@ concurrency:
 env:
   NODE_VERSION: '20'
 
+# Every job pins `ubuntu-24.04` rather than `ubuntu-latest`. Run 1
+# (2026-10-21) carried GitHub's own notice: "The ubuntu-latest label will
+# migrate to Ubuntu 26 beginning October 19, 2026" - it is migrating now, and
+# 24.04 is what the floating label meant up to this point. This pipeline has
+# never produced a green run (docs/50), so the first one should not also be
+# absorbing an OS bump: a failure then could be the code or the image, with no
+# green baseline to tell them apart. Bump deliberately once a run has passed.
+#
+# The label is written out in each job on purpose. `runs-on` canNOT read the
+# `env` context - only `github`, `needs`, `strategy`, `matrix`, `vars` and
+# `inputs` - so `${{ env.RUNNER_IMAGE }}` there resolves to empty and
+# invalidates the workflow. That is the same class of defect as the
+# double-quoted expression this file was just fixed for, and it would be
+# equally invisible until someone dispatched a run.
+
 jobs:
   # Reports which optional secrets exist, so the DB-backed jobs can skip
   # cleanly instead of failing red on a repository that has never had them
   # set. `secrets` cannot be read from a job-level `if`, so it is surfaced
   # here as an output.
   config:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       has-db: ${{ steps.probe.outputs.has-db }}
     steps:
@@ -41,7 +56,7 @@ jobs:
   # to run strictly in series, so a lint error delayed the unit result by the
   # whole lint job.
   lint-and-typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,7 +68,7 @@ jobs:
       - run: npx tsc --noEmit
 
   unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,7 +79,7 @@ jobs:
       - run: npm run test:unit
 
   security-audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -84,7 +99,7 @@ jobs:
         run: node scripts/security-audit-p9-12.mjs
 
   integration-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [config, lint-and-typecheck, unit-tests, security-audit]
     if: >-
       needs.config.outputs.has-db == 'true' &&
@@ -109,7 +124,7 @@ jobs:
       - run: npm run test:integration
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [lint-and-typecheck, unit-tests, security-audit]
     env:
       DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
@@ -130,7 +145,7 @@ jobs:
       - run: npm run build
 
   e2e-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [config, build, integration-tests]
     if: >-
       needs.config.outputs.has-db == 'true' &&
@@ -167,7 +182,7 @@ jobs:
   # A single required status to protect `main` with, so the branch rule does
   # not have to name every job and does not go green when a job is skipped.
   ci-complete:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: always()
     needs:
       - lint-and-typecheck
