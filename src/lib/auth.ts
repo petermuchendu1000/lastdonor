@@ -99,6 +99,17 @@ const ROLE_REVALIDATION_INTERVAL: Record<UserRole, number> = {
   admin: 60,        // 1 minute
 };
 
+/**
+ * How long to wait before retrying a role lookup that failed.
+ *
+ * Bounds the cost of an unreachable database to one attempt per session per
+ * 30 seconds, instead of one per request. Deliberately well below the
+ * 60-second admin/editor revalidation interval, so a database that comes back
+ * is picked up quickly rather than waiting out a whole interval. See
+ * `resolveSessionToken`.
+ */
+const ROLE_LOOKUP_RETRY_BACKOFF = 30;
+
 const LOCKOUT_THRESHOLD = 5;
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -121,6 +132,44 @@ function isUserRole(value: unknown): value is UserRole {
  * when deciding whether to invalidate a live session.
  */
 async function readRole(userId: string): Promise<UserRole | null | undefined> {
+  /*
+    Never touch the database from middleware.
+
+    This is the root cause of the production symptom the backoff in
+    `resolveSessionToken` bounds. Middleware runs on the Edge runtime, and
+    `src/middleware.ts` imports `auth` from this module, which pulls
+    `src/db/index.ts` and the `postgres` driver in with it — the build says so
+    on every deploy:
+
+      A Node.js module is loaded ('stream' at line 1) which is not supported
+      in the Edge Runtime.
+        ./node_modules/postgres/src/index.js -> ./src/db/index.ts -> ./src/lib/auth.ts
+
+    A TCP socket cannot be opened there, so the query never settles and the
+    only thing that ends it is the 15-second client-side budget in
+    `withQueryTimeout`, followed by a CancelRequest. Measured in production
+    2026-10-21: once a minute, on a query the database plans and executes in
+    0.126ms.
+
+    Returning `undefined` means "could not tell", which this module already
+    handles correctly: `resolveSessionToken` keeps the existing role claim.
+    The difference is that it now costs nothing instead of 15 seconds and a
+    pool connection.
+
+    **Revalidation is not lost.** `auth()` is called from 69 files under
+    `src/app`, every one of them Node runtime — server components and route
+    handlers — so a role change is still picked up on the next page render or
+    API call, which is also the only place a privileged action can happen.
+    Middleware's job is coarse gating from the JWT claim; `docs/26` §1 and
+    CLAUDE.md both say auth is JWT precisely so that scaling needs no
+    per-request database read.
+
+    Checked against `'edge'` explicitly rather than for the absence of
+    `'nodejs'`: an unset `NEXT_RUNTIME` must fall through to the real lookup,
+    not silently skip it. `src/instrumentation.ts` branches on the same signal.
+  */
+  if (process.env.NEXT_RUNTIME === 'edge') return undefined;
+
   try {
     const [dbUser] = await db
       .select({ role: schema.users.role })
@@ -167,20 +216,56 @@ export async function resolveSessionToken(
   const roleCheckedAt = typeof token.roleCheckedAt === 'number' ? token.roleCheckedAt : 0;
   if (nowSec - roleCheckedAt < ROLE_REVALIDATION_INTERVAL[role]) return token;
 
+  /*
+    Back off after a failed lookup instead of retrying on every request.
+
+    Found in production 2026-10-21: `[auth] role lookup failed:
+    QueryTimeoutError ... exceeded 15000ms` from middleware, once a minute,
+    on a query the database plans and executes in 0.126ms. The lookup cannot
+    currently succeed from the middleware bundle at all (see `readRole`), so
+    it fails every time it is attempted.
+
+    The original policy below was "keep the claim but do NOT advance
+    roleCheckedAt, so the next request retries". With a lookup that always
+    fails, that means EVERY request spends the full 15-second client-side
+    budget and then a CancelRequest — so the cost scaled with traffic, not
+    with the revalidation interval. One admin tab was enough to make it
+    continuous.
+
+    `docs/87` amendment 5 is the reason this matters more than it looks:
+    enough concurrent client-side timeouts are precisely what exhausts the
+    pool. The timeout wrapper cancels (`docs/52`), so each one does hand its
+    connection back and this was not an imminent wedge — but a code path that
+    manufactures a timeout per request is a wedge generator waiting for
+    enough concurrency, and it belongs bounded.
+
+    Security is unchanged in kind. The fail-open window was already "up to one
+    revalidation interval" and is now "up to one interval plus one backoff",
+    and the existing argument still covers it: every privileged route needs
+    the same database, so a window in which the database is unreachable grants
+    no usable capability.
+  */
+  const retryAfter = typeof token.roleRetryAfter === 'number' ? token.roleRetryAfter : 0;
+  if (nowSec < retryAfter) return token;
+
   const fresh = await lookupRole(userId);
 
   // The row is gone (deleted / GDPR-erased user): end the session.
   if (fresh === null) return null;
 
-  // Could not tell (database unreachable). Keep the existing claim but do NOT
-  // advance roleCheckedAt, so the next request retries. Failing open for one
-  // interval beats logging the whole platform out on a transient pooler error;
-  // every privileged route needs the same database anyway, so the window grants
-  // no usable capability.
-  if (fresh === undefined) return token;
+  // Could not tell (database unreachable). Keep the existing claim and retry,
+  // but not before `ROLE_LOOKUP_RETRY_BACKOFF` has passed. roleCheckedAt is
+  // still NOT advanced, so a recovered database is picked up by the first
+  // request after the backoff rather than waiting out a whole interval.
+  if (fresh === undefined) {
+    token.roleRetryAfter = nowSec + ROLE_LOOKUP_RETRY_BACKOFF;
+    return token;
+  }
 
   token.role = fresh;
   token.roleCheckedAt = nowSec;
+  // Clear the backoff so a later failure is not measured from a stale mark.
+  delete token.roleRetryAfter;
   return token;
 }
 
