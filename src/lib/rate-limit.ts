@@ -239,6 +239,24 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
         analytics: false,
         prefix: 'rl:lastdonor:sms',
       }),
+      payhero_initiate: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(PAYHERO_INITIATE_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:payhero_initiate',
+      }),
+      payhero_status: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(PAYHERO_STATUS_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:payhero_status',
+      }),
+      payhero_callback: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(PAYHERO_CALLBACK_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:payhero_callback',
+      }),
       // See SESSION_READ_LIMIT below. Its own prefix, so the bucket is not
       // shared with sign-in attempts.
       session: new Ratelimit({
@@ -321,6 +339,51 @@ export function isSmsSendRequest(pathname: string, method: string): boolean {
   return pathname.startsWith(SMS_PATH_PREFIX) && method.toUpperCase() === 'POST';
 }
 
+/*
+  ── M-Pesa collection tiers (docs/92) ─────────────────────────────────────
+
+  Three paths under `/api/v1/donations/payhero/` that must NOT inherit the
+  `donations` tier (10/60 s), for opposite reasons.
+
+  `initiate` is the one that puts a PIN prompt on a phone number taken from
+  the request body, so it is the tightest tier on the platform alongside
+  `sms`. Note that the IP limit is the OUTER bound and not the real control:
+  the protection that matters is per phone number and lives in
+  `src/lib/payhero-abuse-guard.ts`, because the party at risk is the number
+  (whose owner PayHero blocks for 24 hours after 10 unanswered pushes) and a
+  distributed caller changes IP freely. docs/85 reached the same conclusion
+  about six-digit codes.
+
+  `status` is polled by the donor's own browser while the prompt is live.
+  Published M-Pesa guidance is to poll every few seconds when no callback has
+  arrived, which over a three-minute prompt is tens of requests from one
+  honest donor. Under the `donations` tier that donor is 429'd within the
+  first minute of their own payment - the same defect the SMS tier had, where
+  five requests of ordinary use tripped a five-request limit. Generous on
+  purpose: it reads one row and makes at most one outbound call, only for a
+  payment that is genuinely still pending.
+
+  `callback` is PayHero's. It does NOT contain the string `/webhook`, so it
+  is deliberately NOT covered by the blanket webhook exemption in
+  `checkRateLimitAsync` - provider traffic is still bounded here. It can
+  afford to be: a reference outside the LastDonor namespace is rejected
+  before any database call, and only a reference matching a real pending row
+  of ours causes an outbound request.
+*/
+export const PAYHERO_PATH_PREFIX = '/api/v1/donations/payhero';
+export const PAYHERO_INITIATE_PATH = `${PAYHERO_PATH_PREFIX}/initiate`;
+export const PAYHERO_STATUS_PATH = `${PAYHERO_PATH_PREFIX}/status`;
+export const PAYHERO_CALLBACK_PATH = `${PAYHERO_PATH_PREFIX}/callback`;
+
+/** Bucket for {@link PAYHERO_INITIATE_PATH}: 5 pushes / 60 s / IP. */
+export const PAYHERO_INITIATE_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
+
+/** Bucket for {@link PAYHERO_STATUS_PATH}: 120 polls / 60 s / IP. */
+export const PAYHERO_STATUS_LIMIT: RateLimitConfig = { maxRequests: 120, windowMs: 60_000 };
+
+/** Bucket for {@link PAYHERO_CALLBACK_PATH}: 60 callbacks / 60 s / IP. */
+export const PAYHERO_CALLBACK_LIMIT: RateLimitConfig = { maxRequests: 60, windowMs: 60_000 };
+
 export const SESSION_READ_PATH = '/api/auth/session';
 
 /** Bucket for {@link SESSION_READ_PATH}: 120 reads / 60 s / IP. */
@@ -351,6 +414,15 @@ export function getLimiterTier(pathname: string, method: string = 'GET'): string
   if (isSmsSendRequest(pathname, method)) return 'sms';
   if (pathname.startsWith('/api/v1/auth') || pathname.startsWith('/api/auth')) return 'auth';
   if (pathname.startsWith('/api/v1/newsletter')) return 'newsletter';
+  /*
+    BEFORE the `/api/v1/donations` line below, which would otherwise swallow
+    all three. Same ordering trap docs/85 records for the `sms` tier sitting
+    ahead of `/api/v1/users`: a prefix match is first-wins, so a more
+    specific tier placed after a more general one never fires.
+  */
+  if (pathname.startsWith(PAYHERO_INITIATE_PATH)) return 'payhero_initiate';
+  if (pathname.startsWith(PAYHERO_STATUS_PATH)) return 'payhero_status';
+  if (pathname.startsWith(PAYHERO_CALLBACK_PATH)) return 'payhero_callback';
   if (pathname.startsWith('/api/v1/donations')) return 'donations';
   if (pathname.startsWith('/api/v1/users')) return 'users';
   return 'default';

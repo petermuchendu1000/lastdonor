@@ -113,6 +113,10 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   'POST /api/v1/stripe-connect/webhook': 'Stripe signature verification.',
   'POST /api/v1/donations/create-checkout': 'Guest donation is a product requirement.',
   'POST /api/v1/donations/confirm': 'Return leg of the guest donation flow.',
+  'POST /api/v1/donations/payhero/initiate': 'Guest M-Pesa donation; per-number abuse guard.',
+  'POST /api/v1/donations/payhero/callback': 'No shared secret by design; outcome re-fetched. docs/92.',
+  'GET /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',
+  'HEAD /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',
 
   // Scheduler cannot hold a session; every handler calls verifyCronAuth.
   'GET /api/v1/cron/blog-generate': 'verifyCronAuth.',

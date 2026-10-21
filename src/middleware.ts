@@ -140,6 +140,32 @@ export const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
     methods: ['POST'],
     reason: 'Return leg of the guest donation flow; keyed by the Stripe session/intent id.',
   },
+  {
+    pattern: /^\/api\/v1\/donations\/payhero\/initiate$/,
+    methods: ['POST'],
+    reason:
+      'Guest M-Pesa donation; same product requirement as create-checkout. Tightly ' +
+      'rate-limited (payhero_initiate, 5/60s) AND guarded per phone number by ' +
+      'checkPhoneAbuseGuard, because this route makes a stranger-supplied number ring and ' +
+      'PayHero blocks a number for 24h after 10 unanswered pushes. See docs/92.',
+  },
+  {
+    pattern: /^\/api\/v1\/donations\/payhero\/callback$/,
+    methods: ['POST'],
+    reason:
+      'PayHero payment callback. Deliberately has no shared secret: PayHero signs its ' +
+      'callbacks with nothing at all, so the route reads only the ExternalReference WE ' +
+      'minted and then asks PayHero for the outcome over an authenticated call of our own. ' +
+      'A forged request cannot assert a payment. Same shape as the Didit webhook, docs/81.',
+  },
+  {
+    pattern: /^\/api\/v1\/donations\/payhero\/status$/,
+    methods: GET_ONLY,
+    reason:
+      'Polled by a guest donor while the M-Pesa PIN prompt is on their phone, so it cannot ' +
+      'require a session. Resolves only a LastDonor-minted reference against our own row ' +
+      'and returns no donor details.',
+  },
 
   // ─── Operational / read-only ─────────────────────────────────────────────
   {

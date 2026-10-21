@@ -80,6 +80,25 @@ export const donationSourceEnum = pgEnum('donation_source', ['real', 'seed']);
  */
 export const paymentProviderEnum = pgEnum('payment_provider', ['stripe', 'payhero']);
 
+/**
+ * The life of one M-Pesa STK push.
+ *
+ * `pending` — the prompt was queued and we have not been told the outcome.
+ * `succeeded` — PayHero reported SUCCESS and a donation row exists.
+ * `failed` — PayHero reported FAILED, which covers a donor cancelling, the
+ * prompt expiring, and insufficient funds. PayHero does not distinguish
+ * those, so neither does this.
+ * `abandoned` — never resolved within the window a prompt can live, and the
+ * status endpoint still says QUEUED. Not the same as `failed`: nothing is
+ * known, rather than known to have failed.
+ */
+export const payheroRequestStatusEnum = pgEnum('payhero_request_status', [
+  'pending',
+  'succeeded',
+  'failed',
+  'abandoned',
+]);
+
 export const userRoleEnum = pgEnum('user_role', ['donor', 'editor', 'admin']);
 
 export const blogCategoryEnum = pgEnum('blog_category', [
@@ -886,6 +905,109 @@ export const phoneVerificationCodes = pgTable(
   (table) => [
     // One live code per person: minting a new one deletes the old.
     uniqueIndex('idx_phone_verification_codes_user').on(table.userId),
+  ],
+);
+
+// ─── M-Pesa collection requests (docs/92) ──────────────────────────────────
+
+/**
+ * An M-Pesa STK push we asked PayHero to send, and what came of it.
+ *
+ * This table exists for three reasons, all of them forced by how PayHero
+ * behaves rather than by preference:
+ *
+ * 1. **The payment is unverifiable without it.** PayHero's
+ *    `transaction-status` resolves only PayHero's own `reference`; our
+ *    `external_reference` returns 404 (probed 2026-10-21). So the reference
+ *    handed back at initiation has to be persisted the moment we get it, or
+ *    the money becomes impossible to confirm.
+ *
+ * 2. **A donation row cannot be created yet.** A `donations` row means money
+ *    arrived. At initiation nothing has happened but a prompt appearing on a
+ *    handset, and most prompts are never completed. The donor's context has
+ *    to live somewhere until the outcome is known, and `donations` is the
+ *    wrong place for a maybe.
+ *
+ * 3. **It is the isolation boundary.** The PayHero account is shared with
+ *    BETWOIN LTD, another of the owner's companies, with 792 transactions and
+ *    one shared channel. A callback is only acted on if its
+ *    `ExternalReference` matches a row here that WE wrote. Anything else is
+ *    the other product's traffic or a forgery, and PayHero's callbacks carry
+ *    no signature to tell them apart by.
+ */
+export const payheroPaymentRequests = pgTable(
+  'payhero_payment_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * Our own reference, `LD-<uuid>`, sent to PayHero as
+     * `external_reference` and echoed back on the callback. Unique, because
+     * it is the key a callback is resolved by.
+     */
+    externalReference: text('external_reference').notNull(),
+    /**
+     * PayHero's reference, the ONLY key their status endpoint accepts.
+     * Nullable only for the instant between insert and the API answering.
+     */
+    payheroReference: text('payhero_reference'),
+    /** Safaricom's checkout id. Informational; often empty. */
+    checkoutRequestId: text('checkout_request_id'),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id),
+    /** Always equal to the campaign's currency; enforced by the FK below. */
+    currency: text('currency').notNull(),
+    /** Minor units, matching `donations.amount`. */
+    amount: integer('amount').notNull(),
+    /** The normalised number, for the per-number abuse guard. */
+    phoneE164: text('phone_e164').notNull(),
+    /** What was actually sent to PayHero, in their national format. */
+    msisdnSent: text('msisdn_sent').notNull(),
+    /** The channel that collected it, asserted against the callback. */
+    channelId: integer('channel_id').notNull(),
+    status: payheroRequestStatusEnum('status').notNull().default('pending'),
+    /** PayHero's own words when it failed, for the donor-facing message. */
+    failureReason: text('failure_reason'),
+    /** The M-Pesa receipt number, once settled. */
+    providerReference: text('provider_reference'),
+    /** Set once a donation row exists, which is what makes settling single-shot. */
+    donationId: uuid('donation_id').references(() => donations.id),
+    // Donor context, held until the outcome is known.
+    donorName: text('donor_name').notNull().default('Anonymous'),
+    donorEmail: text('donor_email').notNull(),
+    donorLocation: text('donor_location'),
+    message: text('message'),
+    isAnonymous: boolean('is_anonymous').notNull().default(false),
+    subscribedToUpdates: boolean('subscribed_to_updates').notNull().default(false),
+    /** Attribution, resolved at initiation like the Stripe path. See docs/57. */
+    shareLinkId: uuid('share_link_id').references(() => campaignShareLinks.id),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_payhero_requests_external_ref').on(table.externalReference),
+    index('idx_payhero_requests_payhero_ref').on(table.payheroReference),
+    index('idx_payhero_requests_campaign').on(table.campaignId),
+    index('idx_payhero_requests_status').on(table.status),
+    /*
+      The per-number abuse guard reads "how many pushes has this number had
+      recently", which is a scan over (phone, created_at).
+    */
+    index('idx_payhero_requests_phone_created').on(table.phoneE164, table.createdAt),
+    check('payhero_requests_amount_positive', sql`${table.amount} > 0`),
+    check('payhero_requests_currency_iso4217', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    /*
+      Same guarantee as on `donations`: a collection request is always
+      denominated in the currency its campaign raises in, enforced by the
+      database rather than by convention. See the FK on `donations` for the
+      full reasoning.
+    */
+    foreignKey({
+      name: 'payhero_requests_campaign_currency_fk',
+      columns: [table.campaignId, table.currency],
+      foreignColumns: [campaigns.id, campaigns.currency],
+    }),
   ],
 );
 
