@@ -61,7 +61,7 @@ transcript or a commit message is lost.
 | `47-MONEY-TYPOGRAPHY-AND-ZERO-STATE-ADR.md` | Why `Money` is the only currency renderer, and the unfunded-campaign state |
 | `48-NAVBAR-BENCHMARK-ADR.md` | Navbar measured against GoFundMe. Section 1 of the landing-page pass |
 | `49-HERO-BENCHMARK-ADR.md` | Hero measured against GoFundMe. Section 2 of the landing-page pass |
-| `50-CI-PIPELINE-NEVER-RAN-ADR.md` | **GitHub Actions had never run once, and the four defects that would have kept it red.** |
+| `50-CI-PIPELINE-NEVER-RAN-ADR.md` | **GitHub Actions had never run once, and the four defects that would have kept it red. ⛔ AMENDED 2026-10-21: it STILL has never run - zero workflow runs and zero check runs after pushing a 62-file merge to main, with the workflow registered and `state: active`. Fixing the YAML was necessary and insufficient; whatever blocks it is NOT in the repository and the one API path that would say is blocked by the session proxy. So the pipeline CLAUDE.md describes below has never gated anything, and the integration and E2E suites have never run on any change.** |
 | `51-CARDS-AND-HOMEPAGE-CONSOLIDATION-ADR.md` | Card anatomy, and six content sections merged into two |
 | `52-POOL-WEDGE-RECURRENCE-INCIDENT.md` | **The pool wedge recurred and the docs/37 guard was part of the cause. Read with docs/37 before touching `src/db/`.** |
 | `53-HERO-IMAGERY-AND-MOBILE-FIRST-ADR.md` | Hero imagery, the mobile image, and the H1 brand/SEO question |
@@ -122,9 +122,13 @@ npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated 
 ```
 
 Before any commit: `npm run lint && npm run typecheck && npm run test:unit`
-must all pass. CI runs lint → typecheck → unit → security audit → integration →
-build → E2E, and `npm ci` must succeed, so **keep `package-lock.json` in sync
-with `package.json`** — a desynced lockfile fails every job.
+must all pass. **Run them yourself — they are the only gate that actually
+runs.** CI is *configured* to run lint → typecheck → unit → security audit →
+integration → build → E2E, and `npm ci` must succeed, so **keep
+`package-lock.json` in sync with `package.json`**; but ⛔ **GitHub Actions has
+never executed once, still true as of 2026-10-21** (`docs/50`, amended). Do
+not treat CI as having checked anything. In particular the **integration and
+E2E suites have never run on any change**, by anyone.
 
 ---
 

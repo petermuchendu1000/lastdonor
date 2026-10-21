@@ -122,3 +122,52 @@ observed. **The first real run should be watched, not trusted.**
 Its Commands section says `npm run test:unit` runs **3977** tests. The real
 count is **5181** (2800 of which are the security canaries). Also corrected
 in `docs/47`.
+
+---
+
+## Amendment, 2026-10-21 — still zero runs, five days and two pushes later
+
+This doc fixed four defects that "would have kept it red" but never verified
+that a run actually happened. **It still has not.** Re-queried immediately
+after pushing `4e4a21a` to `main` (a 62-file, 9-commit merge — exactly the
+kind of change CI exists for):
+
+| Check | Result |
+|---|---|
+| `GET /actions/workflows` | 1 workflow, `CI`, **`state: active`** |
+| `GET /actions/runs?per_page=10` | **`total_count: 0`** — still all workflows, all branches, all history |
+| `GET /commits/main` | `4e4a21a`, pushed 2026-10-21, confirmed by `638105e..4e4a21a main -> main` |
+| `GET /commits/4e4a21a/check-runs` | **`total_count: 0`** |
+
+So the workflow is registered and active, the push reached GitHub, and nothing
+ran. Fixing the YAML was necessary and insufficient: whatever stops Actions
+firing is **not in the repository**, which is why five days of commits did not
+surface it.
+
+**What could not be checked from here.** `GET /repos/.../actions/permissions`
+is blocked by this session's proxy
+(`"Access to this GitHub Actions path is not permitted through this proxy"`),
+so the one setting that would explain it is unreadable. The remaining
+candidates are all account- or repo-level and all owner-only: Actions disabled
+for the repository (Settings → Actions → General → "Allow all actions"), or
+disabled/limited at the account level, or a spending/billing limit with no
+minutes available.
+
+### Why this matters more than it did on 2026-10-16
+
+`CLAUDE.md` still tells every contributor that "CI runs lint → typecheck →
+unit → security audit → integration → build → E2E", and that claim is false.
+Two consequences, both live:
+
+1. **The only gate that ran on the `docs/92` payment work was local** — lint,
+   typecheck, 6,236 unit tests and a production build, all run by hand in the
+   session. The integration suite and the E2E suite **did not run at all**,
+   because both need a database over raw TCP and this sandbox's
+   TLS-inspecting proxy cannot carry the Postgres protocol (`docs/92`).
+2. So a change to the money path reached production having never been through
+   the integration or E2E suites, by anyone or anything. That is not a
+   judgement about the change; it is the honest state of the gate.
+
+**This is an owner action and it is the highest-value one outstanding.** A
+pipeline that is configured, documented, relied upon in writing, and has never
+executed is worse than no pipeline, because people reason as though it ran.
