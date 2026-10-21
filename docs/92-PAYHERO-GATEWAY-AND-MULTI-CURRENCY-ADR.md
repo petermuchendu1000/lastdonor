@@ -1,9 +1,10 @@
 # 92 — The PayHero/FinoQ M-Pesa gateway, and a multi-currency ledger
 
 **Date:** 2026-10-21
-**Status:** **The platform can take money.** KES 50 collected over M-Pesa and
-recorded as the first donation in this codebase's history, verified against
-production. Deployment and four named gaps remain open — see *Still open*.
+**Status:** **DEPLOYED AND TAKING MONEY.** Released as **v85** on 2026-10-21.
+Two real KES 50 donations collected over M-Pesa and recorded — the first in
+this codebase's history — the second of them through the deployed donate page
+in a real browser. Three named gaps remain open; see *Still open*.
 **Supersedes:** the blocker in `docs/72` ("LastDonor has never been able to
 accept money, and still cannot") on the KES rail only. Stripe is still dead.
 **Amends:** `docs/82` (the KE/US tension it parked is now resolved — both),
@@ -502,6 +503,139 @@ omit one, caps them at the current 18, and fails the build if that grows.
 
 ---
 
+---
+
+## Deployed, and tested through a browser
+
+Released as **v85**, 2026-10-21, from `claude/sharp-carson-c92fuf` via
+`flyctl deploy`. `PAYHERO_API_USERNAME`, `PAYHERO_API_PASSWORD` and
+`PAYHERO_CHANNEL_ID=12226` were staged with `--stage` first, so the deploy was
+the only restart. The `release_command` migration step **completed
+successfully as a no-op**, as predicted: all seven journal entries were
+already applied and `max(created_at)` already equalled the newest `when`, so
+drizzle had nothing to do.
+
+Two deploy-time obstacles, both environmental rather than code:
+
+- **Depot's builder failed TLS**: `x509: certificate signed by unknown
+  authority`, because this sandbox's TLS-inspecting proxy re-terminates the
+  gRPC connection and flyctl's Go client was not reading the proxy CA.
+  `SSL_CERT_FILE=/root/.ccr/ca-bundle.crt` plus `--depot=false` (Fly's own
+  remote builder) deployed cleanly.
+- **Playwright's pinned browser was absent**: the project pins a newer
+  `@playwright/test` than the image's Chromium (it wanted
+  `chromium_headless_shell-1208`; the image has `1194`). Launched with an
+  explicit `executablePath` rather than downloading one.
+
+### Verified on production after the deploy
+
+| Check | Result |
+|---|---|
+| `/`, `/campaigns`, `/donate`, `/how-it-works`, `/login` | 200, no regression |
+| `/api/v1/health` | `degraded` — `database` ok, **`payhero` ok**, `redis` ok, `stripe` error (the known dead key) |
+| `POST /payhero/initiate` with no body | 400 `VALIDATION_ERROR` — reachable, not 401 from default-deny |
+| `GET /payhero/status` with no reference | 400; with an unknown reference, 404 |
+| **Forged callback** `{"Status":"Success","Amount":9999999}` | **ignored** — `{"ignored":"unknown reference"}` |
+| Callback with a BETWOIN-shaped reference (`INV-009`) | ignored |
+
+The forgery result is the one worth keeping: the production endpoint accepts
+an unauthenticated POST claiming a nine-million-shilling success and records
+nothing, because the reference is not one it minted. Both attempts are in the
+production log as `[payhero/callback] reference is not one of ours; ignoring`.
+
+### The browser test
+
+Real Chromium, 390×844, against `https://lastdonor.org`:
+
+```
+document height            1,333px
+visible "$" amounts        NONE
+preset ladder              Ksh 2,000 / 1,000 / 500 / 200 / 100 / 50
+pay button                 "Send M-Pesa request for Ksh 50.00"
+fee ledger                 Your donation Ksh 50.00 | platform fee Ksh 0.00
+                           | Total charged today Ksh 50.00
+console errors             none
+```
+
+No console errors matters more than it looks: `docs/63` and `docs/64` record
+that the CSP blocks `unsafe-eval`, so a client component that fails to hydrate
+is silently inert. The preset tiles responded to a real click, so this form
+hydrates on the deployed CSP.
+
+Then, with the owner holding the handset:
+
+```
+POST /payhero/initiate   200  {reference: LD-fcc5ff1d-…, status: QUEUED}
+                              waiting screen rendered after 2,376ms
+GET  /payhero/status     200  pending
+GET  /payhero/status     200  pending
+GET  /payhero/status     200  pending
+GET  /payhero/status     200  succeeded
+                              settled after 17.4s, 5 API calls total
+```
+
+Database afterwards: a second `donations` row,
+`stripe_payment_id = payhero_UJLJGAURG3`, `provider = payhero`,
+`currency = KES`, `amount = 5000`; its collection request `succeeded` and
+linked to it; the campaign at `raised_amount 10000`, `donor_count 2`.
+
+**Exactly one donation per push, with both the callback and the poll live.**
+That is the single-shot claim holding under the real race rather than only in
+a unit test.
+
+### What the deploy did NOT settle
+
+**Whether PayHero ever POSTs the callback is still unproven, and the earlier
+claim that it does not was too strong.** The callback route only logs on the
+path where it *ignores* a reference; a callback it successfully acts on
+returns 200 silently. So the absence of a log line is not evidence of absence.
+What is established: the endpoint is reachable from the internet, it rejects
+forgeries, and **the status poll settles payments entirely on its own** — now
+twice. Treat the poll as the primary mechanism and the callback as an
+accelerator, which is how the code is already written. Settling this needs a
+log line on the success path.
+
+**The donation receipt email is still untested.** Production holds its own
+`RESEND_API_KEY` whose value cannot be read, and neither of the two
+collections was recorded through `recordGatewayCharge`'s receipt path in a way
+that was observed sending — the first was a script, and the second's receipt
+outcome was not checked in the logs.
+
+### A pre-existing production fault found while reading the deploy logs
+
+```
+[auth] role lookup failed: QueryTimeoutError: Database query exceeded 15000ms.
+  The connection pool may be wedged; see src/db/query-timeout.ts and docs/37.
+  at .next/server/src/middleware.js
+```
+
+Nine occurrences in nine minutes, roughly once a minute. **Not caused by this
+work:** `src/lib/auth.ts` is untouched by this branch (an empty
+`git diff main..HEAD` against that path) and the message predates it.
+
+It is also **not** the `docs/87` wedge. Checked while it was happening:
+every backend was `idle` with no open transaction (`xact_start` null), where
+the wedge signature is `state=active` + `Client/ClientRead` with a transaction
+open for hours. And the database is not slow — the exact `readRole` query
+plans and executes in **0.126 ms** on a 184 kB, 7-row table, with zero queries
+active over one second.
+
+So a 15-second client-side timeout is firing on a query the database answers
+in a fraction of a millisecond, from **middleware specifically**. The build
+warns that middleware bundles `src/db/index.ts` through `src/lib/auth.ts`
+("A Node.js module is loaded ('stream') which is not supported in the Edge
+Runtime"), which is the obvious place to look: a per-request middleware
+context cannot reuse the module-level pool the way a route handler does.
+
+`readRole` catches it and returns `undefined`, so it degrades rather than
+failing a request — every page still answered 200 and the donation completed
+through it. **Deliberately not fixed here.** It sits in the auth and pool
+core, which has produced three incidents (`docs/37`, `docs/52`, `docs/87`),
+and `docs/52` happened precisely because a half-understood guard was added to
+that code. It needs its own investigation.
+
+---
+
 ## Numbers, and whether they are measured or assumed
 
 | Value | Status |
@@ -518,15 +652,11 @@ omit one, caps them at the current 18, and fails the build if that grows.
 
 ## Still open
 
-1. **Nothing is deployed.** The routes, the form and the callback exist only
-   on `claude/sharp-carson-c92fuf`. Production still cannot take an M-Pesa
-   donation through a browser, and the callback URL is unreachable until it
-   ships. Deployment also needs three secrets that are **not currently set on
-   Fly**: `PAYHERO_API_USERNAME`, `PAYHERO_API_PASSWORD` and
-   `PAYHERO_CHANNEL_ID` (12226 for this account). Migrations 0005 and 0006 are
-   already applied to production and are backwards-compatible with the
-   currently-deployed code, so the database is ready and the order is
-   expand-then-deploy.
+1. **Production runs code that is not on `main`.** v85 was deployed from
+   `claude/sharp-carson-c92fuf`, so production is ahead of `main` until that
+   branch is merged. That drift is the one thing left from the deployment
+   step, and it is deliberate: the branch was deployed and proven first, and
+   merging is the owner's call.
 2. **A KES campaign cannot be paid out.** Stripe Connect cannot settle KES,
    and the withdrawal route now correctly refuses a non-USD campaign. A KES
    campaign can be funded and not withdrawn. PayHero exposes a withdrawal
