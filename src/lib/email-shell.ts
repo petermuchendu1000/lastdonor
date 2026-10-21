@@ -107,7 +107,7 @@ export function emailButton(
     <![endif]-->
     <!--[if !mso]><!-- -->
     <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-      <tr><td align="center" bgcolor="${bg}" style="border-radius:999px;">
+      <tr><td align="center" bgcolor="${bg}" class="ld-btn" style="border-radius:999px;background-color:${bg};">
         <a href="${href}" style="display:inline-block;padding:14px 32px;font-family:${SANS_STACK};font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:999px;">${label}</a>
       </td></tr>
     </table>
@@ -257,6 +257,80 @@ export function renderEmail(opts: EmailShellOptions): string {
     .ld-text { color: #E8EDEC !important; }
     .ld-muted { color: #9FB0AC !important; }
     .ld-heading { color: #F1F5F9 !important; }
+
+    /*
+      Re-colour text that carries its own INLINE colour.
+
+      The five rules above set colour on the container, and inheritance
+      stops the moment a child declares its own. Every template does:
+      \`<h1 style="color: #0F766E">\`, \`<p style="color: #666">\`,
+      \`<ol style="color: #333">\`. In dark mode those stayed put on a near
+      black card, which measured 1.31:1 against a 4.5:1 requirement - the
+      numbered "how to get your money" steps were effectively invisible,
+      as were every receipt row label and both tax-note paragraphs.
+      Light mode was and is clean; the whole fault was dark only.
+
+      An author rule marked !important beats a normal inline declaration,
+      so matching on the inline style is what reaches them.
+
+      Each colour needs TWO selectors because the declaration can start the
+      attribute or follow a semicolon, and both spacings occur. Matching a
+      bare "color: #EA580C" substring would also hit
+      "background-color: #EA580C"; anchoring at ^ or "; " cannot, which is
+      why the lazier single selector is not used here.
+
+      \`scripts/email-contrast.ts\` measures this in a real browser and
+      \`src/lib/email-dark-mode.ratchet.test.ts\` fails the build if any of
+      it regresses. Add a rule here when you introduce a new inline colour.
+    */
+    [style^="color: #333"], [style*="; color: #333"],
+    [style^="color:#333"], [style*=";color:#333"],
+    [style^="color: #444"], [style*="; color: #444"],
+    [style^="color:#444"], [style*=";color:#444"] { color: #E8EDEC !important; }
+
+    [style^="color: #666"], [style*="; color: #666"],
+    [style^="color:#666"], [style*=";color:#666"],
+    [style^="color: #999"], [style*="; color: #999"],
+    [style^="color:#999"], [style*=";color:#999"],
+    [style^="color: #5B6B68"], [style*="; color: #5B6B68"],
+    [style^="color:#5B6B68"], [style*=";color:#5B6B68"] { color: #AFBDBA !important; }
+
+    [style^="color: #0F766E"], [style*="; color: #0F766E"],
+    [style^="color:#0F766E"], [style*=";color:#0F766E"] { color: #6FD3C5 !important; }
+
+    [style^="color: #EA580C"], [style*="; color: #EA580C"],
+    [style^="color:#EA580C"], [style*=";color:#EA580C"] { color: #FFB27A !important; }
+
+    [style^="color: #DC2626"], [style*="; color: #DC2626"],
+    [style^="color:#DC2626"], [style*=";color:#DC2626"],
+    [style^="color: #c00"], [style*="; color: #c00"],
+    [style^="color:#c00"], [style*=";color:#c00"] { color: #FFA3A3 !important; }
+
+    /*
+      Callout panels carry a pale tint as an inline background, and a
+      background does not inherit, so the rules above lightened the text
+      inside them and left the panel white. That read 1.13:1 - worse than
+      the fault being fixed. Caught only because the contrast was measured
+      again AFTER the fix rather than assumed; the first pass turned 45
+      failures into 4 and quietly created those 4.
+
+      Each tint is darkened to a panel that keeps its meaning (green for
+      good news, amber for caution, red for a problem, grey for neutral).
+    */
+    [style*="background: #f0fdf4"] { background-color: #12302A !important; }
+    [style*="background: #fff7ed"] { background-color: #33240F !important; }
+    [style*="background: #fef2f2"] { background-color: #3A1B1B !important; }
+    [style*="background: #f9fafb"] { background-color: #1B2624 !important; }
+    [style*="background: #e5e7eb"] { background-color: #2A3634 !important; }
+
+    /*
+      The call to action recedes into a dark card at the brand teal, which
+      is a presence problem rather than a contrast one - white on #0F766E
+      already passes AA. Lifting the fill keeps it the loudest thing in the
+      message, which is the whole job of the one button.
+    */
+    .ld-btn { background-color: #14A197 !important; }
+    .ld-btn a { color: #06201E !important; }
   }
 </style>
 </head>

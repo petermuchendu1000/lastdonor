@@ -267,6 +267,19 @@ These exist for a reason; changing them has consequences beyond the local file.
   sentences and the plain replacement for each piece of jargon. **Do not
   raise the budget to make a template pass.**
 
+- **A colour written inline in an email template needs a dark-mode rule in
+  the shell.** Added 2026-10-21, see `docs/94` §9 and the `docs/67`
+  amendment. The shell's dark block recolours five CLASSES; templates write
+  colour inline on the element, and inheritance stops there — so the card
+  went dark and the text did not. Measured in Chromium: **light 0 elements
+  below WCAG AA, dark 45, worst 1.31:1 where 4.5:1 is required.** Panel
+  backgrounds count too: lightening text inside a pale inline `background:`
+  leaves light-on-light. `src/lib/email-dark-mode.ratchet.test.ts` fails the
+  build on any uncovered colour; verify for real with
+  `npx tsx scripts/email-contrast.ts`, and look at it with
+  `npx tsx scripts/email-screenshot.ts <dir>`. A reading-level score says
+  nothing about whether the words can be seen.
+
 - **An explicit email preheader is escaped; a derived one is not.**
   `renderEmail` handles this. Do not move it to the call sites: the obvious
   way to write a preheader is `` `We got your gift to ${p.campaignTitle}` ``,

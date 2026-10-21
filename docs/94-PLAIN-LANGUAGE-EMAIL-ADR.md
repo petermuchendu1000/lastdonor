@@ -223,7 +223,89 @@ No test was deleted, and none was weakened to pass.
 
 ---
 
-## 9. Still open
+## 9. Amendment, 2026-10-21 — the emails were unreadable in dark mode
+
+Added after the owner asked for a screenshot of the deployed mail. Nothing
+in §1–§8 is withdrawn; this is a second defect in the same files, invisible
+to every check that existed at the time, **including all of §7**. A reading
+level says nothing about whether the words can be seen.
+
+### Measured
+
+Rendered in Chromium and audited for WCAG 2.1 contrast across six
+representative templates (`scripts/email-contrast.ts`). **Verified:**
+
+| | Light | Dark |
+|---|---|---|
+| Elements below WCAG AA | **0** | **45** |
+| Worst ratio | — | **1.31:1** (4.5:1 required) |
+
+The worst of it: the numbered *"How to get your money"* steps, every row
+label on a donation receipt, and both tax-note paragraphs. On the
+declined-ID email the single call to action receded into the card.
+
+### Cause
+
+The shell's dark block recolours five **classes**. Templates write colour
+**inline on the element** — `<h1 style="color: #0F766E">`,
+`<p style="color: #666">`, `<ol style="color: #333">` — and inheritance
+stops at a child that declares its own colour. So the container turned
+dark and its contents did not.
+
+An author rule marked `!important` does beat a normal inline declaration,
+which is why the fix is a set of attribute selectors matching the inline
+colour, in the shell, rather than an edit to 45 templates.
+
+Each colour needs two selectors, anchored at `^` or `"; "`. A bare
+`[style*="color: #EA580C"]` would also match `background-color: #EA580C`,
+which the templates do use.
+
+### The fix created a second defect, caught by re-measuring
+
+First pass took 45 failures to **4** — and those 4 were new. Callout panels
+set a pale tint as an inline `background`, backgrounds do not inherit, so
+lightening the text left **light-on-light at 1.13:1**, worse than the
+original fault. Fixed by darkening the five panel tints too. Final: **0 in
+both schemes.**
+
+This is the second time in this doc that measuring *after* a change caught
+something reasoning did not (§3 is the first). It is cheap and it keeps
+being worth it.
+
+### The screenshot harness was also wrong
+
+The first screenshots showed the whole card faded, which reads as a
+contrast fault and is not one: the shell animates `.ld-rise` from
+`opacity: 0` over 520ms and the capture happened mid-animation. It faded
+the *before* and *after* equally, so it changed no conclusion, but it did
+overstate the severity until it was found. `scripts/email-screenshot.ts`
+now sets `reducedMotion: 'reduce'`, which the shell already honours.
+
+**Correction:** the contrast failure was real and independently verified —
+`getComputedStyle` reports colour, not opacity — but the first visual read
+of "unreadable" was partly this artefact. Both facts belong on the record.
+
+### Enforced
+
+- `src/lib/email-dark-mode.ratchet.test.ts` — 5 tests in the normal unit
+  suite. Every inline colour and panel background in both template files
+  must have a dark-mode rule. **Verified by injection:** adding an
+  uncovered `color: #7A7A7A` fails the test, naming that colour.
+- `npx tsx scripts/email-contrast.ts` — the real measurement, in a real
+  browser, light and dark. Exits non-zero on any AA failure.
+- `npx tsx scripts/email-screenshot.ts <dir>` — renders each template at
+  phone and desktop width in both schemes, to be looked at.
+
+**Not covered:** Outlook on Windows renders through Word and takes the VML
+path in `emailButton` (`docs/67`); Chromium cannot speak to that. Gmail's
+apps often apply their own colour inversion and ignore
+`prefers-color-scheme` entirely. This work makes the mail correct where the
+media query is honoured — Apple Mail above all — and is not a substitute
+for a real client matrix.
+
+---
+
+## 10. Still open
 
 - **`docs/93` §3 stands unchanged.** A campaign refused at review still
   notifies nobody. Plain language does not fix a message that is never sent.

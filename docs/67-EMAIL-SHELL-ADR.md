@@ -161,3 +161,28 @@ Three, and all three must clear before any of this reaches an inbox:
    `send-newsletter` would correctly refuse to send even with the other two
    fixed. It needs the operator's **real** physical address; inventing one is
    what docs/41 §5.1 exists to prevent.
+
+---
+
+## Amendment, 2026-10-21 — the dark-mode block only ever reached five classes
+
+The `@media (prefers-color-scheme: dark)` rules here recolour `.ld-canvas`,
+`.ld-card`, `.ld-text`, `.ld-muted` and `.ld-heading`. No template uses
+those classes on its own elements: every one writes colour inline, as
+`<p style="color: #666">`. Inheritance stops at a child that declares its
+own colour, so for the whole life of this shell the card went dark and the
+words in it did not.
+
+Measured in Chromium: **light 0 elements below WCAG AA, dark 45, worst
+1.31:1 against a 4.5:1 requirement.** Receipt row labels, the numbered
+"how to get your money" steps and both tax notes were effectively invisible.
+
+Fixed in this file with attribute selectors matching the inline colour
+(an author rule marked `!important` beats a normal inline declaration), plus
+darkened panel tints and a lifted `.ld-btn` fill. Full account, including
+the second defect the first fix introduced, in
+`docs/94-PLAIN-LANGUAGE-EMAIL-ADR.md` §9.
+
+**Adding a new inline colour to a template now requires a matching rule in
+the dark block.** `src/lib/email-dark-mode.ratchet.test.ts` fails the build
+otherwise. Verify with `npx tsx scripts/email-contrast.ts`.
