@@ -103,15 +103,31 @@ export const CURRENCIES: Readonly<Record<string, CurrencyDefinition>> = Object.f
   /**
    * Kenyan shilling, collected over M-Pesa through PayHero/FinoQ.
    *
-   * **Floor: KES 50.00.** Chosen over a higher floor knowingly. PayHero's own
-   * published fee table (fetched 2026-10-21 from
-   * `GET /api/transaction_fees`, which needs no authentication) charges the
-   * merchant KES 6 on any collection from KES 50 to KES 499, so at the floor
-   * the platform absorbs 12% of the gift. A KES 500 floor would cut that to
-   * 2%. The floor is low anyway because small contributions are the normal
-   * unit of a harambee, and excluding them to protect a margin would change
-   * what the product is. The platform absorbs the fee; the donor is never
-   * charged it, which is what keeps the 0% claim in `docs/59` true.
+   * **Floor: KES 50.00.** Deliberately low, at a cost that is higher than
+   * first documented.
+   *
+   * The original note here cited PayHero's published fee table
+   * (`GET /api/transaction_fees`, no authentication) which charges KES 6 on
+   * collections from KES 50 to KES 499, and concluded the platform absorbs
+   * 12% at the floor. **Both figures were wrong.** Measured against this
+   * account's own ledger on 2026-10-21, after a real KES 50 collection:
+   *
+   *   published tier for KES 50 .......... KES 6
+   *   actually charged ................... KES 8.9
+   *   actually charged on a KES 200 collection ... KES 8.9
+   *
+   * So the fee on this account is a **flat KES 8.9**, not the tiered figure
+   * the public endpoint advertises, which makes the platform's absorbed cost
+   * **17.8% at the KES 50 floor** — 8.9% at KES 100, 1.8% at KES 500. This is
+   * the `docs/66` lesson again: measure the path the real calls take, not the
+   * one the documentation describes.
+   *
+   * The floor stays at KES 50 because small contributions are the normal unit
+   * of a harambee and excluding them to protect a margin would change what
+   * the product is. But it is now a known-expensive choice rather than a
+   * cheap one, and it is the owner's to revisit with these numbers. The donor
+   * is never charged the fee, which is what keeps the 0% claim in `docs/59`
+   * true.
    *
    * **Ceiling: KES 250,000.00.** Not a product choice. Safaricom's published
    * tariff page (verified 2026-10-21) caps a single M-Pesa transaction at

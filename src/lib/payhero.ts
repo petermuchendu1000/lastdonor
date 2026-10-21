@@ -597,12 +597,32 @@ export interface WalletBalance {
 /**
  * The PayHero service wallet balance.
  *
- * **Operational diagnostics only. This is NOT a LastDonor figure and must
- * never appear in a LastDonor total, page or report.** The account is shared
- * with BETWOIN LTD: their collections raise this number and their withdrawals
- * drain it, so it says nothing about money raised on this platform. It is
- * also not a send guard — `docs/84` records the sibling case where Africa's
- * Talking let a send through on a balance of KES 0.012 and went negative.
+ * **This is the FEE FLOAT, not collected donations.** Corrected 2026-10-21
+ * after the first real collection, which measured the opposite of what was
+ * written here before:
+ *
+ *   before the KES 50 collection .... 2248.0
+ *   after it ........................ 2239.1   (down 8.9, not up 41.1)
+ *
+ * The KES 50 settled to the configured payment channel — the National Bank
+ * paybill — and the service wallet was *debited* the KES 8.9 transaction fee.
+ * So collections lower this number rather than raising it, and it says
+ * nothing whatsoever about money raised.
+ *
+ * Two consequences:
+ *
+ * 1. **It must never appear in a LastDonor total, page or report.** It is not
+ *    our money and it is not donation money. The account is also shared with
+ *    BETWOIN LTD, whose fees draw on the same float.
+ *
+ * 2. **It is an operational ceiling on collecting at all.** At a flat KES 8.9
+ *    per collection, a float of 2239 buys roughly 250 more donations before
+ *    collections start failing for lack of fee credit. That is worth
+ *    monitoring, and it is the one legitimate reason to read this value.
+ *
+ * It is still NOT a send guard — `docs/84` records the sibling case where
+ * Africa's Talking let a send through on a balance of KES 0.012 and went
+ * negative, so a non-zero balance proves nothing about the next request.
  *
  * Probed 2026-10-21: `wallet_type=service_wallet` and an omitted
  * `wallet_type` both return the service wallet; `payment_wallet` 404s.
