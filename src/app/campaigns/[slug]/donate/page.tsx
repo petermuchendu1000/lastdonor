@@ -31,6 +31,7 @@ async function getDonatableCampaign(slug: string) {
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,
       status: campaigns.status,
+      currency: campaigns.currency,
     })
     .from(campaigns)
     .where(
@@ -161,6 +162,7 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
       raisedAmount={campaign.raisedAmount}
       goalAmount={campaign.goalAmount}
       donorCount={campaign.donorCount}
+      currency={campaign.currency}
       initialAmount={initialAmount}
       returnState={returnState}
       confirmedAmount={confirmedAmount}

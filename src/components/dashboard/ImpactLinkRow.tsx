@@ -61,7 +61,7 @@ export function ImpactLinkRow({
         <div className="flex shrink-0 items-center gap-4 text-right">
           <div>
             <p className="font-sans text-lg font-bold tabular-nums text-foreground">
-              <Money cents={amountBroughtCents} />
+              <Money minor={amountBroughtCents} />
             </p>
             <p className="text-[11px] text-muted-foreground">raised through you</p>
           </div>
@@ -117,11 +117,11 @@ export function ImpactLinkRow({
       */}
       {ownGivingCents > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
-          You gave <Money cents={ownGivingCents} className="font-semibold text-foreground" />
+          You gave <Money minor={ownGivingCents} className="font-semibold text-foreground" />
           {amountBroughtCents > 0 ? (
             <>
               {' and brought in '}
-              <Money cents={amountBroughtCents} className="font-semibold text-foreground" />
+              <Money minor={amountBroughtCents} className="font-semibold text-foreground" />
               {' more.'}
             </>
           ) : (

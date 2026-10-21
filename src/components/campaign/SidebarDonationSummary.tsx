@@ -63,7 +63,7 @@ export function SidebarDonationSummary({
         <div>
           <div className="flex items-baseline gap-2">
             <Money
-              cents={raisedAmount}
+              minor={raisedAmount}
               className="text-3xl font-bold text-card-foreground"
             />
             <span className="text-sm text-muted-foreground">raised</span>

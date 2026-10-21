@@ -63,7 +63,7 @@ export default async function ImpactPage() {
       */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Raised through you">
-          <Money cents={summary.amountBroughtCents} className="text-2xl font-bold text-foreground" />
+          <Money minor={summary.amountBroughtCents} className="text-2xl font-bold text-foreground" />
         </StatTile>
         <StatTile label={summary.donorsBrought === 1 ? 'Donor you brought' : 'Donors you brought'}>
           <span className="font-sans text-2xl font-bold tabular-nums text-foreground">
@@ -153,7 +153,7 @@ export default async function ImpactPage() {
                     </Link>
                   </div>
                   <Money
-                    cents={d.amountCents}
+                    minor={d.amountCents}
                     className="shrink-0 text-sm font-semibold text-foreground"
                   />
                 </div>

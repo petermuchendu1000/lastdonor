@@ -271,17 +271,17 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
                       </td>
                       <td className="px-4 py-3 text-right hidden sm:table-cell">
                         <span className="font-mono font-medium">
-                          {<Money cents={campaign.raisedAmount} precision="exact" />}
+                          {<Money minor={campaign.raisedAmount} precision="exact" />}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right hidden md:table-cell">
                         <span className="font-mono font-medium text-green-700 dark:text-green-400">
-                          {<Money cents={campaign.totalReleasedAmount} precision="exact" />}
+                          {<Money minor={campaign.totalReleasedAmount} precision="exact" />}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right hidden md:table-cell">
                         <span className="font-mono font-medium text-blue-700 dark:text-blue-400">
-                          {<Money cents={campaign.totalWithdrawnAmount} precision="exact" />}
+                          {<Money minor={campaign.totalWithdrawnAmount} precision="exact" />}
                         </span>
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell">
@@ -307,31 +307,31 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Goal</dt>
                                   <dd className="font-mono font-medium">
-                                    {<Money cents={campaign.goalAmount} precision="exact" />}
+                                    {<Money minor={campaign.goalAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Raised</dt>
                                   <dd className="font-mono font-medium">
-                                    {<Money cents={campaign.raisedAmount} precision="exact" />}
+                                    {<Money minor={campaign.raisedAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Released</dt>
                                   <dd className="font-mono font-medium text-green-700 dark:text-green-400">
-                                    {<Money cents={campaign.totalReleasedAmount} precision="exact" />}
+                                    {<Money minor={campaign.totalReleasedAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Withdrawn</dt>
                                   <dd className="font-mono font-medium text-blue-700 dark:text-blue-400">
-                                    {<Money cents={campaign.totalWithdrawnAmount} precision="exact" />}
+                                    {<Money minor={campaign.totalWithdrawnAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Available</dt>
                                   <dd className="font-mono font-medium">
-                                    {<Money cents={available} precision="exact" />}
+                                    {<Money minor={available} precision="exact" />}
                                   </dd>
                                 </div>
                               </div>

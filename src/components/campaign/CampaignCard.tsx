@@ -153,7 +153,7 @@ export function CampaignCard({
             ) : (
               <div className="flex items-baseline justify-between">
                 <span className="text-lg font-bold text-foreground number-highlight">
-                  <Money cents={raisedAmount} />{' '}
+                  <Money minor={raisedAmount} />{' '}
                   <span className="text-sm font-medium text-muted-foreground">raised</span>
                 </span>
                 <span className="font-sans text-xs font-medium tabular-nums text-muted-foreground">

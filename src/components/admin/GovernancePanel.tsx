@@ -331,7 +331,7 @@ export function GovernancePanel({ campaigns: initial, totalCampaigns }: Governan
                   </td>
                   <td className="hidden px-4 py-3 capitalize text-muted-foreground md:table-cell">{c.verificationStatus.replace(/_/g, ' ')}</td>
                   <td className="px-4 py-3 text-right font-mono text-foreground">
-                    <Money cents={c.raisedAmount} precision="exact" />
+                    <Money minor={c.raisedAmount} precision="exact" />
                   </td>
                   <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">{c.donorCount}</td>
                   <td className="hidden max-w-[140px] truncate px-4 py-3 text-muted-foreground lg:table-cell">

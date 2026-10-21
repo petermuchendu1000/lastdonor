@@ -37,6 +37,9 @@ const campaignRow = {
   goalAmount: 5_000_000,
   donorCount: 0,
   status: 'active',
+  // Required since migration 0005: the page renders every figure in the
+  // campaign's own currency and picks the payment rail from it.
+  currency: 'USD',
 };
 
 /*

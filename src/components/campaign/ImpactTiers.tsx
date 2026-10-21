@@ -32,7 +32,7 @@ export function ImpactTiers({ tiers, onSelectAmount, className }: ImpactTiersPro
           >
             <div className="flex min-w-0 items-baseline gap-3">
               <Money
-                cents={tier.amount}
+                minor={tier.amount}
                 className="text-lg font-bold text-foreground"
               />
               <span className="truncate text-sm text-muted-foreground">

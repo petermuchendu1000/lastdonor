@@ -82,7 +82,7 @@ export function DonorFeed({
                       {displayName}
                     </span>
                     <Money
-                      cents={donor.amount}
+                      minor={donor.amount}
                       className="shrink-0 text-sm font-semibold text-foreground"
                     />
                   </div>

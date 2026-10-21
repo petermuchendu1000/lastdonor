@@ -7,7 +7,9 @@ import { ArrowLeftIcon } from '@heroicons/react/24/solid';
 import { DonationForm } from '@/components/campaign/DonationForm';
 import type { DonationStep } from '@/components/campaign/DonationForm';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
-import { centsToDollarsWhole } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
+import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { MpesaDonationForm } from '@/components/campaign/MpesaDonationForm';
 import { confirmDonation } from '@/lib/donations/confirm-client';
 import type { DonationReturnState } from '@/lib/donations/verify-return';
 
@@ -18,6 +20,12 @@ interface DonatePageClientProps {
   raisedAmount: number;
   goalAmount: number;
   donorCount: number;
+  /**
+   * ISO 4217 for every figure on this page, and what decides which payment
+   * rail is offered. A card checkout cannot collect KES and M-Pesa cannot
+   * collect USD, so this is not a display detail.
+   */
+  currency: string;
   initialAmount?: number;
   /** What Stripe said about this return, decided on the server. See docs/42. */
   returnState?: DonationReturnState;
@@ -59,6 +67,7 @@ export function DonatePageClient({
   raisedAmount,
   goalAmount,
   donorCount,
+  currency,
   initialAmount,
   returnState,
   confirmedAmount: verifiedAmount,
@@ -193,15 +202,15 @@ export function DonatePageClient({
                     Be the first to donate.
                   </p>
                   <p className="text-xs tabular-nums text-muted-foreground">
-                    {centsToDollarsWhole(goalAmount)} goal
+                    {formatMoney(goalAmount, currency)} goal
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-sm font-semibold tabular-nums text-foreground">
                     {remainingAmount > 0
-                      ? `Still ${centsToDollarsWhole(remainingAmount)} to go.`
-                      : `Goal reached - ${centsToDollarsWhole(raisedAmount)} raised.`}
+                      ? `Still ${formatMoney(remainingAmount, currency)} to go.`
+                      : `Goal reached - ${formatMoney(raisedAmount, currency)} raised.`}
                   </p>
                   <ProgressBar
                     raisedAmount={raisedAmount}
@@ -209,7 +218,7 @@ export function DonatePageClient({
                     compact
                   />
                   <p className="text-xs tabular-nums text-muted-foreground">
-                    {centsToDollarsWhole(raisedAmount)} of {centsToDollarsWhole(goalAmount)}
+                    {formatMoney(raisedAmount, currency)} of {formatMoney(goalAmount, currency)}
                     {' · '}
                     {donorCount.toLocaleString()} {donorCount === 1 ? 'donor' : 'donors'}
                   </p>
@@ -220,17 +229,43 @@ export function DonatePageClient({
 
           {/* Donation form */}
           <div className="px-8 pb-8 pt-6 sm:px-10 sm:pb-10">
-            <DonationForm
-              campaignId={campaignId}
-              campaignTitle={campaignTitle}
-              campaignSlug={campaignSlug}
-              embedded
-              initialAmount={initialAmount}
-              initialStep={stepForState(state)}
-              initialConfirmedAmount={confirmedAmount}
-              attributedShareUrl={attributedShareUrl}
-              onDonationComplete={() => router.refresh()}
-            />
+            {/*
+              The campaign's currency chooses the rail, because the rails are
+              not interchangeable: Stripe cannot collect KES and M-Pesa cannot
+              collect USD. Offering both and letting the server refuse would
+              show a donor a payment method that cannot work for the campaign
+              they are looking at.
+            */}
+            {!isSupportedCurrency(currency) ? (
+              <p
+                className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground"
+                role="alert"
+              >
+                We cannot take donations for this campaign right now. Nothing
+                has been charged. Please email support@lastdonor.org so we can
+                help you give.
+              </p>
+            ) : getCurrency(currency).gateway === 'payhero' ? (
+              <MpesaDonationForm
+                campaignId={campaignId}
+                campaignTitle={campaignTitle}
+                campaignSlug={campaignSlug}
+                currency={currency}
+                onDonationComplete={() => router.refresh()}
+              />
+            ) : (
+              <DonationForm
+                campaignId={campaignId}
+                campaignTitle={campaignTitle}
+                campaignSlug={campaignSlug}
+                embedded
+                initialAmount={initialAmount}
+                initialStep={stepForState(state)}
+                initialConfirmedAmount={confirmedAmount}
+                attributedShareUrl={attributedShareUrl}
+                onDonationComplete={() => router.refresh()}
+              />
+            )}
           </div>
         </div>
       </main>
