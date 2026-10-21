@@ -627,6 +627,44 @@ warns that middleware bundles `src/db/index.ts` through `src/lib/auth.ts`
 Runtime"), which is the obvious place to look: a per-request middleware
 context cannot reuse the module-level pool the way a route handler does.
 
+### FIXED 2026-10-21, released as v89
+
+Two changes, because there were two defects.
+
+**Root cause: middleware no longer queries the database.** `readRole` returns
+before touching it when `NEXT_RUNTIME === 'edge'`. `undefined` already meant
+"could not tell" and the existing role claim is kept, so the behaviour is
+unchanged — it just costs nothing instead of 15 seconds and a cancelled
+connection. Revalidation is not lost: `auth()` runs in 69 files under
+`src/app`, all Node runtime, which is also the only place a privileged action
+can happen. Checked against `'edge'` explicitly rather than for the absence of
+`'nodejs'`, so an unset variable still does the real lookup.
+
+**The amplifier, which was the more dangerous half.** The fail-open branch
+read "keep the claim but do NOT advance `roleCheckedAt`, so the next request
+retries". With a lookup that can never succeed, **every** request spent the
+full 15-second budget and then a cancel — the cost scaled with traffic rather
+than with the 60-second revalidation interval, so a single admin tab made it
+continuous. A failed lookup now backs off 30 seconds, bounding it to one
+attempt per session per 30s however much traffic arrives. 30s is deliberately
+under the 60s interval so a recovered database is picked up by the next
+request; `roleCheckedAt` is still not advanced, for the same reason.
+
+Security is unchanged in kind: the fail-open window goes from "up to one
+interval" to "up to one interval plus one backoff", and the argument already
+in the code covers it — every privileged route needs the same database, so a
+window in which it is unreachable grants no usable capability. Expiry and the
+deleted-user case are checked before any of this; tests pin both.
+
+**Evidence it worked, and its limit.** Before the fix the failure was exactly
+one per minute at `:00`, 05:40:00 through 05:48:00. The new machine started
+05:48:20Z and `05:49:00Z` — the next minute boundary, inside the same log
+window — has no failure. That is **one** clean boundary, not a long
+observation: `flyctl logs --no-tail` returned a fixed buffer that would not
+advance past 05:49:09Z, so a longer window was not available in that session.
+The mechanism is established by the code path and 13 tests; the production
+evidence is one data point consistent with it.
+
 `readRole` catches it and returns `undefined`, so it degrades rather than
 failing a request — every page still answered 200 and the donation completed
 through it. **Deliberately not fixed here.** It sits in the auth and pool
