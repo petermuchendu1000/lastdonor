@@ -51,6 +51,9 @@ const baseBody = {
 
 const REQUIRED_KEYS = [
   'campaignId',
+  // An amount without its currency is not a reconstructible donation, and
+  // Stripe metadata is this platform's disaster-recovery substrate.
+  'currency',
   'donorName',
   'donorEmail',
   'donorLocation',
@@ -63,7 +66,16 @@ const REQUIRED_KEYS = [
 beforeEach(() => {
   vi.clearAllMocks();
   campaignRows.length = 0;
-  campaignRows.push({ id: CAMPAIGN_ID, title: 'Help Maria', slug: 'help-maria', status: 'active' });
+  campaignRows.push({
+    id: CAMPAIGN_ID,
+    title: 'Help Maria',
+    slug: 'help-maria',
+    status: 'active',
+    // Required since migration 0005. The route refuses a campaign with no
+    // currency, so leaving this out makes every test here fail with
+    // CURRENCY_UNSUPPORTED rather than exercising what it means to.
+    currency: 'USD',
+  });
   sessionsCreate.mockResolvedValue({ client_secret: 'cs_test_secret' });
 });
 
@@ -178,6 +190,69 @@ describe('POST /api/v1/donations/create-checkout', () => {
 
       expect(res.status).toBe(500);
       expect((await res.json()).error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
+  /*
+   * This route hardcoded `currency: 'usd'` on both line-item branches while
+   * the campaign row carried no currency at all. Correct while every campaign
+   * was USD; catastrophic the moment one is not, because `unit_amount` would
+   * be sent to Stripe as dollars and recorded against a shilling ledger with
+   * no FX layer anywhere to reconcile it. These pin the refusals.
+   */
+  describe('currency', () => {
+    it('charges in the campaign currency, never a hardcoded one', async () => {
+      await POST(request({ ...baseBody, isRecurring: false }));
+
+      const args = sessionsCreate.mock.calls[0][0];
+      expect(args.line_items[0].price_data.currency).toBe('usd');
+      // and it came from the campaign, not from a literal
+      expect(args.metadata.currency).toBe('USD');
+    });
+
+    it('refuses a campaign whose currency is not collected by Stripe', async () => {
+      campaignRows.length = 0;
+      campaignRows.push({
+        id: CAMPAIGN_ID, title: 'Help Maria', slug: 'help-maria',
+        status: 'active', currency: 'KES',
+      });
+
+      const res = await POST(request({ ...baseBody, isRecurring: false }));
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('WRONG_PAYMENT_RAIL');
+      expect(body.error.message).toMatch(/KES/);
+      expect(body.error.message).toMatch(/nothing has been charged/i);
+      // The decisive assertion: Stripe was never asked to charge anything.
+      expect(sessionsCreate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a campaign in a currency the platform has no rail for', async () => {
+      campaignRows.length = 0;
+      campaignRows.push({
+        id: CAMPAIGN_ID, title: 'Help Maria', slug: 'help-maria',
+        status: 'active', currency: 'NGN',
+      });
+
+      const res = await POST(request({ ...baseBody, isRecurring: false }));
+
+      expect(res.status).toBe(503);
+      expect((await res.json()).error.code).toBe('CURRENCY_UNSUPPORTED');
+      expect(sessionsCreate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a campaign with no currency rather than assuming dollars', async () => {
+      campaignRows.length = 0;
+      campaignRows.push({
+        id: CAMPAIGN_ID, title: 'Help Maria', slug: 'help-maria', status: 'active',
+      });
+
+      const res = await POST(request({ ...baseBody, isRecurring: false }));
+
+      expect(res.status).toBe(503);
+      expect((await res.json()).error.code).toBe('CURRENCY_UNSUPPORTED');
+      expect(sessionsCreate).not.toHaveBeenCalled();
     });
   });
 });

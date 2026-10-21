@@ -20,6 +20,10 @@ export function buildCampaign(overrides: Partial<Campaign> = {}): Campaign {
     storyHtml: '<p>Their home was destroyed by a tornado.</p>',
     goalAmount: 5_000_00, // $5,000 in cents
     raisedAmount: 1_250_00, // $1,250 in cents
+    // Every pre-existing fixture is a USD campaign, which is what the
+    // platform was before migration 0005. A KES fixture passes
+    // `currency: 'KES'` plus KES-denominated amounts.
+    currency: 'USD',
     donorCount: 15,
     category: 'disaster' as CampaignCategory,
     location: 'Joplin, MO',
@@ -76,6 +80,8 @@ export function buildDonation(overrides: Partial<Donation> = {}): Donation {
     campaignId: overrides.campaignId ?? nextId(),
     userId: null,
     stripePaymentId: `pi_test_${id}`,
+    provider: 'stripe',
+    currency: 'USD',
     amount: 5000, // $50.00
     donorName: 'Jane Doe',
     donorEmail: 'jane@example.com',

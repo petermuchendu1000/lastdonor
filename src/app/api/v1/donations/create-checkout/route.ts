@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
-import { createIntentSchema } from '@/lib/validators/donation';
+import { checkDonationAmount, createIntentSchema } from '@/lib/validators/donation';
+import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
 import { stripe } from '@/lib/stripe';
 import {
   SHARE_ATTRIBUTION_COOKIE,
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
         title: campaigns.title,
         slug: campaigns.slug,
         status: campaigns.status,
+        currency: campaigns.currency,
       })
       .from(campaigns)
       .where(
@@ -73,6 +75,80 @@ export async function POST(request: NextRequest) {
         },
       };
       return NextResponse.json(errorBody, { status: 404 });
+    }
+
+    /*
+     * Refuse a campaign Stripe is not the rail for.
+     *
+     * This route hardcoded `currency: 'usd'` on both line-item branches while
+     * the campaign had no currency at all, which was correct only for as long
+     * as every campaign was USD. Once a KES campaign can exist, sending its
+     * `unit_amount` to Stripe under `'usd'` would charge a donor 100 US cents
+     * for every KES 1 intended - roughly 130x - and then record the result
+     * against a KES ledger. There is no FX anywhere in this codebase
+     * (`src/lib/validators/payout.ts`), so the mismatch would never be
+     * reconciled; it would simply be wrong.
+     *
+     * The campaign's own currency decides the rail, and anything Stripe does
+     * not collect is refused outright rather than converted. KES donations go
+     * through PayHero (`/api/v1/donations/payhero/initiate`).
+     */
+    if (!isSupportedCurrency(campaign.currency)) {
+      logError(
+        new Error(
+          `Campaign ${campaign.id} is denominated in unsupported currency ${campaign.currency}`,
+        ),
+        { requestId, route: 'donations/create-checkout#currency' },
+      );
+      const errorBody: ApiError = {
+        ok: false,
+        error: {
+          code: 'CURRENCY_UNSUPPORTED',
+          message:
+            'We cannot take donations for this campaign right now. Nothing has been charged. ' +
+            'Please email support@lastdonor.org so we can help you give.',
+          requestId,
+        },
+      };
+      return NextResponse.json(errorBody, { status: 503 });
+    }
+
+    const campaignCurrency = getCurrency(campaign.currency);
+
+    if (campaignCurrency.gateway !== 'stripe') {
+      const errorBody: ApiError = {
+        ok: false,
+        error: {
+          code: 'WRONG_PAYMENT_RAIL',
+          message:
+            `Donations to this campaign are collected in ${campaignCurrency.code}, ` +
+            'which is paid by mobile money rather than by card. Nothing has been charged.',
+          requestId,
+        },
+      };
+      return NextResponse.json(errorBody, { status: 400 });
+    }
+
+    /*
+     * Stripe takes the currency in lowercase. Derived from the campaign rather
+     * than written as a literal, so the day a second Stripe currency is
+     * enabled in `CURRENCIES` this route is already correct instead of
+     * silently charging dollars.
+     */
+    const stripeCurrency = campaignCurrency.code.toLowerCase();
+
+    const amountError = checkDonationAmount(data.amount, campaignCurrency.code);
+    if (amountError) {
+      const errorBody: ApiError = {
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: amountError,
+          field: 'amount',
+          requestId,
+        },
+      };
+      return NextResponse.json(errorBody, { status: 400 });
     }
 
     // One donor-context object, used on every Stripe object we can attach it
@@ -103,6 +179,14 @@ export async function POST(request: NextRequest) {
 
     const donationMetadata = {
       campaignId: data.campaignId,
+      /*
+       * Carried so the webhook can assert the charge it is recording is in the
+       * currency the campaign expects, instead of inferring it. Stripe metadata
+       * is the disaster-recovery substrate (CLAUDE.md): a donation must be
+       * reconstructible from Stripe alone, and an amount without its currency
+       * is not a reconstructible donation.
+       */
+      currency: campaignCurrency.code,
       donorName: data.donorName || 'Anonymous',
       donorEmail: data.donorEmail,
       donorLocation: data.donorLocation ?? '',
@@ -128,7 +212,7 @@ export async function POST(request: NextRequest) {
             line_items: [
               {
                 price_data: {
-                  currency: 'usd',
+                  currency: stripeCurrency,
                   recurring: { interval: 'month' },
                   product_data: {
                     name: 'Monthly donation',
@@ -143,7 +227,7 @@ export async function POST(request: NextRequest) {
             line_items: [
               {
                 price_data: {
-                  currency: 'usd',
+                  currency: stripeCurrency,
                   product_data: {
                     name: 'Donation',
                   },

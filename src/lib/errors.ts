@@ -29,6 +29,16 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
       'Card payments are unavailable right now. This is a problem on our side, not with ' +
       'your card, and nothing has been charged.',
   },
+  CURRENCY_UNSUPPORTED: {
+    status: 503,
+    message:
+      'We cannot take donations for this campaign right now. This is a problem on our side ' +
+      'and nothing has been charged.',
+  },
+  WRONG_PAYMENT_RAIL: {
+    status: 400,
+    message: 'This campaign is paid by a different method. Nothing has been charged.',
+  },
   VERIFICATION_UNAVAILABLE: {
     status: 503,
     message:

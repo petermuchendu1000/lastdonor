@@ -26,6 +26,20 @@ export interface ApiError {
       */
       | 'PAYMENTS_UNAVAILABLE'
       /*
+        The campaign is denominated in a currency the platform has no rail
+        for. 503, like PAYMENTS_UNAVAILABLE: the donor can do nothing about
+        it and a retry cannot succeed until an operator enables the currency
+        in `src/lib/money/currencies.ts`.
+      */
+      | 'CURRENCY_UNSUPPORTED'
+      /*
+        The currency is supported, but not by the gateway the donor reached.
+        A KES campaign sent to the card checkout, or a USD campaign sent to
+        the M-Pesa route. 400, not 503: the request is answerable, just on a
+        different endpoint, and the client knows which from the campaign.
+      */
+      | 'WRONG_PAYMENT_RAIL'
+      /*
         The identity-verification provider is unreachable or unconfigured.
         503, like PAYMENTS_UNAVAILABLE: retrying the same request will not
         help until an operator acts.

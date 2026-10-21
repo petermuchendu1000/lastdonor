@@ -10,6 +10,8 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  foreignKey,
+  unique,
   check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -62,6 +64,21 @@ export const donationPhaseEnum = pgEnum('donation_phase', [
 ]);
 
 export const donationSourceEnum = pgEnum('donation_source', ['real', 'seed']);
+
+/**
+ * Which gateway collected a donation.
+ *
+ * Needed because the gateway is not inferable from the reference and because
+ * nearly every money operation is provider-specific: a PayHero donation cannot
+ * be refunded through `stripe.refunds.create`, and a Stripe donation cannot be
+ * looked up at PayHero. Before this column existed there was one gateway and
+ * the question could not arise. See `docs/92`.
+ *
+ * `seed` is not a gateway and is not listed here: fabricated donations are
+ * marked by `donations.source = 'seed'` (docs/33) and carry the provider of
+ * whatever rail the campaign would have used.
+ */
+export const paymentProviderEnum = pgEnum('payment_provider', ['stripe', 'payhero']);
 
 export const userRoleEnum = pgEnum('user_role', ['donor', 'editor', 'admin']);
 
@@ -315,6 +332,20 @@ export const campaigns = pgTable(
     goalAmount: integer('goal_amount').notNull(),
     raisedAmount: integer('raised_amount').notNull().default(0),
     donorCount: integer('donor_count').notNull().default(0),
+    /**
+     * ISO 4217 code for every amount on this campaign.
+     *
+     * `goal_amount`, `raised_amount`, `total_released_amount` and
+     * `total_withdrawn_amount` are integers in THIS currency's minor unit, as
+     * is every `donations.amount` against it. A campaign's currency is fixed at
+     * creation and must never change once money has arrived: changing it would
+     * silently reinterpret the existing total.
+     *
+     * Defaults to USD because every campaign that existed before migration
+     * 0005 was created with a USD goal by a USD-only codebase. See
+     * `src/lib/money/currencies.ts` and `docs/92`.
+     */
+    currency: text('currency').notNull().default('USD'),
     category: campaignCategoryEnum('category').notNull(),
     location: text('location'),
     subjectName: text('subject_name').notNull(),
@@ -379,6 +410,14 @@ export const campaigns = pgTable(
     check('campaigns_released_nonneg', sql`${table.totalReleasedAmount} >= 0`),
     check('campaigns_released_lte_raised', sql`${table.totalReleasedAmount} <= ${table.raisedAmount}`),
     check('campaigns_withdrawn_nonneg', sql`${table.totalWithdrawnAmount} >= 0`),
+    check('campaigns_currency_iso4217', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    /*
+      `id` alone is already the primary key, so this adds no new uniqueness.
+      It exists purely so `donations` can carry a COMPOSITE foreign key on
+      (campaign_id, currency) — Postgres requires a unique constraint on the
+      referenced columns. See the FK on `donations` for what that buys.
+    */
+    unique('campaigns_id_currency_key').on(table.id, table.currency),
   ],
 );
 
@@ -390,7 +429,42 @@ export const donations = pgTable(
       .notNull()
       .references(() => campaigns.id),
     userId: uuid('user_id').references(() => users.id),
+    /**
+     * The gateway's own reference for this payment, unique across the platform.
+     *
+     * Named for Stripe because Stripe was the only gateway when it was created,
+     * and it is NOT renamed here: `idx_donations_stripe_payment_id` is the sole
+     * durable protection against a duplicate webhook creating a second donation
+     * row (CLAUDE.md forbids dropping it), and the rename is a 20-file
+     * mechanical change with no functional benefit to this one. It is recorded
+     * as debt in `docs/92` instead.
+     *
+     * Values are namespaced per provider so two gateways can never collide:
+     * `pi_…` from Stripe, `payhero_<reference>` from PayHero, `seed_<uuid>` for
+     * fabricated rows (the precedent, set in `src/lib/seed/simulation-engine.ts`).
+     * Read `provider` to know which; never pattern-match the prefix to decide
+     * what to call.
+     */
     stripePaymentId: text('stripe_payment_id').notNull(),
+    /**
+     * Which gateway took this money.
+     *
+     * Load-bearing, not informational: every refund path must check it before
+     * calling a provider API, because handing a `payhero_…` reference to
+     * `stripe.refunds.create` fails, and handing a `pi_…` reference to PayHero
+     * 404s. Defaults to `stripe` because every row that could have existed
+     * before migration 0005 was a Stripe row — though in fact there were none
+     * (`select count(*) from donations` was 0 on 2026-10-21, which is what made
+     * this migration safe to do at all).
+     */
+    provider: paymentProviderEnum('provider').notNull().default('stripe'),
+    /**
+     * ISO 4217 code this `amount` is denominated in.
+     *
+     * Always equal to the campaign's currency — enforced by the composite
+     * foreign key below, not merely by convention.
+     */
+    currency: text('currency').notNull().default('USD'),
     amount: integer('amount').notNull(),
     donorName: text('donor_name').notNull().default('Anonymous'),
     donorEmail: text('donor_email').notNull(),
@@ -415,7 +489,45 @@ export const donations = pgTable(
     index('idx_donations_user_id').on(table.userId),
     index('idx_donations_created_at').on(table.createdAt),
     uniqueIndex('idx_donations_stripe_payment_id').on(table.stripePaymentId),
-    check('donations_amount_check', sql`${table.amount} >= 500`),
+    index('idx_donations_provider').on(table.provider),
+    /*
+      Was `amount >= 500`, a USD-cents literal meaning "$5 minimum". Kept as a
+      bare positivity check once a second currency arrived, because 500 KES
+      minor units is about US$0.04 — so the old constraint imposed a real floor
+      on one currency and a meaningless one on the other. The per-currency floor
+      moved to `CURRENCIES[code].minDonationMinor` and is enforced by
+      `src/lib/validators/donation.ts`. The trade-off accepted: the floor is now
+      an application rule with a test behind it, not a database guarantee.
+      Positivity stays in the database, because a zero or negative donation
+      would corrupt `raised_amount` and no code path should be trusted with it.
+    */
+    check('donations_amount_check', sql`${table.amount} > 0`),
+    check('donations_currency_iso4217', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    /*
+      A donation is always denominated in its campaign's currency.
+
+      This composite FK is what makes that a database guarantee rather than a
+      convention. Postgres cannot express a cross-table CHECK, and this project
+      has no triggers; a composite FK onto `campaigns (id, currency)` gets the
+      same guarantee out of machinery already in use. Two consequences, both
+      wanted:
+
+        1. Inserting a KES donation against a USD campaign fails outright,
+           rather than adding KES minor units into a USD `raised_amount` and
+           corrupting every total, the `campaigns_released_lte_raised` CHECK and
+           every payout derived from them.
+        2. A campaign's currency becomes immutable once any donation exists,
+           because the UPDATE would orphan those rows. Changing it afterwards
+           would silently reinterpret the money already raised.
+
+      The single-column FK on `campaign_id` is left in place as well; it is
+      redundant for integrity but documents the plain relationship.
+    */
+    foreignKey({
+      name: 'donations_campaign_currency_fk',
+      columns: [table.campaignId, table.currency],
+      foreignColumns: [campaigns.id, campaigns.currency],
+    }),
   ],
 );
 

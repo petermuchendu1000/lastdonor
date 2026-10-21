@@ -36,6 +36,13 @@
       "when": 1792208855004,
       "tag": "0004_loving_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792550439820,
+      "tag": "0005_low_maddog",
+      "breakpoints": true
     }
   ]
 }
