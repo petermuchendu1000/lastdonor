@@ -173,7 +173,17 @@ describe('sweepWedgedBackends', () => {
   });
 
   it('does nothing without a connection string', async () => {
-    const r = await sweepWedgedBackends(live, undefined);
+    /*
+      `undefined` does NOT mean "no value" here: `sweepWedgedBackends`
+      declares `connectionString = process.env.DATABASE_URL` as a DEFAULT
+      parameter, and passing `undefined` explicitly is exactly what triggers a
+      default. So this test used to resolve the real env var and passed only
+      because CI and a clean shell have no DATABASE_URL - it failed the moment
+      anyone ran it with a .env loaded. Stub the env and exercise the real
+      default path instead.
+    */
+    vi.stubEnv('DATABASE_URL', '');
+    const r = await sweepWedgedBackends(live);
     expect(r.error).toBe('no DATABASE_URL');
     expect(postgresMock).not.toHaveBeenCalled();
   });

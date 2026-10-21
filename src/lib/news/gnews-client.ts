@@ -1,6 +1,15 @@
-import { db } from '@/db';
-import * as schema from '@/db/schema';
-import { eq } from 'drizzle-orm';
+/*
+  No database import here, deliberately.
+
+  This module used to import `db`, `* as schema` and `eq` and use none of
+  them - ESLint had been warning about all three. They were not harmless:
+  importing `@/db` constructs a postgres client at module load, so any file
+  that imported this one for a pure HTTP helper also dragged a connection pool
+  in behind it. In tests with a real DATABASE_URL set that pool tried to
+  connect and the two blackout-detection tests timed out at 5s rather than
+  asserting anything about GNews, which made the suite pass or fail depending
+  on whether the developer happened to have a .env loaded. See docs/92.
+*/
 import type { CampaignCategory } from '@/types';
 import { selectNextKeyword } from './keyword-rotation';
 

@@ -8,6 +8,22 @@ import {
 import { isGNewsConfigured, fetchGNewsArticles } from '@/lib/news/gnews-client';
 
 /*
+  `fetchGNewsArticles` picks its search term through `selectNextKeyword`, which
+  reads the keyword_rotation table - so this file's import graph reaches
+  `@/db`, and `@/db` builds a postgres client at module load.
+
+  Without this mock the two blackout tests below depended on the DATABASE_URL
+  in the developer's shell: unset (CI, a clean shell) and the client never
+  connects, so they passed; set to a real host and the connection attempt hung
+  until vitest's 5s timeout, so they failed having asserted nothing about
+  GNews at all. Mocked at the keyword boundary because these tests are about
+  GNews's HTTP behaviour, not about keyword rotation. See docs/92.
+*/
+vi.mock('@/lib/news/keyword-rotation', () => ({
+  selectNextKeyword: vi.fn(async (_category: unknown, keywords: string[]) => keywords[0]),
+}));
+
+/*
   Measured from the production machine on 2026-10-18: of the 125
   configured RSS feeds, 72 answered with items, 5 answered 200 with
   none, and 48 were dead - both wire services and every feed in the
