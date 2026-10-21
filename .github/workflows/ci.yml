@@ -179,7 +179,11 @@ jobs:
     steps:
       - name: Fail if any required job failed or was cancelled
         run: |
-          results='${{ join(needs.*.result, " ") }}'
+          # Single quotes, not double. GitHub Actions expressions accept ONLY
+          # single-quoted string literals; a double-quoted one is a parse
+          # error, and a workflow that fails to parse is never queued at all.
+          # That is why this pipeline had never run once - see docs/50.
+          results='${{ join(needs.*.result, ' ') }}'
           echo "job results: $results"
           for r in $results; do
             case "$r" in
