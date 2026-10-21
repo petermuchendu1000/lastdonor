@@ -1,0 +1,578 @@
+# 92 — The PayHero/FinoQ M-Pesa gateway, and a multi-currency ledger
+
+**Date:** 2026-10-21
+**Status:** **The platform can take money.** KES 50 collected over M-Pesa and
+recorded as the first donation in this codebase's history, verified against
+production. Deployment and four named gaps remain open — see *Still open*.
+**Supersedes:** the blocker in `docs/72` ("LastDonor has never been able to
+accept money, and still cannot") on the KES rail only. Stripe is still dead.
+**Amends:** `docs/82` (the KE/US tension it parked is now resolved — both),
+`docs/47` (`Money` takes `minor` + `currency`, not `cents`).
+**Read with:** `docs/41` (one writer for donation accounting), `docs/81` (a
+webhook with no shared secret), `docs/84` (probing a provider rather than
+reading about it), `docs/85` (an IP limit does not protect the thing at risk),
+`docs/72` (a retryable-sounding message for a permanent fault).
+
+---
+
+## What was decided
+
+1. **A multi-currency ledger**, not a single currency and not FX at capture.
+2. **PayHero/FinoQ collects KES over M-Pesa**; Stripe keeps USD.
+3. **A campaign has exactly one currency**, fixed once money arrives, enforced
+   by a composite foreign key rather than by convention.
+4. **The PayHero callback has no shared secret** and is never believed; the
+   outcome is re-fetched over our own authenticated call.
+5. **LastDonor's money is isolated by a minted reference namespace**, because
+   the PayHero account is shared with another company.
+6. **Per-phone-number abuse limiting**, in the database, because the party at
+   risk is a bystander's phone and not us.
+
+### Why multi-currency, and why now
+
+The owner's direction, 2026-10-21: *"soon, we'll go global, so, use multiple
+currency and countries. Payhero has finoq which covers most of african
+countries. The rest of the world will be served by Stripe (we're working on
+paperwork)."*
+
+The alternatives were put with their costs, and these were rejected:
+
+| Rejected | Why |
+|---|---|
+| **KES becomes the only platform currency** | Coherent, cheap, and wrong for a platform that intends to serve the rest of the world through Stripe. It would have had to be undone. |
+| **Convert KES to USD cents at capture, storing the rate** | Preserves the USD invariant and touches no aggregate, but introduces an FX rate source and rounding into a ledger that has none, and makes payouts impossible: a Kenyan organiser cannot be paid USD through Stripe Connect. Worst of both. |
+| **PayHero as a wallet top-up only, not attributed to campaigns** | Smallest blast radius and fully honest, but a donor could not fund a campaign, so it does not finish the issue. |
+
+**Done now because the ledger was empty.** Verified against production before
+the migration: `donations` 0 rows, `campaign_withdrawals` 0,
+`refund_records` 0, `fund_pool_allocations` 0, and all 18 campaigns at
+`raised_amount` 0. There was no money data to migrate. That will not be true
+again, which is the entire reason this was not deferred.
+
+### The invariant that replaces "there is no FX anywhere"
+
+`src/lib/validators/payout.ts` used to say the ledger was USD cents end to end
+and that nothing converted currency. The second half still holds. The first is
+replaced by:
+
+> **A campaign has exactly one currency. Every donation to it, every release
+> and every withdrawal is in that same currency. Two currencies are never
+> added together anywhere.**
+
+That is what keeps `raised_amount += amount` correct arithmetic and the
+`campaigns_released_lte_raised` CHECK meaningful. Where a cross-currency total
+is genuinely wanted (platform statistics), it must be reported per currency,
+never summed.
+
+**Enforced in the database, not by convention.** `donations` carries a
+composite foreign key on `(campaign_id, currency)` referencing
+`campaigns (id, currency)`. Postgres has no cross-table CHECK and this project
+has no triggers, so a composite FK buys the guarantee from machinery already
+in use. Two consequences, both wanted:
+
+- a KES donation against a USD campaign fails outright, instead of adding
+  shilling minor units into a dollar total and corrupting every figure derived
+  from it;
+- a campaign's currency becomes **immutable once any donation exists**,
+  because the UPDATE would orphan those rows.
+
+`payhero_payment_requests` carries the same composite FK.
+
+### Minor units, not cents
+
+`src/lib/money/currencies.ts` carries each currency's ISO 4217 **exponent**
+rather than assuming 2. KES happens to be a 2-decimal currency, so the first
+non-USD currency could have been bolted on without this. It is built anyway:
+four currencies in the intended African footprint — **UGX, RWF, XOF, XAF** —
+are zero-decimal, and dividing those by 100 understates them 100×. The bug
+would be introduced by whoever adds UGX, long after the person who left the
+exponent implicit stopped looking.
+
+`getCurrency` **throws on an unknown code rather than defaulting to USD.** A
+fallback would be invisible: a shilling figure with a dollar sign still looks
+like money.
+
+---
+
+## What PayHero actually does
+
+Every claim in this section was **probed against the live API on 2026-10-21
+with this account's credentials**. None of it is from the published docs, and
+four of the behaviours contradict or are absent from them.
+
+### Authentication — verified
+
+`Authorization: Basic base64(api_username:api_password)`. Established by
+trying all four plausible constructions against `GET /api/v2/wallets`:
+
+| Construction | Result |
+|---|---|
+| `base64(username:password)` | **200** |
+| `base64(username:api_secret)` | 401 `Unable to perform request` |
+| the API secret, raw | 401 `given auth not correct` |
+| the API password, raw | 401 `given auth not correct` |
+
+**The API secret PayHero issues is not used by v2 at all**, and it is not a
+webhook signing key either, because the callbacks carry no signature.
+`.env.example` says so explicitly so nobody adds a `PAYHERO_API_SECRET`
+expecting it to do something.
+
+### Trap 1 — `success: true` does not mean the payment succeeded — verified
+
+It reports that the API call worked. The payment outcome is in `status`, and
+the two disagree:
+
+```
+{"success":true, …, "status":"SUCCESS", "provider_reference":"UJLJ8B7LT3"}
+{"success":true, …, "status":"FAILED",  "amount":800}
+```
+
+Fourteen real settled payments on this account returned
+`success:true / status:"SUCCESS"`; a failed one returned
+`success:true / status:"FAILED"`. **A client that reads `success` books failed
+payments as paid.** Only `status` is read, and anything that is not exactly
+`SUCCESS` is not money. An undocumented status maps to `UNKNOWN` and leaves
+the payment pending rather than being guessed at.
+
+### Trap 2 — a blank reference returns another merchant's transaction — verified
+
+`GET /api/v2/transaction-status` with the `reference` parameter **missing, set
+to `""`, or set to a single space** answered **HTTP 200** four times in a row
+with a stable record belonging to a different merchant:
+
+```
+{"success":true,"merchant":"peterkimari","phone_number":"0722468260",
+ "amount":800,"status":"FAILED","external_reference":"Pay"}
+```
+
+Our own rows read `merchant:"muchs"`, and `0722468260` appears **0 times in
+600** of this account's own transactions. It is not a random row and it is not
+ours. Since that record's `status` is `FAILED`, the failure mode is *reading a
+stranger's outcome as the answer about our donation* rather than a clean
+error. `?reference=0` correctly 404s, so it is specifically the blank case.
+
+`getTransactionStatus` refuses a blank reference **before a request is built**,
+so no network call can be made without one. Reported upstream; not relied on
+being fixed. A test asserts the refusal and names the reason, so nobody
+reinstates a fallback.
+
+### Trap 3 — `external_reference` is not a lookup key — verified
+
+Querying `transaction-status?reference=<our own external_reference>` returns
+404, even for a payment that settled and whose `external_reference` is visible
+in `GET /api/v2/transactions`. Only PayHero's own `reference` and the M-Pesa
+code resolve.
+
+**Design consequence:** the reference returned at initiation *must* be
+persisted or the payment becomes permanently unverifiable. That is the first
+of three reasons `payhero_payment_requests` exists, and why an initiation
+response without a reference is treated as a hard failure rather than a
+pending row nobody could ever settle.
+
+### Trap 4 — three error shapes, and `text/plain` carrying JSON — verified
+
+```
+401 application/json  {"status":401,"success":false,"message":"Unauthorized. …"}
+400 text/plain        {"error_code":"invalid_argument","error_message":"…","status_code":400}
+400 application/json  {"error_code":"request_failed","error_message":"Failed to perform request. Please try again","status_code":400}
+404 application/json  {"error_message":"Endpoint not found"}
+```
+
+So the message key is `error_message` **or** `message`, and `Content-Type`
+cannot be trusted to decide whether to parse. Bodies are read as text and
+parsed opportunistically; a non-JSON 502 produces a clean `PayHeroApiError`
+rather than a JSON parse error that hides the cause. This is the same trap
+`docs/84` recorded for Africa's Talking.
+
+### A retryable-sounding message for a permanent fault — verified
+
+An unregistered `channel_id` answers 400 `request_failed` with **"Failed to
+perform request. Please try again"**. Trying again cannot create a payment
+channel. This is the `docs/72` trap in PayHero form, where a dead Stripe key
+produced "Failed to create checkout session" and invited a retry that could
+never succeed. `classifyInitiationFailure` separates `configuration` from
+`rejected` and `transient`, so a donor is never told to retry into a wall.
+
+### Abuse protection, which constrains testing — documented by PayHero
+
+More than 10 successive failed or cancelled STK requests to the **same phone
+number** blocks that number for **24 hours**. Over 50 failed requests
+account-wide in a 6-hour sliding window restricts the account for 4 hours; 500
+for 24 hours; 1000 for 72 hours. **A cancelled prompt counts.** This is why
+`initiateStkPush` validates everything it can locally before spending a
+request, and why the live test budget was treated as scarce.
+
+### What the live collection added — verified 2026-10-21T03:39Z
+
+Three facts no documentation gave us:
+
+- **The initiation response echoes `external_reference`.** Undocumented, and
+  useful: it confirms at initiation that the reference PayHero recorded is the
+  one we minted.
+- **`CheckoutRequestID` is populated at initiation and empty in the status
+  response** for the same payment (`ws_CO_21102026063859220713572703` →
+  `""`). It cannot correlate the two; `reference` is the only durable link.
+- **The callback never arrived and the donation settled anyway.** It was
+  addressed to `lastdonor.org`, where this branch is not deployed, so
+  PayHero's POST went nowhere and the status poll settled the payment unaided.
+  That is exactly the independence the poll path was built for, demonstrated
+  by accident on the first real payment.
+
+---
+
+## Two corrections to this project's own work, made by the live test
+
+### The published fee table does not match what this account is charged
+
+`GET /api/transaction_fees` (no authentication) advertises **KES 6** for the
+50–499 band. Measured against this account's own ledger:
+
+| | |
+|---|---|
+| published tier for KES 50 | KES 6 |
+| **actually charged on our KES 50 collection** | **KES 8.9** |
+| actually charged on two earlier KES 200 collections | KES 8.9 |
+
+So the fee is a **flat KES 8.9**, not tiered. The absorbed cost at the KES 50
+floor is therefore **17.8%**, not the 12% first documented — 8.9% at KES 100,
+1.8% at KES 500.
+
+This is the `docs/66` lesson again, which that doc stated as *measure the path
+the actual calls take*: there, an IP allow-list was advised from a `curl`
+measurement while the real calls egressed from a different address.
+
+### The service wallet is a fee float, not collected funds
+
+First written here as "collections raise this number". They lower it:
+
+```
+before the KES 50 collection ....  2248.0
+after it ........................  2239.1    (down 8.9, not up 41.1)
+```
+
+The KES 50 settled to the configured payment channel — the National Bank
+paybill — and the service wallet was **debited** the KES 8.9 fee.
+
+Two consequences:
+
+1. It can never be a LastDonor figure, on any page or in any report. It is
+   not our money and it is not donation money.
+2. **It is an operational ceiling on collecting at all.** At a flat KES 8.9
+   per collection, a float of 2,239 buys roughly **250 more donations** before
+   collections start failing for want of fee credit — for a reason no donor
+   could act on. `/api/v1/health` now reports a low float as an error while it
+   is still fixable.
+
+**The health endpoint publishes no figures.** It is in `PUBLIC_API_ROUTES`,
+and the balance belongs to an account shared with BETWOIN LTD, so publishing
+it would leak another company's operating float to anyone who curls the URL.
+Only a derived collection count crosses the boundary, and two tests assert
+that the balance never appears in the response body.
+
+---
+
+## Isolation from BETWOIN LTD
+
+The PayHero account is **shared with another of the owner's companies**:
+792 transactions, real inbound M-Pesa from roughly eight recurring numbers
+unrelated to LastDonor, merchant name `muchs`, and one bank channel (12226,
+National Bank paybill 547700). The owner confirmed the provenance:
+*"The other traffic comes from BETWOIN LTD which is my other company"*, and
+asked for *"a serious isolation approach"*.
+
+This is the `docs/86` pattern, where the Africa's Talking app in use belongs
+to another product — but it is **not** the same failure. PayHero's
+`callback_url` is **per request**, not one-per-app, so sharing does not break
+callbacks the way it broke SMS delivery reports.
+
+The isolation is four rules, each enforced in code with tests:
+
+1. **Every LastDonor reference is minted as `LD-<uuid>`.** `initiateStkPush`
+   refuses anything else at the one place a reference reaches the wire.
+2. **A callback is acted on only if its `ExternalReference` matches a row this
+   platform wrote.** Anything else — BETWOIN's traffic, a replay, a forgery —
+   resolves to no row and is refused *before any network call*, so this route
+   cannot be used to probe their transactions either.
+3. **The status poll accepts only our reference, never PayHero's.** Handing an
+   arbitrary caller's string to PayHero's status endpoint would expose a shared
+   account, and that endpoint already leaks a stranger's transaction on a blank
+   reference.
+4. **Account-wide figures are never LastDonor figures.** The service wallet is
+   shared, so BETWOIN's fees draw on the same float.
+
+The settled amount is also checked against the amount requested before
+anything is booked. A mismatch is `critical` and **not** recorded, because on
+a shared account an amount mismatch is also what a reference collision would
+look like.
+
+---
+
+## Why the callback has no shared secret
+
+PayHero signs its callbacks with **nothing**: no HMAC, no shared secret, no
+timestamp. The API secret is not a signing key (see *Authentication*). So
+there is nothing to verify a body against, and a design that trusted the body
+would let anyone who learns the URL assert a donation by POSTing
+`{"response":{"Status":"Success","Amount":500000}}`.
+
+The route therefore reads **one** value from the body — the
+`ExternalReference` we minted — and `settlePayHeroRequest` asks PayHero over
+our own authenticated call what actually happened. This is exactly the shape
+`docs/81` settled for the Didit webhook, for the same reason.
+
+What it buys:
+
+- no secret to configure, rotate or leave unset, so the failure mode where an
+  unset secret silently disables payments cannot happen;
+- a forged request cannot assert an outcome — the worst it can do with a real
+  reference is make us re-read a status we are entitled to read;
+- a reference that is not ours changes nothing, which is also rule 2 above.
+
+What it costs: one outbound call per callback.
+
+It answers **200 to almost everything**, because a provider that receives a
+4xx or 5xx retries, and retrying cannot turn an unknown reference into a known
+one. Only a genuine failure on our side returns 5xx, so that a retry has
+something to accomplish.
+
+---
+
+## Settling is single-shot
+
+The callback and the donor's own status poll race routinely. Both call the
+same `settlePayHeroRequest`, which claims the row with
+`UPDATE … WHERE status = 'pending' RETURNING` — the pattern `docs/41`
+established for refunds. Of two concurrent settlements exactly one gets a row
+back, so exactly one records a donation. The unique index on
+`donations.stripe_payment_id` is the durable backstop underneath.
+
+### One writer, two gateways
+
+`processPaymentTransaction` and every side effect now take a provider-neutral
+`GatewayCharge` instead of a `Stripe.PaymentIntent`. `recordGatewayCharge` is
+the shared entry point; `processPaymentSuccess` is a thin Stripe adapter onto
+it with an unchanged signature, so the webhook route, the confirm route and
+their tests were untouched.
+
+`docs/41` established one writer for donation accounting after four
+independent refund implementations had drifted apart, three of them wrongly. A
+second gateway carrying its own copy of the campaign-tally, single-shot
+completion, fund-pool, echo-counter, receipt and notification logic would have
+recreated that, in the half of the code that moves money.
+
+### `stripe_payment_id` is now the provider-reference column
+
+Deliberately **not renamed**, and this is recorded as debt rather than
+defended. Its unique index is the only durable protection against a duplicate
+webhook creating a second donation row, CLAUDE.md forbids dropping it, and the
+rename is a 20-file mechanical change with no functional benefit to this work.
+Values are namespaced per provider so two gateways can never collide:
+`pi_…` (Stripe), `payhero_…` (PayHero), `seed_…` (fabricated rows — the
+precedent, set in `src/lib/seed/simulation-engine.ts`). **Read `provider` to
+know which; never pattern-match the prefix.**
+
+---
+
+## Three guards that stop a materially wrong amount of money
+
+1. **Withdrawals now check the campaign's currency, not only the connected
+   account's.** The existing guard compared the Connect account's settlement
+   currency against `PLATFORM_PAYOUT_CURRENCY`, which was complete while every
+   campaign was USD. A KES campaign whose creator happens to hold a
+   USD-settling account passed it, and `amount` — KES minor units — would go
+   to `transfers.create` under `'usd'`. **KES 100,000 raised would pay out
+   US$100,000, roughly 130× the money that exists**, from a platform balance
+   that does not hold it.
+
+2. **Every refund path checks the provider before calling Stripe.** All four
+   sites would have handed a `payhero_<reference>` to
+   `stripe.refunds.create`. PayHero exposes no refund API, so those are
+   reported as needing a manual refund: the ledger is still corrected, but
+   nobody is told the donor has been paid back when they have not.
+
+3. **`create-checkout` refuses a campaign Stripe is not the rail for.** It
+   hardcoded `currency: 'usd'` on both line-item branches; a KES campaign's
+   `unit_amount` would have been charged as dollars, roughly 130×, and
+   recorded against a shilling ledger with no FX layer to reconcile it.
+
+Guard 3's sibling in the write path was **found by a test, not by reasoning**.
+Checking only that the charge and campaign currencies *agree* let `'' === ''`
+through, and the first thing to fail was then `formatMoney` **inside** the
+transaction, after the donation row had been inserted — losing a real donation
+to a rollback whose error message was about string formatting. Both must now
+also be *supported*.
+
+---
+
+## Protecting a bystander's phone
+
+`POST /api/v1/donations/payhero/initiate` must be callable by a guest; guest
+donation is a core product requirement and the Stripe checkout route is public
+for the same reason. But unlike a card checkout, **this endpoint makes a phone
+number supplied in the request body ring.** The obvious abuse is not fraud
+against us:
+
+> An attacker posts a stranger's number repeatedly. The stranger's handset
+> fills with M-Pesa prompts they did not ask for. After 10 unanswered ones,
+> PayHero blocks that number from receiving STK pushes **for 24 hours** — so
+> the attacker has also denied a real person the ability to pay for anything
+> through any merchant on that provider. At 50 unanswered pushes in 6 hours,
+> PayHero restricts **our whole account**, taking down the platform's only
+> working payment rail.
+
+**An IP rate limit does not address this.** The protected party is the phone
+number, and a distributed caller changes IP freely while the victim's number
+stays the same. `docs/85` reached exactly this conclusion about six-digit
+codes — *"an IP rate limit does NOT protect a six-digit code"* — and put the
+counter on the row.
+
+So `src/lib/payhero-abuse-guard.ts` counts **per number**, in the database
+rather than in Redis: Upstash is best-effort in this codebase and a limit that
+evaporates is not a limit on something that ends in a 24-hour block for a
+bystander. Three rules:
+
+| Rule | Value |
+|---|---|
+| One live prompt at a time | while `pending` and younger than `PROMPT_LIFETIME_MS` |
+| Cooldown after a resolved attempt | 20s |
+| Ceiling per number per hour | **5** |
+
+The ceiling is deliberately **below** PayHero's 10: ours is a guard, theirs is
+a punishment, and this platform must never be the thing that gets a bystander
+blocked for a day.
+
+### Rate-limit tiers, and an ordering trap
+
+All three routes needed their own tier **placed before the
+`/api/v1/donations` line in both lookups** — the trap `docs/85` records for
+`sms` sitting ahead of `/api/v1/users`, since prefix matching is first-wins
+and a more specific tier placed after a more general one never fires.
+
+| Route | Tier | Why |
+|---|---|---|
+| `initiate` | **5/60s** | Tightest on the platform, alongside `sms`. The outer bound only; the real control is per number. |
+| `status` | **120/60s** | An honest donor polling a three-minute prompt every 5s makes ~36 requests. Under the `donations` tier (10/60s) they would be 429'd mid-payment — the same defect the `sms` tier once had, where five requests of ordinary use tripped a five-request limit. |
+| `callback` | **60/60s** | Provider traffic. Note the path says `callback`, not `webhook`, so it is **not** covered by the blanket `/webhook` exemption in `checkRateLimitAsync` — deliberately. |
+
+---
+
+## The donate page
+
+The campaign's currency chooses the rail, because the rails are not
+interchangeable. Offering both and letting the server refuse would show a
+donor a payment method that cannot work for the campaign in front of them.
+
+`MpesaDonationForm` is a separate component rather than a branch inside the
+1,000-line Stripe form, which is built around `loadStripe` and
+`EmbeddedCheckout` — neither of which can participate in an STK push.
+
+**The waiting screen is the design problem.** Nothing happens until the
+donor's attention moves from the page to their handset. Research on payment
+waits is consistent about where the damage comes from: not slowness, but not
+knowing whether to wait or walk away, and a payment step that looks
+unresponsive reads as a failure and shows up as drop-off rather than as a
+declined payment. So:
+
+- **"Check your phone"** is the heading, with the amount restated beside the
+  instruction;
+- a **live elapsed counter**, and deliberately **not a progress bar** — a bar
+  would be a lie, because we know neither how long the donor will take nor how
+  long the prompt lives;
+- an explicit **"do not start another payment"**, which matters more here than
+  on a card form: a second request is a second prompt on their handset, and
+  two unanswered prompts are two of the ten.
+
+The submit button carries the `useRef` latch `docs/42` put on the Stripe one,
+because React state is not synchronous and two taps in a tick both read the
+old value. A test taps three times and asserts exactly one request.
+
+**Failure copy names no single cause.** PayHero reports a cancelled prompt, an
+expired prompt and insufficient funds all as the one value `FAILED`. Picking
+one would mean telling a donor something they may know to be wrong, which is
+worse than telling them nothing.
+
+### `Money` takes `minor` and `currency` (amends `docs/47`)
+
+`cents` was accurate while the ledger was USD-only and becomes a 100× lie the
+moment a zero-decimal currency is enabled. Renamed across all 18 call sites.
+`currency` defaults to USD — correct for every figure rendered before this,
+wrong for every figure afterwards — so
+`src/components/ui/money-currency.ratchet.test.ts` counts the call sites that
+omit one, caps them at the current 18, and fails the build if that grows.
+
+---
+
+## Numbers, and whether they are measured or assumed
+
+| Value | Status |
+|---|---|
+| KES ceiling 250,000 per transaction | **Verified** — Safaricom published tariff, 2026-10-21. A larger push cannot succeed, so offering it would produce a failure the donor cannot act on. |
+| KES daily limit 500,000 per subscriber | **Verified**, same source. Not knowable from our side; handled in failure copy. |
+| PayHero fee: flat KES 8.9 | **Measured** on this account, 2026-10-21. Contradicts the published table (KES 6). |
+| KES floor 50 | **Decision**, now at a known cost of 17.8% absorbed. |
+| `PROMPT_LIFETIME_MS` = 3 min | **ASSUMED.** Published STK timeout figures disagree — 30s, 60s, "about 90", "1–3 minutes depending on the handset" — and none is from Safaricom's own documentation. Set at the long end: too long costs a donor a wait, too short costs two prompts on one handset. The live test settled in 18s because the owner approved quickly, so it **measured nothing**. |
+| Poll interval 5s | Convention from current M-Pesa integration guidance, not measured. |
+| Fee float ≈ 250 collections remaining | **Derived** from the measured flat fee and the observed balance. |
+
+---
+
+## Still open
+
+1. **Nothing is deployed.** The routes, the form and the callback exist only
+   on `claude/sharp-carson-c92fuf`. Production still cannot take an M-Pesa
+   donation through a browser. The callback URL is unreachable until it ships.
+2. **A KES campaign cannot be paid out.** Stripe Connect cannot settle KES,
+   and the withdrawal route now correctly refuses a non-USD campaign. A KES
+   campaign can be funded and not withdrawn. PayHero exposes a withdrawal
+   endpoint (`POST /api/v2/withdraw`) which has **not** been probed or built —
+   `docs/81` forbids shipping an unexercised provider path.
+3. **18 `<Money>` call sites still default to USD.** `CampaignCard`,
+   `SidebarDonationSummary`, `DonorFeed`, `ImpactTiers` and the admin payout
+   screens read amounts off campaign rows. While every live campaign is USD
+   they are correct; **the first published KES campaign makes them print
+   shilling figures with a dollar sign.** No KES campaign is live (the gateway
+   test campaign is archived), so nothing is wrong today. Must close before
+   one goes public.
+4. **The real prompt lifetime is unmeasured**, as above.
+5. **`areaServed: United States`** in `src/app/layout.tsx`, and
+   `/terms` stating a `$5.00 USD` minimum and `$100,000.00 USD` maximum, are
+   now incomplete rather than merely in tension with
+   `SMS_DEFAULT_REGION=KE` (which is what `docs/82` parked). The platform
+   collects shillings. Correcting public legal copy is an owner decision and
+   is flagged, not invented here.
+6. **PayHero's blank-reference leak** is reported upstream and unfixed. The
+   client guards against it; nothing else should rely on it being fixed.
+
+### Credentials found dead, 2026-10-21
+
+Verified at the start of the session, before any code was written:
+
+| Credential | Result |
+|---|---|
+| `RESEND_API_KEY` | **400 `API key is invalid`** — so no outbound mail works at all, including the donation receipt this work now sends. `docs/73` concluded mail delivery was healthy; that is no longer true. |
+| Cloudflare API token | **401 `Invalid API Token`** — the cron Worker of `docs/66` cannot be redeployed or inspected with it. |
+| Upstash credential | **401 `token contains an invalid number of segments`** — this looks like the wrong credential type for the management API rather than a dead key; the runtime `UPSTASH_REDIS_REST_*` pair was not supplied and is what rate limiting and cron locks actually use. |
+
+Namecheap's key reached the API and was refused only for an IP allow-list
+(expected from a sandbox). The direct `DATABASE_URL` could not be verified
+from here at all: raw Postgres cannot traverse this environment's
+TLS-inspecting proxy, which establishes a CONNECT tunnel and then waits for a
+TLS ClientHello while Postgres sends a plaintext 8-byte SSLRequest first. All
+database work in this session went over the Supabase HTTPS SQL endpoint.
+
+---
+
+## A note on method
+
+Four of the behaviours in *What PayHero actually does* are absent from or
+contradict the published documentation, and both corrections in this document
+came from a single real KES 50 payment rather than from reading. The pattern is
+now established across `docs/84` (Africa's Talking answers 201 for a failed
+send), `docs/66` (an IP allow-list advised from the wrong egress address),
+`docs/90` (a feed list "verified" from a laptop would have deleted nine
+working feeds) and this one.
+
+**A provider's documentation describes the API they meant to build.** For
+anything that moves money, the only trustworthy source is a request you made
+yourself, against the account you will actually use, from the place the calls
+will actually come from.

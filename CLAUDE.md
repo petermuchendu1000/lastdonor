@@ -103,6 +103,7 @@ transcript or a commit message is lost.
 | `88-ADMIN-AUDIT.md` | **Admin audit: 17 defects found, 11 bug classes CLEAN. FIXED+DEPLOYED 2026-10-17: F1 (`/admin/verification` now renders the queue that can actually approve - the API was always correct, only the door was missing; `VerificationDashboard` deleted), F7 (Didit manual-review campaigns no longer filtered out), F6 (dashboard pending-review filtered on 3 values, 2 unmatchable - now `status='under_review'` alone, section always renders), F13 (DELETE now 409s on any non-draft; it used to hard-delete active/completed/under_review), F12 (`realDonationCount` renamed - it never filtered by source), F2 (admin could NOT open any identity document: `fileUrl` is a `supabase-private://` ref and the queue used it as an href; a new GET on the doc route signs + 302s, proven live 302 -> 200 application/pdf), F3 (508-line dead FundReleaseDashboard deleted), F4+F5 (admin had FIVE currency implementations and none used `Money`; `/admin/payouts` rendered $1,250.5 and $1,200 while `/admin` showed $1,250.50 for the SAME row - all now go through `Money`/`centsToDollars`, with PipelineMonitor and SystemSettings' editable input deliberately exempt), F15 (every period boundary was the SERVER's zone while labelled "Today" - now `src/lib/reporting-timezone.ts`, `REPORTING_TIMEZONE` default UTC, and the screens name the zone), F16 (ALL EIGHT capped admin lists stated two totals at once - `/admin/users` said "of 200" with 239 in the table; `ListCount` now prints the page range, the loaded count and the true count, and warns that browser-side search only sees the loaded rows), F18 (half withdrawn - `/admin/audit-log` already scrolled correctly; six tables in four components genuinely had no scroll wrapper), F8 (`/admin/campaigns` fetched the WHOLE table and tallied its tiles in JS over it: 222 campaigns meant 793KB of HTML and a 15,633px page - now capped at 200 with tiles from `GROUP BY status`, because capping alone would have made the tiles lie), F10 (`/api/v1/admin/dashboard` deleted: no callers, and three divergent shapes between the spec, the route and the page), F14 (SIXTEEN inert `revalidate` exports removed - the admin layout's `force-dynamic` governs the subtree, and FOUR of those pages never call `auth()` at all, so that layout line is load-bearing: do NOT add `revalidate` to an admin page). F9 (`/admin/simulation` was not merely inert - it took 15.8s and rendered the ERROR BOUNDARY inside a 200, which is why the pass-1 status-code sweep missed it; it now names all THREE independent blockers, read from the env var, `CRON_JOBS` and the latest `cron.%` audit row, and its query fan-out exceeded the 5-connection pool and triggered the sixth wedge - see docs/87 amendment 4). Every numbered pass-1 finding is now closed. STILL OPEN: pass-2 gaps (12 of 24 pages unmeasured at 390px, per-screen copy, non-campaign write actions). Read N1-N11 before re-checking anything.** |
 | `90-NEWS-SOURCE-COVERAGE-ADR.md` | **The GNews replacement, and the 48 dead RSS feeds nobody could see. Measured from the PRODUCTION machine: 72 of 125 feeds live, 5 answering 200 with no items, 48 dead - both wire services gone (`feeds.reuters.com` NXDOMAIN, `feeds.apnews.com` no A record) and ALL FIVE first-responder feeds dead in a category the platform runs campaigns for. The same probe from the sandbox said 49 live / 72 dead because BBC, Guardian, NYT and LA Times 403 the sandbox proxy and 200 from Fly - a list "verified" from a laptop would have deleted nine working feeds. A browser `User-Agent` + `Accept` changed nothing: the blocking is IP/ASN-level. GNews itself covers 37 countries (its own OpenAPI spec) and Egypt is the only African one; NewsData.io is the recommended replacement (any ISO 3166-1 code, 5 per request, 200 credits/day) but is NOT BUILT - no key exists and docs/81 forbids an unexercised provider path. Google News RSS rejected (links are opaque `CBMi…` tokens returning 584KB of JS, not article URLs); GDELT rejected (429 on 3 of 5 requests from Fly at 16-21s spacing). Also: `fetchGNewsArticles` swallowed every error and returned `[]`, so blackout detection for GNews was DEAD CODE. Read before touching `rss-parser.ts`, `gnews-client.ts` or adding a news source.** |
 | `91-SOCIAL-PLACEHOLDERS-ADR.md` | **Footer socials as placeholders (X, Instagram, Facebook, LinkedIn, TikTok, YouTube, WhatsApp) without reopening docs/76. The distinction the whole thing rests on: a footer link is a link, but `sameAs` is a machine-readable claim that we OWN that account - so a placeholder (`href: null`) renders as inert text in the footer and is absent from `sameAs` entirely. `layout.tsx` reads `PUBLISHED_SOCIAL_LINKS`, never `SOCIAL_LINKS`, and two tests read the call sites as TEXT because the type system stops complaining the moment someone writes `l.href!`. Placeholders are deliberately visible on the live site (owner's call, over the safer hidden-until-real option) and are text not brand icons, because the icon system is stroke-only (docs/70) and all seven marks are filled. Read before adding a social link or a brand SVG.** |
+| `92-PAYHERO-GATEWAY-AND-MULTI-CURRENCY-ADR.md` | **THE PLATFORM CAN TAKE MONEY — KES 50 collected over M-Pesa and recorded 2026-10-21, the first donation in this codebase's history (supersedes the docs/72 blocker on the KES rail; Stripe is still dead). A multi-currency ledger: a campaign has ONE currency, enforced by a COMPOSITE FK on `(campaign_id, currency)`, which also makes a campaign's currency immutable once money arrives. Four probed PayHero traps, every one absent from or contradicting its docs: `success: true` does NOT mean the payment succeeded (observed alongside `status: "FAILED"`); a BLANK `reference` returns HTTP 200 with ANOTHER MERCHANT'S transaction; our `external_reference` is not a lookup key (404), so PayHero's reference MUST be persisted or the payment is unverifiable; 4xx bodies arrive as `text/plain` carrying JSON under two different error schemas. The callback has NO shared secret because PayHero signs with nothing — it reads one id and re-fetches the outcome (docs/81 shape). Isolated from BETWOIN LTD, the owner's other company on the same account, by an `LD-` reference namespace. Per-PHONE abuse limiting in the database, because an attacker spamming a stranger's number gets that bystander blocked by PayHero for 24h and an IP limit cannot stop it (docs/85). Three guards against a ~130x wrong payout. Also corrects two of its own claims from the live test: the published fee table is wrong (flat KES 8.9, not KES 6, so 17.8% absorbed at the floor) and the service wallet is a FEE FLOAT that collections DRAIN (~250 collections of headroom), not collected funds. Read before touching money, currency, or either gateway.** |
 | `89-ECHO-COUNTERS-AT-THE-SOURCE.md` | **The echo counters are incremented where the rows are written now - use `insertCampaignUpdate`/`insertCampaignMessage` from `src/lib/echo-counters.ts`, never a direct insert (a ratchet enforces it). Found because a reconcile prediction was WRONG: predicted 1 fix, got 4, because `update-phases` had started running two hours earlier and wrote three updates without touching `update_count`. Also records how adding one `server-only` import broke FIVE suites at collection while the summary still read '5898 passed' - 80 tests silently not running - now fixed by aliasing `server-only` in `vitest.config.ts`.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
@@ -114,7 +115,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (5546 tests, 144 files, as of 2026-10-16)
+npm run test:unit      # Vitest (6236 tests, 183 files, as of 2026-10-21)
 npm run test:e2e       # Playwright (72 tests, 21 files)
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline
@@ -206,6 +207,40 @@ These exist for a reason; changing them has consequences beyond the local file.
   queries (FILTER aggregates and scalar subqueries usually turn several
   counts into one round trip) or run a second batch after the first.
   Do not raise the number to make a page pass.
+
+- **A campaign has exactly one currency, and two currencies are never added
+  together.** Added 2026-10-21, see `docs/92`. Every amount column is an
+  INTEGER in the MINOR units of its row's currency — not "cents", because
+  UGX, RWF, XOF and XAF are zero-decimal and dividing those by 100
+  understates them 100x. `donations` and `payhero_payment_requests` each
+  carry a **composite foreign key** on `(campaign_id, currency)` referencing
+  `campaigns (id, currency)`, which makes the rule a database guarantee and
+  makes a campaign's currency **immutable once any donation exists**. Get a
+  currency's exponent and bounds from `src/lib/money/currencies.ts`; render
+  through `formatMoney` or `<Money minor currency>`. `getCurrency` throws on
+  an unknown code rather than defaulting to USD, because a shilling figure
+  with a dollar sign still looks like money. Where a cross-currency total is
+  wanted, report per currency — never sum.
+
+- **`donations.stripe_payment_id` is the provider-reference column for every
+  gateway**, and `donations.provider` says which. Values are namespaced
+  (`pi_…`, `payhero_…`, `seed_…`) so two gateways cannot collide in the
+  unique index that is the platform's only replay guard. **Read `provider`
+  before calling any gateway API** — handing a `payhero_…` reference to
+  `stripe.refunds.create` is the bug all four refund paths had. The column's
+  name is a known misnomer, recorded as debt in `docs/92`.
+
+- **A PayHero outcome is never read from a callback body.** PayHero signs its
+  callbacks with nothing at all, so `settlePayHeroRequest` reads only the
+  `ExternalReference` we minted and then asks PayHero over our own
+  authenticated call. Same shape as the Didit webhook (`docs/81`). It also
+  refuses any reference outside the `LD-` namespace, which is what isolates
+  this platform's money on an account shared with BETWOIN LTD.
+
+- **Never call PayHero's `transaction-status` with a blank reference.** It
+  answers HTTP 200 with a DIFFERENT MERCHANT'S transaction (probed four
+  times, 2026-10-21). `getTransactionStatus` refuses an empty reference
+  before building a request; do not add a fallback.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

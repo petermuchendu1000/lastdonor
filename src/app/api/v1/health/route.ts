@@ -3,6 +3,20 @@ import { db } from '@/db';
 import { sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { pingRedis } from '@/lib/locks';
+import { getWalletBalance, isPayHeroConfigured } from '@/lib/payhero';
+
+/**
+ * What PayHero actually charges this account per collection, in KES.
+ *
+ * Measured, not read off the published fee table: `GET /api/transaction_fees`
+ * advertises KES 6 for the 50-499 band, and the real charge on a KES 50
+ * collection was KES 8.9 - the same as on two earlier KES 200 collections, so
+ * it is flat rather than tiered. docs/92.
+ */
+const PAYHERO_FEE_PER_COLLECTION = 8.9;
+
+/** Report a low float while there is still time to top it up. */
+const LOW_FLOAT_COLLECTIONS = 25;
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +71,71 @@ export async function GET() {
       latencyMs: Date.now() - stripeStart,
       error: 'Payment service check failed',
     };
+  }
+
+  /*
+    PayHero / FinoQ - the KES collection rail (docs/92).
+
+    Checked here for the reason docs/72 gives: a dead Stripe key made every
+    donation fail for three weeks while this endpoint correctly reported
+    `degraded` and nobody read it. The second rail gets the same visibility
+    from the start rather than after its own three weeks.
+
+    Two distinct failures are reported, because they need different responses:
+    absent credentials are a deploy mistake, and a rejected credential is an
+    account problem.
+
+    **The float matters as much as reachability.** Measured on the first real
+    collection: PayHero debits the service wallet a flat KES 8.9 per
+    collection and the donation itself settles to the bank channel, so the
+    service wallet is a FEE FLOAT that collections drain. When it runs out,
+    collections fail - not loudly, and not for a reason any donor could act
+    on. So a low float is reported as an error here while it is still fixable.
+
+    **No figures are returned.** This route is in `PUBLIC_API_ROUTES`, and the
+    balance belongs to an account shared with BETWOIN LTD - publishing it
+    would leak another company's operating float to anyone who curls this
+    URL. Only a derived state crosses the boundary.
+  */
+  const payheroStart = Date.now();
+  if (!isPayHeroConfigured()) {
+    checks.payhero = {
+      status: 'error',
+      error:
+        'PayHero not configured (PAYHERO_API_USERNAME/PASSWORD/CHANNEL_ID unset); ' +
+        'M-Pesa donations cannot be collected',
+    };
+    console.error('[health] PayHero is not configured; the KES rail is down.');
+  } else {
+    try {
+      const wallet = await getWalletBalance();
+      const collectionsRemaining = Math.floor(wallet.availableBalance / PAYHERO_FEE_PER_COLLECTION);
+
+      checks.payhero =
+        collectionsRemaining >= LOW_FLOAT_COLLECTIONS
+          ? { status: 'ok', latencyMs: Date.now() - payheroStart }
+          : {
+              status: 'error',
+              latencyMs: Date.now() - payheroStart,
+              // A count, not a balance: enough to act on, nothing to leak.
+              error:
+                `PayHero fee float is low (roughly ${collectionsRemaining} more collections ` +
+                'before M-Pesa donations start failing). Top up the service wallet.',
+            };
+
+      if (collectionsRemaining < LOW_FLOAT_COLLECTIONS) {
+        console.error(
+          `[health] PayHero fee float is low: ~${collectionsRemaining} collections remaining.`,
+        );
+      }
+    } catch (err) {
+      console.error('[health] PayHero check failed:', err instanceof Error ? err.message : err);
+      checks.payhero = {
+        status: 'error',
+        latencyMs: Date.now() - payheroStart,
+        error: 'M-Pesa collection service check failed',
+      };
+    }
   }
 
   // Redis (Upstash) check - backs distributed rate limiting and cron locks.
