@@ -122,6 +122,7 @@ export async function POST(
       id: campaigns.id,
       creatorId: campaigns.creatorId,
       title: campaigns.title,
+      currency: campaigns.currency,
     })
     .from(campaigns)
     .where(eq(campaigns.id, campaignId))
@@ -169,6 +170,44 @@ export async function POST(
   // zero-decimal currency such as JPY the factor is 100x in the other
   // direction. There is no FX conversion anywhere in this codebase, so the
   // only safe answer is to refuse rather than guess.
+  /*
+    ── The campaign's own currency, which the guard below did not check ──────
+    //
+    The guard that follows compares the CONNECTED ACCOUNT's settlement
+    currency against the platform payout currency. That was complete while
+    every campaign was USD, because then the ledger integer and the transfer
+    currency could not disagree.
+
+    Once a campaign can raise KES, they can. A Kenyan campaign whose creator
+    happens to hold a USD-settling Connect account passes the account check
+    and then hands `amount` - KES minor units - to `transfers.create` under
+    'usd'. KES 100,000 raised (10,000,000 minor units) would pay out
+    US$100,000, roughly 130x the money that exists, from a platform balance
+    that does not hold it.
+
+    There is still no FX anywhere in this codebase, and Stripe Connect cannot
+    settle KES to a Kenyan account in any case. So a non-USD campaign is
+    refused here and paid out by another route when one exists. Recorded as a
+    known gap in docs/92: a KES campaign can be funded but not yet withdrawn.
+  */
+  const campaignCurrency = (campaign.currency ?? '').toUpperCase();
+  if (campaignCurrency !== PLATFORM_PAYOUT_CURRENCY.toUpperCase()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'WRONG_PAYMENT_RAIL',
+          message:
+            `This campaign raises funds in ${campaignCurrency || 'an unknown currency'}, and ` +
+            `withdrawals can currently only be paid in ${PLATFORM_PAYOUT_CURRENCY.toUpperCase()}. ` +
+            'Please contact support@lastdonor.org so we can arrange your payout - no funds have been moved.',
+          requestId,
+        },
+      } satisfies ApiError,
+      { status: 400 },
+    );
+  }
+
   const payoutCurrency = (user.payoutCurrency ?? PLATFORM_PAYOUT_CURRENCY).toLowerCase();
   if (!isSupportedPayoutCurrency(payoutCurrency)) {
     return NextResponse.json(

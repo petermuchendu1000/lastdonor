@@ -25,9 +25,42 @@ import { donationReceiptEmail } from '@/lib/email-templates';
 import { formatDocumentRequirementsHtml } from '@/lib/document-requirements';
 import { logError } from '@/lib/errors';
 import { safeAsync } from '@/lib/api-handler';
+import { assertSameCurrency, isSupportedCurrency, normaliseCurrencyCode } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
 import type Stripe from 'stripe';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+/**
+ * One settled payment, as any gateway describes it.
+ *
+ * This type is what lets a second gateway reuse the donation write path
+ * instead of copying it. Everything below `recordGatewayCharge` is written
+ * against this and knows nothing about Stripe or PayHero.
+ *
+ * That matters more here than it would elsewhere: `docs/41` established one
+ * writer for donation accounting after four independent refund
+ * implementations had drifted apart, three of them wrongly. A second gateway
+ * with its own copy of the campaign-tally, completion, fund-pool,
+ * echo-counter, receipt and notification logic would recreate exactly that
+ * problem, in the half of the code that moves money rather than the half that
+ * reports it.
+ */
+export interface GatewayCharge {
+  /** Which gateway took the money. Decides what can later be done with it. */
+  provider: 'stripe' | 'payhero';
+  /**
+   * The gateway's own reference, already namespaced for the provider
+   * (`pi_…`, `payhero_…`). Stored in `donations.stripe_payment_id`, whose
+   * unique index is the only durable replay guard on the platform.
+   */
+  providerRef: string;
+  /** Amount in the MINOR units of `currency`. */
+  amountMinor: number;
+  /** ISO 4217 code. Must match the campaign's, or nothing is written. */
+  currency: string;
+  metadata: PaymentMetadata;
+}
 
 interface PaymentMetadata {
   campaignId: string;
@@ -143,13 +176,26 @@ async function extractMetadata(
 // ─── Core Transaction ───────────────────────────────────────────────────────
 
 async function processPaymentTransaction(
-  paymentIntent: Stripe.PaymentIntent,
-  meta: PaymentMetadata,
+  charge: GatewayCharge,
   campaign: typeof campaigns.$inferSelect,
   userId: string | null,
 ): Promise<TransactionResult | null> {
+  const meta = charge.metadata;
   const { campaignId, donorName, donorLocation, message, isAnonymous, isRecurring } = meta;
-  const amount = paymentIntent.amount;
+  const amount = charge.amountMinor;
+  const currency = normaliseCurrencyCode(charge.currency);
+
+  /*
+    The arithmetic below adds `amount` to `campaign.raisedAmount` and compares
+    the result against `campaign.goalAmount`. That is only meaningful if all
+    three are in the same currency. The composite foreign key on
+    (campaign_id, currency) would reject the INSERT anyway, but by then the
+    transaction has opened and the error arrives as a constraint violation
+    rather than as the thing that is actually wrong. Checked here so the
+    failure names itself.
+  */
+  assertSameCurrency(currency, campaign.currency, `donation on campaign ${campaignId}`);
+
   // Compute phase from post-increment value to avoid stale reads under concurrency
   const phase = getCampaignPhase(campaign.raisedAmount + amount, campaign.goalAmount);
 
@@ -158,7 +204,9 @@ async function processPaymentTransaction(
     const insertResult = await tx.insert(donations).values({
       campaignId,
       userId,
-      stripePaymentId: paymentIntent.id,
+      stripePaymentId: charge.providerRef,
+      provider: charge.provider,
+      currency,
       amount,
       donorName,
       donorEmail: meta.donorEmail,
@@ -239,7 +287,13 @@ async function processPaymentTransaction(
         await insertCampaignUpdate({
           campaignId,
           title: 'Campaign Goal Reached!',
-          bodyHtml: `<p><strong>${lastDonorDisplay}</strong> just made the final donation of $${(amount / 100).toFixed(2)}, pushing this campaign past its goal of $${(goalAmount / 100).toFixed(2)}!</p><p>Thank you to every single donor who made this possible. This campaign has now been fully funded.</p>`,
+          /*
+            Formatted through the currency registry, not with a `$` and a
+            division by 100. This string is published on the campaign page, so
+            a KES campaign used to announce its own completion in dollars -
+            and a zero-decimal currency would have been understated 100x.
+          */
+          bodyHtml: `<p><strong>${lastDonorDisplay}</strong> just made the final donation of ${formatMoney(amount, currency, 'exact')}, pushing this campaign past its goal of ${formatMoney(goalAmount, currency, 'exact')}!</p><p>Thank you to every single donor who made this possible. This campaign has now been fully funded.</p>`,
           updateType: 'celebration',
         }, tx);
       }
@@ -262,7 +316,18 @@ async function processPaymentTransaction(
       actorId: userId,
       targetType: 'donation',
       targetId: campaignId,
-      details: { amount, campaignId, stripePaymentId: paymentIntent.id, phase, isAnonymous },
+      details: {
+        amount,
+        currency,
+        provider: charge.provider,
+        campaignId,
+        providerRef: charge.providerRef,
+        // Kept under the old key as well: queries and dashboards written
+        // against `stripePaymentId` predate there being a second gateway.
+        stripePaymentId: charge.providerRef,
+        phase,
+        isAnonymous,
+      },
       severity: 'info',
     });
 
@@ -280,7 +345,7 @@ async function processPaymentTransaction(
         targetType: 'donation',
         targetId: donationId,
         severity: 'info',
-        details: { amount, campaignId, paymentIntentId: paymentIntent.id },
+        details: { amount, currency, provider: charge.provider, campaignId, providerRef: charge.providerRef },
       });
     }
 
@@ -304,16 +369,17 @@ async function processPaymentTransaction(
 // ─── Post-Transaction Side Effects ──────────────────────────────────────────
 
 async function handlePostPaymentEffects(
-  paymentIntent: Stripe.PaymentIntent,
-  meta: PaymentMetadata,
+  charge: GatewayCharge,
   campaign: typeof campaigns.$inferSelect,
   userId: string | null,
   txResult: TransactionResult,
 ) {
+  const meta = charge.metadata;
   const { campaignId, donorName, donorEmail, isAnonymous, message: _message, subscribedToUpdates } = meta;
-  const amount = paymentIntent.amount;
+  const amount = charge.amountMinor;
+  const currency = normaliseCurrencyCode(charge.currency);
   const { newRaised: _newRaised, goalAmount, justCompleted, donorCount, isFirstDonation } = txResult;
-  const requestCtx = { requestId: paymentIntent.id, userId: userId ?? undefined };
+  const requestCtx = { requestId: charge.providerRef, userId: userId ?? undefined };
 
   // Campaign subscription (fire-and-forget)
   if (subscribedToUpdates && donorEmail) {
@@ -331,13 +397,13 @@ async function handlePostPaymentEffects(
 
   // Receipt email (fire-and-forget)
   safeAsync(
-    sendDonationReceipt({ paymentIntent, meta, campaign, userId }),
+    sendDonationReceipt({ charge, campaign, userId }),
     'webhook/receipt-email', requestCtx,
   );
 
   // Admin + creator notifications (fire-and-forget)
   safeAsync(
-    sendDonationNotifications({ meta, campaign, amount }),
+    sendDonationNotifications({ meta, campaign, amount, currency }),
     'webhook/donation-notifications', requestCtx,
   );
 
@@ -357,7 +423,7 @@ async function handlePostPaymentEffects(
         creatorName: creator.name || 'Campaigner',
         campaignTitle: campaign.title,
         campaignSlug: campaign.slug,
-        donorName, amount, isAnonymous,
+        donorName, amount, currency, isAnonymous,
       }),
       'webhook/first-donation', requestCtx,
     );
@@ -373,6 +439,7 @@ async function handlePostPaymentEffects(
         campaignTitle: campaign.title,
         campaignSlug: campaign.slug,
         goalAmount,
+        currency,
         donorCount,
         documentRequirementsHtml: formatDocumentRequirementsHtml(
           campaign.category,
@@ -404,13 +471,13 @@ async function fetchCreator(creatorId: string) {
  * counter, so this function reports the failure and then rethrows.
  */
 export async function sendDonationReceipt({
-  paymentIntent, meta, campaign, userId,
+  charge, campaign, userId,
 }: {
-  paymentIntent: Stripe.PaymentIntent;
-  meta: PaymentMetadata;
+  charge: GatewayCharge;
   campaign: typeof campaigns.$inferSelect;
   userId: string | null;
 }) {
+  const meta = charge.metadata;
   // Check user email preferences
   if (userId) {
     const [userData] = await db
@@ -423,7 +490,7 @@ export async function sendDonationReceipt({
   }
 
   if (!meta.donorEmail) return;
-  const amount = paymentIntent.amount;
+  const amount = charge.amountMinor;
 
   // The Resend SDK never throws: it resolves `{ data: null, error }` for every
   // non-2xx AND from inside its own catch, so without `isFailure` this loop
@@ -447,7 +514,14 @@ export async function sendDonationReceipt({
         donorName: meta.donorName,
         isAnonymous: meta.isAnonymous,
         amount,
-        transactionId: paymentIntent.id,
+        /*
+          A receipt is a factual statement about money. Without the currency
+          it rendered every amount with a `$`, so a KES 50 gift would have
+          been receipted as "$50.00" - not a formatting slip but a wrong
+          figure, off by the exchange rate, in the one document a donor keeps.
+        */
+        currency: normaliseCurrencyCode(charge.currency),
+        transactionId: charge.providerRef,
       }),
     }),
     {
@@ -467,12 +541,12 @@ export async function sendDonationReceipt({
     // receipt-state column (blocked on the migration repair - docs/29 §2) this
     // report is the only record that a donor never got their receipt.
     logError(failure, {
-      requestId: paymentIntent.id,
+      requestId: charge.providerRef,
       route: 'webhook/receipt-email',
       userId: userId ?? undefined,
       input: {
         campaignId: campaign.id,
-        stripePaymentId: paymentIntent.id,
+        stripePaymentId: charge.providerRef,
         donorEmail: meta.donorEmail,
         resendErrorName: name ?? 'unknown',
         attempts: 3,
@@ -485,11 +559,12 @@ export async function sendDonationReceipt({
 }
 
 async function sendDonationNotifications({
-  meta, campaign, amount,
+  meta, campaign, amount, currency,
 }: {
   meta: PaymentMetadata;
   campaign: typeof campaigns.$inferSelect;
   amount: number;
+  currency: string;
 }) {
   await notifyAdminsDonationReceived({
     campaignId: meta.campaignId,
@@ -497,6 +572,7 @@ async function sendDonationNotifications({
     campaignTitle: campaign.title,
     donorName: meta.donorName,
     amount,
+    currency,
     isAnonymous: meta.isAnonymous,
     message: meta.message,
     excludeUserId: campaign.creatorId ?? undefined,
@@ -510,6 +586,7 @@ async function sendDonationNotifications({
       campaignSlug: campaign.slug,
       donorName: meta.donorName,
       amount,
+      currency,
       isAnonymous: meta.isAnonymous,
       message: meta.message,
     });
@@ -673,9 +750,18 @@ export async function applyRefund(params: ApplyRefundParams): Promise<AppliedRef
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
-  const meta = await extractMetadata(paymentIntent);
-  if (!meta) return;
+/**
+ * Record one settled payment, whichever gateway took it.
+ *
+ * The provider-neutral entry point. `processPaymentSuccess` below is the
+ * Stripe adapter onto it; the PayHero callback route is the other caller.
+ * Everything that makes a donation a donation — the campaign tally, the
+ * single-shot completion, user stats, the audit row, fund-pool allocation,
+ * the echo counters, the receipt and the notifications — happens here once,
+ * for both rails.
+ */
+export async function recordGatewayCharge(charge: GatewayCharge) {
+  const meta = charge.metadata;
 
   // Fetch campaign
   const [campaign] = await db
@@ -687,8 +773,58 @@ export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent)
   if (!campaign) {
     logError(
       new Error(`Campaign not found: ${meta.campaignId}`),
-      { requestId: paymentIntent.id, route: 'webhook/payment-service' },
+      { requestId: charge.providerRef, route: 'webhook/payment-service' },
     );
+    return;
+  }
+
+  /*
+    A charge in a currency the campaign does not raise in must never be
+    recorded. The composite FK on (campaign_id, currency) would reject the
+    INSERT, but refusing here means the money is flagged for a human instead
+    of surfacing as a constraint violation in a log nobody reads - and the
+    money HAS already moved by the time we are called.
+  */
+  /*
+    Both conditions, not just the mismatch.
+
+    Checking only that the two agree leaves a hole: if the gateway reports no
+    currency at all and the campaign row is also blank, `'' === ''` passes and
+    the write proceeds with a currency nothing can format. The first thing to
+    fail was then `formatMoney` inside the transaction, *after* the donation
+    row had been inserted — so a legitimate donation was lost to a rollback
+    whose error message was about string formatting. Found by an existing test
+    whose fixtures carried no currency, which is exactly the shape of a
+    gateway that stops sending one.
+  */
+  if (
+    !isSupportedCurrency(charge.currency) ||
+    !isSupportedCurrency(campaign.currency) ||
+    normaliseCurrencyCode(charge.currency) !== normaliseCurrencyCode(campaign.currency)
+  ) {
+    logError(
+      new Error(
+        `Currency mismatch: ${charge.provider} charged ${charge.currency} ` +
+          `on campaign ${campaign.id}, which raises ${campaign.currency}. Donation NOT recorded.`,
+      ),
+      { requestId: charge.providerRef, route: 'webhook/payment-service#currency' },
+    );
+    await db.insert(auditLogs).values({
+      eventType: 'donation.currency_mismatch',
+      targetType: 'donation',
+      targetId: campaign.id,
+      severity: 'critical',
+      details: {
+        provider: charge.provider,
+        providerRef: charge.providerRef,
+        chargedCurrency: charge.currency,
+        campaignCurrency: campaign.currency,
+        chargeCurrencySupported: isSupportedCurrency(charge.currency),
+        campaignCurrencySupported: isSupportedCurrency(campaign.currency),
+        amount: charge.amountMinor,
+        note: 'Money moved but no donation row was written. Needs manual reconciliation.',
+      },
+    });
     return;
   }
 
@@ -696,17 +832,48 @@ export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent)
   if (campaign.status === 'completed') {
     logError(
       new Error(`Donation on completed campaign - refunding: ${meta.campaignId}`),
-      { requestId: paymentIntent.id, route: 'webhook/payment-service' },
+      { requestId: charge.providerRef, route: 'webhook/payment-service' },
     );
-    try {
-      // Idempotency key: a retried delivery of the same PaymentIntent must not
-      // create a second refund object at Stripe.
-      await stripe.refunds.create(
-        { payment_intent: paymentIntent.id },
-        { idempotencyKey: `refund:auto:${paymentIntent.id}` },
-      );
-    } catch (refundError) {
-      logError(refundError, { requestId: paymentIntent.id, route: 'webhook/auto-refund' });
+
+    /*
+      Only Stripe can be refunded from here. PayHero exposes no refund API
+      (its only outbound endpoint is a withdrawal to a separate beneficiary),
+      so an M-Pesa gift that lands after a campaign completes cannot be sent
+      back automatically.
+
+      Returning silently would be the worst option: the donor's money is in
+      the platform's wallet with no donation row and no record that anyone
+      owes it back. So it is written down at `critical` severity for a human
+      to act on. The initiation route narrows the window by refusing a
+      completed campaign before the prompt is sent, but the window is real -
+      it is as long as the donor takes to enter a PIN.
+    */
+    if (charge.provider === 'stripe') {
+      try {
+        // Idempotency key: a retried delivery of the same PaymentIntent must
+        // not create a second refund object at Stripe.
+        await stripe.refunds.create(
+          { payment_intent: charge.providerRef },
+          { idempotencyKey: `refund:auto:${charge.providerRef}` },
+        );
+      } catch (refundError) {
+        logError(refundError, { requestId: charge.providerRef, route: 'webhook/auto-refund' });
+      }
+    } else {
+      await db.insert(auditLogs).values({
+        eventType: 'donation.manual_refund_required',
+        targetType: 'donation',
+        targetId: campaign.id,
+        severity: 'critical',
+        details: {
+          provider: charge.provider,
+          providerRef: charge.providerRef,
+          amount: charge.amountMinor,
+          currency: charge.currency,
+          donorEmail: meta.donorEmail,
+          reason: 'Payment settled on an already-completed campaign and this gateway has no refund API.',
+        },
+      });
     }
     return;
   }
@@ -716,11 +883,35 @@ export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent)
   const userId = user?.id ?? null;
 
   // Core transaction
-  const txResult = await processPaymentTransaction(paymentIntent, meta, campaign, userId);
+  const txResult = await processPaymentTransaction(charge, campaign, userId);
   if (!txResult) return; // Duplicate webhook
 
   // Side effects (non-blocking where possible)
-  await handlePostPaymentEffects(paymentIntent, meta, campaign, userId, txResult);
+  await handlePostPaymentEffects(charge, campaign, userId, txResult);
+}
+
+/**
+ * Stripe adapter onto `recordGatewayCharge`.
+ *
+ * Signature deliberately unchanged, so the webhook route, the confirm route
+ * and their tests are untouched by the multi-gateway work.
+ */
+export async function processPaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
+  const meta = await extractMetadata(paymentIntent);
+  if (!meta) return;
+
+  await recordGatewayCharge({
+    provider: 'stripe',
+    providerRef: paymentIntent.id,
+    amountMinor: paymentIntent.amount,
+    /*
+      Read from the PaymentIntent, which is what Stripe actually charged, not
+      from our own metadata copy - the two could disagree and only one of them
+      debited a card. Stripe reports lowercase; the registry is uppercase.
+    */
+    currency: normaliseCurrencyCode(paymentIntent.currency),
+    metadata: meta,
+  });
 }
 
 export async function processPaymentFailed(paymentIntent: Stripe.PaymentIntent) {

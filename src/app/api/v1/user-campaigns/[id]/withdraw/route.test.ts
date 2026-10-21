@@ -194,6 +194,10 @@ beforeEach(() => {
       id: CAMPAIGN_ID,
       creatorId: CREATOR_ID,
       title: 'Help Maria',
+      // Required since migration 0005: the route refuses a campaign whose
+      // currency is not the payout currency, because the ledger integer and
+      // the Stripe transfer currency must not be able to disagree.
+      currency: 'USD',
       status: 'active',
       verificationStatus: 'fully_verified',
       totalReleasedAmount: 50_000,
@@ -508,5 +512,55 @@ describe('POST /api/v1/user-campaigns/[id]/withdraw - transfer error classificat
     const freed = await POST(request(10_000, '00000000-0000-4000-8000-000000000047'), params);
     // A definite failure really does free the funds again.
     expect(freed.status).not.toBe(400);
+  });
+});
+
+/*
+  ── The currency guard (docs/92) ──────────────────────────────────────────
+
+  The route already refused a connected account that settles in a currency
+  other than USD. That was complete while every campaign was USD, because
+  then the ledger integer and the transfer currency could not disagree.
+
+  Once a campaign can raise KES they can, and the account check does not
+  catch it: a Kenyan campaign whose creator happens to hold a USD-settling
+  Connect account passed it, and then `amount` - KES minor units - went to
+  transfers.create under 'usd'. KES 100,000 raised would have paid out
+  US$100,000, roughly 130x the money that exists, from a platform balance
+  that does not hold it. There is no FX anywhere in this codebase.
+*/
+describe('POST /api/v1/user-campaigns/[id]/withdraw - campaign currency', () => {
+  it('refuses a campaign that does not raise in the payout currency', async () => {
+    world.campaign.currency = 'KES';
+
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000f1'), params);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('WRONG_PAYMENT_RAIL');
+    expect(body.error.message).toMatch(/KES/);
+    expect(body.error.message).toMatch(/no funds have been moved/);
+    // The decisive assertion: no transfer was attempted.
+    expect(createTransfer).not.toHaveBeenCalled();
+    expect(world.withdrawals).toHaveLength(0);
+  });
+
+  it('refuses a campaign with no currency rather than assuming dollars', async () => {
+    delete world.campaign.currency;
+
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000f2'), params);
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('WRONG_PAYMENT_RAIL');
+    expect(createTransfer).not.toHaveBeenCalled();
+  });
+
+  it('still allows a USD campaign', async () => {
+    world.campaign.currency = 'USD';
+
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000f3'), params);
+
+    expect(res.status).toBe(201);
+    expect(createTransfer).toHaveBeenCalled();
   });
 });

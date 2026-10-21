@@ -148,6 +148,7 @@ function baseCampaign(overrides: Row = {}): Row {
     id: CAMPAIGN_ID,
     slug: 'help-maria',
     title: 'Help Maria',
+    currency: 'USD',
     creatorId: '22222222-2222-2222-2222-222222222222',
     category: 'medical',
     beneficiaryRelation: 'self',
@@ -302,7 +303,7 @@ vi.mock('@/lib/api-handler', () => ({
   },
 }));
 
-const { processPaymentSuccess, processRefund, sendDonationReceipt } = await import('./payment-service');
+const { processPaymentSuccess, processRefund, sendDonationReceipt, recordGatewayCharge } = await import('./payment-service');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -310,6 +311,10 @@ function paymentIntent(overrides: Partial<Stripe.PaymentIntent> = {}): Stripe.Pa
   return {
     id: 'pi_test_1',
     amount: 2_000,
+    // Stripe reports the charged currency lowercase and always sends it; the
+    // adapter reads it from here rather than from our metadata copy, because
+    // only this one debited a card.
+    currency: 'usd',
     metadata: {
       campaignId: CAMPAIGN_ID,
       donorName: 'Ada',
@@ -594,17 +599,25 @@ describe('recurring donations (docs/29 P1-2)', () => {
 
 describe('donation receipts (docs/29 P0-4)', () => {
   const receiptArgs = () => ({
-    paymentIntent: paymentIntent({ id: 'pi_receipt' }),
-    meta: {
-      campaignId: CAMPAIGN_ID,
-      donorName: 'Ada',
-      donorEmail: 'ada@example.com',
-      donorLocation: null,
-      message: null,
-      isAnonymous: false,
-      isRecurring: false,
-      subscribedToUpdates: false,
-      shareLinkId: null,
+    // `sendDonationReceipt` takes a provider-neutral GatewayCharge now, so
+    // the same function serves the Stripe and PayHero rails. The Stripe
+    // adapter builds this from the PaymentIntent.
+    charge: {
+      provider: 'stripe' as const,
+      providerRef: 'pi_receipt',
+      amountMinor: 5_000,
+      currency: 'USD',
+      metadata: {
+        campaignId: CAMPAIGN_ID,
+        donorName: 'Ada',
+        donorEmail: 'ada@example.com',
+        donorLocation: null,
+        message: null,
+        isAnonymous: false,
+        isRecurring: false,
+        subscribedToUpdates: false,
+        shareLinkId: null,
+      },
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     campaign: baseCampaign() as any,
@@ -657,5 +670,213 @@ describe('donation receipts (docs/29 P0-4)', () => {
     await sendDonationReceipt({ ...receiptArgs(), userId: '33333333-3333-3333-3333-333333333333' });
 
     expect(resendSend).not.toHaveBeenCalled();
+  });
+});
+
+// ─── The provider-neutral writer (docs/92) ──────────────────────────────────
+
+/*
+  `docs/41` established one writer for donation accounting after four
+  independent refund implementations had drifted apart, three of them wrongly.
+  A second gateway with its own copy of the campaign-tally, completion,
+  fund-pool, echo-counter, receipt and notification logic would recreate
+  exactly that, in the half of the code that moves money rather than the half
+  that reports it. These run against the same fake Postgres as everything
+  above, so they prove the real SQL, not the shape of a call.
+*/
+
+function payheroCharge(overrides: Record<string, unknown> = {}) {
+  return {
+    provider: 'payhero' as const,
+    providerRef: 'payhero_E8UWT7CLUW',
+    amountMinor: 5_000,
+    currency: 'KES',
+    metadata: {
+      campaignId: CAMPAIGN_ID,
+      donorName: 'Wanjiku',
+      donorEmail: 'wanjiku@example.com',
+      donorLocation: null,
+      message: null,
+      isAnonymous: false,
+      isRecurring: false,
+      subscribedToUpdates: false,
+      shareLinkId: null,
+    },
+    ...overrides,
+  };
+}
+
+describe('recordGatewayCharge: a PayHero donation uses the same writer', () => {
+  beforeEach(() => resetWorld(baseCampaign({ currency: 'KES', goalAmount: 1_000_000 })));
+
+  it('writes one donation carrying its provider and currency', async () => {
+    await recordGatewayCharge(payheroCharge());
+
+    expect(world.donations).toHaveLength(1);
+    expect(world.donations[0]).toMatchObject({
+      stripePaymentId: 'payhero_E8UWT7CLUW',
+      provider: 'payhero',
+      currency: 'KES',
+      amount: 5_000,
+      source: 'real',
+    });
+  });
+
+  it('credits the campaign in its own currency', async () => {
+    await recordGatewayCharge(payheroCharge());
+
+    expect(world.campaign.raisedAmount).toBe(5_000);
+    expect(world.campaign.donorCount).toBe(1);
+  });
+
+  it('records the provider and currency on the audit row', async () => {
+    await recordGatewayCharge(payheroCharge());
+
+    const recorded = world.auditLogs.find((r) => r.eventType === 'donation.recorded');
+    expect(recorded).toBeDefined();
+    expect(recorded!.details).toMatchObject({
+      provider: 'payhero',
+      currency: 'KES',
+      providerRef: 'payhero_E8UWT7CLUW',
+      // Kept under the old key too: queries written before there was a second
+      // gateway read `stripePaymentId`.
+      stripePaymentId: 'payhero_E8UWT7CLUW',
+    });
+  });
+
+  it('is idempotent: a replayed callback writes exactly one donation', async () => {
+    await recordGatewayCharge(payheroCharge());
+    await recordGatewayCharge(payheroCharge());
+
+    expect(world.donations).toHaveLength(1);
+    expect(world.campaign.raisedAmount).toBe(5_000);
+    expect(world.auditLogs.filter((r) => r.eventType === 'donation.recorded')).toHaveLength(1);
+  });
+
+  it('never calls Stripe for a PayHero charge', async () => {
+    await recordGatewayCharge(payheroCharge());
+    expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+  });
+
+  it('announces completion in the campaign currency, not dollars', async () => {
+    resetWorld(baseCampaign({ currency: 'KES', goalAmount: 5_000 }));
+
+    await recordGatewayCharge(payheroCharge());
+
+    expect(world.campaign.status).toBe('completed');
+    const celebration = world.campaignUpdates.find((u) => u.updateType === 'celebration');
+    expect(celebration).toBeDefined();
+    // The old code interpolated `$${(amount / 100).toFixed(2)}` into a post
+    // published on the campaign page, so a KES campaign announced its own
+    // completion in dollars.
+    expect(String(celebration!.bodyHtml)).not.toContain('$');
+    expect(String(celebration!.bodyHtml)).toMatch(/K(sh|ES)/);
+  });
+});
+
+describe('recordGatewayCharge: currency safety', () => {
+  /*
+    The money has already moved by the time this runs. A currency the platform
+    cannot account for is therefore not a validation error to return - it is a
+    liability that must be written down for a human.
+  */
+  it('refuses a charge in a currency the campaign does not raise in', async () => {
+    resetWorld(baseCampaign({ currency: 'USD' }));
+
+    await recordGatewayCharge(payheroCharge({ currency: 'KES' }));
+
+    expect(world.donations).toHaveLength(0);
+    expect(world.campaign.raisedAmount).toBe(0);
+    const flagged = world.auditLogs.find((r) => r.eventType === 'donation.currency_mismatch');
+    expect(flagged).toBeDefined();
+    expect(flagged!.severity).toBe('critical');
+    expect(flagged!.details).toMatchObject({ chargedCurrency: 'KES', campaignCurrency: 'USD' });
+  });
+
+  /*
+    The hole the existing fixtures above exposed: checking only that the two
+    AGREE lets `'' === ''` through, and the first thing to fail was then
+    `formatMoney` INSIDE the transaction, after the donation row had been
+    inserted - losing a real donation to a rollback whose error message was
+    about string formatting.
+  */
+  it('refuses when both sides are blank, instead of agreeing on nothing', async () => {
+    resetWorld(baseCampaign({ currency: '' }));
+
+    await recordGatewayCharge(payheroCharge({ currency: '' }));
+
+    expect(world.donations).toHaveLength(0);
+    const flagged = world.auditLogs.find((r) => r.eventType === 'donation.currency_mismatch');
+    expect(flagged).toBeDefined();
+    expect(flagged!.details).toMatchObject({
+      chargeCurrencySupported: false,
+      campaignCurrencySupported: false,
+    });
+  });
+
+  it('refuses a currency with no rail, even when both sides match', async () => {
+    resetWorld(baseCampaign({ currency: 'NGN' }));
+
+    await recordGatewayCharge(payheroCharge({ currency: 'NGN' }));
+
+    expect(world.donations).toHaveLength(0);
+    expect(
+      world.auditLogs.find((r) => r.eventType === 'donation.currency_mismatch'),
+    ).toBeDefined();
+  });
+
+  it('accepts a lowercase gateway currency, because Stripe sends it that way', async () => {
+    resetWorld(baseCampaign({ currency: 'USD' }));
+
+    await recordGatewayCharge(
+      payheroCharge({ provider: 'stripe', providerRef: 'pi_lower', currency: 'usd' }),
+    );
+
+    expect(world.donations).toHaveLength(1);
+    expect(world.donations[0].currency).toBe('USD');
+  });
+});
+
+describe('recordGatewayCharge: a payment that lands after completion', () => {
+  it('auto-refunds a Stripe charge', async () => {
+    resetWorld(baseCampaign({ currency: 'USD', status: 'completed' }));
+
+    await recordGatewayCharge(
+      payheroCharge({ provider: 'stripe', providerRef: 'pi_late', currency: 'USD' }),
+    );
+
+    expect(stripeMock.refunds.create).toHaveBeenCalledWith(
+      { payment_intent: 'pi_late' },
+      { idempotencyKey: 'refund:auto:pi_late' },
+    );
+    expect(world.donations).toHaveLength(0);
+  });
+
+  /*
+    PayHero exposes no refund API, so this money cannot be sent back
+    automatically. Returning silently would leave the donor's money in the
+    platform wallet with no donation row and no record that anybody owes it
+    back - so it is written down at `critical` for a human to act on.
+  */
+  it('writes a critical audit row for PayHero rather than dropping it silently', async () => {
+    resetWorld(baseCampaign({ currency: 'KES', status: 'completed' }));
+
+    await recordGatewayCharge(payheroCharge());
+
+    expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+    expect(world.donations).toHaveLength(0);
+
+    const flagged = world.auditLogs.find(
+      (r) => r.eventType === 'donation.manual_refund_required',
+    );
+    expect(flagged).toBeDefined();
+    expect(flagged!.severity).toBe('critical');
+    expect(flagged!.details).toMatchObject({
+      provider: 'payhero',
+      providerRef: 'payhero_E8UWT7CLUW',
+      amount: 5_000,
+      currency: 'KES',
+      donorEmail: 'wanjiku@example.com',
+    });
   });
 });

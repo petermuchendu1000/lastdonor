@@ -128,6 +128,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         campaignId: donations.campaignId,
         source: donations.source,
         stripePaymentId: donations.stripePaymentId,
+        provider: donations.provider,
       })
       .from(donations)
       .where(eq(donations.id, id))
@@ -142,6 +143,48 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     if (donation.refunded === body.refunded) {
       return NextResponse.json({ ok: true, data: { id, refunded: body.refunded, changed: false } });
+    }
+
+    /*
+      Only a Stripe donation can be refunded from here.
+
+      `stripePaymentId` is the provider-reference column for every gateway, so
+      a PayHero donation's `payhero_<reference>` would otherwise be handed to
+      `stripe.refunds.create` — which fails, but only after the admin has been
+      told the refund is being issued. Worse, if it had happened to succeed
+      against some unrelated object the ledger would have been corrected for a
+      refund that never reached the donor.
+
+      PayHero exposes no refund API, so an M-Pesa donation has to be returned
+      by hand. The ledger is still corrected (that is what `applyRefund` is
+      for) and the response says plainly that the money movement is manual, so
+      nobody believes the donor has been paid back automatically.
+    */
+    if (body.refunded && donation.provider !== 'stripe') {
+      const applied = await applyRefund({
+        donationId: id,
+        actorId: session.user?.id ?? null,
+        actorRole: session.user?.role as UserRole,
+        auditDetails: {
+          via: 'admin:donation-patch',
+          provider: donation.provider,
+          gatewayRefund: 'NOT ISSUED - this gateway has no refund API',
+          manualRefundRequired: true,
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          id,
+          refunded: Boolean(applied),
+          changed: Boolean(applied),
+          manualRefundRequired: true,
+          message:
+            `This donation was collected by ${donation.provider}, which has no refund API. ` +
+            'The ledger has been corrected, but the money must be returned to the donor manually.',
+        },
+      });
     }
 
     // Issue actual Stripe refund when marking as refunded

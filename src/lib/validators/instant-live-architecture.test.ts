@@ -259,8 +259,8 @@ describe('Email templates - new lifecycle templates', () => {
       expect(email.subject).toContain('Help Alice');
     });
 
-    it('shows goal amount formatted ($1000.00)', () => {
-      expect(email.html).toContain('$1000.00');
+    it('shows the goal amount grouped ($1,000.00)', () => {
+      expect(email.html).toContain('$1,000.00');
     });
 
     it('shows donor count', () => {

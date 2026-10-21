@@ -10,6 +10,7 @@
  *  3. Marks emailSent = true on the notification row
  */
 
+import { formatMoney } from '@/lib/money/format';
 import { db } from '@/db';
 import { notifications, donations, users, donorCampaignSubscriptions } from '@/db/schema';
 import { eq, and, inArray, count } from 'drizzle-orm';
@@ -66,6 +67,20 @@ import {
   type ReengagementStage,
 } from '@/lib/email-adaptive';
 import type { NotificationType } from '@/types';
+
+/**
+ * Render an amount for a notification title or body.
+ *
+ * In-app notification text is stored, so a wrong currency marker persists in
+ * the bell menu long after the donation. Defaults to USD for the notification
+ * types that are not currency-threaded yet (withdrawals, which can only be
+ * USD anyway - Stripe Connect is the only payout rail and
+ * PLATFORM_PAYOUT_CURRENCY is 'usd').
+ */
+function money(minor: number, currency: string | undefined): string {
+  return formatMoney(minor, currency ?? 'USD', 'exact');
+}
+
 
 const FROM_ADDRESS = 'LastDonor.org <noreply@lastdonor.org>';
 
@@ -775,6 +790,8 @@ export async function notifyAdminsDonationReceived(p: {
   campaignTitle: string;
   donorName: string;
   amount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
   isAnonymous: boolean;
   message?: string | null;
   excludeUserId?: string;
@@ -794,8 +811,8 @@ export async function notifyAdminsDonationReceived(p: {
     await createAndEmail({
       userId: admin.id,
       type: 'campaign_donation_received',
-      title: `New donation: $${(p.amount / 100).toFixed(2)} to "${p.campaignTitle}"`,
-      message: `${donor} donated $${(p.amount / 100).toFixed(2)} to "${p.campaignTitle}".${p.message ? ` Message: "${p.message}"` : ''}`,
+      title: `New donation: ${money(p.amount, p.currency)} to "${p.campaignTitle}"`,
+      message: `${donor} donated ${money(p.amount, p.currency)} to "${p.campaignTitle}".${p.message ? ` Message: "${p.message}"` : ''}`,
       link: `/campaigns/${p.campaignSlug}`,
       email: { to: admin.email, ...emailContent },
     });
@@ -812,6 +829,8 @@ export async function notifyCreatorDonationReceived(p: {
   campaignSlug: string;
   donorName: string;
   amount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
   isAnonymous: boolean;
   message?: string | null;
 }) {
@@ -828,12 +847,12 @@ export async function notifyCreatorDonationReceived(p: {
   await createAndEmail({
     userId: p.creatorId,
     type: 'campaign_donation_received',
-    title: `New donation: $${(p.amount / 100).toFixed(2)}`,
-    message: `${donor} donated $${(p.amount / 100).toFixed(2)} to your campaign "${p.campaignTitle}".${p.message ? ` They said: "${p.message}"` : ''}`,
+    title: `New donation: ${money(p.amount, p.currency)}`,
+    message: `${donor} donated ${money(p.amount, p.currency)} to your campaign "${p.campaignTitle}".${p.message ? ` They said: "${p.message}"` : ''}`,
     link: `/campaigns/${p.campaignSlug}`,
     email: {
       to: creator.email,
-      subject: `You received a $${(p.amount / 100).toFixed(2)} donation!`,
+      subject: `You received a ${money(p.amount, p.currency)} donation!`,
       html: donationReceivedEmail(p).html,
     },
   });
@@ -853,6 +872,8 @@ export async function notifyCreatorFirstDonation(p: {
   campaignSlug: string;
   donorName: string;
   amount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
   isAnonymous: boolean;
 }) {
   const donor = p.isAnonymous ? 'An anonymous supporter' : p.donorName;
@@ -862,12 +883,13 @@ export async function notifyCreatorFirstDonation(p: {
     campaignSlug: p.campaignSlug,
     donorName: donor,
     amount: p.amount,
+    currency: p.currency,
   });
 
   await createAndEmail({
     userId: p.creatorId,
     type: 'campaign_donation_received',
-    title: `First donation received! $${(p.amount / 100).toFixed(2)}`,
+    title: `First donation received! ${money(p.amount, p.currency)}`,
     message: `${donor} just made the first donation to your campaign "${p.campaignTitle}". You'll receive funds once your campaign completes and verification is done.`,
     link: `/campaigns/${p.campaignSlug}`,
     email: { to: p.creatorEmail, ...emailContent },
@@ -886,6 +908,8 @@ export async function notifyCreatorCampaignCompleted(p: {
   campaignTitle: string;
   campaignSlug: string;
   goalAmount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
   donorCount: number;
   documentRequirementsHtml: string;
 }) {
@@ -894,6 +918,7 @@ export async function notifyCreatorCampaignCompleted(p: {
     campaignTitle: p.campaignTitle,
     campaignSlug: p.campaignSlug,
     goalAmount: p.goalAmount,
+    currency: p.currency,
     donorCount: p.donorCount,
     documentRequirementsHtml: p.documentRequirementsHtml,
   });

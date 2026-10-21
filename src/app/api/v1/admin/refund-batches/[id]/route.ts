@@ -147,6 +147,7 @@ export async function PATCH(_request: NextRequest, { params }: RouteParams) {
         donationId: refundRecords.donationId,
         amount: refundRecords.amount,
         stripePaymentId: donations.stripePaymentId,
+        provider: donations.provider,
       })
       .from(refundRecords)
       .innerJoin(donations, eq(refundRecords.donationId, donations.id))
@@ -179,6 +180,26 @@ export async function PATCH(_request: NextRequest, { params }: RouteParams) {
       }> = [];
 
       for (const record of failedRecords) {
+        /*
+          A retry cannot fix a gateway that has no refund API. PayHero
+          donations land in this batch as `failed` by design (see the bulk
+          cancel route) and retrying them forever would keep calling Stripe
+          with a `payhero_<reference>`. Left failed, with the reason restated
+          so the batch keeps saying a human still owes this donor money.
+        */
+        if (record.provider !== 'stripe') {
+          retryResults.push({
+            recordId: record.id,
+            donationId: record.donationId,
+            stripeRefundId: null,
+            errorMessage:
+              `Collected by ${record.provider}, which has no refund API. ` +
+              'Retrying cannot help; refund the donor manually.',
+            status: 'failed',
+          });
+          continue;
+        }
+
         if (!record.stripePaymentId) {
           retryResults.push({
             recordId: record.id,

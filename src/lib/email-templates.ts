@@ -9,6 +9,7 @@
  * - Max width: 600px
  */
 
+import { formatMoney } from '@/lib/money/format';
 import { renderEmail, emailButton, escapeHtml } from './email-shell';
 
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://lastdonor.org';
@@ -38,8 +39,22 @@ function ctaButton(href: string, label: string): string {
   return emailButton(href, label, 'primary');
 }
 
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+/**
+ * Render an amount for an email.
+ *
+ * Defaults to USD so the 19 call sites that predate multi-currency are
+ * unchanged, but every template that states an amount a donor or campaigner
+ * actually paid or received now passes the currency through. An email is the
+ * copy of a money fact that people keep, so a KES gift receipted as "$50.00"
+ * is not a formatting slip - it is a wrong figure, off by the exchange rate.
+ *
+ * Grouping changed with this: the old implementation produced `$100000.00`
+ * and `formatMoney` produces `$100,000.00`. No test pinned the ungrouped
+ * form and the grouped one is what every other surface already renders
+ * (`src/components/ui/Money.tsx`).
+ */
+function formatCents(cents: number, currency: string = 'USD'): string {
+  return formatMoney(cents, currency, 'exact');
 }
 
 // ─── Email generators ───────────────────────────────────────────────────────
@@ -96,13 +111,15 @@ export function campaignCompletedEmail(p: {
   campaignTitle: string;
   campaignSlug: string;
   goalAmount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
 }) {
   return {
     subject: `Great News! "${p.campaignTitle}" Reached Its Goal!`,
     html: wrap(`
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Campaign Goal Reached!</h1>
       <p>Dear ${esc(p.donorName)},</p>
-      <p>Thanks to generous donors like you, the campaign <strong>${esc(p.campaignTitle)}</strong> has reached its goal of <strong>${formatCents(p.goalAmount)}</strong>!</p>
+      <p>Thanks to generous donors like you, the campaign <strong>${esc(p.campaignTitle)}</strong> has reached its goal of <strong>${formatCents(p.goalAmount, p.currency)}</strong>!</p>
       <p>Your contribution made a real difference. Every donation brought this campaign closer to success, and we are grateful for your support.</p>
       ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign')}
     `),
@@ -407,18 +424,20 @@ export function donationReceivedEmail(p: {
   campaignSlug: string;
   donorName: string;
   amount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
   isAnonymous: boolean;
   message?: string | null;
 }) {
   const donor = p.isAnonymous ? 'Anonymous' : p.donorName;
   return {
-    subject: `New Donation: ${formatCents(p.amount)} to "${p.campaignTitle}"`,
+    subject: `New Donation: ${formatCents(p.amount, p.currency)} to "${p.campaignTitle}"`,
     html: wrap(`
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">New Donation Received</h1>
       <p>A donation has been made to <strong>"${esc(p.campaignTitle)}"</strong>.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
         <tr><td style="padding: 8px 0; color: #666; width: 120px;">Donor</td><td style="padding: 8px 0; font-weight: 600;">${esc(donor)}</td></tr>
-        <tr><td style="padding: 8px 0; color: #666;">Amount</td><td style="padding: 8px 0; font-weight: 600;">${formatCents(p.amount)}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Amount</td><td style="padding: 8px 0; font-weight: 600;">${formatCents(p.amount, p.currency)}</td></tr>
       </table>
       ${p.message ? `<p><strong>Message from donor:</strong></p><blockquote style="border-left: 3px solid #0F766E; margin: 12px 0; padding: 8px 16px; color: #444;">${esc(p.message)}</blockquote>` : ''}
       ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'View Campaign')}
@@ -450,6 +469,8 @@ export function donationReceiptEmail(p: {
   donorName: string;
   isAnonymous: boolean;
   amount: number;
+  /** ISO 4217 of `amount`. Defaults to USD for callers that predate KES. */
+  currency?: string;
   transactionId: string;
   date?: Date;
 }) {
@@ -462,7 +483,7 @@ export function donationReceiptEmail(p: {
       <p>Dear ${esc(greeting)},</p>
       <p>Your donation to <strong>${esc(p.campaignTitle)}</strong> has been received and processed.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
-        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Amount</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount)}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Amount</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount, p.currency)}</td></tr>
         <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Campaign</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right;">${esc(p.campaignTitle)}</td></tr>
         <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Transaction ID</td><td style="padding: 8px 0; border-bottom: 1px solid #eee; text-align: right; font-family: monospace; font-size: 12px;">${esc(p.transactionId)}</td></tr>
         <tr><td style="padding: 8px 0; color: #666;">Date</td><td style="padding: 8px 0; text-align: right;">${stamped} (UTC)</td></tr>
@@ -504,13 +525,15 @@ export function firstDonationCelebrationEmail(p: {
   campaignSlug: string;
   donorName: string;
   amount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
 }) {
   return {
     subject: `You Got Your First Donation! "${p.campaignTitle}"`,
     html: wrap(`
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your First Donation Is In!</h1>
       <p>Dear ${esc(p.campaignerName)},</p>
-      <p><strong>${esc(p.donorName)}</strong> just made the first donation of <strong>${formatCents(p.amount)}</strong> to your campaign <strong>"${esc(p.campaignTitle)}"</strong>. This is a huge moment!</p>
+      <p><strong>${esc(p.donorName)}</strong> just made the first donation of <strong>${formatCents(p.amount, p.currency)}</strong> to your campaign <strong>"${esc(p.campaignTitle)}"</strong>. This is a huge moment!</p>
       <p style="background: #f0fdf4; padding: 16px; border-radius: 8px; border-left: 4px solid #0F766E; margin: 20px 0;">
         <strong>Set up your payout account now</strong> so you're ready to receive funds once verification is complete. It only takes a few minutes.
       </p>
@@ -534,6 +557,8 @@ export function campaignCompletedCreatorEmail(p: {
   campaignTitle: string;
   campaignSlug: string;
   goalAmount: number;
+  /** ISO 4217 of the amounts above. Defaults to USD. */
+  currency?: string;
   donorCount: number;
   documentRequirementsHtml: string;
 }) {
@@ -542,7 +567,7 @@ export function campaignCompletedCreatorEmail(p: {
     html: wrap(`
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Campaign Is Fully Funded!</h1>
       <p>Dear ${esc(p.campaignerName)},</p>
-      <p>Incredible news! Your campaign <strong>"${esc(p.campaignTitle)}"</strong> has reached its goal of <strong>${formatCents(p.goalAmount)}</strong> thanks to <strong>${p.donorCount}</strong> generous donor${p.donorCount === 1 ? '' : 's'}.</p>
+      <p>Incredible news! Your campaign <strong>"${esc(p.campaignTitle)}"</strong> has reached its goal of <strong>${formatCents(p.goalAmount, p.currency)}</strong> thanks to <strong>${p.donorCount}</strong> generous donor${p.donorCount === 1 ? '' : 's'}.</p>
       <p style="background: #f0fdf4; padding: 20px; border-radius: 8px; border-left: 4px solid #0F766E; margin: 24px 0; font-size: 16px;">
         <strong>What happens next?</strong> To release your funds, we need to verify your identity and review evidence that funds are being used as described. This protects both you and your donors.
       </p>

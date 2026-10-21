@@ -185,6 +185,12 @@ function donationRow(i: number, overrides: Row = {}): Row {
     id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
     campaignId: CAMPAIGN_ID,
     stripePaymentId: `pi_${i}`,
+    // Required since docs/92: every refund path checks the provider before
+    // calling a gateway API, because `stripePaymentId` now holds the
+    // reference for PayHero too and a `payhero_…` value cannot be sent to
+    // stripe.refunds.create. A row with no provider is treated as non-Stripe.
+    provider: 'stripe',
+    currency: 'USD',
     amount: 1_000,
     donorName: `Donor ${i}`,
     donorEmail: `donor${i}@example.com`,
@@ -285,6 +291,9 @@ async function resolver(op: Op): Promise<unknown[]> {
           donationId: r.donationId,
           amount: r.amount,
           stripePaymentId: r.stripePaymentId ?? null,
+          // The route reads the provider to decide whether a retry can call
+          // Stripe at all. Carried through from the joined donation.
+          provider: r.provider ?? 'stripe',
         }));
       }
       return rows.map((r) => ({ ...r }));

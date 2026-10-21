@@ -173,6 +173,7 @@ async function _processBulkRefundInner(p: {
       id: donations.id,
       amount: donations.amount,
       stripePaymentId: donations.stripePaymentId,
+      provider: donations.provider,
       donorEmail: donations.donorEmail,
       donorName: donations.donorName,
     })
@@ -215,7 +216,23 @@ async function _processBulkRefundInner(p: {
     let errorMessage: string | null = null;
     let status: 'completed' | 'failed' = 'completed';
 
-    if (donation.stripePaymentId) {
+    /*
+      Stripe is the only gateway that can be refunded by API.
+      `stripePaymentId` holds the reference for every provider, so without
+      this branch a PayHero donation's `payhero_<reference>` would be sent to
+      `stripe.refunds.create`. PayHero has no refund endpoint, so those are
+      marked `failed` with an explicit reason: the batch then shows a
+      non-zero failed count and an admin sees that real money still has to be
+      returned by hand, instead of the batch reporting success while nobody
+      has been paid back.
+    */
+    if (donation.provider !== 'stripe') {
+      errorMessage =
+        `Collected by ${donation.provider}, which has no refund API. ` +
+        'The ledger is corrected but the donor must be refunded manually.';
+      status = 'failed';
+      console.error(`[bulk-refund] Donation ${donation.id} needs a manual refund:`, errorMessage);
+    } else if (donation.stripePaymentId) {
       try {
         // Idempotency key: if this batch is re-run (admin retry, or the HTTP
         // request timing out mid-loop) Stripe returns the SAME refund rather
