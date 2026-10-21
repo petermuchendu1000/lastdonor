@@ -230,6 +230,8 @@ export async function POST(request: NextRequest) {
       creatorName: session.user.name ?? 'Unknown',
       category: data.category,
       goalAmount: data.goalAmount,
+      // Skips this admin's own copy if the submitter is one; see docs/93.
+      creatorId: userId,
     }).catch((err) => console.error('[campaign.submitted] admin notification error:', err));
 
     /*

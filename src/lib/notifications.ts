@@ -437,6 +437,8 @@ export async function notifyAdminsCampaignSubmitted(p: {
   creatorName: string;
   category: string;
   goalAmount: number;
+  /** The submitting user, so an admin who submits is not told to review their own campaign. */
+  creatorId?: string;
 }) {
   const admins = await db
     .select({ id: users.id, email: users.email })
@@ -446,6 +448,15 @@ export async function notifyAdminsCampaignSubmitted(p: {
   const emailContent = campaignSubmittedEmail(p);
 
   for (const admin of admins) {
+    /*
+      An admin who submits a campaign used to receive BOTH mails for the
+      one event: their own "Received:" receipt and an "[Admin] Review
+      needed" addressed to them about their own submission. On a platform
+      whose admin set is small, that is most of the traffic this event
+      generates, and it reads as the system repeating itself. Other admins
+      still get it, so nothing stops being reviewed. See docs/93.
+    */
+    if (p.creatorId && admin.id === p.creatorId) continue;
     await createAndEmail({
       userId: admin.id,
       type: 'campaign_submitted',
@@ -714,8 +725,13 @@ export async function notifyCampaignSubmittedForReview(p: {
   await createAndEmail({
     userId: p.campaignerId,
     type: 'campaign_submitted',
-    title: `"${p.campaignTitle}" is with our reviewers`,
-    message: 'A person reads every campaign before it is published. We will email you when it is decided.',
+    title: `"${p.campaignTitle}" is in review`,
+    /*
+      Says the same as the email and no more. "We will email you when it
+      is decided" was the earlier wording and it over-promised: the only
+      decision that notifies the organiser is approval. See docs/93.
+    */
+    message: 'It is not public and cannot take donations until a reviewer approves it.',
     link: '/dashboard',
     email: { to: p.campaignerEmail, ...emailContent },
   });

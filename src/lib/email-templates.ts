@@ -221,26 +221,46 @@ export function campaignSubmittedEmail(p: {
  * The organiser's receipt for a submission. Sent INSTEAD of
  * `welcomeCampaignerEmail`, which now fires only on approval.
  *
- * Deliberately promises no turnaround time. The platform has never
- * published a reviewed user campaign, so there is no "typically within N
- * hours" to quote — the same reason that phrase came out of the wizard in
- * `docs/77`. Say what is true: it is in the queue, and we will write again.
+ * Deliberately short — three facts, once each. The previous version spent
+ * 95 visible words saying them repeatedly: the subject, the preheader, the
+ * h1 and the opening sentence each announced that the campaign was in
+ * review, the campaign title appeared three times, and a whole line ("You
+ * can see the campaign and its status any time in your dashboard")
+ * described the button sitting directly beneath it. 43 words now.
+ *
+ * The preheader is passed explicitly rather than derived. `derivePreheader`
+ * takes the opening body text, which made the inbox preview a second copy
+ * of the subject line; the one slot that could carry new information spent
+ * it on repetition.
+ *
+ * Two things are deliberately NOT said:
+ *
+ * 1. Any turnaround time. The platform has never published a reviewed user
+ *    campaign, so there is no honest "typically within N hours" to quote —
+ *    the same reason that phrase came out of the wizard in `docs/77`.
+ *
+ * 2. That we will write if the campaign needs changes. It used to promise
+ *    "If anything needs changing first, we will tell you exactly what", and
+ *    nothing in the product does that: `under_review` transitions only to
+ *    `active` or `suspended`, and the suspend path notifies nobody at all.
+ *    Approval is the one outcome we can commit to writing about, so it is
+ *    the only one promised. See `docs/93`.
  */
 export function campaignSubmittedForReviewEmail(p: {
   campaignerName: string;
   campaignTitle: string;
 }) {
   return {
-    subject: `We have your campaign: "${p.campaignTitle}"`,
-    html: wrap(`
-      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your campaign is with our reviewers</h1>
-      <p>Dear ${esc(p.campaignerName)},</p>
-      <p>Thank you for submitting <strong>"${esc(p.campaignTitle)}"</strong>. A person reads every campaign before it is published, so it is not public yet and cannot receive donations until it is approved.</p>
-      <p>We will email you as soon as it is decided. If anything needs changing first, we will tell you exactly what.</p>
-      <p style="color: #666; font-size: 14px;">You can see the campaign and its status any time in your dashboard.</p>
-      ${ctaButton(`${BASE_URL}/dashboard`, 'Open your dashboard')}
-      <p style="color: #666; font-size: 14px;">Questions? Reach us at <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a></p>
-    `),
+    subject: `Received: "${p.campaignTitle}"`,
+    html: wrap(
+      `
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your campaign is in review</h1>
+      <p>Thanks, ${esc(p.campaignerName)}. It is not public and cannot take donations until a reviewer approves it.</p>
+      <p>We will email you when it goes live.</p>
+      ${ctaButton(`${BASE_URL}/dashboard`, 'Check status')}
+    `,
+      'A person reviews every campaign before it goes live.',
+    ),
   };
 }
 
