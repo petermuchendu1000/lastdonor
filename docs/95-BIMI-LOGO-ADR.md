@@ -76,12 +76,9 @@ so the tab icon fell back to whatever serif happened to be installed and
 differed from the email avatar. Both files now come from the same
 generator and share the same path data, asserted by the ratchet.
 
-**Not changed:** `src/app/apple-icon.tsx` renders through `ImageResponse`
-with `fontFamily: 'Georgia, serif'` and no embedded font, so the iOS home
-screen icon uses whatever Satori falls back to. Same class of problem, a
-different mechanism (it has to emit PNG), and it was left alone rather than
-bundled into a change that is already touching outgoing mail. Recorded
-here so it is not lost.
+**Then fixed, 2026-10-22 (amendment below):** `src/app/apple-icon.tsx`
+had the same fault through a different mechanism. Left out of the first
+commit rather than bundled into a change already touching outgoing mail.
 
 ---
 
@@ -201,3 +198,61 @@ deploys. The tab icon is fixed and now matches it. **The Gmail avatar will
 not change** until DMARC is at enforcement and a VMC or CMC has been
 bought — neither of which can be done from here, and one of which carries
 real deliverability risk that wants a monitoring period first.
+
+
+---
+
+## Amendment, 2026-10-22 — the iOS icon, and why it was the wrong font
+
+`src/app/apple-icon.tsx` asked for `fontFamily: 'Georgia, serif'` and
+supplied no font data.
+
+`ImageResponse` renders through **Satori, which has no system fonts at
+all** — it draws only with what it is handed. So the request for Georgia
+did not fall back to Georgia, or to any serif: it fell through to Satori's
+built-in sans. **Verified** by fetching the deployed icon from
+`https://lastdonor.org/apple-icon` and looking at it: thin sans-serif
+"LD." against the bold serif used by the favicon and the BIMI mark.
+
+Nothing threw and nothing logged. The route answered `200 image/png` the
+whole time.
+
+### What changed
+
+- **The real face is embedded.** `public/fonts/DMSerifDisplay-Regular.ttf`
+  (72 KB) is read and passed to `ImageResponse` as `fonts`. Naming a
+  family is not enough; the bytes have to be supplied.
+- **`runtime` is now `nodejs`, not `edge`.** The edge runtime has no
+  filesystem, so the font cannot be read there. This is the line that
+  would silently undo the fix, which is why a test pins it.
+- **The rounded corners are gone.** iOS masks an apple-touch-icon to its
+  own squircle. Supplying our own radius cuts a rounded shape out of an
+  already rounded one, and the gap between them shows whatever is behind —
+  the old version was RGBA with transparent corners, so that gap was
+  transparent. Full bleed and opaque is what survives the mask. The
+  browser favicon keeps its radius, because nothing masks that one.
+
+### Why the URL did not change
+
+`/apple-icon` is referenced as the `Organization.logo` URL in the JSON-LD
+in `src/app/layout.tsx`. A static `app/apple-icon.png` would have been
+simpler but serves at `/apple-icon.png`, so it would have 404ed that
+structured-data reference or forced an edit to it. Keeping the dynamic
+route keeps both the URL and the font in one place. **Rejected:** moving
+to a committed PNG, which also risks the binary drifting from the SVG
+outlines with nothing to catch it.
+
+### Tested by rendering, not by reading
+
+`src/app/apple-icon.test.tsx` calls the route and inspects the bytes: PNG
+signature, 180×180 read out of the IHDR chunk, and `runtime === 'nodejs'`.
+
+The load-bearing one renders the **same markup without the font** and
+asserts the two outputs differ. Satori with no font data does not fail, it
+substitutes — so "did it render?" proves nothing. If those two ever match,
+the embedded font is having no effect, which is precisely the bug that
+shipped.
+
+**Verified by injection:** removing the `fonts` option fails the
+font-embedding test; switching back to `edge` fails the runtime test. The
+file was restored byte-identical after both.

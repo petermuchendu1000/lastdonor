@@ -135,6 +135,20 @@ started: `"your account is locked due to a billing issue"`, which is an
 owner-only fix. Do not treat CI as having checked anything. In particular the
 **integration and E2E suites have never run on any change**, by anyone.
 
+---
+
+## Deployment is manual, and the owner runs it
+
+Owner instruction, 2026-10-22: **do not deploy.** Land work on a branch,
+run the gate, and stop there. The owner deploys from their own CLI with
+`./scripts/deploy.sh`, which needs an org-scoped `FLY_API_TOKEN` (a
+builder-scoped one cannot see the app) and takes roughly 6 minutes.
+
+This means **`main` can be ahead of production**. Do not infer the
+deployed version from the repository: read it with
+`fly status --app lastdonor`, and remember that `/api/v1/health` reports
+`commit: "local"` and tells you nothing about which commit is live.
+
 When you touch `.github/workflows/`, remember that a valid YAML file can still
 be an invalid workflow: Actions expressions are a second language nested inside
 it, and GitHub only parses them server-side. `src/ci-workflows.ratchet.test.ts`
@@ -280,6 +294,17 @@ These exist for a reason; changing them has consequences beyond the local file.
   `npx tsx scripts/email-contrast.ts`, and look at it with
   `npx tsx scripts/email-screenshot.ts <dir>`. A reading-level score says
   nothing about whether the words can be seen.
+
+- **The brand mark is generated, never hand-drawn, and `ImageResponse`
+  needs the font BYTES.** Added 2026-10-22, see `docs/95`.
+  `scripts/generate-bimi-logo.py` emits both `public/bimi-logo.svg` and
+  `src/app/icon.svg` from the real DM Serif Display outlines, so they
+  cannot drift from each other or from the brand face. `apple-icon.tsx`
+  renders through **Satori, which has NO system fonts** — naming a family
+  gets you Satori's built-in sans, silently, with a 200 response; it must
+  be handed the file, which is why that route is `runtime = 'nodejs'` and
+  not `edge`. An apple-touch-icon is also full bleed with no radius,
+  because iOS masks it to a squircle and a second radius shows the gap.
 
 - **An explicit email preheader is escaped; a derived one is not.**
   `renderEmail` handles this. Do not move it to the call sites: the obvious
