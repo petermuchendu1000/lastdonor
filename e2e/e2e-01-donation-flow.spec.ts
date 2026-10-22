@@ -6,6 +6,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { donateNowLink, openFirstCampaign } from './helpers/campaigns';
+import { assertPrimaryNav, goToCampaignsFromHomepage } from './helpers/nav';
 
 test.describe('E2E-01: Donation Flow', () => {
   test('navigates from homepage to campaign and initiates donation', async ({ page }) => {
@@ -17,11 +18,15 @@ test.describe('E2E-01: Donation Flow', () => {
       does not match, so `.first()` picked whatever did - and on the way in
       the suite then clicked the navbar's "Donate" and ended up on
       `/donate`. Navigate by the nav link's real accessible name.
+
+      Then it addressed the desktop nav directly, which was a SECOND bug
+      hidden by the first: that nav is `hidden md:flex`, so at 412px it is
+      not in the accessibility tree and this click waited out the whole 30s
+      test budget. It only passed because the Mobile Chrome project was not
+      running. The helper takes the hamburger route below `md`. See
+      `docs/99` §8.
     */
-    await page.getByRole('navigation', { name: 'Main navigation' })
-      .getByRole('link', { name: 'Search' })
-      .click();
-    await expect(page).toHaveURL(/\/campaigns/);
+    await goToCampaignsFromHomepage(page);
 
     // Scoped to the card, not to any link whose text happens to say "donate".
     const slug = await openFirstCampaign(page);
@@ -53,9 +58,15 @@ test.describe('E2E-01: Donation Flow', () => {
       `locator('nav')` was also a strict-mode violation: the page has two
       navs, "Main navigation" and the footer's "LastDonor on social media"
       (docs/91). Naming the one meant is stricter, not looser.
+
+      But naming the DESKTOP one unconditionally was wrong on a phone, where
+      it is `display: none` and so absent from the accessibility tree. The
+      helper asserts the nav that belongs to this viewport AND that the other
+      one is absent, so it is stricter than the original on both legs rather
+      than a "whichever exists" fallback.
     */
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await assertPrimaryNav(page);
     await expect(page.locator('footer')).toBeVisible();
   });
 });

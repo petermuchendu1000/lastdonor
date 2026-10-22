@@ -20,7 +20,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "stripe:listen": "stripe listen --forward-to localhost:3000/api/v1/donations/webhook",
-    "e2e:seed": "tsx e2e/fixtures/seed-cli.ts"
+    "e2e:seed": "tsx e2e/fixtures/seed-cli.ts",
+    "e2e:build": "npm run e2e:seed && npm run build"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.0",

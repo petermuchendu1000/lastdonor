@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { ReviewedIcon } from '@/components/ui/icon';
 import { centsToDollars, centsToDollarsWhole, dollarsToCents } from '@/lib/utils/currency';
 import { cn } from '@/lib/utils';
+import { onRadioGroupKeyDown, rovingTabIndex } from '@/lib/radio-group-keys';
 import { motion } from 'motion/react';
 import { confirmDonation } from '@/lib/donations/confirm-client';
 
@@ -757,12 +758,26 @@ export function DonationForm({
         </h3>
       )}
 
-      {/* Frequency toggle - Give Once / Monthly */}
-      <div className="flex rounded-full border border-border bg-muted/50 p-1" role="radiogroup" aria-label="Donation frequency">
+      {/*
+        Frequency toggle - Give Once / Monthly.
+
+        `onKeyDown` and the roving `tabIndex` are what make `role="radiogroup"`
+        true rather than decorative: a radio group is one tab stop with arrow
+        keys inside it, and this one had neither. See `src/lib/radio-group-keys.ts`.
+      */}
+      <div
+        className="flex rounded-full border border-border bg-muted/50 p-1"
+        role="radiogroup"
+        aria-label="Donation frequency"
+        onKeyDown={onRadioGroupKeyDown}
+      >
         <button
           type="button"
           role="radio"
           aria-checked={!isRecurring}
+          // One of the two is ALWAYS checked here, so no first-option
+          // fallback is needed: `anySelected` is unconditionally true.
+          tabIndex={!isRecurring ? 0 : -1}
           onClick={() => setValue('isRecurring', false)}
           className={cn(
             'flex-1 rounded-full py-2.5 text-center text-sm font-medium transition-colors',
@@ -777,6 +792,7 @@ export function DonationForm({
           type="button"
           role="radio"
           aria-checked={isRecurring}
+          tabIndex={isRecurring ? 0 : -1}
           onClick={() => setValue('isRecurring', true)}
           className={cn(
             'flex-1 rounded-full py-2.5 text-center text-sm font-medium transition-colors',
@@ -790,13 +806,29 @@ export function DonationForm({
       </div>
 
       {/* Preset amounts with impact hints */}
-      <div className="grid grid-cols-3 gap-2.5" role="radiogroup" aria-label="Donation amount">
-        {PRESET_AMOUNTS.map((amount) => (
+      <div
+        className="grid grid-cols-3 gap-2.5"
+        role="radiogroup"
+        aria-label="Donation amount"
+        onKeyDown={onRadioGroupKeyDown}
+      >
+        {PRESET_AMOUNTS.map((amount, i) => (
           <motion.button
             key={amount}
             type="button"
             role="radio"
             aria-checked={selectedPreset === amount}
+            /*
+              Roving, so the amounts are ONE tab stop instead of nine.
+              `selectedPreset` starts null on purpose - no amount is
+              pre-chosen - so the first tile holds the tab stop until a
+              choice is made, or the group would be unreachable.
+            */
+            tabIndex={rovingTabIndex({
+              isSelected: selectedPreset === amount,
+              isFirst: i === 0,
+              anySelected: selectedPreset !== null,
+            })}
             /*
               Without this the accessible name concatenates the two child
               spans into "$50Week of groceries", which a screen reader reads

@@ -32,6 +32,24 @@
  *
  * Idempotent, like `seedE2EData` itself, so running here and again in
  * `globalSetup` is harmless.
+ *
+ * ## ⚠️ If you build the server BY HAND, use `npm run e2e:build`
+ *
+ * `playwright.config.ts` runs this ahead of `next build` in its `webServer`
+ * command, so the normal path is safe. Building by hand is not, and the trap
+ * has now caught the same person twice:
+ *
+ *     pkill next-server && npm run build && npm run start   # WRONG
+ *
+ * `globalTeardown` deletes this fixture's rows at the end of every run, so
+ * after any completed run the database is empty again. A hand build then
+ * prerenders `/donate` against nothing and bakes in "The general fund is not
+ * accepting donations right now" - and `globalSetup` seeding seconds later
+ * cannot undo it. Measured 2026-10-22: a run that was 4 failures became 14,
+ * all seven donate-page tests on both legs, with no code change between them.
+ *
+ * `npm run e2e:build` is `e2e:seed && build` and exists so the correct order
+ * is the short one to type.
  */
 import { seedE2EData } from './seed-data';
 

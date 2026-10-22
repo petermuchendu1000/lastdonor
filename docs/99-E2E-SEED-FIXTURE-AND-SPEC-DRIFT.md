@@ -246,13 +246,60 @@ checks and zero runs in the first place (`docs/50`).
 
 The order of work to turn it on:
 
-1. Re-measure the footer fix against a restarted server, and fix the three
-   homepage structural violations. That clears the 10 accessibility
+1. ✅ **Done.** Re-measure the footer fix against a restarted server, and fix
+   the three homepage structural violations. That clears the 10 accessibility
    failures — real defects, worth fixing on their own merits.
-2. Reconcile the drifted specs against the current UI, one file at a time,
-   asserting what the page *should* do rather than what it currently does.
+2. ✅ **Done**, see §8. Reconcile the drifted specs against the current UI,
+   one file at a time, asserting what the page *should* do rather than what
+   it currently does.
 3. Only then give the job the same `postgres:16` service container
    `integration-tests` has (`docs/98` §2), plus the env baseline in §6.
+
+### 5.1 Open, and deliberately not invented
+
+Three gaps are left open rather than papered over. Each is recorded because
+a spec was asserting it and the honest fix was to stop pretending.
+
+**No sign-in fixture.** `playwright.config.ts` sets no `storageState`, and
+the seed fixture gives its organiser no password. So every spec that needs
+an authenticated session — the admin screens, posting a campaign message —
+is **declared skipped with a named reason** instead of being guarded by an
+`isVisible()` probe that silently skipped on every run while looking like
+coverage. `e2e-17` and `e2e-18` carry those constants. Building the fixture
+means deciding how to mint a session without weakening the real sign-in
+path, which is its own piece of work.
+
+**WebKit and Firefox are not covered at all.** `playwright.config.ts`
+declared four projects, and nothing in this repository installs the browsers
+two of them need: CI runs `npx playwright install --with-deps chromium` and
+pins its matrix to the two Chromium projects. So a bare `npm run test:e2e`
+collected **292 tests** of which roughly **146 could only fail** with
+`browserType.launch: Executable doesn't exist` — a result about the
+environment, not the product. It is also how `e2e-08` came to fail for a
+reason unrelated to its subject, since `devices['iPhone 14']` carries
+`defaultBrowserType: 'webkit'`.
+
+Firefox and WebKit now sit behind `PW_ALL_BROWSERS=1` rather than being
+deleted: iOS Safari is a large share of a donation site's traffic, and a gap
+that is written down can be closed while a quietly deleted project cannot.
+
+    npx playwright install firefox webkit
+    PW_ALL_BROWSERS=1 npm run test:e2e
+
+**A public "Last Donor Zone" indicator does not exist.** `e2e-03` asserted
+one. Probed against a production build with an LDZ campaign seeded and
+verifiably listed: the string appears **zero** times on `/campaigns` and
+zero times on the campaign's own detail page. Both components that render
+that label — `CampaignStatusBadge` and `PhaseBadge` — are imported only by
+admin and dashboard screens.
+
+The platform is named after this phase, so the absence is at least
+interesting, but **whether a visitor should see a campaign's phase is a
+product decision**, so nothing was built to make a stale assertion pass.
+`e2e-03` now asserts the invariant that genuinely holds — `last_donor_zone`
+is a fully active, donatable status that `/campaigns` lists — which three
+files depend on and which would break silently if anyone narrowed a status
+list to `'active'`.
 
 ---
 
@@ -260,23 +307,71 @@ The order of work to turn it on:
 
 Found by running it: `src/lib/validate-secrets.ts` logs
 `[SECRET-VALIDATION] FATAL` on startup unless these are present and
-well-formed. It only *throws* in production, so the app still serves in dev
-— but a FATAL in the logs of a passing run is a false lead, the same
-category as the `pg_isready` noise in `docs/98` §2.
+well-formed.
+
+> **⚠️ AMENDED 2026-10-22 — this section originally said the FATAL is only
+> noise.** It said the validator "only *throws* in production, so the app
+> still serves in dev — but a FATAL in the logs of a passing run is a false
+> lead". The first half is true and the conclusion was wrong, because **E2E
+> now runs a production build** (that was the point of the `webServer`
+> change). In a production build the throw is real: `instrumentation.ts`
+> fails to load and **every route answers 500**.
+>
+> What that looks like from Playwright is the dangerous part. It polls
+> `webServer.url` for a non-5xx, a 500 never satisfies it, and the only
+> output is
+>
+>     Timed out waiting 300000ms from config.webServer
+>
+> with `"expected": 0, "unexpected": 0` in the JSON report — which reads
+> like a clean pass. Measured here: one missing `PASSWORD_PEPPER` cost a
+> full 300-second run and produced no test results and no useful error.
+> **On a `webServer` timeout, read the server's own stdout before touching
+> the timeout value.**
 
 | Variable | Requirement |
 |---|---|
 | `DATABASE_URL` | ≥20 chars, `^postgres(ql)?://` — **the only one the integration suite needs** |
 | `NEXTAUTH_SECRET` | ≥32 chars |
 | `CRON_SECRET` | ≥32 chars |
-| `PASSWORD_PEPPER` | ≥32 chars |
+| `PASSWORD_PEPPER` | ≥32 chars — **missing this 500s every route in a production build** |
 | `STRIPE_SECRET_KEY` | ≥20, `^sk_(test\|live)_` |
 | `STRIPE_WEBHOOK_SECRET` | ≥20, `^whsec_` |
+| `AUTH_TRUST_HOST` | `true`. **Added 2026-10-22, and it was missing from this table.** Not read by `validate-secrets.ts`, so nothing warns. Without it NextAuth v5 off Vercel refuses the `localhost` host and **every** `/api/auth/session` call fails with `UntrustedHost` (`docs/26` recorded this for production, where `fly.toml [env]` sets it). See below — it is not cosmetic. |
+| `NEXTAUTH_URL` | `http://localhost:3000` |
 | `NEWSLETTER_UNSUBSCRIBE_SECRET` | distinct from `NEXTAUTH_SECRET`, else a warning |
 | `SETTINGS_ENCRYPTION_KEY` | distinct from `NEXTAUTH_SECRET`, else a warning |
 
 None of these needs a real value for E2E. They are format and entropy
-checks, and obvious throwaways satisfy them.
+checks, and obvious throwaways satisfy them. `.github/workflows/ci.yml`
+carries the non-secret ones as literals, on the same reasoning as the
+integration job's literal `DATABASE_URL` (`docs/98` §2).
+
+### 6.1 Why `AUTH_TRUST_HOST` matters more than it looks
+
+Its absence does not merely log an error. `src/middleware.ts` wraps
+`auth()`, so when that throws `UntrustedHost` **the middleware's entire auth
+layer goes inert** and requests fall through to whatever the page or layout
+does. Measured on 2026-10-22 against a production build:
+
+| Request | Without `AUTH_TRUST_HOST` | With it |
+|---|---|---|
+| `GET /api/auth/session` | `UntrustedHost` error | `null`, HTTP 200 |
+| `GET /admin/simulation` | 307 → `/login?callbackUrl=/admin` | 307 → `/login?callbackUrl=%2Fadmin%2Fsimulation` |
+| `GET /dashboard/campaigns` | 307 → `/login?callbackUrl=/dashboard` | 307 → `/login?callbackUrl=%2Fdashboard%2Fcampaigns` |
+
+The wrong `callbackUrl` is the *visible* symptom — an operator signs in and
+lands somewhere other than the page they asked for — and it comes from the
+hardcoded string in `src/app/admin/layout.tsx:31`, which is only ever
+reached because the middleware stopped answering. The middleware itself
+builds the callback from the full pathname and query, and carries a comment
+explaining why.
+
+The consequence for this suite is larger: anything that branches on being
+signed in — `useAuthState()`, `MessageForm`'s auth gate, every `/dashboard`
+and `/admin` spec — was being measured against a broken session endpoint.
+`e2e-18-admin-simulation.spec.ts` now asserts the exact `callbackUrl`, which
+makes it a canary for this whole layer being alive.
 
 ---
 
@@ -308,3 +403,133 @@ gate keeps its own tests, which assert both insert paths write
 turn the suite green immediately and assert nothing — the failure mode
 `docs/98` §3 just finished removing from the integration suite, where a
 whole run could pass while proving nothing.
+
+---
+
+## 8. The spec reconciliation, and what it found in the product
+
+Worked 2026-10-22, after §1–§7. Fourteen spec files rewritten. The headline
+is not the pass count: it is that **five product defects** came out of specs
+that could finally reach a rendered page, and that several specs which had
+been passing all along were asserting nothing at all.
+
+### 8.1 ⚠️ Corrections to this document's own numbers
+
+| Claim made earlier | What is true |
+|---|---|
+| "the suite is still 32 failed / 25 passed" | Withdrawn. That session had concurrent axe probes crashing browsers (`browserType.launch: ... browser has been closed`), so it measured contention. |
+| "57 tests per project" / "72 tests" | **292 tests across the four configured projects.** Every figure in §3 was the **Desktop Chrome project alone** (73 tests), because the runs passed `--project`. |
+| "`globalSetup` runs BEFORE `webServer` (verified from run output)" | **Not verified** — the seed line was on stderr and the build's output on stdout, which had been redirected away. Two streams say nothing about each other's ordering. The dependency is now removed rather than asserted: `webServer` seeds before it builds. |
+| §6: the secret FATAL is "a false lead" | Wrong once E2E runs a production build. See the amendment in §6. |
+
+### 8.2 Five product defects
+
+**1. The homepage tabs were invalid ARIA.** `HowItWorks` rendered
+`<ol role="tablist">` with each `role="tab"` button wrapped in an `<li>`. An
+ARIA role **replaces** native semantics rather than adding to it, so one
+mistake produced three violations over 7 nodes:
+`aria-required-children` (the tablist owned `listitem`s),
+`aria-required-parent` (each tab's parent was an `<li>`) and `listitem` (the
+`<li>`s were no longer in a list). The tabs pattern the component's own
+comment promised was therefore not exposed at all. Now a `div` holding the
+tabs directly.
+
+**2. `/campaigns` had the same class of mistake, and nothing could have
+flagged it.** `role="tab"` sat on a non-focusable `<span>` and on a `<Link>`
+that navigates to another page, with no tabpanel, no `aria-controls` and no
+arrow keys. A screen-reader user was told "tab" for a control that loses
+their place in the document. It is a two-item nav and is marked up as one
+now, with `aria-current="page"`. It renders only when a completed campaign
+exists, which the review gate (`docs/79`) left at zero — so it was
+unreachable on the live site and in every probe.
+
+**3. The two dark-mode toggles each held their own copy of the theme.**
+`DarkModeToggle` (navigation sheet) and `FooterDarkModeToggle` (footer strip)
+are both mounted on a phone, and each computed `!dark` from a `useState`
+seeded once on mount. So: switch to dark in the menu, then press the footer
+button — it still believed the page was light, re-applied `dark`, and
+**nothing happened**. The second press worked, which is the worst version:
+it reads as a dropped tap, not a bug.
+
+Two copies of one global cannot be kept in agreement by initialising them,
+only by subscribing them. `src/hooks/useDarkMode.ts` now reads the class at
+click time and syncs every mounted toggle through a `MutationObserver`.
+Proven by injection: restoring the old component fails **3 of 5** new tests
+while `DarkModeToggle.test.tsx` stays green — a per-component test could
+never have seen this, which is why it survived.
+
+**4. The donation amount group claimed radio semantics it did not
+implement.** `DonationForm` builds `role="radiogroup"` from
+`<button role="radio">` tiles. There was no `tabIndex` management and no key
+handler anywhere, so a screen reader announced a radio group whose **arrow
+keys did nothing** — the one interaction it tells its user to use — and a
+keyboard donor had to press Tab **nine times** to cross the amounts, plus
+twice more for the frequency toggle. Fixed in `src/lib/radio-group-keys.ts`:
+arrow keys in both axes, Home/End, and a roving `tabIndex` making the group
+one tab stop. Arrow selection goes through each tile's existing `onClick`, so
+there is still exactly one place that selects.
+
+Removing the roles was the alternative and was rejected: they carry real
+information (these nine buttons are one choice) that a row of plain buttons
+cannot convey. Better to make the promise true.
+
+⛔ **`ShareYourStoryForm` has five more `role="radiogroup"`s with the same
+defect** and is not fixed here — a 2,000-line wizard touched in the same pass
+as the money path, with no test covering it, is how a regression ships. The
+helper is reusable; this is the next piece of work.
+
+**5. The skip link, and the footer contrast.** Both in §4, both still fixed.
+
+### 8.3 The specs that were passing while asserting nothing
+
+This is the part worth internalising. Ten tests across seven files were
+wrapped in `if (await locator.isVisible()) { ... }`, and
+**`locator.isVisible()` does not wait** — the `timeout` option does not make
+it poll. So every one of those bodies was skipped whenever the page had not
+finished rendering, and the test reported a pass. Several were tautologies
+even when they did run:
+
+    const ldzBadge = page.locator('text=Last Donor Zone').first();
+    if (await ldzBadge.isVisible()) {
+      await expect(ldzBadge).toBeVisible();   // e2e-03, in full
+    }
+
+Others asserted something true of every page on the site (`e2e-07` clicked
+the navbar's Donate link and checked for an `h1`), or something that passes
+whether a security boundary holds or not:
+
+    await expect(page).toHaveURL(/\/(admin|login)/);   // e2e-18, ×3
+
+That last one matches `/admin/simulation` AND `/login?callbackUrl=/admin`.
+For a protected route it cannot distinguish the safe outcome from the
+dangerous one. `e2e-18` now asserts the exact `callbackUrl`, which also makes
+it a canary for middleware auth being alive (§6.1).
+
+`e2e-17` is the inverse case and the clearest lesson: it asserted
+`formVisible || promptVisible` and got `false` **from a page that was
+correct**. `MessageForm` renders `null` while `useAuthState()` is `unknown`
+(deliberately, per `docs/44`), and the non-waiting probes ran before the
+session read resolved. The page was right; the test was measuring a moment
+that does not matter.
+
+### 8.4 Two mistakes of my own, from the previous pass
+
+Adding the Mobile Chrome project immediately failed two tests I had written:
+`e2e-01` addressed `getByRole('navigation', { name: 'Main navigation' })`
+unconditionally, and that nav is `hidden md:flex` — `display: none` at 412px,
+so absent from the accessibility tree. One test waited out its full 30s
+budget trying to click a link inside it.
+
+That is **the same mistake `e2e-08` documents**, made in the fix for a
+different one, in the same session. Two conclusions, both acted on:
+viewport-dependent locators belong in one helper (`e2e/helpers/nav.ts`), and
+a suite measured on one project tells you about one project.
+
+### 8.5 Cost
+
+`stripe-payment-e2e.spec.ts` is skipped at file level. There is no card rail
+to drive (`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is empty, `docs/72`), and its
+`setTimeout(120_000)` meant the first test burned two full minutes before
+failing, while `mode: 'serial'` skipped the other three — so one dead rail
+showed up as "1 failed, 3 skipped" plus two minutes of wall clock on every
+run. Removing that alone took the suite from 336s to 137s.
