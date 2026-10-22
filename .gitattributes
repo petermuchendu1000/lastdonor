@@ -1,0 +1,49 @@
+# Line endings.
+#
+# This file exists because its absence broke a production deploy on
+# 2026-10-22. Git for Windows defaults to core.autocrlf=true, so a clone on
+# Windows checked the Dockerfile out with CRLF. The Dockerfile WRITES the
+# Fly release command with a heredoc:
+#
+#     RUN cat > /usr/local/bin/release-migrate <<'SH'
+#     #!/bin/sh
+#     ...
+#
+# so the script inherited the Dockerfile's line endings and its shebang
+# became "#!/bin/sh\r". Linux then looked for an interpreter literally
+# named "/bin/sh\r", and the deploy died with:
+#
+#     [dumb-init] /usr/local/bin/release-migrate: No such file or directory
+#
+# which names a file that is right there, with 0755 on it. Nothing in the
+# message points at line endings, and the same commit deploys cleanly from
+# Linux, so this is only reproducible on a Windows checkout.
+#
+# Everything in this repository is built and run inside a Linux container,
+# so the default is LF on checkout everywhere, not just in the index.
+
+* text=auto eol=lf
+
+# Except the scripts Windows itself runs. PowerShell handles LF fine, but
+# CRLF is what the platform's own tooling writes, and nothing ships these
+# into an image.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never touched. Normalising a binary corrupts it.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary
