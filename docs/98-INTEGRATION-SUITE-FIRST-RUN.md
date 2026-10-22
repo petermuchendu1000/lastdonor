@@ -69,7 +69,23 @@ Postgres role exists, so run 6's service-container log carried
 job. The check still *passed*, because a FATAL reply proves the server is up
 and that is all `pg_isready` asks, so this was purely cosmetic. It is fixed
 anyway: a FATAL in the logs of a healthy run is the first thing someone
-debugging a genuine failure would chase.
+debugging a genuine failure would chase, and this codebase has lost enough
+time to diagnostics that pointed at the wrong thing (`docs/80`'s ISR theory;
+the `console.warn` in `docs/97` §5.4 that printed "not set" immediately
+before throwing).
+
+*Verified by run 7* (`39763626126`), because adding quotes inside the
+`options` string changes how Docker parses it and that is not something to
+assume:
+
+| | run 6 (bare `pg_isready`) | run 7 (`-U postgres -d …`) |
+|---|---|---|
+| `role "root" does not exist` | once per 10s | **0 occurrences** |
+| Suite | 83/83 | **83/83** |
+| `donations_amount_check` rejections | present | **present (2)** |
+
+So the noise is gone and nothing else moved — the positivity assertions are
+still genuinely reaching the database.
 
 ### Verified on a real runner, not only locally
 
