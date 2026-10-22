@@ -145,6 +145,68 @@ describe('onRadioGroupKeyDown', () => {
   });
 });
 
+describe('onRadioGroupKeyDown with selectOnMove: false', () => {
+  it('moves focus WITHOUT selecting', () => {
+    const { group, radios, clicks } = makeGroup(3);
+    radios[0].focus();
+
+    onRadioGroupKeyDown(keyEvent('ArrowRight', group), { selectOnMove: false });
+
+    expect(document.activeElement).toBe(radios[1]);
+    expect(clicks).toEqual([]);
+  });
+
+  it('lets a keyboard user cross the whole group before choosing', () => {
+    /*
+      THE REGRESSION THIS EXISTS FOR.
+
+      `ShareYourStoryForm`'s review screen picks a category and then calls
+      `setEditField(null)`, which unmounts the group. Under the default
+      select-on-move, the first ArrowRight would commit a value and close
+      the panel - so of 23 categories a keyboard user could only ever reach
+      the one adjacent to the current selection. Those chips used to be 23
+      separate tab stops, so "fixing" the group that way would have REDUCED
+      their keyboard reach.
+
+      Here: five arrow presses, nothing selected yet, and the fifth option
+      is focused and ready for Space.
+    */
+    const { group, radios, clicks } = makeGroup(6);
+    radios[0].focus();
+
+    for (let i = 0; i < 5; i++) {
+      onRadioGroupKeyDown(keyEvent('ArrowRight', group), { selectOnMove: false });
+    }
+
+    expect(document.activeElement).toBe(radios[5]);
+    expect(clicks).toEqual([]);
+  });
+
+  it('still claims the arrow key, so the page does not scroll', () => {
+    const { group, radios } = makeGroup(3);
+    radios[0].focus();
+
+    const event = keyEvent('ArrowDown', group);
+    onRadioGroupKeyDown(event, { selectOnMove: false });
+
+    expect(event.preventDefault).toHaveBeenCalled();
+  });
+
+  it('selects on move when the option is omitted or true', () => {
+    // The default must stay APG behaviour: a plain radio group selects as it
+    // moves, and only the two review-screen editors opt out.
+    const a = makeGroup(3);
+    a.radios[0].focus();
+    onRadioGroupKeyDown(keyEvent('ArrowRight', a.group));
+    expect(a.clicks).toEqual([1]);
+
+    const b = makeGroup(3);
+    b.radios[0].focus();
+    onRadioGroupKeyDown(keyEvent('ArrowRight', b.group), { selectOnMove: true });
+    expect(b.clicks).toEqual([1]);
+  });
+});
+
 describe('rovingTabIndex', () => {
   it('gives the tab stop to the selected option', () => {
     expect(rovingTabIndex({ isSelected: true, isFirst: false, anySelected: true })).toBe(0);

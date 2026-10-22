@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { onRadioGroupKeyDown, rovingTabIndex } from '@/lib/radio-group-keys';
 import { FundraiserPreviewModal } from './FundraiserPreviewModal';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -876,7 +877,19 @@ export function ShareYourStoryForm() {
                 once.
               */}
               {errors.fundraisingFor && <p className="text-sm text-red-500">{errors.fundraisingFor}</p>}
-              <div className="space-y-4" role="radiogroup" aria-label="Who are you fundraising for?">
+              {/*
+                `onKeyDown` + the roving `tabIndex` below are what make
+                `role="radiogroup"` true rather than decorative: a radio
+                group is ONE tab stop with arrow keys inside it, and these
+                five groups had neither. See `src/lib/radio-group-keys.ts`
+                and `docs/100`.
+              */}
+              <div
+                className="space-y-4"
+                role="radiogroup"
+                aria-label="Who are you fundraising for?"
+                onKeyDown={onRadioGroupKeyDown}
+              >
                 {[
                   {
                     value: 'yourself',
@@ -898,7 +911,7 @@ export function ShareYourStoryForm() {
                       </svg>
                     ),
                   },
-                ].map((type) => {
+                ].map((type, i) => {
                   const isSelected = form.fundraisingFor === type.value;
                   return (
                     <button
@@ -906,6 +919,17 @@ export function ShareYourStoryForm() {
                       type="button"
                       role="radio"
                       aria-checked={isSelected}
+                      /*
+                        `form.fundraisingFor` starts '' - nothing is
+                        pre-chosen - so the first card holds the tab stop
+                        until a choice is made, or the group would be
+                        unreachable by keyboard entirely.
+                      */
+                      tabIndex={rovingTabIndex({
+                        isSelected,
+                        isFirst: i === 0,
+                        anySelected: form.fundraisingFor !== '',
+                      })}
                       onClick={() => {
                         update('fundraisingFor', type.value);
                         if (type.value === 'yourself') {
@@ -954,8 +978,13 @@ export function ShareYourStoryForm() {
 
                   <div className="space-y-4">
                     <h2 className="text-xl font-bold text-foreground">What is your relationship to this person?</h2>
-                    <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Relationship to beneficiary">
-                      {RELATIONS.filter((r) => r.value !== 'self').map((r) => {
+                    <div
+                      className="flex flex-wrap gap-2.5"
+                      role="radiogroup"
+                      aria-label="Relationship to beneficiary"
+                      onKeyDown={onRadioGroupKeyDown}
+                    >
+                      {RELATIONS.filter((r) => r.value !== 'self').map((r, i) => {
                         const selected = form.beneficiaryRelation === r.value;
                         return (
                           <button
@@ -963,6 +992,19 @@ export function ShareYourStoryForm() {
                             type="button"
                             role="radio"
                             aria-checked={selected}
+                            /*
+                              `i` indexes the FILTERED list, which is the one
+                              rendered: 'self' is dropped here because this
+                              group only appears when fundraising for someone
+                              else. Using the unfiltered index would put the
+                              fallback tab stop on an option that is not on
+                              screen.
+                            */
+                            tabIndex={rovingTabIndex({
+                              isSelected: selected,
+                              isFirst: i === 0,
+                              anySelected: form.beneficiaryRelation !== '',
+                            })}
                             onClick={() => update('beneficiaryRelation', r.value)}
                             className={`rounded-full border px-4 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                               selected
@@ -1412,8 +1454,13 @@ export function ShareYourStoryForm() {
                   what follows is 23 category chips that explain themselves.
                 */}
                 <h2 className="text-xl font-bold text-foreground">Category</h2>
-                <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Campaign category">
-                  {CATEGORIES.map((cat) => {
+                <div
+                  className="flex flex-wrap gap-2.5"
+                  role="radiogroup"
+                  aria-label="Campaign category"
+                  onKeyDown={onRadioGroupKeyDown}
+                >
+                  {CATEGORIES.map((cat, i) => {
                     const selected = form.category === cat.value;
                     return (
                       <button
@@ -1421,6 +1468,15 @@ export function ShareYourStoryForm() {
                         type="button"
                         role="radio"
                         aria-checked={selected}
+                        /*
+                          23 chips, which was 23 tab stops before this. One
+                          now, with arrows inside it.
+                        */
+                        tabIndex={rovingTabIndex({
+                          isSelected: selected,
+                          isFirst: i === 0,
+                          anySelected: form.category !== '',
+                        })}
                         onClick={() => update('category', cat.value)}
                         className={`rounded-full border px-4 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                           selected
@@ -1917,10 +1973,27 @@ export function ShareYourStoryForm() {
                       </div>
                     )}
 
-                    {/* ── Category ───────────────────────────────── */}
+                    {/*
+                      ── Category ─────────────────────────────────
+
+                      `selectOnMove: false` below, and it is not a
+                      preference. Choosing a category in this editor calls
+                      `setEditField(null)`, which UNMOUNTS this group - so
+                      with selection on move the first ArrowRight would
+                      commit a value and close the panel, and a keyboard
+                      user could never reach any of the other 22
+                      categories. Arrows move focus; Space or Enter
+                      chooses, because these are real buttons. See
+                      `docs/100` §3.
+                    */}
                     {editField === 'category' && (
-                      <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Campaign category">
-                        {CATEGORIES.map((cat) => {
+                      <div
+                        className="flex flex-wrap gap-2.5"
+                        role="radiogroup"
+                        aria-label="Campaign category"
+                        onKeyDown={(e) => onRadioGroupKeyDown(e, { selectOnMove: false })}
+                      >
+                        {CATEGORIES.map((cat, i) => {
                           const selected = form.category === cat.value;
                           return (
                             <button
@@ -1928,6 +2001,11 @@ export function ShareYourStoryForm() {
                               type="button"
                               role="radio"
                               aria-checked={selected}
+                              tabIndex={rovingTabIndex({
+                                isSelected: selected,
+                                isFirst: i === 0,
+                                anySelected: form.category !== '',
+                              })}
                               onClick={() => { update('category', cat.value); setEditField(null); }}
                               className={`rounded-full border px-4 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                                 selected
@@ -1971,9 +2049,20 @@ export function ShareYourStoryForm() {
                     )}
 
                     {/* ── Relationship ───────────────────────────── */}
+                    {/*
+                      Manual activation, same reason as the category editor
+                      above: selecting here unmounts the group. Note this
+                      list is UNfiltered - the review screen offers
+                      'Myself' too, unlike step 0's version.
+                    */}
                     {editField === 'relationship' && (
-                      <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Relationship to beneficiary">
-                        {RELATIONS.map((r) => {
+                      <div
+                        className="flex flex-wrap gap-2.5"
+                        role="radiogroup"
+                        aria-label="Relationship to beneficiary"
+                        onKeyDown={(e) => onRadioGroupKeyDown(e, { selectOnMove: false })}
+                      >
+                        {RELATIONS.map((r, i) => {
                           const selected = form.beneficiaryRelation === r.value;
                           return (
                             <button
@@ -1981,6 +2070,11 @@ export function ShareYourStoryForm() {
                               type="button"
                               role="radio"
                               aria-checked={selected}
+                              tabIndex={rovingTabIndex({
+                                isSelected: selected,
+                                isFirst: i === 0,
+                                anySelected: form.beneficiaryRelation !== '',
+                              })}
                               onClick={() => { update('beneficiaryRelation', r.value); setEditField(null); }}
                               className={`rounded-full border px-4 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                                 selected

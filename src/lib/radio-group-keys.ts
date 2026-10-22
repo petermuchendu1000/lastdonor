@@ -59,6 +59,38 @@ const NAVIGATION_KEYS = new Set([
   'End',
 ]);
 
+export interface RadioGroupKeyOptions {
+  /**
+   * Whether an arrow key also SELECTS the option it moves to.
+   *
+   * `true` (the default) is what APG specifies and what every ordinary radio
+   * group should do: focus and selection move together, so a keyboard user
+   * never has to press a second key to choose.
+   *
+   * `false` is "manual activation": arrows move focus only, and the user
+   * presses Space or Enter to choose. That exists for one specific case, and
+   * it is not a style preference — **set it when selecting an option DESTROYS
+   * the group.**
+   *
+   * `ShareYourStoryForm`'s review screen has two such groups: picking a
+   * category or a relationship there calls `setEditField(null)` in the same
+   * handler, which unmounts the whole editor. With selection on move, the
+   * first ArrowRight would commit a value and close the panel, so a keyboard
+   * user could never reach any option except the one next to the current
+   * selection — out of 23 categories. Those chips are currently 23 separate
+   * tab stops, so select-on-move would have REDUCED their keyboard reach
+   * while appearing to fix the group. See `docs/100`.
+   *
+   * The trade-off accepted: with manual activation the roving tab stop still
+   * follows SELECTION, not focus, so tabbing away and back returns to the
+   * selected chip rather than to the one last arrowed to. That is acceptable
+   * here because both groups are transient — they close as soon as a choice
+   * is made — and it keeps the guarantee that matters, which is exactly one
+   * tab stop per group and never a trap.
+   */
+  selectOnMove?: boolean;
+}
+
 /**
  * Put on the element carrying `role="radiogroup"`.
  *
@@ -66,7 +98,10 @@ const NAVIGATION_KEYS = new Set([
  * column are the same widget to a keyboard user, and `DonationForm`'s amounts
  * are a 3-column grid where "next" is meaningful horizontally AND vertically.
  */
-export function onRadioGroupKeyDown(event: React.KeyboardEvent<HTMLElement>): void {
+export function onRadioGroupKeyDown(
+  event: React.KeyboardEvent<HTMLElement>,
+  options: RadioGroupKeyOptions = {},
+): void {
   if (!NAVIGATION_KEYS.has(event.key)) return;
 
   const radios = Array.from(
@@ -92,10 +127,18 @@ export function onRadioGroupKeyDown(event: React.KeyboardEvent<HTMLElement>): vo
   // Only now, so an unhandled key still scrolls the page as the user expects.
   event.preventDefault();
   radios[next].focus();
+
+  if (options.selectOnMove === false) return;
+
   /*
     `click()`, not a state setter. Each option already owns its selection in
     its own `onClick`; calling it is what keeps arrow-selection and
     click-selection from being two implementations that can disagree.
+
+    Under manual activation we have already returned, and Space/Enter are
+    left to the browser: these options are real `<button>`s, which activate
+    on both, firing the same `onClick`. So there is still exactly one code
+    path that selects.
   */
   radios[next].click();
 }
