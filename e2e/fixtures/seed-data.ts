@@ -133,6 +133,26 @@ export async function seedE2EData(): Promise<void> {
   assertDatabaseIsDisposable();
   await clearE2EData();
 
+  /*
+    Hero images are LOCAL paths, and that is load-bearing.
+
+    They were `https://example.invalid/e2e-*.webp` - an obviously fake host,
+    chosen so the fixture could not reach the network. `next/image` refuses a
+    remote host that is not in `images.remotePatterns` and THROWS:
+
+        Error: Invalid src prop (https://example.invalid/e2e-veteran.webp) on
+        `next/image`, hostname "example.invalid" is not configured under
+        images in your next.config.js
+
+    The card component threw, so `/campaigns` rendered no cards at all - the
+    fixture broke the exact page it existed to populate. The rows were in the
+    database and the titles were in the server payload, which is why it looked
+    like it was working; the hydrated DOM had zero links to any campaign.
+
+    `/images/categories/*` are real files in `public/` that the app already
+    serves through the optimiser (`dangerouslyAllowSVG` is on for them), so
+    they need no remote pattern and no network. See docs/99 §3.2.
+  */
   const now = new Date();
   /* Distinct publish times, because e2e specs and the listing's default
      "newest" sort both read order off `publishedAt`. Identical timestamps
@@ -157,7 +177,7 @@ export async function seedE2EData(): Promise<void> {
       title: 'General Fund',
       slug: `${E2E_SLUG_PREFIX}general-fund`,
       status: 'active',
-      heroImageUrl: 'https://example.invalid/e2e-general-fund.webp',
+      heroImageUrl: '/images/categories/community-hero.webp',
       storyHtml:
         '<p>Fixture row for the end-to-end suite. Giving here pays for ' +
         'campaign review, donor support and keeping the site running.</p>',
@@ -176,7 +196,7 @@ export async function seedE2EData(): Promise<void> {
       title: 'E2E Fixture: Medical Appeal',
       slug: `${E2E_SLUG_PREFIX}medical-appeal`,
       status: 'active',
-      heroImageUrl: 'https://example.invalid/e2e-medical.webp',
+      heroImageUrl: '/images/categories/medical-hero.webp',
       storyHtml:
         '<p>Fixture row for the end-to-end suite. It carries enough story ' +
         'text to render the campaign detail page the way a real appeal ' +
@@ -202,7 +222,7 @@ export async function seedE2EData(): Promise<void> {
       title: 'E2E Fixture: Veteran Housing, Nearly Funded',
       slug: `${E2E_SLUG_PREFIX}veteran-housing`,
       status: 'last_donor_zone',
-      heroImageUrl: 'https://example.invalid/e2e-veteran.webp',
+      heroImageUrl: '/images/categories/veterans-hero.webp',
       storyHtml:
         '<p>Fixture row for the end-to-end suite, deliberately close to its ' +
         'goal so the last-donor phase has something to render.</p>',
@@ -223,7 +243,7 @@ export async function seedE2EData(): Promise<void> {
       title: 'E2E Fixture: Newly Published, No Donations',
       slug: `${E2E_SLUG_PREFIX}newly-published`,
       status: 'active',
-      heroImageUrl: 'https://example.invalid/e2e-new.webp',
+      heroImageUrl: '/images/categories/community-default.svg',
       storyHtml:
         '<p>Fixture row for the end-to-end suite with no donations against ' +
         'it, so the unfunded card and sidebar states are covered.</p>',

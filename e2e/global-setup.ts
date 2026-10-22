@@ -13,5 +13,17 @@ import { seedE2EData } from './fixtures/seed-data';
 export default async function globalSetup(): Promise<void> {
   const started = Date.now();
   await seedE2EData();
-  console.log(`[e2e-seed] fixture ready in ${Date.now() - started}ms`);
+  /*
+    stderr, NOT stdout. Playwright's `json` reporter writes the report to
+    STDOUT, so a `console.log` here lands inside it and the result is not
+    valid JSON:
+
+        [e2e-seed] fixture ready in 50ms
+        [e2e-seed] fixture rows removed
+        { "config": { ...
+
+    which fails to parse at line 1 column 2. Diagnostics belong on stderr
+    precisely so they cannot corrupt a machine-readable stream on stdout.
+  */
+  process.stderr.write(`[e2e-seed] fixture ready in ${Date.now() - started}ms\n`);
 }

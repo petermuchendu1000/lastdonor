@@ -16,7 +16,9 @@ import { clearE2EData } from './fixtures/seed-data';
 export default async function globalTeardown(): Promise<void> {
   try {
     await clearE2EData();
-    console.log('[e2e-seed] fixture rows removed');
+    // stderr, not stdout: the `json` reporter writes its report to stdout
+    // and a stray line here makes it unparseable. See `global-setup.ts`.
+    process.stderr.write('[e2e-seed] fixture rows removed\n');
   } catch (error) {
     console.error(
       '[e2e-seed] teardown failed; fixture rows may remain. The next run ' +
