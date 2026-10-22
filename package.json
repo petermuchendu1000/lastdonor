@@ -2,6 +2,9 @@
   "name": "lastdonor",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
@@ -86,6 +89,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.2.0",
     "eslint-plugin-jsx-a11y": "^6.10.0",
+    "glob": "^9.3.5",
     "msw": "^2.12.13",
     "postcss": "^8.5.0",
     "shadcn": "^4.1.0",

@@ -3,10 +3,32 @@ name: CI
 on:
   push:
     branches: [main, staging]
+    # A change that touches only prose cannot fail this pipeline: no test in
+    # the repository reads a markdown file or the docs directory (verified
+    # 2026-10-22 by grepping every `readFileSync`/`readdirSync`/`globSync`
+    # call in `src/**/*.test.*` and `test/**` for a `.md` or `docs/` path -
+    # nothing matched). 17 of the last 60 commits on main were docs-only,
+    # so this skips 28% of runs outright. See docs/97.
+    #
+    # HAZARD, and the reason this is worth a comment: `main` is currently
+    # UNPROTECTED (`protected: false` from the API, 2026-10-22). If branch
+    # protection is ever added with `ci-complete` as a REQUIRED check, a
+    # docs-only pull request will produce no run, the required check will
+    # never report, and the PR will be unmergeable forever. GitHub does not
+    # warn about this. If protection is added, either drop these filters or
+    # add a no-op twin workflow declaring the same job name.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   # Lets the pipeline be triggered by hand or by automation, which it could
-  # not be before. See docs/50.
+  # not be before. See docs/50. `workflow_dispatch` ignores `paths-ignore`,
+  # so a hand-dispatched run always executes - which is how the filters
+  # above stay testable.
   workflow_dispatch:
 
 concurrency:
@@ -14,7 +36,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  # Was '20'. Node 20 reached END OF LIFE on 2026-04-30 (verified against
+  # nodejs/Release `schedule.json`, fetched 2026-10-22), and CI was the ONLY
+  # place in this project running it: `.nvmrc` says 22 and the Dockerfile
+  # builds and runs on `node:22-bookworm-slim`. So CI was testing a runtime
+  # that exists nowhere else - it cannot catch a Node 22 defect, and it
+  # invents failures that no real environment has.
+  #
+  # It did exactly that on run 3, the first run ever to reach a runner:
+  # `src/components/ui/money-currency.ratchet.test.ts` imported `globSync`
+  # from `node:fs`, which only exists from Node 22, so three tests failed in
+  # CI and passed everywhere else. Keep this in step with `.nvmrc` and the
+  # Dockerfile; `src/ci-node-version.ratchet.test.ts` fails the build if
+  # they drift.
+  NODE_VERSION: '22'
 
 # Every job pins `ubuntu-24.04` rather than `ubuntu-latest`. Run 1
 # (2026-10-21) carried GitHub's own notice: "The ubuntu-latest label will
@@ -30,6 +65,24 @@ env:
 # invalidates the workflow. That is the same class of defect as the
 # double-quoted expression this file was just fixed for, and it would be
 # equally invisible until someone dispatched a run.
+#
+# ── Every job declares `timeout-minutes`. ─────────────────────────────────
+#
+# GitHub's default is 360 minutes PER JOB. With nine job instances (e2e is a
+# two-leg matrix) and no timeouts, one wedged step could hold runners for
+# 3,240 job-minutes - six hours of silence, then a bill. The numbers below
+# sum to 175. See docs/97.
+#
+# They are sized from the first run that ever reached a runner (run 3,
+# 2026-10-22): config 3s, security-audit 53s, lint-and-typecheck 97s,
+# unit-tests 159s. Those get roughly 8-10x headroom, which is slack for a
+# slow runner and still nothing like six hours. integration-tests, build and
+# e2e-tests have NEVER executed in CI, so their numbers are deliberate
+# over-estimates rather than measurements - marked as such, and worth
+# tightening once each has a green baseline. The point is not to be tight.
+# It is to be finite.
+#
+# `src/ci-workflows.ratchet.test.ts` fails the build if a job omits one.
 
 jobs:
   # Reports which optional secrets exist, so the DB-backed jobs can skip
@@ -38,6 +91,8 @@ jobs:
   # here as an output.
   config:
     runs-on: ubuntu-24.04
+    # Measured 3s. One shell conditional; it has no reason to take minutes.
+    timeout-minutes: 5
     outputs:
       has-db: ${{ steps.probe.outputs.has-db }}
     steps:
@@ -57,6 +112,8 @@ jobs:
   # whole lint job.
   lint-and-typecheck:
     runs-on: ubuntu-24.04
+    # Measured 97s (npm ci 43s, lint 15s, tsc 29s).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,6 +126,8 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-24.04
+    # Measured 159s (npm ci 37s, 6,303 tests in 113s).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,6 +139,8 @@ jobs:
 
   security-audit:
     runs-on: ubuntu-24.04
+    # Measured 53s (npm ci 34s, audits 5s).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,6 +161,8 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-24.04
+    # NOT measured - has never run in CI. Over-estimate.
+    timeout-minutes: 25
     needs: [config, lint-and-typecheck, unit-tests, security-audit]
     if: >-
       needs.config.outputs.has-db == 'true' &&
@@ -125,6 +188,8 @@ jobs:
 
   build:
     runs-on: ubuntu-24.04
+    # NOT measured in CI. A Fly build of this app takes ~6 min.
+    timeout-minutes: 30
     needs: [lint-and-typecheck, unit-tests, security-audit]
     env:
       DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
@@ -146,6 +211,8 @@ jobs:
 
   e2e-tests:
     runs-on: ubuntu-24.04
+    # NOT measured - has never run. PER MATRIX LEG, so 60 total.
+    timeout-minutes: 30
     needs: [config, build, integration-tests]
     if: >-
       needs.config.outputs.has-db == 'true' &&
@@ -183,6 +250,8 @@ jobs:
   # not have to name every job and does not go green when a job is skipped.
   ci-complete:
     runs-on: ubuntu-24.04
+    # Measured 3s. Reads job results and exits.
+    timeout-minutes: 5
     if: always()
     needs:
       - lint-and-typecheck

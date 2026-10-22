@@ -85,6 +85,91 @@ function withoutComment(line: string): string {
   return hash === -1 ? line : line.slice(0, hash);
 }
 
+interface Job {
+  id: string;
+  line: number;
+  /** The job's own lines, excluding the `  <id>:` header. */
+  body: string[];
+}
+
+/**
+ * Every job in a workflow, with its block of lines.
+ *
+ * Line-based on purpose. The obvious implementation imports a YAML parser,
+ * but the only one resolvable in this tree is `js-yaml`, reachable solely as
+ * an undeclared transitive dependency - which is the exact defect this
+ * commit fixed for `glob` (docs/97). A build gate should not rest on a
+ * package nothing declares, so this reads the text.
+ */
+function jobsOf(wf: Workflow): Job[] {
+  const out: Job[] = [];
+  let inJobs = false;
+  let current: Job | null = null;
+
+  wf.lines.forEach((raw, i) => {
+    if (/^jobs\s*:/.test(raw)) {
+      inJobs = true;
+      return;
+    }
+    if (!inJobs) return;
+    // A non-indented, non-blank line ends the jobs block.
+    if (/^\S/.test(raw)) {
+      inJobs = false;
+      current = null;
+      return;
+    }
+    const header = /^ {2}([A-Za-z0-9_-]+)\s*:\s*$/.exec(raw);
+    if (header) {
+      current = { id: header[1], line: i + 1, body: [] };
+      out.push(current);
+      return;
+    }
+    if (current) current.body.push(raw);
+  });
+
+  return out;
+}
+
+/** The widest `strategy.matrix` axis, i.e. how many times the job runs. */
+function matrixLegs(job: Job): number {
+  let legs = 1;
+  let inMatrix = false;
+  let axis = 0;
+
+  for (const raw of job.body) {
+    const line = withoutComment(raw);
+    if (/^ {6}matrix\s*:\s*$/.test(line)) {
+      inMatrix = true;
+      axis = 0;
+      continue;
+    }
+    if (!inMatrix) continue;
+
+    // Left the matrix block: back to 6-space (another strategy key) or less.
+    if (/^\s*\S/.test(line) && !/^ {8,}/.test(line)) {
+      legs = Math.max(legs, axis);
+      inMatrix = false;
+      continue;
+    }
+    // An axis key: `        project:` - flush the previous axis.
+    if (/^ {8}[A-Za-z0-9_-]+\s*:\s*$/.test(line)) {
+      legs = Math.max(legs, axis);
+      axis = 0;
+      continue;
+    }
+    // Inline list: `        project: ['a', 'b']`
+    const inline = /^ {8}[A-Za-z0-9_-]+\s*:\s*\[(.+)\]\s*$/.exec(line);
+    if (inline) {
+      legs = Math.max(legs, inline[1].split(',').filter((s) => s.trim()).length);
+      continue;
+    }
+    // Block list item under the current axis.
+    if (/^ {10}-\s*\S/.test(line)) axis += 1;
+  }
+
+  return Math.max(legs, axis, 1);
+}
+
 describe('CI workflow expressions', () => {
   it('finds the workflow directory at all', () => {
     // If this fails, every other assertion here is vacuously true - which
@@ -246,5 +331,95 @@ describe('CI workflow expressions', () => {
       'A `needs:` entry names a job that does not exist, which makes the ' +
         'whole workflow invalid and therefore unqueueable.',
     ).toEqual([]);
+  });
+});
+
+/*
+  ── Consumption ───────────────────────────────────────────────────────────
+
+  These are not correctness rules. They bound what a wedged pipeline can
+  spend, which is a different failure mode and one that stays silent for
+  six hours before it shows up on an invoice.
+
+  GitHub's default job timeout is 360 minutes and nothing warns you about
+  it. This repository is public, so its standard-runner minutes are free and
+  it has never cost anything - but "free" is a property of the repository's
+  visibility, not of the workflow, and flipping a repository to private is
+  one click. See docs/97.
+
+  PER_JOB_CEILING is the load-bearing rule: it bounds the blast radius of
+  any single job, and because a matrix leg is a job it bounds each leg too.
+  TOTAL_BUDGET then keeps the worst case computable at a glance.
+*/
+const PER_JOB_CEILING = 30;
+const TOTAL_BUDGET = 200;
+
+describe('CI workflow consumption', () => {
+  it('declares timeout-minutes on every job', () => {
+    const offenders: string[] = [];
+    for (const wf of workflows) {
+      const jobs = jobsOf(wf);
+      expect(jobs.length, `${wf.name}: found no jobs`).toBeGreaterThan(0);
+      for (const job of jobs) {
+        const has = job.body.some((l) =>
+          /^ {4}timeout-minutes\s*:\s*\d+\s*$/.test(withoutComment(l)),
+        );
+        if (!has) offenders.push(`${wf.name}:${job.line} -> ${job.id}`);
+      }
+    }
+    expect(
+      offenders,
+      'A job with no `timeout-minutes` inherits GitHub\'s 360-minute ' +
+        'default. Nine job instances at 360 is 3,240 job-minutes of ' +
+        'exposure from one hung step, with no warning until it bills. ' +
+        'Size the timeout from a measured run and write it down.',
+    ).toEqual([]);
+  });
+
+  it('keeps every job under the per-job ceiling', () => {
+    const offenders: string[] = [];
+    for (const wf of workflows) {
+      for (const job of jobsOf(wf)) {
+        for (const raw of job.body) {
+          const m = /^ {4}timeout-minutes\s*:\s*(\d+)\s*$/.exec(withoutComment(raw));
+          if (m && Number(m[1]) > PER_JOB_CEILING) {
+            offenders.push(`${wf.name}: ${job.id} = ${m[1]} min`);
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      `No job may declare more than ${PER_JOB_CEILING} minutes. If a job ` +
+        'genuinely needs longer, split it or make it faster - do not raise ' +
+        'the ceiling to make it fit.',
+    ).toEqual([]);
+  });
+
+  it('keeps the whole pipeline inside the total budget', () => {
+    const report: string[] = [];
+    let total = 0;
+
+    for (const wf of workflows) {
+      for (const job of jobsOf(wf)) {
+        const legs = matrixLegs(job);
+        for (const raw of job.body) {
+          const m = /^ {4}timeout-minutes\s*:\s*(\d+)\s*$/.exec(withoutComment(raw));
+          if (!m) continue;
+          const cost = Number(m[1]) * legs;
+          total += cost;
+          report.push(`${job.id}: ${m[1]} x ${legs} leg(s) = ${cost}`);
+        }
+      }
+    }
+
+    // The matrix arithmetic has to actually work, or this budget is a
+    // vacuous sum and the e2e legs are counted once instead of twice.
+    expect(report.some((r) => /x 2 leg/.test(r)), report.join('\n')).toBe(true);
+
+    expect(
+      total,
+      `Worst-case pipeline cost is ${total} job-minutes:\n${report.join('\n')}`,
+    ).toBeLessThanOrEqual(TOTAL_BUDGET);
   });
 });

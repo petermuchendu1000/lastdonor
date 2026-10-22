@@ -29,7 +29,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { globSync } from 'node:fs';
+/*
+  `globSync` comes from the `glob` PACKAGE, not from `node:fs`.
+
+  It used to be imported from `node:fs`, where the function only exists from
+  Node 22 and is still marked experimental. CI pinned Node 20, so this file
+  threw `TypeError: globSync is not a function` on run 3 - the first CI run
+  in this repository's history to reach a runner - while passing on every
+  developer machine, all of which are on 22 per `.nvmrc`.
+
+  Two things were wrong and both are fixed: CI now runs Node 22 (see the
+  `NODE_VERSION` comment in `.github/workflows/ci.yml`), and this file no
+  longer depends on an experimental built-in. `glob` is what the three
+  sibling scanners in `test/security/` already use, so there is now one
+  glob implementation across the suite instead of two. See docs/97.
+*/
+import { globSync } from 'glob';
 import { join } from 'node:path';
 
 /** Every `<Money ... />` element in the tree, with the file it came from. */
