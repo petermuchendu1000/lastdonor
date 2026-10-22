@@ -13,6 +13,30 @@ const chromiumLaunch = chromiumExecutable
 export default defineConfig({
   testDir: './e2e',
   /*
+    Playwright collects ONLY `.spec.ts`. This is not cosmetic.
+
+    Playwright's default `testMatch` is
+    `**` + `/*.@(spec|test).?(c|m)[jt]s?(x)` - which matches `.test.ts` as
+    well. `e2e/fixtures/seed-data.test.ts` is a VITEST file, so Playwright
+    loaded it, hit `import { describe } from 'vitest'`, and aborted the
+    entire run:
+
+        Error: Vitest cannot be imported in a CommonJS module using
+        require(). Please use "import" instead.
+        at e2e/fixtures/seed-data.test.ts:17
+
+    Not "that file failed" - the whole run, 0 tests collected, which the
+    JSON reporter records as `expected: 0, unexpected: 0` and is easy to
+    mistake for a pass. `vitest.config.ts` already draws this line from the
+    other side (it excludes `.spec.ts` and includes `.test.ts`); this is the
+    mirror image, and both halves are needed.
+
+    Noted because CI would not have caught it: `e2e-tests` is skipped
+    (docs/99 §5), so a change that breaks the E2E run entirely is currently
+    invisible to the pipeline.
+  */
+  testMatch: '**/*.spec.ts',
+  /*
     The suite assumes the database already lists published campaigns, and
     seeds nothing itself. Since docs/79 moved every campaign to
     `under_review`, that assumption is false even in production — which is

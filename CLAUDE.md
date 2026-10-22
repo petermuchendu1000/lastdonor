@@ -124,7 +124,7 @@ npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
 npm run test:unit      # Vitest (6323 tests, 193 files, as of 2026-10-22)
 npm run test:integration  # Vitest + a throwaway Postgres (83 tests, 11 files)
-npm run test:e2e       # Playwright (57 tests per project, 21 files) — ~30 RED, see docs/99
+npm run test:e2e       # Playwright (72 tests per project, 21 files) — many RED, see docs/99
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline
 ```
