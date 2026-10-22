@@ -54,11 +54,44 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
+  /*
+    Chromium projects by default; Firefox and WebKit behind an opt-in flag.
+
+    The config used to declare all four unconditionally, and nothing in this
+    repository installs the browsers two of them need: CI runs
+    `npx playwright install --with-deps chromium` and pins its matrix to
+    `['Desktop Chrome', 'Mobile Chrome']`, and the sandbox has chromium
+    alone. So a plain `npm run test:e2e` collected 292 tests and about 146
+    of them - every Desktop Firefox and Mobile Safari leg - could only fail
+    with
+
+        browserType.launch: Executable doesn't exist at .../firefox-.../firefox
+
+    which is not a result about this product. It is also how
+    `e2e-08-mobile-donate.spec.ts` came to fail for a reason that had nothing
+    to do with its subject: `devices['iPhone 14']` carries
+    `defaultBrowserType: 'webkit'`, so it was launching a browser that is not
+    there.
+
+    Deleting those two projects outright would have been the tidier diff and
+    the wrong call: iOS Safari is a large share of a donation site's traffic,
+    and a WebKit gap that is written down can be closed, while one that was
+    quietly deleted cannot. So they remain, one env var away:
+
+        npx playwright install firefox webkit
+        PW_ALL_BROWSERS=1 npm run test:e2e
+
+    ⛔ That gap is real and currently uncovered. `docs/99` §5 carries it.
+  */
   projects: [
     { name: 'Desktop Chrome', use: { ...devices['Desktop Chrome'], ...chromiumLaunch } },
-    { name: 'Desktop Firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'Mobile Safari', use: { ...devices['iPhone 14'] } },
     { name: 'Mobile Chrome', use: { ...devices['Pixel 7'], ...chromiumLaunch } },
+    ...(process.env.PW_ALL_BROWSERS
+      ? [
+          { name: 'Desktop Firefox', use: { ...devices['Desktop Firefox'] } },
+          { name: 'Mobile Safari', use: { ...devices['iPhone 14'] } },
+        ]
+      : []),
   ],
   /*
     E2E runs against a PRODUCTION build, not `next dev`.
@@ -103,6 +136,28 @@ export default defineConfig({
     output on stdout, which I had redirected away. Two streams say nothing
     about each other's ordering. Now the data exists before the build
     whichever order Playwright chooses.
+
+    ── If the run dies at exactly `timeout` with 0 tests, read the env ──────
+
+    `timeout` is 300s and a cold build measures ~131s, so a timeout here is
+    almost never slowness. Playwright polls `url` until it gets a
+    non-5xx; a server that STARTS and then answers 500 to everything looks
+    identical to a server that never started, and the only thing reported is
+
+        Timed out waiting 300000ms from config.webServer
+
+    with `expected: 0, unexpected: 0` in the JSON - which reads like a pass.
+
+    That happened here, and the cause was one missing environment variable:
+    `PASSWORD_PEPPER`. `src/instrumentation.ts` validates secrets on boot and
+    THROWS on a missing required one in a production build, so every route
+    500s. Note that `docs/99` §6 said this validator "only throws in
+    production, so the app still serves in dev" - true, and irrelevant now
+    that E2E runs a production build, which is exactly what it means to run
+    what users get.
+
+    So: on a webServer timeout, read the server's own output before touching
+    this number. `docs/99` §6 lists every variable the suite needs.
   */
   webServer: {
     command: 'npm run e2e:seed && npm run build && npm run start',

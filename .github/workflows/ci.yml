@@ -300,6 +300,30 @@ jobs:
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+      # The four below are NOT secrets and are deliberately literal, on the
+      # same reasoning as the integration job's literal DATABASE_URL
+      # (docs/98 §2): they are format and entropy checks, not credentials,
+      # and an obvious throwaway satisfies them.
+      #
+      # Added because the suite runs a PRODUCTION build, where
+      # `src/instrumentation.ts` THROWS on a missing required secret, so
+      # every route answers 500 - and Playwright can only report that as a
+      # webServer timeout with ZERO tests collected, which in the JSON
+      # report reads as `expected: 0, unexpected: 0`. This job has never
+      # run anywhere (docs/50, docs/99), so none of this was ever
+      # exercised; it was measured locally on 2026-10-22, where a missing
+      # PASSWORD_PEPPER cost a full 300s run.
+      PASSWORD_PEPPER: ci-e2e-throwaway-pepper-not-a-real-secret-0001
+      CRON_SECRET: ci-e2e-throwaway-cron-secret-not-a-real-secret-01
+      # Without this, NextAuth v5 off Vercel refuses the localhost host and
+      # EVERY `/api/auth/session` call fails with `UntrustedHost` (docs/26).
+      # The middleware's auth layer then goes inert - locally that turned
+      # the `/admin` redirect's callbackUrl from the requested path into a
+      # hardcoded `/admin` - and every spec that branches on being signed
+      # in is measured against a broken endpoint. `fly.toml [env]` sets it
+      # in production for exactly this reason.
+      AUTH_TRUST_HOST: 'true'
+      NEXTAUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

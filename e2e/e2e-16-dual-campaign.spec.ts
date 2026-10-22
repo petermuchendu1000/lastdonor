@@ -41,8 +41,10 @@ test.describe('E2E-16: Dual Campaign Indistinguishability', () => {
     await page.goto('/campaigns');
 
     const campaignLink = page.locator('article a').first();
-    const isVisible = await campaignLink.isVisible({ timeout: 5000 }).catch(() => false);
-    test.skip(!isVisible, 'No campaigns available');
+    // Asserted, not probed. `isVisible()` does not wait, so the
+    // `test.skip(!isVisible, ...)` this replaces turned a missing listing
+    // into a silent skip - the fixture exists to make the listing a fact.
+    await expect(campaignLink).toBeVisible();
 
     await campaignLink.click();
     await expect(page).toHaveURL(/\/campaigns\/.+/);
@@ -63,8 +65,29 @@ test.describe('E2E-16: Dual Campaign Indistinguishability', () => {
     const count = await cards.count();
     test.skip(count < 2, 'Need at least 2 campaigns to compare');
 
-    // Visit first campaign and capture donation form structure
-    const firstHref = await cards.first().locator('a[href^="/campaigns/"]').first().getAttribute('href');
+    /*
+      BOTH hrefs are read before leaving the listing, and that is the fix.
+
+      This test used to read the first href, navigate to its donate page,
+      and only then evaluate `cards.nth(1)`. A Playwright locator is a
+      description resolved at use time, not a captured handle - so by line
+      82 `locator('article')` was being matched against the DONATE page,
+      which has no `article` at all. It waited out the full 30s test budget
+      and reported a timeout on `getAttribute`, which reads like a slow page
+      rather than a locator pointed at the wrong document.
+
+      The sibling test below ('donor feed renders identically') already
+      collected its hrefs up front and passed throughout, which is the
+      clearest evidence of which half was wrong.
+    */
+    const hrefs: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const href = await cards.nth(i).locator('a[href^="/campaigns/"]').first().getAttribute('href');
+      expect(href, `campaign card ${i} has no detail link`).toBeTruthy();
+      hrefs.push(href!);
+    }
+    const [firstHref, secondHref] = hrefs;
+
     await page.goto(`${firstHref}/donate`);
     await expect(donationAmountGroup(page)).toBeVisible({ timeout: 10_000 });
 
@@ -78,8 +101,7 @@ test.describe('E2E-16: Dual Campaign Indistinguishability', () => {
       .first()
       .isVisible();
 
-    // Visit second campaign
-    const secondHref = await cards.nth(1).locator('a[href^="/campaigns/"]').first().getAttribute('href');
+    // Visit second campaign. `secondHref` was read above, on the listing.
     await page.goto(`${secondHref}/donate`);
     await expect(donationAmountGroup(page)).toBeVisible({ timeout: 10_000 });
 
@@ -131,8 +153,10 @@ test.describe('E2E-16: Dual Campaign Indistinguishability', () => {
     await page.goto('/campaigns');
 
     const campaignLink = page.locator('article a').first();
-    const isVisible = await campaignLink.isVisible({ timeout: 5000 }).catch(() => false);
-    test.skip(!isVisible, 'No campaigns available');
+    // Asserted, not probed. `isVisible()` does not wait, so the
+    // `test.skip(!isVisible, ...)` this replaces turned a missing listing
+    // into a silent skip - the fixture exists to make the listing a fact.
+    await expect(campaignLink).toBeVisible();
 
     await campaignLink.click();
     await expect(page).toHaveURL(/\/campaigns\/.+/);
@@ -158,16 +182,23 @@ test.describe('E2E-16: Dual Campaign Indistinguishability', () => {
     await page.goto('/campaigns');
 
     const campaignLink = page.locator('article a').first();
-    const isVisible = await campaignLink.isVisible({ timeout: 5000 }).catch(() => false);
-    test.skip(!isVisible, 'No campaigns available');
+    // Asserted, not probed. `isVisible()` does not wait, so the
+    // `test.skip(!isVisible, ...)` this replaces turned a missing listing
+    // into a silent skip - the fixture exists to make the listing a fact.
+    await expect(campaignLink).toBeVisible();
 
     await campaignLink.click();
     await expect(page).toHaveURL(/\/campaigns\/.+/);
 
-    // Message wall section should be present
-    const messagesHeading = page.getByText(/messages of support/i);
-    if (await messagesHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await expect(messagesHeading).toBeVisible();
-    }
+    /*
+      The message wall is not optional, so neither is this assertion.
+      `MessageWall` always renders its heading and either the messages or an
+      empty state - the `if (visible) expect(visible)` this replaces was a
+      tautology, and `getByText` would also have matched the wall's empty-state
+      sentence rather than its heading. Role-scoped, so it means the section.
+    */
+    await expect(
+      page.getByRole('heading', { name: /messages of support/i }),
+    ).toBeVisible({ timeout: 10_000 });
   });
 });

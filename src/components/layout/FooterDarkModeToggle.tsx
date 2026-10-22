@@ -1,21 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { useDarkMode } from '@/hooks/useDarkMode';
 
 export function FooterDarkModeToggle() {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'));
-  }, []);
-
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle('dark', next);
-    localStorage.setItem('theme', next ? 'dark' : 'light');
-  }
+  // Shared with the navbar's `DarkModeToggle`. This is the toggle that was
+  // visibly broken: used after the navbar one, its stale state made the
+  // press do nothing. See `useDarkMode`.
+  const { dark, toggle } = useDarkMode();
 
   return (
     <button

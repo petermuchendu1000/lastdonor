@@ -1,21 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { useDarkMode } from '@/hooks/useDarkMode';
 
 export function DarkModeToggle() {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains('dark'));
-  }, []);
-
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle('dark', next);
-    localStorage.setItem('theme', next ? 'dark' : 'light');
-  }
+  // Shared with `FooterDarkModeToggle`; both are mounted at once on a phone,
+  // and each keeping its own copy of the theme made the first press of the
+  // second one a no-op. See `useDarkMode`.
+  const { dark, toggle } = useDarkMode();
 
   return (
     <button

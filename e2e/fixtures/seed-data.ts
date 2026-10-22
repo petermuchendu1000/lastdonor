@@ -34,7 +34,7 @@
  * misconfigured `DATABASE_URL` away from destroying real data, which is the
  * accident `docs/98` §6 refused to set up.
  */
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
@@ -55,6 +55,7 @@ const E2E_CAMPAIGN_IDS = [
 
 const E2E_BLOG_POST_ID = 'e2e00000-0000-4000-8000-00000000000b';
 const E2E_USER_ID = 'e2e00000-0000-4000-8000-00000000000a';
+const E2E_UPDATE_ID = 'e2e00000-0000-4000-8000-00000000000c';
 
 /** Slugs are asserted nowhere, but they must be stable for teardown. */
 const E2E_SLUG_PREFIX = 'e2e-fixture-';
@@ -116,6 +117,16 @@ export async function clearE2EData(): Promise<void> {
   await db
     .delete(schema.donations)
     .where(inArray(schema.donations.campaignId, [...E2E_CAMPAIGN_IDS]));
+
+  /*
+    Updates explicitly, by campaign, rather than relying on a cascade.
+    Whether `campaign_updates.campaign_id` cascades is a schema detail that
+    could change; deleting what we inserted is the fixture's own rule, and it
+    keeps teardown's "0 rows left" check meaningful.
+  */
+  await db
+    .delete(schema.campaignUpdates)
+    .where(inArray(schema.campaignUpdates.campaignId, [...E2E_CAMPAIGN_IDS]));
 
   await db
     .delete(schema.campaigns)
@@ -292,6 +303,63 @@ export async function seedE2EData(): Promise<void> {
     },
   ]);
 
+  /*
+    One organiser update, so the campaign timeline has something to render.
+
+    `CampaignActivity` renders `<CampaignUpdates>` only when there is at
+    least one update, so with none seeded the section is simply absent - and
+    `e2e-07-campaign-updates.spec.ts` had nothing it could assert. It
+    "passed" by clicking the NAVBAR's Donate link and checking that the
+    resulting page had an `h1`, which is true of every page on the site.
+
+    ## Why this does NOT call `insertCampaignUpdate`, and why the counter is
+    still incremented
+
+    CLAUDE.md and `docs/89` require campaign updates to be written through
+    `insertCampaignUpdate` in `src/lib/echo-counters.ts`, because nothing else
+    increments `campaigns.update_count` and `cron/reconcile` would otherwise
+    have to repair the drift nightly. That is the right rule and the intent is
+    honoured here - but the helper cannot be imported from this file.
+
+    `echo-counters.ts` begins with `import 'server-only'`, which THROWS the
+    moment a non-React-Server-Components bundler loads it:
+
+        Error: This module cannot be imported from a Client Component module.
+        It should only be used from a Server Component.
+          at src/lib/echo-counters.ts:1:8
+
+    `vitest.config.ts` aliases `server-only` away (that fix is `docs/89`'s own
+    postscript, after the import silently broke five suites at collection).
+    Nothing aliases it for `tsx`, which runs `seed-cli.ts` before the build, or
+    for the esbuild transform Playwright uses for `globalSetup` - so importing
+    the helper here broke the seed outright.
+
+    So both of the helper's statements are issued here instead, in ONE
+    transaction so the row and its counter cannot diverge. The AST ratchet
+    walks `src/` only and would not have flagged either version; this comment
+    is the thing that stops the next person "simplifying" the second
+    statement away.
+
+    `campaign_updates.campaign_id` has NO cascade on its FK, so `clearE2EData`
+    has to delete this row explicitly before the campaigns; it does.
+  */
+  await db.transaction(async (tx) => {
+    await tx.insert(schema.campaignUpdates).values({
+      id: E2E_UPDATE_ID,
+      campaignId: E2E_CAMPAIGN_IDS[1],
+      title: 'Fixture Update: the first week',
+      bodyHtml:
+        '<p>Fixture organiser update for the end-to-end suite, so the campaign ' +
+        'timeline has a post to show and the updates section renders.</p>',
+      updateType: 'general',
+      createdAt: minutesAgo(12),
+    });
+    await tx
+      .update(schema.campaigns)
+      .set({ updateCount: sql`${schema.campaigns.updateCount} + 1` })
+      .where(eq(schema.campaigns.id, E2E_CAMPAIGN_IDS[1]));
+  });
+
   await db.insert(schema.blogPosts).values({
     id: E2E_BLOG_POST_ID,
     title: 'E2E Fixture: A Published Post',
@@ -312,5 +380,6 @@ export const E2E_FIXTURE_IDS = {
   campaigns: E2E_CAMPAIGN_IDS,
   blogPost: E2E_BLOG_POST_ID,
   user: E2E_USER_ID,
+  campaignUpdate: E2E_UPDATE_ID,
   slugPrefix: E2E_SLUG_PREFIX,
 } as const;

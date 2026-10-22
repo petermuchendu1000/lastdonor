@@ -98,6 +98,7 @@ describe('E2E fixture: ids', () => {
     for (const id of E2E_FIXTURE_IDS.campaigns) expect(id).toMatch(uuid);
     expect(E2E_FIXTURE_IDS.blogPost).toMatch(uuid);
     expect(E2E_FIXTURE_IDS.user).toMatch(uuid);
+    expect(E2E_FIXTURE_IDS.campaignUpdate).toMatch(uuid);
   });
 
   it('includes the general fund id the donate page actually looks up', async () => {
@@ -116,6 +117,7 @@ describe('E2E fixture: ids', () => {
       ...E2E_FIXTURE_IDS.campaigns,
       E2E_FIXTURE_IDS.blogPost,
       E2E_FIXTURE_IDS.user,
+      E2E_FIXTURE_IDS.campaignUpdate,
     ];
     expect(new Set(all).size).toBe(all.length);
   });

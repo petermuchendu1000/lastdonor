@@ -279,15 +279,41 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
               on a 844px screen, 58% of the fold, against GoFundMe's 238px
               (28%). See docs/71.
             */}
+            {/*
+              A `nav`, not a `tablist`, and that is a correction.
+
+              This was `role="tablist"` with `role="tab"` on both children,
+              and none of the tabs pattern was present: there is no
+              `tabpanel` in this document, no `aria-controls`, no roving
+              tabindex and no arrow-key handling. Worse, the two children
+              were the wrong kind of thing for the role:
+
+                - "Active" was a `role="tab"` on a plain `<span>`, so it
+                  announced as a tab and could not be focused at all.
+                - "Completed" was `role="tab"` on a `<Link>`. An ARIA role
+                  REPLACES native semantics, so the anchor stopped being
+                  announced as a link - while still navigating to a
+                  different page on activation. A screen-reader user was
+                  told "tab, Completed", expected a panel to swap in place,
+                  and lost their position in the document instead.
+
+              What it actually is: the current page's label plus a link to
+              another page. `aria-current="page"` is the attribute for
+              that, and the segmented-control look is unchanged.
+
+              Not caught by axe because this block only renders when a
+              completed campaign exists, and the review gate (docs/79) left
+              that count at zero - so the markup was unreachable on the
+              live site and in every probe. Found while fixing the same
+              class of mistake in `HowItWorks` (docs/99).
+            */}
             {completedCount > 0 && (
-            <div
-              role="tablist"
+            <nav
               aria-label="Campaign status"
               className="mb-6 inline-flex rounded-full border border-border bg-muted/50 p-1 text-sm font-semibold"
             >
               <span
-                role="tab"
-                aria-selected="true"
+                aria-current="page"
                 className="rounded-full bg-background px-4 py-1.5 text-foreground shadow-[--shadow-elevation-1]"
               >
                 Active
@@ -296,8 +322,6 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
                 </span>
               </span>
               <Link
-                role="tab"
-                aria-selected="false"
                 href="/completed-campaigns"
                 className="rounded-full px-4 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
               >
@@ -306,7 +330,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
                   {completedCount.toLocaleString('en-US')}
                 </span>
               </Link>
-            </div>
+            </nav>
             )}
           </>
         )}

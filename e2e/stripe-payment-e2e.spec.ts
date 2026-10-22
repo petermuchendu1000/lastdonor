@@ -44,9 +44,47 @@ async function fillStripeCard(
   await cvcInput.fill(cvc);
 }
 
-test.describe('Stripe Donation E2E', () => {
+/**
+ * Why this whole file is skipped.
+ *
+ * Every test here drives Stripe's PaymentElement, and there is no card rail
+ * to drive. `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is empty - in the E2E env
+ * and in production (docs/72) - so `DonationForm` never calls
+ * `create-intent` at all: it tells the donor "Card payments are unavailable
+ * right now", which is the correct behaviour under docs/42 and not something
+ * a better locator can get past. The iframe these tests type into is never
+ * mounted.
+ *
+ * It is skipped rather than deleted or rewritten:
+ *
+ * - Rewriting it to assert the unavailable notice would leave the suite
+ *   claiming card coverage it does not have. `donate-button-e2e.spec.ts`
+ *   already pins that notice once, under its own name.
+ * - Deleting it would lose the only written description of the intended
+ *   card flow, which is wanted back the moment a key exists.
+ *
+ * It also cost the most of any failure in the suite: `setTimeout(120_000)`
+ * meant the first test burned two full minutes before failing, and
+ * `mode: 'serial'` then skipped the other three - so one dead rail showed up
+ * as "1 failed, 3 skipped" and two minutes of wall clock on every run.
+ *
+ * ⛔ Before re-enabling, the assertions need checking as well as the key:
+ * `Complete Payment` and `Make a Donation` do not appear in `src/` any more
+ * (docs/99 §3.1), so several steps here assert text the product no longer
+ * has. Set a real `pk_test_…`, then fix the locators against the form that
+ * exists - do not simply drop the `.skip`.
+ */
+const CARD_RAIL_UNAVAILABLE =
+  'card rail unavailable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is empty, so the ' +
+  'PaymentElement never mounts (docs/72, docs/99 §3.4)';
+
+test.describe.skip('Stripe Donation E2E', () => {
   test.setTimeout(120_000);
   test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(() => {
+    test.info().annotations.push({ type: 'skip', description: CARD_RAIL_UNAVAILABLE });
+  });
 
   test('complete donation via /donate page with test card', async ({ page }) => {
     // Step 1: Navigate to donate page

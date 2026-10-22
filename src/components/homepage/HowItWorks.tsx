@@ -146,78 +146,104 @@ export function HowItWorks() {
 
         <div className="mt-10 grid gap-6 sm:mt-12 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)] lg:gap-14">
           {/* ── Steps ─────────────────────────────────────────────────── */}
-          <ol
+          {/*
+            A `div`, not an `<ol>`/`<li>` - and the reason is that ARIA
+            roles REPLACE native semantics rather than adding to them.
+
+            This was `<ol role="tablist">` with each `role="tab"` button
+            wrapped in an `<li>`, which reads as a list in the source and
+            looked like the more semantic choice. It is invalid, and axe
+            flagged it three ways from one mistake:
+
+              - `aria-required-children` on the `ol`: a `tablist` may only
+                own `tab` elements, and its children were `listitem`s.
+              - `aria-required-parent` on each button: a `tab` must be owned
+                by a `tablist`, and each one's parent was an `<li>`.
+              - `listitem` on each `<li>`: a `listitem` must sit in a list,
+                and `role="tablist"` had stopped the `ol` being one.
+
+            So the markup announced a list of three items containing nothing
+            navigable, and the tabs pattern the comment above promises was
+            not actually exposed. Putting the tabs directly inside the
+            tablist is both valid HTML and the pattern APG specifies; the
+            ordering the `<ol>` was reaching for is carried by the visible
+            "01/02/03" and by DOM order, which is what a screen reader
+            announces as "tab 2 of 3" anyway.
+
+            Found by `e2e-11-a11y-seo.spec.ts` once it could finally reach a
+            rendered homepage (docs/99). Do not re-add a list wrapper here.
+          */}
+          <div
             role="tablist"
             aria-label="How LastDonor works"
             aria-orientation="vertical"
             onKeyDown={onKeyDown}
-            className="list-none space-y-2 lg:self-center"
+            className="space-y-2 lg:self-center"
           >
             {STEPS.map((step, i) => {
               const Icon = step.icon;
               const on = i === active;
               return (
-                <li key={step.n}>
-                  <button
-                    ref={(el) => { tabRefs.current[i] = el; }}
-                    role="tab"
-                    id={`${baseId}-tab-${i}`}
-                    aria-selected={on}
-                    aria-controls={`${baseId}-panel-${i}`}
-                    tabIndex={on ? 0 : -1}
-                    onClick={() => select(i)}
-                    className={`flex w-full items-start gap-4 rounded-xl border p-4 text-left transition-colors duration-200 ${
+                <button
+                  key={step.n}
+                  ref={(el) => { tabRefs.current[i] = el; }}
+                  role="tab"
+                  id={`${baseId}-tab-${i}`}
+                  aria-selected={on}
+                  aria-controls={`${baseId}-panel-${i}`}
+                  tabIndex={on ? 0 : -1}
+                  onClick={() => select(i)}
+                  className={`flex w-full items-start gap-4 rounded-xl border p-4 text-left transition-colors duration-200 ${
+                    on
+                      ? 'border-primary/30 bg-primary/[0.06]'
+                      : 'border-transparent hover:bg-muted/60'
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tabular-nums transition-colors duration-200 ${
                       on
-                        ? 'border-primary/30 bg-primary/[0.06]'
-                        : 'border-transparent hover:bg-muted/60'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
                     }`}
                   >
-                    <span
-                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tabular-nums transition-colors duration-200 ${
-                        on
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      {step.n}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2">
-                        <Icon
-                          className={`h-[18px] w-[18px] shrink-0 ${on ? 'text-primary' : 'text-muted-foreground'}`}
-                          strokeWidth={1.8}
-                          aria-hidden="true"
-                        />
-                        <span className="font-display text-[17px] font-bold leading-tight text-foreground">
-                          {step.title}
-                        </span>
+                    {step.n}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <Icon
+                        className={`h-[18px] w-[18px] shrink-0 ${on ? 'text-primary' : 'text-muted-foreground'}`}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span className="font-display text-[17px] font-bold leading-tight text-foreground">
+                        {step.title}
                       </span>
-                      <span className="mt-1 block text-[14px] leading-snug text-muted-foreground">
-                        {step.blurb}
-                      </span>
-                      {/*
-                        Without this the section advances on its own and the
-                        visitor has no idea why the panel changed. Keyed on
-                        `active` so the animation restarts each time, and
-                        rendered only while the section is still driving
-                        itself - once someone picks a step, the countdown is
-                        over and showing one would be a lie.
-                      */}
-                      {on && !userDriven && (
-                        <span
-                          key={active}
-                          aria-hidden="true"
-                          className="mt-2.5 block h-0.5 w-full overflow-hidden rounded-full bg-primary/15"
-                        >
-                          <span className="step-progress block h-full w-full rounded-full bg-primary" />
-                        </span>
-                      )}
                     </span>
-                  </button>
-                </li>
+                    <span className="mt-1 block text-[14px] leading-snug text-muted-foreground">
+                      {step.blurb}
+                    </span>
+                    {/*
+                      Without this the section advances on its own and the
+                      visitor has no idea why the panel changed. Keyed on
+                      `active` so the animation restarts each time, and
+                      rendered only while the section is still driving
+                      itself - once someone picks a step, the countdown is
+                      over and showing one would be a lie.
+                    */}
+                    {on && !userDriven && (
+                      <span
+                        key={active}
+                        aria-hidden="true"
+                        className="mt-2.5 block h-0.5 w-full overflow-hidden rounded-full bg-primary/15"
+                      >
+                        <span className="step-progress block h-full w-full rounded-full bg-primary" />
+                      </span>
+                    )}
+                  </span>
+                </button>
               );
             })}
-          </ol>
+          </div>
 
           {/* ── Preview ───────────────────────────────────────────────── */}
           {/*
