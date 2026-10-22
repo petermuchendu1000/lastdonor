@@ -236,7 +236,58 @@ $sha = (Invoke-NativeCapture -Exe 'git' -Arguments @('rev-parse', '--short', 'HE
 Write-Ok "$branch at $sha"
 
 # ---------------------------------------------------------------------------
-# 4. The gate
+# 4. Node and dependencies
+#
+# A fresh clone has no node_modules, so `npm run lint` fails with "Missing
+# script" or a missing binary and reads like a broken repository rather
+# than a missing install. Installing here means a new machine can go from
+# `git clone` to a deploy without a separate setup step to forget.
+# ---------------------------------------------------------------------------
+if (-not $SkipGate) {
+    Write-Step 'Checking Node.js'
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Stop-With -Message 'Node.js is not on PATH.' -Fix @'
+Install the LTS release, then open a NEW terminal:
+    winget install --id OpenJS.NodeJS.LTS
+'@
+    }
+    $nodeVersion = (Invoke-NativeCapture -Exe 'node' -Arguments @('--version')).Text
+    Write-Ok "node $nodeVersion"
+
+    # `npm ci` wipes and reinstalls from the lockfile. It is the right call
+    # on a fresh clone and after a pull that moved package-lock.json; it is
+    # slow and pointless otherwise, so it only runs when something is
+    # actually missing or out of date.
+    $needsInstall = $false
+    if (-not (Test-Path (Join-Path $RepoRoot 'node_modules'))) {
+        $needsInstall = $true
+        Write-Warn 'node_modules is missing'
+    } else {
+        $lock    = Join-Path $RepoRoot 'package-lock.json'
+        $stamp   = Join-Path $RepoRoot 'node_modules\.package-lock.json'
+        if ((Test-Path $lock) -and (Test-Path $stamp)) {
+            if ((Get-Item $lock).LastWriteTimeUtc -gt (Get-Item $stamp).LastWriteTimeUtc) {
+                $needsInstall = $true
+                Write-Warn 'package-lock.json is newer than the installed tree'
+            }
+        }
+    }
+
+    if ($needsInstall) {
+        Write-Step 'Installing dependencies (npm ci)'
+        Write-Host '    first run on a new clone takes a few minutes'
+        Invoke-Native -Exe 'npm' -Arguments @('ci') `
+            -FailMessage 'npm ci failed.' `
+            -Fix 'If package-lock.json is out of sync with package.json, run npm install and commit the lockfile.'
+        Write-Ok 'dependencies installed'
+    } else {
+        Write-Ok 'dependencies already installed'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 5. The gate
 #
 # This is the whole point of the script. CI has never run (docs/50), so if
 # these do not run here, nothing checks the change at all.
@@ -262,7 +313,7 @@ if ($SkipGate) {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Deploy
+# 6. Deploy
 # ---------------------------------------------------------------------------
 $flyArgs = @('deploy', '--remote-only', '--app', $App, '--yes')
 
@@ -303,7 +354,7 @@ $elapsed = [int]((Get-Date) - $started).TotalSeconds
 Write-Ok "deploy finished in ${elapsed}s"
 
 # ---------------------------------------------------------------------------
-# 6. Verify
+# 7. Verify
 # ---------------------------------------------------------------------------
 Write-Step 'Verifying'
 & $flyExe status --app $App
