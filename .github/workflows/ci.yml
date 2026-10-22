@@ -159,19 +159,51 @@ jobs:
       - name: Principles 9-12 audit (Economy, Privilege Separation, Injection, XSS)
         run: node scripts/security-audit-p9-12.mjs
 
+  # Runs its own throwaway Postgres rather than reaching for a secret.
+  #
+  # This job used to be gated on a `TEST_DATABASE_URL` repository secret that
+  # was never set, so it skipped on every run and the suite had never executed
+  # anywhere, by anyone (docs/50, docs/97 §4). A service container is better
+  # than supplying that secret on every axis that matters here: nothing to
+  # leak or rotate, a clean database per run instead of state shared between
+  # runs, no possibility of a connection string pointing at production by
+  # mistake, and no owner action to wait on. See docs/98.
+  #
+  # `DATABASE_URL` below is a literal, NOT a secret, and deliberately so: it
+  # addresses a database that exists for ~2 minutes inside this job's own
+  # network namespace and holds nothing.
+  #
+  # Verified locally against Postgres 16.15 before this was wired up:
+  # `npm run db:migrate` exits 0, and the suite is 83/83 on three consecutive
+  # freshly-migrated databases. `gen_random_uuid()` needs NO extension on
+  # Postgres 13+ (it is in core), which is the one thing that could have made
+  # plain Postgres differ from Supabase here - checked, with only `plpgsql`
+  # installed.
   integration-tests:
     runs-on: ubuntu-24.04
-    # NOT measured - has never run in CI. Over-estimate.
+    # NOT measured in CI. Locally the suite is ~20s; the rest is npm ci.
     timeout-minutes: 25
-    needs: [config, lint-and-typecheck, unit-tests, security-audit]
-    if: >-
-      needs.config.outputs.has-db == 'true' &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+    needs: [lint-and-typecheck, unit-tests, security-audit]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lastdonor_test
+        ports:
+          - 5432:5432
+        # Without a health check the job races the container and `db:migrate`
+        # fails with ECONNREFUSED on a cold runner.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+      # Session mode, direct to Postgres - which is what migrations want
+      # anyway (CLAUDE.md: migrations use 5432, not the 6543 pooler).
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lastdonor_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -184,6 +216,9 @@ jobs:
       # baseline from migrations-v2 via the migrator. Using the documented
       # path here keeps CI and production on the same mechanism.
       - run: npm run db:migrate
+      # DATABASE_URL is the only variable this suite needs - verified by
+      # running it with NEXTAUTH_SECRET, both Supabase variables and the
+      # Stripe keys all unset: 83/83.
       - run: npm run test:integration
 
   build:
@@ -209,9 +244,32 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  # ⛔ STILL SKIPPED, and a database is NOT what it is missing.
+  #
+  # `integration-tests` above dropped its `TEST_DATABASE_URL` gate for a
+  # service container (docs/98). The obvious next move is to do the same here.
+  # DO NOT: it would turn this job permanently red, which is worse than
+  # skipped.
+  #
+  # The suite was run locally on 2026-10-22 against a real Postgres with a
+  # freshly migrated schema. The harness works - one spec passed 3/3 in 47s -
+  # but most specs assume the database ALREADY CONTAINS PUBLISHED CAMPAIGNS
+  # and seed nothing. `e2e-02-guest-donate.spec.ts` is typical: it goes to
+  # `/campaigns`, clicks "the first campaign link", and asserts a donate form.
+  # Against an empty database that locator matches nothing and the test times
+  # out.
+  #
+  # And it is not only an empty-CI-database problem: docs/79 moved every
+  # campaign to `under_review`, so `/campaigns` is empty IN PRODUCTION TOO.
+  # These specs assert a state the product no longer has by default.
+  #
+  # So the blocker is FIXTURES, not credentials. Enabling this needs an E2E
+  # seed that publishes a known campaign and tears it down - a scoped piece of
+  # work, not a config change. Until that exists this job stays gated on the
+  # absent secret, which is why the `config` job is still here.
   e2e-tests:
     runs-on: ubuntu-24.04
-    # NOT measured - has never run. PER MATRIX LEG, so 60 total.
+    # NOT measured in CI - has never run there. PER MATRIX LEG, so 60 total.
     timeout-minutes: 30
     needs: [config, build, integration-tests]
     if: >-

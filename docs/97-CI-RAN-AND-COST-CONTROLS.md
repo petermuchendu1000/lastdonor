@@ -228,12 +228,33 @@ The repository has no `TEST_DATABASE_URL` secret, so `config` emits
 skipping and running are not the same thing, and `ci-complete` treats
 `skipped` as acceptable by design.
 
-**Owner action:** set `TEST_DATABASE_URL` as a repository secret (a
-throwaway Supabase project, not production) to turn both suites on. Until
-then, this pipeline gates lint, typecheck, unit tests, the security audit
-and the build — which is five of eight jobs and a great deal more than the
-zero it gated last week, but it is not the whole pipeline CLAUDE.md
-describes.
+**RESOLVED for integration, 2026-10-22 — and the owner action was the wrong
+answer. See `docs/98`.**
+
+The fix is not a secret. `integration-tests` now runs its own `postgres:16`
+**service container** and addresses it with a literal URL, so
+`TEST_DATABASE_URL` is not referenced by that job at all: nothing to leak or
+rotate, a clean database per run, no connection string that could point at
+production, and no owner action to wait on.
+
+That last point mattered more than it looked. The secret this document asked
+for is consumed by a job that runs `npm run db:migrate` and then a suite
+whose every file calls `clearDatabase()` in `beforeEach` — and the only
+connection string this project has is **production**. Setting it as
+originally suggested, with the only value available, would have truncated the
+live database of a platform that has taken real money (`docs/92`). `docs/98`
+§6 records that as refused rather than merely risky.
+
+Running the suite for the first time also found that it **raced itself**:
+three runs from identical fresh databases gave 50, 23 and 18 failures, because
+Vitest parallelises files while all of them truncate one shared database.
+Serialising it turned 49 of 50 failures into passes and left one real
+finding — a stale assertion about a `CHECK` constraint that multi-currency
+deliberately dropped. Now **83/83 on three consecutive fresh databases**.
+
+Still true, and the reason not to over-read a green tick: a green
+`integration-tests` means green *when dispatched*, because the `push` trigger
+still creates no run (§1a).
 
 ---
 

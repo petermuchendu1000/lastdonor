@@ -53,20 +53,64 @@ describe('Donation Integration', () => {
       expect(updated.donorCount).toBe(1);
     });
 
-    it('enforces minimum donation amount of 500 cents via DB check', async () => {
+    /*
+      This used to assert `amount >= 500` and was the only test in the
+      integration suite still failing once the suite was actually run for the
+      first time (docs/98).
+
+      The test was stale, not the code. `migrations-v2/0000` did create
+      `CHECK (amount >= 500)`, and `migrations-v2/0005_low_maddog.sql` DROPPED
+      it and replaced it with `CHECK (amount > 0)` when the second currency
+      arrived. `schema.ts` records why: 500 KES minor units is about US$0.04,
+      so a literal `500` was a real floor on one currency and a meaningless
+      one on the other. The per-currency floor moved to
+      `CURRENCIES[code].minDonationMinor`, enforced by
+      `src/lib/validators/donation.ts` — an application rule with its own
+      test, deliberately not a database guarantee (docs/92).
+
+      So what the database still promises, and what this now checks, is
+      POSITIVITY: a zero or negative donation would corrupt `raised_amount`,
+      and no code path is trusted with it.
+    */
+    it('rejects a non-positive donation amount in the DATABASE', async () => {
+      const campaign = await seedCampaign();
+
+      const insert = (amount: number) =>
+        db.insert(schema.donations).values({
+          campaignId: campaign.id,
+          stripePaymentId: `pi_nonpositive_${amount}`,
+          amount,
+          donorName: 'Zero',
+          donorEmail: 'zero@test.com',
+          phaseAtTime: 'first_believers',
+          source: 'real',
+        });
+
+      await expect(insert(0)).rejects.toThrow();
+      await expect(insert(-1)).rejects.toThrow();
+    });
+
+    it('does NOT impose a 500-minor-unit floor in the database', async () => {
+      /*
+        The other half of the same decision, asserted so that re-adding the
+        old constraint fails here rather than silently breaking every
+        zero-decimal and low-value currency. 499 is below the old USD floor
+        and must now be accepted by the schema; whether it is an acceptable
+        donation is the validator's call, per currency.
+      */
       const campaign = await seedCampaign();
 
       await expect(
         db.insert(schema.donations).values({
           campaignId: campaign.id,
-          stripePaymentId: 'pi_too_small',
-          amount: 499, // Below $5.00 minimum
-          donorName: 'Cheap',
-          donorEmail: 'cheap@test.com',
+          stripePaymentId: 'pi_below_old_usd_floor',
+          amount: 499,
+          donorName: 'Small',
+          donorEmail: 'small@test.com',
           phaseAtTime: 'first_believers',
           source: 'real',
         }),
-      ).rejects.toThrow();
+      ).resolves.not.toThrow();
     });
   });
 
