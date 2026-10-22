@@ -12,6 +12,16 @@ const chromiumLaunch = chromiumExecutable
 
 export default defineConfig({
   testDir: './e2e',
+  /*
+    The suite assumes the database already lists published campaigns, and
+    seeds nothing itself. Since docs/79 moved every campaign to
+    `under_review`, that assumption is false even in production — which is
+    why a first real run of this suite failed 29 times on locators that
+    matched nothing. `globalSetup` supplies the state; `globalTeardown`
+    removes exactly the rows it added. See docs/99.
+  */
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   use: {

@@ -93,8 +93,16 @@ export function Footer() {
               inside one viewport. See docs/69.
             */}
 
-            {/* Contact details for privacy and commercial disclosure pages. */}
-            <p className="mt-4 text-xs leading-relaxed text-gray-500">
+            {/*
+              Contact details for privacy and commercial disclosure pages.
+
+              `text-gray-400`, not `-500`. This footer sits on the dark
+              `--surface-ink` (docs/59), where `text-gray-500` (#6a7282) is
+              3.67:1 against #0f1a19 and AA wants 4.5:1. `gray-400`
+              (#99a1af) is 6.83:1 and is the smallest step that passes.
+              Measured with axe, see docs/99.
+            */}
+            <p className="mt-4 text-xs leading-relaxed text-gray-400">
               LastDonor.org<br />
               United States<br />
               contact@lastdonor.org
@@ -132,9 +140,19 @@ export function Footer() {
                         the platform name alone, kept dim; the screen-reader
                         name carries "coming soon" so the state is not
                         conveyed by colour only (WCAG 1.4.1).
+
+                        It used to be `text-gray-600` to look visibly inert,
+                        which on this dark footer measured **2.35:1** - the
+                        worst contrast on the page, against AA's 4.5:1.
+                        Dimming below the legibility floor is not a way to
+                        signal state, and the signals that matter are listed
+                        above: no `href`, not focusable, an sr-only "coming
+                        soon". So `text-gray-400` (6.83:1) costs nothing
+                        semantically. A placeholder nobody can read is not a
+                        placeholder. See docs/99.
                       */
                       <li key={link.name}>
-                        <span className="inline-block py-0.5 text-sm text-gray-600">
+                        <span className="inline-block py-0.5 text-sm text-gray-400">
                           <span aria-hidden="true">{link.name}</span>
                           <span className="sr-only">{link.name} - coming soon</span>
                         </span>
@@ -156,8 +174,8 @@ export function Footer() {
               </nav>
             )}
 
-            {/* Trust badges */}
-            <div className="mt-4 flex items-center gap-3 text-xs text-gray-500">
+            {/* Trust badges. `gray-400` for the contrast reason above. */}
+            <div className="mt-4 flex items-center gap-3 text-xs text-gray-400">
               <span className="flex items-center gap-1.5">
                 {/*
                   Was a hand-rolled inline SVG element with its own viewBox and
@@ -227,7 +245,8 @@ export function Footer() {
 
         {/* Bottom bar */}
         <div className="mt-10 flex items-center justify-between border-t border-white/10 pt-6 sm:mt-12">
-          <p className="text-xs text-gray-500">
+          {/* `gray-400` for the contrast reason above. */}
+          <p className="text-xs text-gray-400">
             &copy; {year} LastDonor.org. All rights reserved.
           </p>
           <FooterDarkModeToggle />
