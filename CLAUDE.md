@@ -122,9 +122,11 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6323 tests, 193 files, as of 2026-10-22)
+npm run test:unit      # Vitest (6341 pass + 6 skipped, 195 files, as of 2026-10-22)
 npm run test:integration  # Vitest + a throwaway Postgres (83 tests, 11 files)
-npm run test:e2e       # Playwright (72 tests per project, 21 files) — many RED, see docs/99
+npm run test:e2e       # Playwright: 152 tests over 2 Chromium projects, 21 files
+                       #   128 pass / 0 fail / 24 declared skips (docs/99 §8)
+npm run e2e:build      # seed THEN build — use this if you build the server by hand
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline
 ```
@@ -174,22 +176,44 @@ Two things are still not gated, so do not over-trust a green tick:
   one database and each file truncates it, so parallel runs raced: three runs
   from identical fresh databases gave 50, 23 and 18 failures. Do not remove
   those lines to go faster; the run takes ~20s.
-- ⛔ **E2E still does not run in CI, and the seed fixture did not fix it.**
-  The fixture now exists and works (`e2e/fixtures/seed-data.ts`, `docs/99`):
-  it seeds a general fund, three published campaigns, donations and a post
-  in 43ms, idempotently, and `/campaigns` and `/donate` verifiably render
-  it. The suite is nonetheless **32 failed / 25 passed**, because the
-  dominant cause is **spec drift** — the specs describe a UI that no longer
-  exists. `donate-button-e2e` expects `0/500` on page load, but the message
-  field now sits behind an "Add a message" disclosure, and its header
-  promises a `name` field the form does not have. Fixing that is a
-  spec-by-spec reconciliation, and must assert what a page *should* do, not
-  what it currently does. **Do NOT give this job a service container** until
-  `docs/99` §5 is worked through; ~30 red is worse than skipped.
-  **If you run E2E locally**, `DATABASE_URL` must point at a throwaway
-  Postgres — the fixture refuses the Supabase pooler, Supabase direct hosts,
-  Fly internal and an unset URL, and `docs/99` §6 lists the other env it
-  needs (`validate-secrets.ts` logs FATAL without it).
+- ⚠️ **E2E is GREEN locally but still does not run in CI.** Measured
+  2026-10-22 on both Chromium projects: **128 passed, 0 failed, 24 skipped**
+  in 241s (`docs/99` §8). The earlier "32 failed / 25 passed" in this file
+  is **withdrawn** — that run had concurrent axe probes crashing browsers,
+  so it measured contention. Enabling the CI job is now a judgement call
+  about trust in a never-run job, not a wait on red tests; `docs/99` §5
+  orders what is left.
+
+  The reconciliation that got there found **five product defects in
+  application code**, not in specs — invalid tablist ARIA on the homepage
+  and the same class on `/campaigns`, two dark-mode toggles holding stale
+  copies of one global, and a `role="radiogroup"` with no roving tabindex
+  or arrow keys. Read `docs/99` §8 before touching `e2e/`.
+
+  **All 24 skips are declared in specs with named reasons** — 14 for the
+  dead Stripe card rail (`docs/72`), 10 for the missing sign-in fixture.
+  **Never gate a test body on `if (await locator.isVisible())`**: that
+  method does NOT wait (its `timeout` option does not make it poll), so ten
+  tests across seven files were silently skipping their bodies and
+  reporting a pass. Assert with `expect(...).toBeVisible()`, or declare the
+  skip.
+
+  **If you run E2E locally**, use **`npm run e2e:build`** (= seed, then
+  build) if you build by hand — `globalTeardown` empties the fixture after
+  every run, and `next build` prerenders `/donate`, so building without
+  seeding bakes in "not accepting donations" and fails 14 tests with no
+  code change. `DATABASE_URL` must point at a throwaway Postgres (the
+  fixture refuses the Supabase pooler, Supabase direct hosts, Fly internal
+  and an unset URL), and `docs/99` §6 lists the rest — including
+  **`PASSWORD_PEPPER`**, whose absence 500s every route in a production
+  build while Playwright reports only a `webServer` timeout with zero tests
+  collected, and **`AUTH_TRUST_HOST=true`**, without which every
+  `/api/auth/session` fails with `UntrustedHost` off Vercel and the
+  middleware's auth layer goes inert.
+
+  Only the two Chromium projects run by default. Firefox and WebKit sit
+  behind `PW_ALL_BROWSERS=1` because nothing in this repo installs them;
+  that **WebKit gap is open and uncovered**, not closed.
 - **Docs-only changes do not trigger CI at all** (`paths-ignore` on
   `docs/**` and `**/*.md`). Safe today because no test reads markdown —
   but if branch protection is ever added requiring `ci-complete`, a

@@ -408,10 +408,30 @@ whole run could pass while proving nothing.
 
 ## 8. The spec reconciliation, and what it found in the product
 
-Worked 2026-10-22, after §1–§7. Fourteen spec files rewritten. The headline
-is not the pass count: it is that **five product defects** came out of specs
-that could finally reach a rendered page, and that several specs which had
-been passing all along were asserting nothing at all.
+Worked 2026-10-22, after §1–§7. Fourteen spec files rewritten.
+
+**Result: 128 passed, 0 failed, 24 skipped** across both Chromium projects
+(`Desktop Chrome` and `Mobile Chrome`), in 241s. Every skip is declared in a
+spec with a named reason — no runtime `isVisible()` guard decides any of them
+any more. Verified on a run driven by Playwright's own `webServer`, so the
+sequence a contributor gets is the sequence that was measured.
+
+The headline is not the pass count, though. It is that **five product
+defects** came out of specs that could finally reach a rendered page, and
+that several specs which had been passing all along were asserting nothing at
+all.
+
+The 24 skips, so they are not mistaken for coverage:
+
+| Skips | File | Why |
+|---|---|---|
+| 8 | `stripe-payment-e2e.spec.ts` | 4 tests × 2 legs. No card rail at all — §8.5 |
+| 6 | `donate-button-e2e.spec.ts` | 3 × 2. The card-rail tests specifically; the rest of that file runs |
+| 6 | `e2e-18-admin-simulation.spec.ts` | 3 × 2. Need an admin session — §5.1 |
+| 4 | `e2e-17-messaging.spec.ts` | 2 × 2. Need a signed-in user — §5.1 |
+
+So 14 of the 24 are the dead Stripe card rail (`docs/72`) and 10 are the
+missing sign-in fixture. Both are named in the specs, not decided at runtime.
 
 ### 8.1 ⚠️ Corrections to this document's own numbers
 
