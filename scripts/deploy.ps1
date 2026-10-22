@@ -259,19 +259,39 @@ Install the LTS release, then open a NEW terminal:
     # on a fresh clone and after a pull that moved package-lock.json; it is
     # slow and pointless otherwise, so it only runs when something is
     # actually missing or out of date.
+    #
+    # The test is the STAMP, not the directory.
+    #
+    # `Test-Path node_modules` is the obvious check and it is wrong: a failed
+    # or interrupted `npm ci` leaves the directory behind, half-populated.
+    # That is not hypothetical - it is what happened on the first real run
+    # of this script, where the ECONNRESET from a broken `npm ci` left a
+    # partial tree, the directory check passed, the script announced
+    # "dependencies already installed", and the gate then died on
+    #
+    #     'next' is not recognized as an internal or external command
+    #
+    # which reads like a broken repository and is actually a missing install.
+    #
+    # `node_modules\.package-lock.json` is npm's hidden lockfile. npm 7+
+    # writes it at the END of a successful reify (verified on npm 10.9.4:
+    # present, lockfileVersion 3, 1,339 packages), so its ABSENCE next to an
+    # existing node_modules means the last install did not finish. Treat
+    # that as needing an install rather than as nothing to check.
     $needsInstall = $false
+    $lock  = Join-Path $RepoRoot 'package-lock.json'
+    $stamp = Join-Path $RepoRoot 'node_modules\.package-lock.json'
+
     if (-not (Test-Path (Join-Path $RepoRoot 'node_modules'))) {
         $needsInstall = $true
         Write-Warn 'node_modules is missing'
-    } else {
-        $lock    = Join-Path $RepoRoot 'package-lock.json'
-        $stamp   = Join-Path $RepoRoot 'node_modules\.package-lock.json'
-        if ((Test-Path $lock) -and (Test-Path $stamp)) {
-            if ((Get-Item $lock).LastWriteTimeUtc -gt (Get-Item $stamp).LastWriteTimeUtc) {
-                $needsInstall = $true
-                Write-Warn 'package-lock.json is newer than the installed tree'
-            }
-        }
+    } elseif (-not (Test-Path $stamp)) {
+        $needsInstall = $true
+        Write-Warn 'node_modules exists but the install never completed'
+    } elseif ((Test-Path $lock) -and
+              (Get-Item $lock).LastWriteTimeUtc -gt (Get-Item $stamp).LastWriteTimeUtc) {
+        $needsInstall = $true
+        Write-Warn 'package-lock.json is newer than the installed tree'
     }
 
     if ($needsInstall) {

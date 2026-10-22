@@ -1,15 +1,92 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+/*
+  The storage client is built ON FIRST USE, not when this module is imported.
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.warn('Supabase Storage: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set');
+  ## What the eager version broke
+
+  It used to be a module-scope `createClient(supabaseUrl ?? '', ...)`, with a
+  `console.warn` above it when the env vars were absent. The `?? ''` looks
+  like it tolerates a missing variable and does the opposite:
+  `createClient('')` throws `supabaseUrl is required`. So the warning printed
+  "not set", as if execution would continue, and the next statement threw.
+
+  `next build` imports every route to collect page data, so **any build
+  without Supabase credentials failed entirely** - not the storage routes,
+  the whole build:
+
+      Supabase Storage: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set
+      Error: supabaseUrl is required.
+      > Build error occurred
+      [Error: Failed to collect page data for
+       /api/v1/admin/verification-documents/[documentId]]
+
+  Nothing caught it for two reasons, and both are worth recording. The
+  `build` job had never executed in CI (docs/50, docs/97) - its first ever
+  run is what produced the trace above. And the test suite had already met
+  this exact wall and worked around it rather than reported it:
+  `test/security/verification-document-privacy.test.ts` carries a
+  `vi.hoisted` block stubbing both variables, with the comment
+  "`@supabase/supabase-js` throws from `createClient('')`, so the storage
+  module cannot be imported at all without these." A workaround in a test
+  kept a defect in the code invisible.
+
+  ## Why lazy is the right shape, not just the convenient one
+
+  Collecting page data for a route does not need a storage client, so the
+  build has no business requiring storage credentials. Deferring
+  construction means a missing credential fails *where it matters* - inside
+  the request that actually wants to read or write an object, which can
+  return a 500 - instead of taking down the build. It also means a
+  contributor without Supabase credentials can build the app.
+
+  Reading `process.env` inside the function rather than at module scope is
+  deliberate: it makes the laziness real, so a variable set after import is
+  still seen. See docs/97 §5.4.
+*/
+
+/** Raised when storage is used on a deployment that has no credentials. */
+export class StorageNotConfiguredError extends Error {
+  constructor() {
+    super(
+      'Supabase storage is not configured: SUPABASE_URL and ' +
+        'SUPABASE_SERVICE_ROLE_KEY must both be set. This is a deployment ' +
+        'configuration problem, not a caller error - no upload, signed URL ' +
+        'or public URL can be produced without them.',
+    );
+    this.name = 'StorageNotConfiguredError';
+  }
 }
 
-export const supabase = createClient(supabaseUrl ?? '', supabaseServiceKey ?? '', {
-  auth: { persistSession: false },
-});
+let cachedClient: SupabaseClient | null = null;
+
+/** The storage client, constructed once, on demand. */
+function storageClient(): SupabaseClient {
+  if (cachedClient) return cachedClient;
+
+  const url = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) {
+    throw new StorageNotConfiguredError();
+  }
+
+  cachedClient = createClient(url, serviceKey, {
+    auth: { persistSession: false },
+  });
+  return cachedClient;
+}
+
+/**
+ * Storage surface used across the app as `supabase.storage.from(...)`.
+ *
+ * A getter rather than a client instance, so importing this module costs
+ * nothing and every existing call site keeps working unchanged.
+ */
+export const supabase = {
+  get storage(): SupabaseClient['storage'] {
+    return storageClient().storage;
+  },
+};
 
 /**
  * Public bucket. Everything in it is served from

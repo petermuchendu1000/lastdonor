@@ -94,6 +94,40 @@ here-string balance, no 7-only syntax, no `curl`, every native call
 guarded) but **never run**. `-DryRun` exists so the first real invocation
 proves the whole path without touching production.
 
+### Amendment, 2026-10-22: `Test-Path node_modules` is the wrong check
+
+Both things the first real runs caught, in order.
+
+A fresh clone has no `node_modules`, so the gate's first step died on a
+missing binary and read like a broken repository. Fixed in `81d9a85` by
+installing before the gate — the setup instructions in §1 had a
+`git clone` and no `npm ci`, and nothing in the script covered for it.
+
+**That fix was incomplete**, and the hole is worth recording because the
+obvious check is the broken one. It guarded on
+`Test-Path node_modules`, which **passes on the partial tree a failed
+`npm ci` leaves behind** — exactly the state the owner's machine was in
+after the `ECONNRESET`. The script announced *"dependencies already
+installed"* and the gate then failed with
+
+```
+'next' is not recognized as an internal or external command
+```
+
+which again reads like a broken repository and is again a missing install.
+
+The test is now the **stamp**, not the directory:
+`node_modules\.package-lock.json` is npm's hidden lockfile, written at the
+*end* of a successful reify (verified on npm 10.9.4: present,
+`lockfileVersion` 3, 1,339 packages). Its absence beside an existing
+`node_modules` means the last install did not finish, so that is now a
+third install trigger alongside "missing" and "lockfile newer than the
+tree".
+
+The general lesson, which applies well beyond this script: **a directory
+existing is not evidence that what was supposed to fill it succeeded.**
+Check for the artefact the successful path writes last.
+
 ---
 
 ## 3. ⚠️ Correction: waiting for Actions credits may not unblock CI

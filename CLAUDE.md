@@ -344,6 +344,26 @@ These exist for a reason; changing them has consequences beyond the local file.
   which interpolates raw attacker-controlled text into the document. See
   `docs/94` §4.
 
+- **No module may construct a client at import time from credentials the
+  build does not have.** Added 2026-10-22, see `docs/97` §5.4.
+  `src/lib/supabase-storage.ts` called `createClient(url ?? '', key ?? '')`
+  at module scope — and `createClient('')` throws `supabaseUrl is
+  required`, so the `?? ''` that looks like tolerance is the opposite, with
+  a `console.warn` in front of it saying "not set" as though execution
+  continues. `next build` imports every route handler to collect page data,
+  so **any build without Supabase credentials failed entirely**, and a
+  contributor without them could not build the app. Build the client on
+  first use, read `process.env` *inside* the accessor so the laziness is
+  real, and raise a named error when it is genuinely needed and missing.
+  `src/lib/supabase-storage.lazy.test.ts` pins it.
+
+  The reason this survived is the more useful lesson:
+  `test/security/verification-document-privacy.test.ts` had already met the
+  wall and **stubbed the variables to get past it**, recording the throw in
+  a comment as a fact to work around. If you find yourself setting an env
+  var so a module can be imported, that is a defect in the module, not
+  setup. Check whether `npm run build` survives without it.
+
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
   shared handler, multi-instance deploys serve stale HTML silently. See

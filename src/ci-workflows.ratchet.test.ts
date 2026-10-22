@@ -354,6 +354,31 @@ describe('CI workflow expressions', () => {
 const PER_JOB_CEILING = 30;
 const TOTAL_BUDGET = 200;
 
+/*
+  Runner labels that are FREE on a public repository.
+
+  This is the loophole in "our repository is public, so CI is free".
+  GitHub's billing documentation is explicit, and the second sentence is the
+  one that matters (docs.github.com, Billing → GitHub Actions, read
+  2026-10-22):
+
+    "GitHub Actions usage is free for self-hosted runners and for public
+     repositories that use standard GitHub-hosted runners."
+    "Larger runners are always charged for, even when used by public
+     repositories."
+
+  So a single edit from `ubuntu-24.04` to a larger label starts metering a
+  repository that currently cannot cost anything, and nothing about the
+  change looks like a billing decision. This project only needs Linux, so
+  the allow-list is deliberately narrow: adding a label means editing this
+  list, which is the point.
+*/
+const FREE_RUNNER_LABELS = new Set([
+  'ubuntu-24.04',
+  'ubuntu-22.04',
+  'ubuntu-latest',
+]);
+
 describe('CI workflow consumption', () => {
   it('declares timeout-minutes on every job', () => {
     const offenders: string[] = [];
@@ -393,6 +418,42 @@ describe('CI workflow consumption', () => {
       `No job may declare more than ${PER_JOB_CEILING} minutes. If a job ` +
         'genuinely needs longer, split it or make it faster - do not raise ' +
         'the ceiling to make it fit.',
+    ).toEqual([]);
+  });
+
+  it('only uses runners that are free on a public repository', () => {
+    const offenders: string[] = [];
+    let seen = 0;
+
+    for (const wf of workflows) {
+      wf.lines.forEach((raw, i) => {
+        const m = /^\s*runs-on\s*:\s*(.+)$/.exec(withoutComment(raw));
+        if (!m) return;
+        seen += 1;
+        const labels = m[1]
+          .trim()
+          .replace(/^\[|\]$/g, '')
+          .split(',')
+          .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+          .filter(Boolean);
+        for (const label of labels) {
+          if (!FREE_RUNNER_LABELS.has(label)) {
+            offenders.push(`${wf.name}:${i + 1} -> ${label}`);
+          }
+        }
+      });
+    }
+
+    // Guard against the scan silently matching nothing.
+    expect(seen, 'found no `runs-on` lines to check').toBeGreaterThan(0);
+
+    expect(
+      offenders,
+      'A larger GitHub-hosted runner is billed EVEN ON A PUBLIC ' +
+        'REPOSITORY, so this label change is a billing decision wearing ' +
+        'the costume of a performance tweak. If it is intended, add the ' +
+        'label to FREE_RUNNER_LABELS above and say in the commit why the ' +
+        'cost is acceptable.',
     ).toEqual([]);
   });
 

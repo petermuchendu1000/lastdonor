@@ -45,11 +45,23 @@ one thing both documents got wrong is more interesting, and it is in §2.
 Worth stating plainly, because the instinct after a bill is to go and
 optimise the pipeline you can see.
 
-**`lastdonor` is a public repository.** GitHub-hosted standard runners are
-free on public repositories, and `ubuntu-24.04` is a standard runner —
-confirmed by run 3, which used exactly that label. This pipeline has
-therefore cost **$0**, and it will keep costing $0 for as long as the
-repository is public. It does not appear in the account's spend at all.
+**`lastdonor` is a public repository.** Quoting GitHub's billing
+documentation (docs.github.com, Billing → GitHub Actions, read
+2026-10-22):
+
+> "GitHub Actions usage is free for self-hosted runners and for public
+> repositories that use standard GitHub-hosted runners."
+
+`ubuntu-24.04` is a standard runner, and run 3 used exactly that label. So
+this pipeline has cost **$0** and does not appear in the account's spend.
+
+Two caveats on that sentence, both load-bearing:
+
+- The same page adds: *"Larger runners are always charged for, even when
+  used by public repositories."* Free is a property of the **runner
+  label**, not of the repository alone. §6.3 now ratchets the label.
+- The page never says "unlimited". It says free. Treat a runaway as a
+  problem even where it is not a charge.
 
 The $50.00 billable came from **five other private repositories**:
 
@@ -226,6 +238,86 @@ No `engines` field existed, so `.nvmrc`, the Dockerfile and a test using a
 Node-22-only API all assumed a floor that nothing stated.
 `"engines": { "node": ">=22" }` now states it.
 
+### 5.4 The build required runtime credentials, and a test had hidden it
+
+With §5.1–5.3 fixed, run 4 got lint, typecheck, unit tests and the security
+audit to green — and then the **`build`** job failed. It had never executed
+in CI before, so this is the first time anything had run `next build`
+outside a machine that happened to have credentials:
+
+```
+Supabase Storage: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set
+Error: supabaseUrl is required.
+> Build error occurred
+[Error: Failed to collect page data for
+ /api/v1/admin/verification-documents/[documentId]]
+```
+
+`src/lib/supabase-storage.ts` built its client at **module scope**:
+
+```ts
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.warn('Supabase Storage: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set');
+}
+export const supabase = createClient(supabaseUrl ?? '', supabaseServiceKey ?? '', { … });
+```
+
+The `?? ''` reads as tolerance for a missing variable and is the exact
+opposite: `createClient('')` throws `supabaseUrl is required` (verified
+directly against `@supabase/supabase-js`). So the warning printed "not
+set", as though execution would continue, and the next statement threw. It
+is a two-line function with a misleading diagnostic in front of it.
+
+`next build` imports every route handler to collect page data, so **any
+build without Supabase credentials failed entirely** — not the storage
+routes, the whole build. A contributor without Supabase credentials could
+not build the app at all, and the only reason production works is that Fly
+passes the variables. The build was coupled to runtime secrets to compute
+page data that does not need storage.
+
+**The part worth remembering is why nobody knew.** Two independent reasons:
+
+1. The `build` job had never run in CI (`docs/50`).
+2. **A test had already hit this wall and worked around it.**
+   `test/security/verification-document-privacy.test.ts` carries a
+   `vi.hoisted` block stubbing both variables, with the comment:
+   *"`@supabase/supabase-js` throws from `createClient('')`, so the storage
+   module cannot be imported at all without these."*
+
+That comment is an accurate description of a defect, written down, in the
+repository, for as long as the test has existed — recorded as a fact to
+work around rather than a thing to fix. A workaround that gets a test
+passing can keep a build-breaking defect invisible indefinitely. The
+workaround is still there and still correct for that file, which genuinely
+needs a usable client; it is simply no longer the only thing between this
+module and an import failure.
+
+**Fixed** by building the client on first use, reading `process.env` inside
+the accessor so the laziness is real, and raising a named
+`StorageNotConfiguredError` when a client is genuinely needed and not
+configured. Every call site still writes `supabase.storage.from(…)`.
+
+Ordering was preserved deliberately: `getPublicUrl` refuses a private key
+**before** it checks credentials. A private storage key must be refused
+whether or not storage is configured, or the acceptance criterion in
+`docs/31` §1.2 would start answering a different question.
+
+*Verified:*
+
+| Check | Result |
+|---|---|
+| `npm run build` with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` unset | **exit 0**, "Compiled successfully in 37.7s" |
+| Module imports with the environment stripped | OK (previously rejected) |
+| `getPublicUrl('verification-documents/a.pdf')` | still `PrivateObjectError` |
+| `getPublicUrl('avatars/u/a.png')` without credentials | `StorageNotConfiguredError` |
+| Credentials set *after* import | client builds and the URL is correct |
+
+Pinned by `src/lib/supabase-storage.lazy.test.ts`, which is the only test
+that deliberately imports the module with the environment stripped. Proven
+by injection: restoring the eager `createClient` makes **all five** of its
+tests fail with `supabaseUrl is required`, and the file restores
+byte-identical.
+
 ---
 
 ## 6. The controls that landed
@@ -331,22 +423,87 @@ a line expires.
 
 ## 7. ⛔ Owner actions
 
-**1. Set a spending limit on Actions.** This is the only control that
-cannot be undone by a workflow edit, and it is the one that actually
-answers "never should consumption be that high". Billing and licensing →
-Spending limits → Actions. A limit of **$0** hard-stops private-repo
-overage the moment the included 2,000 minutes are gone, rather than
-metering past it. Public repositories are unaffected, so `lastdonor` keeps
-running either way.
+**1. Set an Actions budget with "Stop usage when budget limit is reached"
+ticked.** This is the only control that cannot be undone by a workflow
+edit, and it is the one that actually answers "never should consumption be
+that high".
 
-Note the distinction this account has already been bitten by: a **budget**
-(what was raised to 100 on 2026-10-21, with no effect) alerts and does not
-stop. A **spending limit** stops. They are different settings.
+*Verified against docs.github.com, Billing → "Set up budgets", read
+2026-10-22.* The thing to get right is that the stop is a **checkbox, not
+a side effect of having a budget**:
 
-**2. The $50 is in five other repositories, and the fix is the same.** Port
-§6.1 to each: `timeout-minutes` on every job. `invest254` alone is $44.15
-of the $50, so that is where to start. Those repositories are outside this
-session's scope and nothing here can touch them.
+- A budget **without** that option only emails you when you exceed it.
+  Usage continues and so does the charge.
+- A budget **with** it stops further metered usage at the limit. GitHub's
+  own worked example is a $50 Actions budget with the option enabled:
+  once spent, "Members are now blocked from using all GitHub-hosted
+  runners until the next billing cycle" or until the budget is raised.
+
+So a budget of **$0 with stop enabled** is the hard floor. Public
+repositories on standard runners are free and therefore unmetered, so
+`lastdonor` keeps running either way — the budget bites only on the five
+private repositories, which is exactly where it should bite.
+
+**Correction to an earlier draft of this document**, which said a budget
+only alerts and that a separate "spending limit" is what stops. That was
+wrong on both counts: GitHub's billing platform now expresses this as
+budgets, and the stop lives inside the budget. The reason the budget
+raised to 100 on 2026-10-21 changed nothing is unrelated and was already
+in `docs/50`: the account was **locked for non-payment**, and a lock is
+not a cap. Raising a cap cannot clear a lock. That is not evidence about
+how budgets behave.
+
+**Also, the loophole worth knowing about**: *"Larger runners are always
+charged for, even when used by public repositories"* (same source, same
+date). "This repository is public, so CI is free" is true only while every
+`runs-on` is a **standard** runner. One label edit starts metering, and it
+looks like a performance tweak rather than a billing decision — so
+`src/ci-workflows.ratchet.test.ts` now fails the build on any runner label
+outside a narrow allow-list.
+
+**2. The $50 is in five other repositories, and the fix is the same.**
+`invest254` alone is $44.15 of the $50, so start there. Those repositories
+are outside this session's scope and nothing in this commit can touch them.
+
+The port is one line per job. In each `.github/workflows/*.yml`, directly
+under every `runs-on:`:
+
+```yaml
+jobs:
+  whatever-the-job-is:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20      # <- this line, on EVERY job
+```
+
+Pick the number from a recent successful run's duration, roughly 5–10x it,
+and keep it under 30. Guessing high is fine; the default of 360 is what is
+being fixed, so anything finite is an improvement.
+
+Two companions worth copying at the same time, because they cut *runs*
+rather than minutes:
+
+```yaml
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true   # a new push kills the superseded run
+```
+
+`lastdonor` already had this one. A repository without it pays for every
+intermediate push in a rapid series, which on an active branch is most of
+the bill.
+
+And, where no test reads prose (check first, as §6.2 did):
+
+```yaml
+on:
+  push:
+    paths-ignore: ['docs/**', '**/*.md']
+```
+
+A private repository is where all of this actually earns money. Note the
+§6.2 hazard applies there too, and private repositories are more likely to
+have branch protection — so check whether a required check exists **before**
+adding `paths-ignore`.
 
 **3. Set `TEST_DATABASE_URL`** to turn on integration and E2E (§4).
 
