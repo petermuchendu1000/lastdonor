@@ -252,7 +252,24 @@ export default function RootLayout({
         <Providers>
           <SkipToContent />
           <Navbar />
-          <main id="main-content" className="flex-1">
+          {/*
+            `tabIndex={-1}` is what makes the skip link actually skip.
+
+            `<SkipToContent />` renders an anchor to `#main-content`. A
+            browser moves FOCUS to a fragment target only when that target is
+            focusable; `<main>` is not, by default. Without this, activating
+            the skip link scrolled the page and left focus on `<body>`, so the
+            next Tab started again from the top of the document - the link
+            looked like it worked and did nothing for the keyboard user it
+            exists for.
+
+            Found by `e2e-12-keyboard-a11y.spec.ts`, which asserts that
+            `document.activeElement` is no longer BODY after following the
+            link. It had never run (docs/50), which is why a skip link that
+            does not skip survived. -1 keeps it out of the Tab order while
+            making it programmatically focusable. See docs/99 §4.
+          */}
+          <main id="main-content" tabIndex={-1} className="flex-1">
             {children}
           </main>
           <Footer />
