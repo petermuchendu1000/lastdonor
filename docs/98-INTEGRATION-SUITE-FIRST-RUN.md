@@ -62,6 +62,44 @@ Better than supplying the secret on every axis that matters:
 The health check is not decoration: without it the job races the container and
 `db:migrate` fails with `ECONNREFUSED` on a cold runner.
 
+`-U postgres -d lastdonor_test` on that check is also deliberate. A bare
+`pg_isready` connects as the container's OS user — `root` — for which no
+Postgres role exists, so run 6's service-container log carried
+`FATAL: role "root" does not exist` once every ten seconds for the life of the
+job. The check still *passed*, because a FATAL reply proves the server is up
+and that is all `pg_isready` asks, so this was purely cosmetic. It is fixed
+anyway: a FATAL in the logs of a healthy run is the first thing someone
+debugging a genuine failure would chase.
+
+### Verified on a real runner, not only locally
+
+Run 6 (`39762742194`, dispatched on `main` 2026-10-22). `integration-tests`
+**ran** — it did not skip — and passed:
+
+```
+Test Files  11 passed (11)
+Tests       83 passed (83)
+Duration    15.90s
+```
+
+Job wall clock 80s, of which the suite is 16s and the rest is `npm ci` plus
+container start. The whole run was green: `config`, `lint-and-typecheck`,
+`unit-tests`, `security-audit`, `build`, `integration-tests`, `ci-complete`,
+with `e2e-tests` skipped per §5.
+
+The service container's own log is the better proof that the new assertions in
+§4 are not vacuous — Postgres is visibly doing the rejecting:
+
+```
+ERROR:  new row for relation "donations" violates check constraint "donations_amount_check"
+DETAIL:  Failing row contains (…, pi_nonpositive_0, 0, Zero, zero@test.com, …)
+DETAIL:  Failing row contains (…, pi_nonpositive_-1, -1, …)
+```
+
+alongside the expected `users_email_unique`, `campaigns_slug_unique` and
+`newsletter_subscribers_email_unique` violations from the tests that assert
+uniqueness. Those lines are the suite working, not failing.
+
 ### Verified before wiring it up
 
 Against a real Postgres 16.15 started locally, not reasoned about:

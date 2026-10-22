@@ -195,8 +195,20 @@ jobs:
           - 5432:5432
         # Without a health check the job races the container and `db:migrate`
         # fails with ECONNREFUSED on a cold runner.
+        #
+        # `-U postgres` is not optional noise. A bare `pg_isready` connects as
+        # the container's OS user, which is `root`, and there is no such
+        # Postgres role - so run 6's service-container log carried
+        #
+        #     FATAL:  role "root" does not exist
+        #
+        # once every 10 seconds for the life of the job. The check still
+        # PASSES (a FATAL reply proves the server is up, which is all
+        # `pg_isready` asks), so this was cosmetic - but it plants a FATAL in
+        # the logs of a healthy run, which is exactly the kind of false lead
+        # someone debugging a real failure would chase first.
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d lastdonor_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
