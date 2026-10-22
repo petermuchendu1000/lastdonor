@@ -86,9 +86,26 @@ export default defineConfig({
     mistaken for a ready server. That mistake cost 35 minutes of this
     session: an orphaned `next-server` held port 3000 without serving, and
     Playwright waited on it forever (docs/99 §3.3).
+
+    ── Why the command seeds before it builds ───────────────────────────────
+
+    `npm run e2e:seed` is not redundant with `globalSetup`. `next build`
+    PRE-RENDERS every route that sets `revalidate`, and `/donate` is one:
+    its guard hides the donation form unless the general fund row is
+    donatable (docs/42). Building against an empty database therefore bakes
+    "The general fund is not accepting donations right now" into the static
+    page, and eleven tests then waited for a form the build had decided not
+    to emit. Seeding afterwards cannot undo a prerender.
+
+    This also removes a dependency on an ordering I had asserted without
+    evidence. I claimed globalSetup runs before webServer, "verified from
+    run output" - it was not: the seed line was on stderr and the build's
+    output on stdout, which I had redirected away. Two streams say nothing
+    about each other's ordering. Now the data exists before the build
+    whichever order Playwright chooses.
   */
   webServer: {
-    command: 'npm run build && npm run start',
+    command: 'npm run e2e:seed && npm run build && npm run start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
