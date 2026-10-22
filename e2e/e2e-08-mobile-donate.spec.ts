@@ -3,6 +3,7 @@
  * Priority: P0
  */
 import { test, expect, devices } from '@playwright/test';
+import { donateNowLink, openFirstCampaign } from './helpers/campaigns';
 
 /*
   Pixel 7, not iPhone 14 - and the difference is the browser ENGINE, not the
@@ -32,27 +33,38 @@ test.describe('E2E-08: Mobile Donation Flow', () => {
   test('mobile homepage loads with responsive layout', async ({ page }) => {
     await page.goto('/');
 
-    // Navigation should be collapsed (hamburger). Named, because the page
-    // has two navs - see e2e-01.
-    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    /*
+      "Collapsed" is the actual claim, so assert it both ways.
+
+      My first pass at this copied e2e-01's fix - assert the nav named "Main
+      navigation" - and that was wrong HERE: that nav is
+      `hidden ... md:flex`, so on a phone it does not exist in the
+      accessibility tree at all. Asserting it visible on a mobile viewport
+      tested the opposite of what the test is named for.
+
+      On mobile the primary nav is the hamburger, `aria-label="Open menu"`.
+      So: the hamburger IS there and the desktop nav is NOT.
+    */
+    await expect(page.getByRole('button', { name: 'Open menu' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   });
 
   test('mobile campaign page shows sticky donate bar', async ({ page }) => {
-    await page.goto('/campaigns');
+    await openFirstCampaign(page);
 
-    const campaignLink = page.getByRole('link', { name: /donate|view|learn more/i }).first();
-    if (await campaignLink.isVisible()) {
-      await campaignLink.click();
+    // Scroll down to trigger the sticky bar.
+    await page.evaluate(() => window.scrollTo(0, 500));
 
-      // Scroll down to trigger sticky bar
-      await page.evaluate(() => window.scrollTo(0, 500));
-      await page.waitForTimeout(500);
-
-      // Check for sticky donate element
-      const stickyDonate = page.getByRole('button', { name: /donate/i }).first();
-      await expect(stickyDonate).toBeVisible();
-    }
+    /*
+      Was `getByRole('button', { name: /donate/i })`, which finds nothing:
+      the campaign page's donate affordance is a LINK, not a button - the
+      same drift e2e-01 had. Assert the link and that it points at this
+      campaign's donate page, which is what a donate bar is FOR.
+    */
+    const stickyDonate = donateNowLink(page);
+    await expect(stickyDonate).toBeVisible();
+    await expect(stickyDonate).toHaveAttribute('href', /\/campaigns\/[^/]+\/donate$/);
   });
 
   test('mobile footer renders properly', async ({ page }) => {

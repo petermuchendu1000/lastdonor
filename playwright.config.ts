@@ -60,9 +60,37 @@ export default defineConfig({
     { name: 'Mobile Safari', use: { ...devices['iPhone 14'] } },
     { name: 'Mobile Chrome', use: { ...devices['Pixel 7'], ...chromiumLaunch } },
   ],
+  /*
+    E2E runs against a PRODUCTION build, not `next dev`.
+
+    `docs/97` §8 deferred this on the grounds that changing what a never-run
+    suite runs against leaves no baseline to compare. There is a baseline
+    now, and it says the change is needed: of 15 remaining failures, SEVEN
+    were `Test timeout` with nothing wrong at the locator. `next dev`
+    compiles a route on its first visit, so the first test to touch
+    `/campaigns/[slug]/donate` pays several seconds of compile inside its
+    own 30s budget - and `toHaveURL` waits only 5s, which is how
+    `e2e-02` failed with the URL still on the page it had just left.
+
+    Two further reasons it is the right target regardless of speed:
+
+    - `docs/63` found that our CSP blocks `unsafe-eval`, so NO client
+      component hydrates in `next dev`; `docs/64` had to add `unsafe-eval`
+      and `ws://localhost` to the DEV CSP to make React work at all. So a
+      dev-server E2E run exercises a CSP that production never serves. A
+      suite whose job is to catch what users hit should run what users get.
+    - A production build is what `scripts/deploy.ps1` ships.
+
+    `timeout` is raised because a build is minutes, not the 60s default;
+    `reuseExistingServer` stays off in CI so a stale process cannot be
+    mistaken for a ready server. That mistake cost 35 minutes of this
+    session: an orphaned `next-server` held port 3000 without serving, and
+    Playwright waited on it forever (docs/99 §3.3).
+  */
   webServer: {
-    command: 'npm run dev',
+    command: 'npm run build && npm run start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
+    timeout: 300_000,
   },
 });
