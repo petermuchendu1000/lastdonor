@@ -89,24 +89,26 @@ jobs:
   # cleanly instead of failing red on a repository that has never had them
   # set. `secrets` cannot be read from a job-level `if`, so it is surfaced
   # here as an output.
-  config:
-    runs-on: ubuntu-24.04
-    # Measured 3s. One shell conditional; it has no reason to take minutes.
-    timeout-minutes: 5
-    outputs:
-      has-db: ${{ steps.probe.outputs.has-db }}
-    steps:
-      - id: probe
-        env:
-          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: |
-          if [ -n "$TEST_DATABASE_URL" ]; then
-            echo "has-db=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has-db=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=DB-backed jobs skipped::TEST_DATABASE_URL is not set, so integration and E2E will not run."
-          fi
-
+  # The `config` job is GONE, deliberately.
+  #
+  # It existed to probe for a `TEST_DATABASE_URL` secret and emit
+  #
+  #     ::warning title=DB-backed jobs skipped::TEST_DATABASE_URL is not set,
+  #     so integration and E2E will not run.
+  #
+  # which gated both DB-backed jobs. Neither statement is true any more:
+  # `integration-tests` brought its own `postgres:16` service container in
+  # docs/98, `e2e-tests` does the same now, and NEITHER references that
+  # secret. The job's only remaining effect would be a warning annotation
+  # saying two jobs were skipped while they were in fact running - a false
+  # lead planted in the logs of a healthy run, which is the exact category
+  # of noise docs/98 §2 removed from the Postgres health check.
+  #
+  # ⛔ Setting `TEST_DATABASE_URL` is still REFUSED, not merely unnecessary:
+  # these jobs run `db:migrate` and then suites that truncate or delete rows,
+  # and the only connection string this project has is PRODUCTION. See
+  # docs/98 §1.
+  #
   # These three are independent of one another and of the database. They used
   # to run strictly in series, so a lint error delayed the unit result by the
   # whole lint job.
@@ -259,62 +261,98 @@ jobs:
   # ⛔ STILL SKIPPED, and a database is NOT what it is missing.
   #
   # `integration-tests` above dropped its `TEST_DATABASE_URL` gate for a
-  # service container (docs/98). The obvious next move is to do the same here.
-  # DO NOT: it would turn this job permanently red, which is worse than
-  # skipped.
+  # service container (docs/98). That is what this job now does.
   #
-  # The suite was run locally on 2026-10-22 against a real Postgres with a
-  # freshly migrated schema. The harness works - one spec passed 3/3 in 47s -
-  # but most specs assume the database ALREADY CONTAINS PUBLISHED CAMPAIGNS
-  # and seed nothing. `e2e-02-guest-donate.spec.ts` is typical: it goes to
-  # `/campaigns`, clicks "the first campaign link", and asserts a donate form.
-  # Against an empty database that locator matches nothing and the test times
-  # out.
+  # THE HISTORY MATTERS, because the comment here used to say "DO NOT" and was
+  # right at the time. The blocker was never credentials: most specs assumed
+  # the database ALREADY CONTAINED PUBLISHED CAMPAIGNS and seeded nothing,
+  # which stopped being true even in production when docs/79 moved every
+  # campaign to `under_review`. So the specs asserted a state the product no
+  # longer has, and a service container alone would have made this job
+  # permanently red - worse than skipped, because a standing red check trains
+  # people to ignore CI, which is how this pipeline reached five days of green
+  # local checks and zero runs (docs/50).
   #
-  # And it is not only an empty-CI-database problem: docs/79 moved every
-  # campaign to `under_review`, so `/campaigns` is empty IN PRODUCTION TOO.
-  # These specs assert a state the product no longer has by default.
+  # Both halves are now done. `docs/99` §1 built the seed fixture; `docs/99`
+  # §8 reconciled the specs and found five product defects doing it. Measured
+  # locally on 2026-10-22, both Chromium projects: 128 passed, 0 failed, 24
+  # declared skips, 241s.
   #
-  # So the blocker is FIXTURES, not credentials. Enabling this needs an E2E
-  # seed that publishes a known campaign and tears it down - a scoped piece of
-  # work, not a config change. Until that exists this job stays gated on the
-  # absent secret, which is why the `config` job is still here.
+  # ⚠️ This job had still never executed anywhere when it was enabled, so
+  # treat its first runs as unproven. The env below is therefore deliberately
+  # SELF-SUFFICIENT: it references no repository secret at all, so the job
+  # cannot fail for a secret nobody can see. Every value is a format or
+  # entropy check (`src/lib/validate-secrets.ts`), not a credential - the
+  # suite talks to no payment provider, sends no mail, and its card-rail tests
+  # are skipped because there IS no card rail (docs/72).
   e2e-tests:
     runs-on: ubuntu-24.04
     # NOT measured in CI - has never run there. PER MATRIX LEG, so 60 total.
     timeout-minutes: 30
-    needs: [config, build, integration-tests]
+    needs: [build, integration-tests]
+    # Fork PRs only: no secrets are referenced below, but a fork can still
+    # change the specs, and a browser running arbitrary branch code on our
+    # runner is not something to grant by default.
     if: >-
-      needs.config.outputs.has-db == 'true' &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       # Most of this product's traffic is phones, and the mobile layouts are
       # where the recent work landed (docs/48, docs/49), but CI only ever ran
       # Desktop Chrome. Both run now, and one failing does not mask the other.
+      #
+      # These are also the only two projects `playwright.config.ts` runs by
+      # default: nothing in this repo installs Firefox or WebKit, so those
+      # projects sit behind `PW_ALL_BROWSERS=1` and that gap is open
+      # (docs/99 §5.1).
       matrix:
         project: ['Desktop Chrome', 'Mobile Chrome']
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lastdonor_test
+        ports:
+          - 5432:5432
+        # `-U postgres` is not optional noise - see the identical block on
+        # `integration-tests` for why a bare `pg_isready` plants a FATAL in
+        # the logs of a healthy run.
+        options: >-
+          --health-cmd "pg_isready -U postgres -d lastdonor_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-      # The four below are NOT secrets and are deliberately literal, on the
-      # same reasoning as the integration job's literal DATABASE_URL
-      # (docs/98 §2): they are format and entropy checks, not credentials,
-      # and an obvious throwaway satisfies them.
+      # ⛔ Every value here is a THROWAWAY and must stay one. None is read as
+      # a credential; `validate-secrets.ts` checks length and prefix only, and
+      # `src/instrumentation.ts` THROWS on a missing or malformed one in a
+      # production build - which is what this suite runs. The failure mode is
+      # the reason they are spelled out rather than left to secrets: every
+      # route answers 500, Playwright sees only a webServer timeout, and the
+      # JSON report records `expected: 0, unexpected: 0`, which reads like a
+      # pass. Measured locally 2026-10-22: one absent PASSWORD_PEPPER cost a
+      # full 300s run and produced no test results.
       #
-      # Added because the suite runs a PRODUCTION build, where
-      # `src/instrumentation.ts` THROWS on a missing required secret, so
-      # every route answers 500 - and Playwright can only report that as a
-      # webServer timeout with ZERO tests collected, which in the JSON
-      # report reads as `expected: 0, unexpected: 0`. This job has never
-      # run anywhere (docs/50, docs/99), so none of this was ever
-      # exercised; it was measured locally on 2026-10-22, where a missing
-      # PASSWORD_PEPPER cost a full 300s run.
+      # localhost, not the Supabase pooler: the fixture REFUSES any non-local
+      # host unless `E2E_ALLOW_NONLOCAL_DB=1`, because it inserts and deletes
+      # rows and the only connection string this project really has is
+      # production (docs/98 §1, docs/99 §2). Do not set that variable here.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lastdonor_test
+      NEXTAUTH_SECRET: ci-e2e-throwaway-nextauth-secret-not-real-0001
       PASSWORD_PEPPER: ci-e2e-throwaway-pepper-not-a-real-secret-0001
       CRON_SECRET: ci-e2e-throwaway-cron-secret-not-a-real-secret-01
+      # Format-only: `^sk_(test|live)_` and `^whsec_`. The card rail is dead
+      # (docs/72) and every test that would touch it is skipped, so these are
+      # never used to call Stripe.
+      STRIPE_SECRET_KEY: sk_test_ciE2eThrowawayNotARealStripeKey00
+      STRIPE_WEBHOOK_SECRET: whsec_ciE2eThrowawayNotARealWebhookSecret
+      # Distinct from NEXTAUTH_SECRET, or `validate-secrets.ts` warns about
+      # key separation.
+      NEWSLETTER_UNSUBSCRIBE_SECRET: ci-e2e-throwaway-unsubscribe-secret-01
+      SETTINGS_ENCRYPTION_KEY: ci-e2e-throwaway-settings-enc-key-0000001
       # Without this, NextAuth v5 off Vercel refuses the localhost host and
       # EVERY `/api/auth/session` call fails with `UntrustedHost` (docs/26).
       # The middleware's auth layer then goes inert - locally that turned
@@ -332,6 +370,16 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # The documented migration path, same as `integration-tests`: one
+      # validated baseline from migrations-v2 through the migrator, never
+      # `drizzle-kit push` (docs/34).
+      - run: npm run db:migrate
+      # `playwright.config.ts`'s webServer seeds, builds and starts. The seed
+      # MUST precede the build: `next build` prerenders `/donate`, whose guard
+      # hides the form unless the general fund row is donatable (docs/42), so
+      # building against an empty database bakes in "not accepting donations"
+      # and seeding afterwards cannot undo it. `npm run e2e:build` exists for
+      # the same reason when building by hand.
       - run: npm run test:e2e -- --project="${{ matrix.project }}"
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -369,4 +417,4 @@ jobs:
               *) echo "::error title=CI failed::a required job reported '$r'"; exit 1 ;;
             esac
           done
-          echo "All required jobs passed (skipped jobs are allowed: see the config job's warning)."
+          echo "All required jobs passed. Skipped jobs are allowed: e2e-tests skips itself on a fork PR."
