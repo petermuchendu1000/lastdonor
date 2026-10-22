@@ -40,6 +40,88 @@ one thing both documents got wrong is more interesting, and it is in §2.
 
 ---
 
+## 1a. ⛔ CI is proven by DISPATCH only. The push trigger has never fired.
+
+Added after merging to `main`, and it qualifies §1 rather than contradicting
+it. **Do not read "CI runs" as "CI gates your pushes" yet.**
+
+`main` was fast-forwarded to `ea3d6e8` and pushed at 09:30:40Z. **No
+workflow run was created.** Chasing that produced a flat fact:
+
+| Fact | Evidence |
+|---|---|
+| Every run in repo history is a manual dispatch | 5 runs total, `by event: {'workflow_dispatch': 5}` |
+| A `push` or `pull_request` run has **never** existed | same query, no other event present |
+| GitHub *did* receive the push | `/events`: `PushEvent`, `main`, `ea3d6e89`, 09:30:40Z, actor `petermuchendu1000` |
+
+So the push was accepted, attributed to the owner's account, and silently
+produced nothing.
+
+### What it is not
+
+Ruled out, each by direct check rather than reasoning:
+
+- **Not `paths-ignore`.** The push range `d8814d8..ea3d6e8` changed 12
+  files, and **9 are outside both patterns** — `.github/workflows/ci.yml`,
+  `package.json`, `package-lock.json`, `scripts/deploy.ps1` and five
+  `src/` files. `paths-ignore` skips only when *all* changed files match,
+  so it cannot apply under either the whole-range or the head-commit
+  reading of the diff.
+- **Not a parse error.** A dispatch of the *same* commit (`ea3d6e8`, run 5)
+  went fully green. A workflow that does not parse cannot be dispatched
+  either.
+- **Not the trigger definition.** `push.branches` is `[main, staging]` and
+  `main` is the default branch, confirmed from the API.
+- **Not the repository.** `visibility: public`, `fork: false`,
+  `archived: false`, `disabled: false`, workflow `state: active`.
+- **Not the billing lock.** That is gone; run 5 is green.
+
+### What it probably is — marked as inference, not fact
+
+The pushes in this repository are made from an agent session through a
+rewritten remote (`url.https://<token>@github.com`), and that token matches
+none of GitHub's documented public prefixes (`ghp_`, `gho_`, `ghs_`,
+`ghu_`, `github_pat_`), so it could not be classified. GitHub deliberately
+**suppresses workflow runs for pushes authenticated as a bot or app**, to
+stop a workflow retriggering itself. That fits every observation here, and
+it would mean the push trigger is fine and simply never exercised, because
+every push this repository has ever received came from an agent.
+
+**This is inference. It cannot be proven from inside the sandbox**, which
+is why it is marked rather than asserted.
+
+### ⛔ Owner action: a one-minute test only you can run
+
+From your own machine, push any trivial **code** change to `main` (not a
+`.md` file, or `paths-ignore` will correctly skip it) and look at the
+Actions tab.
+
+- **A run appears** → the gate works for human pushes, only agent pushes
+  are inert, and nothing needs fixing. Note it here and this section can
+  be closed.
+- **No run appears** → the `push` trigger is genuinely broken and CI gates
+  nothing automatically. Start with repository Settings → Actions →
+  General, then the account's Actions entitlement.
+
+Until one of those is observed, treat **manual dispatch as the only
+confirmed path**, and keep running the local gate before every commit as
+CLAUDE.md requires.
+
+### Correction to `docs/50`
+
+`docs/50` amendment 2 noted that pushing the already-fixed commit to `main`
+created no run, and offered — explicitly marked as inference — that the
+billing lock was suppressing automatic triggers. **That inference is now
+unsupported.** The lock is lifted, dispatches run, and a push to `main`
+still produces nothing. Whatever suppresses push-triggered runs is a
+second, independent cause that was hidden behind the lock, exactly as the
+parse error and the lock were two independent causes hiding behind each
+other. This repository has now produced three of those in a row, which is
+itself the lesson: **one fixed cause is not evidence that there was only
+one.**
+
+---
+
 ## 2. This repository was never what cost $50
 
 Worth stating plainly, because the instinct after a bill is to go and

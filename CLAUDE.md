@@ -137,9 +137,20 @@ Before any commit: `npm run lint && npm run typecheck && npm run test:unit`
 must all pass. **Run them yourself.** They are no longer the *only* gate,
 but they are the fast one and the one you control.
 
-**CI executes as of 2026-10-22** (`docs/97`). The owner settled the billing
-charge and the account lock lifted, so lint → typecheck → unit → security
-audit → build now run on every push and pull request. `npm ci` must succeed,
+**CI executes as of 2026-10-22, but only when DISPATCHED BY HAND**
+(`docs/97` §1a). The owner settled the billing charge, the account lock
+lifted, and run 5 is the first fully green run in this project's history:
+lint → typecheck → unit → security audit → build, all passing.
+
+⛔ **A `push` or `pull_request` run has still never existed.** All five runs
+in repo history are `workflow_dispatch`. The merge to `main` was received by
+GitHub (`PushEvent`, `ea3d6e89`) and created no run. Ruled out: `paths-ignore`
+(9 of the 12 changed files are outside both patterns), a parse error (the same
+commit dispatches green), the trigger definition, and the lock. The likely
+cause — **marked as inference** — is that GitHub suppresses workflow runs for
+pushes authenticated as a bot, and every push this repository has ever had came
+from an agent session. **So do not assume CI gates a push until a
+push-triggered run has actually been seen.** `npm ci` must succeed,
 so **keep `package-lock.json` in sync with `package.json`** — and note that
 `npm ci` installs only what is *declared*: three test files were importing
 `glob` as an undeclared transitive dependency of `@sentry/nextjs`, which
