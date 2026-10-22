@@ -49,11 +49,45 @@ test.describe('E2E-03: Last Donor Zone Completion', () => {
   test('a last-donor-zone campaign is listed alongside active ones', async ({ page }) => {
     await page.goto('/campaigns');
 
-    const ldzCard = page.locator(`article:has(a[href="/campaigns/${LDZ_SLUG}"])`);
-    await expect(ldzCard).toBeVisible();
+    /*
+      Asserts the LINK, not `article:has(...)`, and takes `.first()`.
 
-    // Listed, not merely present in the payload: the link has to be clickable.
-    await expect(ldzCard.locator(`a[href="/campaigns/${LDZ_SLUG}"]`).first()).toBeVisible();
+      The first version of this test was `expect(article:has(a[href=...]))
+      .toBeVisible()`, which flaked ONCE in CI - on the Mobile Chrome leg of
+      run 8, passing on retry:
+
+          strict mode violation: locator('article:has(a[href="/campaigns/
+          e2e-fixture-veteran-housing"])') resolved to 2 elements
+            1) <article ...> aka ...filter({ hasText: 'veteransDallas, TexasE2E' })
+            2) <article ...> aka locator('article').nth(4)
+
+      So at that moment the page held at least FIVE articles and two of them
+      contained a link to this campaign, where the fixture seeds four
+      campaigns. ⛔ I could not explain or reproduce it:
+
+      - Six consecutive loads at the same `devices['Pixel 7']` viewport,
+        sampled at `domcontentloaded` AND `networkidle`, gave 4 articles and
+        exactly 1 match every time.
+      - The server-rendered HTML holds exactly 4 `<article>` tags and one
+        link per fixture campaign.
+      - `CampaignGrid.loadMore` dedupes by id before appending
+        (`seen = new Set(prev.map(c => c.id))`), so an extra card for a
+        campaign already shown cannot come from "Load More".
+
+      The test now asserts what its name claims - the campaign is listed and
+      its link is clickable - which does not depend on how many wrappers the
+      listing renders. It is NOT scoped to a single match to hide a defect:
+      whether a campaign can appear twice in the listing belongs to
+      `e2e-16`, which is about card rendering. See `docs/99` §8.6, which
+      keeps the raw error for whoever meets it again.
+    */
+    const ldzLink = page.locator(`a[href="/campaigns/${LDZ_SLUG}"]`).first();
+    await expect(ldzLink).toBeVisible();
+
+    // In a card, not a bare link in some sidebar: the listing renders cards.
+    await expect(
+      page.locator(`article:has(a[href="/campaigns/${LDZ_SLUG}"])`).first(),
+    ).toBeVisible();
   });
 
   test('a last-donor-zone campaign can still be donated to', async ({ page }) => {

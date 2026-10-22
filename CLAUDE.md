@@ -161,7 +161,8 @@ so **keep `package-lock.json` in sync with `package.json`** — and note that
 `glob` as an undeclared transitive dependency of `@sentry/nextjs`, which
 worked purely by npm's hoisting. If a test imports a package, declare it.
 
-Two things are still not gated, so do not over-trust a green tick:
+Every suite now runs in CI — but do not over-trust a green tick, for the
+reasons under each:
 
 - ✅ **Integration now runs, with no secret** (`docs/98`). `integration-tests`
   brings its own `postgres:16` service container and a literal
@@ -176,13 +177,27 @@ Two things are still not gated, so do not over-trust a green tick:
   one database and each file truncates it, so parallel runs raced: three runs
   from identical fresh databases gave 50, 23 and 18 failures. Do not remove
   those lines to go faster; the run takes ~20s.
-- ⚠️ **E2E is GREEN locally but still does not run in CI.** Measured
-  2026-10-22 on both Chromium projects: **128 passed, 0 failed, 24 skipped**
-  in 241s (`docs/99` §8). The earlier "32 failed / 25 passed" in this file
-  is **withdrawn** — that run had concurrent axe probes crashing browsers,
-  so it measured contention. Enabling the CI job is now a judgement call
-  about trust in a never-run job, not a wait on red tests; `docs/99` §5
-  orders what is left.
+- ✅ **E2E RUNS IN CI as of 2026-10-22, and run 8 is the first execution of
+  this suite on a runner in the project's history.** Whole pipeline green.
+  Like `integration-tests`, the job brings its own `postgres:16` service
+  container, and it references **no repository secret at all** — every value
+  `validate-secrets.ts` requires is a format or entropy check, so they are
+  literal throwaways in the workflow. Per leg: Desktop Chrome 64 passed / 12
+  skipped (2.0m), Mobile Chrome 63 passed / 12 skipped / **1 flaky** (2.3m).
+  Locally, both legs together: 128 passed, 0 failed, 24 skipped in 241s.
+
+  ⛔ **One flaky test is not "green"** (`docs/99` §8.6). `e2e-03` failed its
+  first attempt on the mobile leg with a strict-mode violation reporting
+  **five** `<article>` elements where the fixture seeds four campaigns, and
+  passed on retry — the job is green because `retries: 2`. It does not
+  reproduce locally (6 loads at the same device, 4 articles every time), the
+  SSR HTML has exactly 4, and `CampaignGrid.loadMore` dedupes by id, so
+  pagination is ruled out. The raw error is kept in `docs/99` §8.6 for
+  whoever meets it again.
+
+  The earlier "32 failed / 25 passed" in this file is **withdrawn** — that
+  run had concurrent axe probes crashing browsers, so it measured
+  contention.
 
   The reconciliation that got there found **five product defects in
   application code**, not in specs — invalid tablist ARIA on the homepage
