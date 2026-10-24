@@ -82,18 +82,25 @@ kill_timeout = "30s"
   NEXT_TELEMETRY_DISABLED = "1"
 
   # ---------------------------------------------------------------------------
-  # CLIENT IP RESOLUTION - these are the FLY-ONLY values. They MUST change to
-  # `cf` / `2` in the same change that puts Cloudflare in front, and not before.
+  # CLIENT IP RESOLUTION. `cf` is safe to deploy whether or not the proxy is on,
+  # because since 2026-10-24 it decides PER REQUEST rather than per deployment.
   #
-  # This file previously carried the Cloudflare values (`cf` / `2`) while
-  # Cloudflare was not yet in front of the app. Verified against
-  # `src/lib/rate-limit.ts`, that combination is unsafe in two independent ways:
+  # ⚠️ The hop count stays at 1 FOREVER. See docs/105. A hop count describes one
+  # ingress path and this app has two - through Cloudflare, and straight to
+  # `lastdonor.fly.dev` / `origin.lastdonor.org`, which never stop working. Fly
+  # appends exactly one entry, so 1 is right for the direct path; `cf` mode does
+  # not read this value at all, and `xff` mode needs it to be 1.
   #
-  #   1. `CLIENT_IP_SOURCE=cf` makes `cf-connecting-ip` the authoritative
-  #      source and it is consulted FIRST (`trustedClientIpHeader`, line 72).
-  #      With no Cloudflare in front to overwrite that header, any client sets
-  #      it to anything, mints unlimited distinct rate-limit keys, and bypasses
-  #      every limit.
+  # HISTORY, and why it is no longer stated as a rule. On 2026-10-14 this file
+  # carried `cf` / `2` while Cloudflare was not in front of the app, which was
+  # unsafe in two independent ways against the code OF THAT DAY:
+  #
+  #   1. `CLIENT_IP_SOURCE=cf` made `cf-connecting-ip` authoritative whenever
+  #      present, so with nothing upstream overwriting it any client set it to
+  #      anything, minted unlimited distinct rate-limit keys, and bypassed
+  #      every limit. FIXED IN THE CODE on 2026-10-24: `cf` now requires the
+  #      request to have arrived from Cloudflare, so this is no longer a
+  #      property of the configuration at all.
   #   2. Even on fallthrough, `TRUSTED_PROXY_HOPS=2` with Fly's single appended
   #      hop computes `index = entries.length - 2 = 0` on a two-entry header -
   #      the LEFT-most, client-supplied entry. That is precisely what the
@@ -105,34 +112,35 @@ kill_timeout = "30s"
   # contradictory sources of truth; the secret-store copies have been removed so
   # this file is the only place they are set.
   # ---------------------------------------------------------------------------
-  CLIENT_IP_SOURCE = "xff"
+  CLIENT_IP_SOURCE = "cf"
   TRUSTED_PROXY_HOPS = "1"
 
   # ---------------------------------------------------------------------------
-  # ⬇ CUTOVER BLOCK — staged 2026-10-24, NOT ACTIVE. See docs/104 §3.
+  # ⬇ THE CUTOVER BLOCK THAT USED TO LIVE HERE IS GONE, AND SO IS ITS PREMISE.
   #
-  # Uncomment these two and delete the two `xff`/`1` lines above IN THE SAME
-  # COMMIT that turns the Cloudflare proxy on, and deploy that commit BEFORE
-  # flipping the orange cloud.
+  # It staged `cf` / `2`, to be applied in the same commit that turns the proxy
+  # on. Both halves were wrong, and the reasoning is worth keeping because it
+  # reads as careful:
   #
-  #   CLIENT_IP_SOURCE = "cf"
-  #   TRUSTED_PROXY_HOPS = "2"
+  #   "Deploying `cf`/`2` first is safe: `cf-connecting-ip` is simply absent
+  #    until the proxy is on."
   #
-  # Left commented rather than applied, deliberately. The branch this was
-  # staged on also carries unrelated work, and `cf`/`2` deployed while the
-  # proxy is still OFF is the exact configuration the block above proves
-  # unsafe: `cf-connecting-ip` becomes client-forgeable and mints unlimited
-  # rate-limit keys. A comment cannot be deployed by accident; a value can.
+  # Absent on requests THROUGH Cloudflare, which is not the set that matters.
+  # `lastdonor.fly.dev` is a Fly hostname outside this DNS zone and
+  # `origin.lastdonor.org` is grey-cloud on purpose, so after the flip a caller
+  # can still reach the origin directly and type whatever `cf-connecting-ip`
+  # they like - and the old `cf` branch returned it unconditionally. That is
+  # unlimited rate-limit keys against login, SMS and the PayHero phone guard,
+  # permanently, not just during a cutover window.
   #
-  # WHY THE ORDER IS THIS WAY ROUND, measured 2026-10-24:
-  # with the proxy ON and `1`, `getClientIp` computes
-  # `index = entries.length - 1` against `[client, cf-edge]` and returns the
-  # CLOUDFLARE EDGE IP. `/api/v1/auth` is 10 requests/60s per IP, so every
-  # visitor through one Cloudflare datacentre would share that bucket and
-  # real users would be locked out of login. Deploying `cf`/`2` first is
-  # safe: `cf-connecting-ip` is simply absent until the proxy is on, and the
-  # XFF fallback computes `index = max(0, 1 - 2) = 0` on Fly's single-entry
-  # header, which is still the real client.
+  # And `2` was unsafe in the mirror direction: on a direct hit the trusted
+  # index lands on the caller's own `X-Forwarded-For` prefix.
+  #
+  # `src/lib/rate-limit.ts` now takes the one value a caller cannot choose - the
+  # address the request arrived from, which Fly appends to `X-Forwarded-For` -
+  # and trusts `cf-connecting-ip` only when that address is inside Cloudflare's
+  # published space (`src/lib/cloudflare-ips.ts`). Right for both paths at once,
+  # with no window and nothing to sequence.
   # ---------------------------------------------------------------------------
 
   # ---------------------------------------------------------------------------

@@ -87,11 +87,98 @@ describe('getClientIp — trusted edge header', () => {
     ).toBe('198.51.100.9');
   });
 
-  it('prefers CF-Connecting-IP when CLIENT_IP_SOURCE=cf', () => {
+  it('trusts CF-Connecting-IP when the request ARRIVED FROM Cloudflare', () => {
+    /*
+      Rewritten 2026-10-24 (docs/105). This test used to assert that `cf` makes
+      `CF-Connecting-IP` authoritative whenever present, with `172.16.0.1` -- a
+      PRIVATE address -- standing in for the Cloudflare edge. That it passed
+      with a peer Cloudflare could never have is the tell: the old rule never
+      looked at where the request came from.
+
+      `104.16.0.1` is inside `104.16.0.0/13`, which Cloudflare publishes.
+    */
     process.env.CLIENT_IP_SOURCE = 'cf';
     expect(
-      getClientIp(headers({ 'cf-connecting-ip': '203.0.113.7', 'x-forwarded-for': '1.2.3.4, 172.16.0.1' })),
+      getClientIp(headers({
+        'cf-connecting-ip': '203.0.113.7',
+        'x-forwarded-for': '203.0.113.7, 104.16.0.1',
+      })),
     ).toBe('203.0.113.7');
+  });
+
+  it('IGNORES CF-Connecting-IP on a request that did not come through Cloudflare', () => {
+    /*
+      The hole this closes. `lastdonor.fly.dev` and `origin.lastdonor.org` stay
+      directly reachable after the apex is proxied, so "we are behind
+      Cloudflare" is false for some requests no matter what fly.toml says. A
+      caller who reaches the origin and types this header must not choose their
+      own rate-limit key.
+    */
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    expect(
+      getClientIp(headers({
+        'cf-connecting-ip': '203.0.113.7',
+        'x-forwarded-for': '198.51.100.9',
+      })),
+    ).toBe('198.51.100.9');
+  });
+
+  it('ignores a forged XFF prefix as well, on a direct hit', () => {
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    expect(
+      getClientIp(headers({
+        'cf-connecting-ip': '203.0.113.7',
+        'x-forwarded-for': '9.9.9.9, 10.0.0.1, 198.51.100.9',
+      })),
+    ).toBe('198.51.100.9');
+  });
+
+  it('does not consult TRUSTED_PROXY_HOPS in cf mode, whatever it is set to', () => {
+    /*
+      A hop count cannot describe two ingress paths at once (docs/105). Pinning
+      this stops someone "fixing" the cutover by tuning the number again: the
+      answer must not move when it changes.
+    */
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    const viaCloudflare = { 'cf-connecting-ip': '203.0.113.7', 'x-forwarded-for': '203.0.113.7, 104.16.0.1' };
+    const direct = { 'cf-connecting-ip': '203.0.113.7', 'x-forwarded-for': '9.9.9.9, 198.51.100.9' };
+    for (const hops of ['1', '2', '3', '10']) {
+      process.env.TRUSTED_PROXY_HOPS = hops;
+      expect(getClientIp(headers(viaCloudflare)), `hops=${hops} via CF`).toBe('203.0.113.7');
+      expect(getClientIp(headers(direct)), `hops=${hops} direct`).toBe('198.51.100.9');
+    }
+  });
+
+  it('keys by the Cloudflare edge when the edge header is missing on a proxied request', () => {
+    // Not expected, and the safe direction: over-counts, never under-counts.
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    expect(getClientIp(headers({ 'x-forwarded-for': '203.0.113.7, 104.16.0.1' }))).toBe('104.16.0.1');
+  });
+
+  it('uses fly-client-ip as the peer only when there is no XFF at all', () => {
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    expect(
+      getClientIp(headers({ 'cf-connecting-ip': '203.0.113.7', 'fly-client-ip': '104.16.0.1' })),
+    ).toBe('203.0.113.7');
+    expect(
+      getClientIp(headers({ 'cf-connecting-ip': '203.0.113.7', 'fly-client-ip': '198.51.100.9' })),
+    ).toBe('198.51.100.9');
+  });
+
+  it('degrades to one shared bucket rather than to a forged value', () => {
+    /*
+      A caller who sends their own `fly-client-ip` produces a comma-joined
+      value once Fly adds its own, which `normaliseIp` rejects. With no usable
+      peer the key must be the shared sentinel, never the CF-Connecting-IP the
+      caller supplied.
+    */
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    expect(
+      getClientIp(headers({
+        'cf-connecting-ip': '203.0.113.7',
+        'fly-client-ip': '203.0.113.7, 104.16.0.1',
+      })),
+    ).toBe(UNKNOWN_CLIENT_IP);
   });
 
   it('falls back to the right-most hop (never the left-most) when the edge header is absent', () => {
@@ -177,5 +264,59 @@ describe('checkRateLimitAsync — forged X-Forwarded-For cannot reset the limit'
     }
 
     expect(responses.filter((r) => r !== null).length).toBeGreaterThan(0);
+  });
+
+  it('a forged CF-Connecting-IP cannot reset the limit WITH CLIENT_IP_SOURCE=cf either', async () => {
+    /*
+      The case that was missing. The test above qualifies itself with "when
+      CLIENT_IP_SOURCE is unset" -- and the cutover sets it. An attacker who
+      reaches `lastdonor.fly.dev` directly and rotates this header must still
+      hit the limit, because their peer address does not change.
+    */
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    process.env.TRUSTED_PROXY_HOPS = '2';
+    const path = '/api/v1/newsletter/p15-cf-declared';
+    const responses = [];
+
+    for (let i = 0; i < 8; i++) {
+      responses.push(
+        await checkRateLimitAsync(
+          request(path, {
+            'cf-connecting-ip': `10.8.8.${i}`,
+            'x-forwarded-for': `10.7.7.${i}, 203.0.113.77`,
+          }),
+        ),
+      );
+    }
+
+    const blocked = responses.filter((r) => r !== null);
+    expect(blocked.length).toBeGreaterThan(0);
+    expect(blocked[0]!.status).toBe(429);
+  });
+
+  it('a real visitor through Cloudflare is still bucketed per visitor, not per edge', async () => {
+    /*
+      The other half, and the outage risk docs/104 §3 names: if proxied
+      requests were keyed by the Cloudflare edge instead of the visitor, every
+      visitor behind one datacentre would share one bucket and real users would
+      be locked out of login. Eight DIFFERENT visitors through ONE edge must
+      all pass a 5-per-60s limit.
+    */
+    process.env.CLIENT_IP_SOURCE = 'cf';
+    const path = '/api/v1/newsletter/p15-cf-visitors';
+    const responses = [];
+
+    for (let i = 0; i < 8; i++) {
+      responses.push(
+        await checkRateLimitAsync(
+          request(path, {
+            'cf-connecting-ip': `198.51.100.${i}`,
+            'x-forwarded-for': `198.51.100.${i}, 104.16.0.1`,
+          }),
+        ),
+      );
+    }
+
+    expect(responses.filter((r) => r !== null)).toEqual([]);
   });
 });

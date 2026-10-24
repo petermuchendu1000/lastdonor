@@ -1,17 +1,25 @@
 /**
- * Client-IP trust boundary — deployment config, audit P1-5 / `docs/32` §4.
+ * Client-IP trust boundary - deployment config, audit P1-5 / `docs/32` §4.
  *
- * `CLIENT_IP_SOURCE` and `TRUSTED_PROXY_HOPS` must describe the number of
- * proxies ACTUALLY in front of the app. `src/lib/rate-limit.client-ip.test.ts`
- * covers the resolution logic; this file covers the deployed values, because on
- * 2026-10-14 the logic was correct and `fly.toml` was not: it carried the
- * Cloudflare end-state values (`cf` / `2`) while Fly was serving alone, which
- * makes `cf-connecting-ip` attacker-controlled and pushes the X-Forwarded-For
- * index onto the client-supplied left-most entry.
+ * `src/lib/rate-limit.client-ip.test.ts` covers the resolution logic; this file
+ * covers the DEPLOYED values, because on 2026-10-14 the logic was correct and
+ * `fly.toml` was not.
  *
- * The pairing is what this guards. A half-flip during the Cloudflare cutover —
- * `cf` without `2`, or `2` without `cf` — is the realistic mistake, and either
- * half alone is wrong for both topologies.
+ * ⚠️ REWRITTEN 2026-10-24 (`docs/105`). This file used to assert a PAIRING:
+ * `xff` with 1 hop, or `cf` with 2. That rule was wrong, and asserting it
+ * would have licensed the unsafe cutover it was written to prevent.
+ *
+ * A hop count describes ONE ingress path. Once the apex is proxied this app has
+ * TWO - through Cloudflare (two appended hops) and straight to
+ * `lastdonor.fly.dev` or `origin.lastdonor.org` (one) - and both stay reachable
+ * for good. Declaring 2 puts the trusted index on a direct caller's own
+ * `X-Forwarded-For` prefix; declaring 1 keys every proxied visitor by the
+ * Cloudflare datacentre they came through and locks real users out of login.
+ *
+ * So `cf` no longer reads the hop count at all: it decides per request, from
+ * the address the request arrived from (`src/lib/cloudflare-ips.ts`). What this
+ * file guards now is that the declared hop count stays correct for the path
+ * that always exists - direct to Fly, which appends exactly one hop.
  *
  * @vitest-environment node
  */
@@ -45,24 +53,29 @@ describe('P1-5: fly.toml declares a coherent client-IP trust boundary', () => {
     expect(hops).toBeDefined();
   });
 
-  it('pairs the source with the matching hop count', () => {
-    // The only two coherent configurations for this architecture.
-    const COHERENT: Record<string, string> = {
-      xff: '1', // Fly alone: Fly's proxy appends exactly one hop.
-      cf: '2',  // Cloudflare -> Fly: both append.
-    };
-    expect(Object.keys(COHERENT)).toContain(source);
-    expect(hops).toBe(COHERENT[source as string]);
+  it('declares one of the two sources this deployment supports', () => {
+    expect(['xff', 'cf']).toContain(source);
   });
 
-  it('does not trust cf-connecting-ip without the Cloudflare hop count', () => {
-    // The specific 2026-10-14 defect, stated as its own assertion so a
-    // regression names the reason rather than just failing the pairing test:
-    // `cf` tells rate-limit.ts to treat a client-settable header as
-    // authoritative unless something upstream overwrites it.
-    if (source === 'cf') {
-      expect(hops).toBe('2');
-    }
+  it('declares the hop count for DIRECT ingress, which is always one', () => {
+    /*
+      Fly's proxy appends exactly one entry to `X-Forwarded-For`, and a request
+      can always reach Fly directly - `lastdonor.fly.dev` is outside the DNS
+      zone and `origin.lastdonor.org` is deliberately grey-cloud (docs/104
+      §3.3). So one is the right answer whether or not Cloudflare fronts the
+      apex, and `cf` mode does not consult this value at all.
+
+      ⛔ Do NOT raise this to 2 "because Cloudflare adds a hop". That is the
+      change docs/105 is about: it moves the trusted index onto a value the
+      caller supplies on every request that skips the edge.
+    */
+    expect(hops).toBe('1');
+  });
+
+  it('never claims a hop for an edge that can be bypassed', () => {
+    // Stated separately so a regression names the reason rather than just
+    // failing the assertion above.
+    expect(Number(hops)).toBeLessThanOrEqual(1);
   });
 
   it('keeps these as [env] config, never as a Fly secret', () => {

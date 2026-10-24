@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import type { ApiError } from '@/types/api';
+import { isCloudflareIp } from '@/lib/cloudflare-ips';
 
 // ─── Client IP resolution (audit P1-5) ──────────────────────────────────────
 /**
@@ -24,17 +25,31 @@ import type { ApiError } from '@/types/api';
  *
  * - `xff`  : right-most-hop rule over `X-Forwarded-For` (correct for Vercel
  *            with TRUSTED_PROXY_HOPS=1, and for Fly-without-Cloudflare).
- * - `cf`   : prefer `CF-Connecting-IP`, which Cloudflare *overwrites* on every
- *            request so a client cannot forge it; falls back to the `xff` rule
- *            when the header is absent.
- * - `header:<name>`: trust exactly the named header. Escape hatch for another
- *            edge (e.g. `header:fly-client-ip`, `header:true-client-ip`).
+ * - `cf`   : PER-REQUEST evidence. `CF-Connecting-IP` is trusted only when the
+ *            request arrived FROM Cloudflare's published address space; a
+ *            request that arrived from anywhere else is keyed by the address it
+ *            actually came from, and its `CF-Connecting-IP` is ignored.
+ *            `TRUSTED_PROXY_HOPS` is not consulted in this mode - see below.
+ * - `header:<name>`: trust exactly the named header, unconditionally. Escape
+ *            hatch for an edge whose address space cannot be enumerated.
+ *            ⚠️ Only safe where the origin is unreachable except through that
+ *            edge, which is NOT true of this deployment.
  *
- * This is deliberately NOT "trust CF-Connecting-IP whenever it is present":
- * off Cloudflare that header is attacker-controlled, so auto-trusting it would
- * reintroduce exactly the bug being fixed. The Cloudflare/Fly cutover must set
- * `CLIENT_IP_SOURCE=cf` and `TRUSTED_PROXY_HOPS=2` (Cloudflare + Fly both
- * append a hop). See docs/26 and docs/31 item 2.6.
+ * ⚠️ A HOP COUNT CANNOT DESCRIBE TWO INGRESS PATHS, which is what the
+ * Cloudflare cutover created (2026-10-24, `docs/105`). `TRUSTED_PROXY_HOPS`
+ * assumes every request traverses the same number of proxies. Once the apex is
+ * proxied, a request through Cloudflare carries two appended hops while a
+ * request straight to `lastdonor.fly.dev` or `origin.lastdonor.org` carries
+ * one - and both hostnames stay reachable forever. Configured for two, a
+ * direct caller's own `X-Forwarded-For` prefix lands on the trusted index;
+ * configured for one, every visitor through a Cloudflare datacentre shares
+ * that datacentre's bucket and real users are locked out of login.
+ *
+ * Neither value is right, because the question is not "how many proxies does
+ * this deployment have" but "did THIS request come through the edge". So `cf`
+ * reads the one thing a caller cannot choose - the address our own
+ * infrastructure saw the request arrive from - and decides per request.
+ * See docs/26, docs/31 item 2.6, docs/104 §3 and docs/105.
  */
 
 const DEFAULT_TRUSTED_PROXY_HOPS = 1;
@@ -67,6 +82,10 @@ function trustedProxyHops(): number {
  * The single header the trusted edge sets authoritatively, or `null` when the
  * deployment has not declared one (in which case only `X-Forwarded-For` is used).
  */
+function clientIpSourceIsCloudflare(): boolean {
+  return process.env.CLIENT_IP_SOURCE?.trim().toLowerCase() === 'cf';
+}
+
 function trustedClientIpHeader(): string | null {
   const raw = process.env.CLIENT_IP_SOURCE?.trim().toLowerCase();
   if (!raw || raw === 'xff') return null;
@@ -122,6 +141,9 @@ function normaliseIp(value: string | null | undefined): string | null {
  * Callers must treat that as a single shared bucket, never as "skip the limit".
  */
 export function getClientIp(headers: Headers): string {
+  // `cf` is evidence-based and does not use the hop count. See the note above.
+  if (clientIpSourceIsCloudflare()) return cloudflareAwareClientIp(headers);
+
   const headerName = trustedClientIpHeader();
   if (headerName) {
     const direct = normaliseIp(headers.get(headerName));
@@ -147,6 +169,65 @@ export function getClientIp(headers: Headers): string {
   }
 
   return normaliseIp(headers.get('x-real-ip')) ?? UNKNOWN_CLIENT_IP;
+}
+
+/**
+ * The address our own infrastructure saw this request arrive from.
+ *
+ * This is the one value in a request that the caller cannot choose. Fly's proxy
+ * APPENDS the peer address to `X-Forwarded-For`, so the RIGHT-MOST entry is
+ * always the peer, whatever prefix the caller invented - the same property the
+ * `xff` right-most-hop rule has relied on since the audit (P1-5).
+ *
+ * `fly-client-ip` is consulted only as a fallback, for a request that reached
+ * us with no `X-Forwarded-For` at all. A caller who sends their own copy of it
+ * produces a comma-joined header value, which `normaliseIp` rejects, so the
+ * forgery degrades to `UNKNOWN_CLIENT_IP` rather than to the forged value.
+ */
+function peerAddress(headers: Headers): string | null {
+  const forwarded = headers.get('x-forwarded-for');
+  if (forwarded) {
+    const entries = forwarded
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const peer = normaliseIp(entries[i]);
+      if (peer) return peer;
+    }
+  }
+  return normaliseIp(headers.get('fly-client-ip')) ?? normaliseIp(headers.get('x-real-ip'));
+}
+
+/**
+ * Resolve the client address when Cloudflare *may* be in front of this request.
+ *
+ * Trusting `CF-Connecting-IP` requires evidence that Cloudflare sent the
+ * request, and the evidence is the peer address. Everything else in the request
+ * is caller-controlled.
+ */
+function cloudflareAwareClientIp(headers: Headers): string {
+  const peer = peerAddress(headers);
+
+  if (peer && isCloudflareIp(peer)) {
+    // Through Cloudflare: the edge overwrites this header on every request.
+    const claimed = normaliseIp(headers.get('cf-connecting-ip'));
+    if (claimed) return claimed;
+    /*
+      Through Cloudflare but with no CF-Connecting-IP. Not expected; keying by
+      the edge address over-counts (everyone behind that datacentre shares one
+      bucket) and is the safe direction - it cannot be used to escape a limit.
+    */
+    return peer;
+  }
+
+  /*
+    Direct hit on the origin - `lastdonor.fly.dev`, `origin.lastdonor.org`, a
+    health probe, or an attacker who found the Fly address. Any
+    `CF-Connecting-IP` here was typed by the caller, so it is ignored entirely
+    and the peer is the key.
+  */
+  return peer ?? UNKNOWN_CLIENT_IP;
 }
 
 // ─── In-memory fallback store (per-instance backstop for dev / Upstash outage) ──
