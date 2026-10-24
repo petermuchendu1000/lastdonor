@@ -60,6 +60,32 @@ const E2E_UPDATE_ID = 'e2e00000-0000-4000-8000-00000000000c';
 /** Slugs are asserted nowhere, but they must be stable for teardown. */
 const E2E_SLUG_PREFIX = 'e2e-fixture-';
 
+/*
+  The exchange-rate snapshot the local-currency spec needs.
+
+  The key is a LITERAL and not imported, because `FX_SNAPSHOT_KEY` lives in
+  `src/lib/money/fx-store.server.ts` behind `import 'server-only'`, which
+  throws when this fixture runs under `tsx`. `seed-data.test.ts` asserts the
+  literal still equals the real constant, so it cannot drift silently.
+
+  It must be seeded BEFORE `next build`: `campaigns/[slug]` is
+  `revalidate = 60` with `generateStaticParams`, so it is prerendered and a
+  null snapshot gets baked into the HTML - the same trap docs/99 recorded for
+  seeding campaigns after building.
+
+  The rates are round, invented numbers, NOT live ones: a spec that asserts a
+  rendered figure cannot depend on today's market. UGX and NGN are here
+  because they are KNOWN-but-not-COLLECTABLE, which is the case that broke.
+*/
+const E2E_FX_KEY = 'fx:usd-rates:v1';
+const E2E_FX_RATES = Object.freeze({
+  USD: 1,
+  KES: 129.84786,
+  UGX: 3700,
+  NGN: 1600,
+  TZS: 2500,
+});
+
 /**
  * Refuse to touch anything that is not obviously a throwaway database.
  *
@@ -134,6 +160,9 @@ export async function clearE2EData(): Promise<void> {
 
   await db.delete(schema.blogPosts).where(eq(schema.blogPosts.id, E2E_BLOG_POST_ID));
   await db.delete(schema.users).where(eq(schema.users.id, E2E_USER_ID));
+
+  // The rate snapshot, by its own key only - `site_settings` is shared.
+  await db.delete(schema.siteSettings).where(eq(schema.siteSettings.key, E2E_FX_KEY));
 }
 
 /**
@@ -373,9 +402,31 @@ export async function seedE2EData(): Promise<void> {
     published: true,
     publishedAt: minutesAgo(15),
   });
+
+  /*
+    The rate snapshot, in the exact shape `parseFxSnapshot` validates, with
+    `asOf` set to now so it sits inside MAX_FX_AGE_HOURS. A stale snapshot
+    makes `convertMinor` refuse, and the spec would then be measuring the
+    refusal rather than the detection.
+  */
+  const fxNow = new Date().toISOString();
+  const fxValue = {
+    base: 'USD' as const,
+    rates: { ...E2E_FX_RATES },
+    asOf: fxNow,
+    provider: 'e2e-fixture',
+    fetchedAt: fxNow,
+  };
+  await db
+    .insert(schema.siteSettings)
+    .values({ key: E2E_FX_KEY, value: fxValue })
+    .onConflictDoUpdate({ target: schema.siteSettings.key, set: { value: fxValue } });
 }
 
 /** Exported for the fixture's own test, so the ids cannot drift silently. */
+/** Exported for the fixture's own test, so the key cannot drift from the real one. */
+export const E2E_FX_FIXTURE = Object.freeze({ key: E2E_FX_KEY, rates: E2E_FX_RATES });
+
 export const E2E_FIXTURE_IDS = {
   campaigns: E2E_CAMPAIGN_IDS,
   blogPost: E2E_BLOG_POST_ID,

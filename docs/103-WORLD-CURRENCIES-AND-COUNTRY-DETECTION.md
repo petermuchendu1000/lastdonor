@@ -167,6 +167,13 @@ returns `Africa/Kampala` unchanged, and a phone in Uganda reports exactly
 that. Coverage is now **418 of 418** ICU zones, asserted by a test that will
 fail when Node ships a new ICU with zones the committed table lacks.
 
+> **⛔ AMENDED 2026-10-24 — this was implemented in the WRITER ONLY.**
+> `parseFxSnapshot` was left iterating `SUPPORTED_CURRENCY_CODES`, so the
+> refresh wrote 152 rates and every read kept 2. Country detection could
+> display KES and nothing else: 98.7% inert, and silent, because a missing
+> rate renders as nothing by design. Found by a real browser at
+> `Africa/Kampala`, not by any test here. See `docs/104` §1.
+
 ## 8. Exchange rates: collectable required, known best-effort
 
 The FX snapshot previously required a rate for every supported currency and
@@ -230,9 +237,13 @@ that `minorToMajor` can stay strict — it is called by
 - **No gateway was added**, which is what the owner asked for. 150 of the 152
   currencies are display-only, and the 13 ISO/CLDR divergences are blocked
   from becoming collectable by a test.
-- **The detection is not verified against a real foreign browser.** It is
-  tested against stubbed timezone and language values and against every zone
-  ICU knows; nobody has loaded the page from Kampala. **[UNKNOWN]**
+- ~~**The detection is not verified against a real foreign browser.**~~
+  **CLOSED 2026-10-24 by `docs/104` §2.** `e2e/local-currency-e2e.spec.ts`
+  loads the page in Chromium at `Africa/Kampala`, `Africa/Nairobi` and `UTC`
+  with real `locale` values, desktop and mobile: 10 passed. Doing it
+  immediately found a defect this doc's own change shipped — the snapshot
+  reader discarded 150 of 152 rates, so only KES could ever display. The
+  stubbed tests could not see it.
 - **A VPN or a traveller gets their current location, not their home
   country.** That is the intended reading of "where is this visitor", but it
   means a Kenyan in London sees pounds.

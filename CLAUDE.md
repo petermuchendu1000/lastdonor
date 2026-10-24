@@ -116,6 +116,7 @@ transcript or a commit message is lost.
 | `101-PRE-VERIFICATION-RAISE-CAP-ADR.md` | **An unverified campaign may now raise only up to a per-currency cap (US$500 / KES 50,000). Money OUT was always gated on verification (`withdraw/route.ts` refuses anything but `fully_verified`, and `createTransfer` has exactly ONE caller) while money IN was gated on campaign STATUS ONLY — so all 20 production campaigns, every one `unverified`, could raise without limit and only discover at payout that they could not be paid. The review gate of docs/78-79 is UNTOUCHED: the owner declined instant go-live, because it would falsify 44 lines across 23 files including the site title itself. ⚠️ Contains the drizzle trap worth reading before writing ANY `sql` template: interpolating a Column renders it **UNQUALIFIED**, so `WHERE ${donations.campaignId} = ${campaigns.id}` emits `WHERE "campaign_id" = "id"`, both resolve to the inner table, and the subquery returns 0 for every row — valid SQL, no error, cap silently never fires. Unit tests, the text ratchet and typecheck ALL passed; only running it against a real Postgres caught it. The cap is measured over REAL un-refunded donations via `src/db/real-raised.ts`, never the seed-blended `raised_amount`. The concurrency overshoot is accepted and TESTED as a known bound, not closed — closing it would mean auto-refunding, which moves money.** |
 | `102-FX-RATES-ADR.md` | **Exchange rates, DISPLAY ONLY. Providers chosen by PROBING them from the sandbox AND from the production machine (docs/90 habit): primary `open.er-api.com`, fallback `@fawazahmed0` over jsDelivr. ⚠️ `api.frankfurter.dev` is the obvious clean choice and is USELESS here - ECB reference rates are 29 currencies and `has_KES: false`, and KES is our only working rail. `api.exchangerate-api.com/v4` rejected as FAKE REDUNDANCY (same operator as the primary - the docs/86 lesson); `exchangerate.host` now 401s. TWO TRAPS: the primary reports its OWN errors with **HTTP 200** (`{"result":"error"}`), so `res.ok` proves nothing (docs/92's PayHero trap again); the fallback's keys are lowercase and include crypto (`1inch`, `btc`). Staleness is a REFUSAL - past 48h `convertMinor` returns null and the UI renders nothing, because a money figure you cannot date is worse than none. Attribution is a LICENCE TERM, pinned by a ratchet. The boundary is enforced mechanically: an import allowlist fails the build if any money-writing module can see a rate. Also records a mutation survivor fixed rather than excused (hardcoded `100` vs reading each currency's exponent - the 100x bug waiting for UGX/RWF/XOF), and the finding that `vitest.config.integration.ts` did NOT alias `server-only`, so EIGHT server modules were silently unreachable from the integration suite.** |
 | `103-WORLD-CURRENCIES-AND-COUNTRY-DETECTION.md` | **152 currencies, 254 countries and 549 timezones added, with NO gateway (owner's call: gateways later). The design that makes that safe: **KNOWN is not COLLECTABLE**. `CURRENCIES` still means "we can take money in this" and still holds two entries, so none of the 16 money-path consumers changed; `WORLD_CURRENCY_EXPONENTS` means "this is a real currency and we know its decimals". Pouring 152 into `CURRENCIES` would have needed 150 invented floors/caps and could have stranded a campaign in a currency no gateway can settle - the composite FK makes a campaign's currency immutable once money arrives. ⚠️ ISO 4217 and CLDR DISAGREE on 13 currencies (IQD is 3 vs 0 - a factor of 1,000); display follows CLDR, ISO is kept beside it, and a test forbids any of the 13 becoming collectable. ⛔ `CF-IPCountry` DOES NOT EXIST HERE: every `lastdonor.org` DNS record is `proxied=false` and responses carry no `cf-ray`, so Cloudflare fronts nothing - docs/26's edge layer is not in the path (docs/26 amended). Detection is browser-side and REFUSES to guess: `Intl.Locale('en').maximize().region` is `US` and `sw` is `TZ`, so a region-less language tag yields NOTHING rather than calling a Kenyan American. Uses `zone.tab` NOT `zone1970.tab` (which merges Uganda into Kenya), and the generator's own gate caught the first version inheriting link TARGET countries - Africa/Kampala links to Africa/Nairobi. 418/418 ICU zones covered.** |
+| `104-FX-READER-BUG-AND-BROWSER-VERIFICATION.md` | **The FX snapshot WRITER was widened to 152 currencies and the READER was not, so every read discarded 150 rates and country detection could only ever show KES - 98.7% INERT, and silent, because a missing rate renders as nothing by design. ⚠️ Nothing unit-tested could catch it: the store's round-trip used USD and KES only. Found by putting a REAL browser at `Africa/Kampala`. **The invariant: the snapshot reader's accepted set MUST be a superset of the writer's.** `e2e/local-currency-e2e.spec.ts` now verifies detection in Chromium with real `timezoneId`/`locale` (10 tests, desktop + mobile), including the `UTC`+`sw` case asserting NO figure appears - if `maximize()` is reinstated that becomes `TZS 25,000,000`. One assertion had been passing for the WRONG reason (`getByText('about')` also matches the hidden mobile "About" nav link). ⛔ **Cloudflare is NOT in the request path** (DNS IS authoritative; every record grey-cloud) and enabling it would cache almost no HTML, because `/`, `/campaigns`, `/blog` and `/completed-campaigns` all answer `private, no-store` - OWNER DECISION, `ssl=full` must become `strict` first. Also removed 3 inert `revalidate` exports (a page reading `searchParams` is dynamic in Next 15 - proven by an exact 10-of-10 correlation against production).** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -126,10 +127,11 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6720 pass + 12 skipped, 206 files, as of 2026-10-24)
-npm run test:integration  # Vitest + a throwaway Postgres (108 tests, 13 files)
-npm run test:e2e       # Playwright: 152 tests over 2 Chromium projects, 21 files
-                       #   128 pass / 0 fail / 24 declared skips (docs/99 §8)
+npm run test:unit      # Vitest (6727 pass + 12 skipped, 207 files, as of 2026-10-24)
+npm run test:integration  # Vitest + a throwaway Postgres (113 tests, 13 files)
+npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
+                       #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
+                       #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
 npm run e2e:build      # seed THEN build — use this if you build the server by hand
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
 npm run db:migrate     # safe since 2026-10-14 (docs/34): applies the validated baseline
@@ -480,6 +482,33 @@ These exist for a reason; changing them has consequences beyond the local file.
   because a Kenyan browsing in `en-US` is the common case. And the timezone
   table is built from **`zone.tab`, not `zone1970.tab`**: the latter merges
   countries that share a clock, which puts Kampala in Kenya.
+
+- **The FX snapshot reader must accept everything the writer stores.** Added
+  2026-10-24, see `docs/104`. `narrowToSupported` (writer, `fx-providers.ts`)
+  and `parseFxSnapshot` (reader, `fx-store.server.ts`) BOTH require the
+  collectable currencies and keep the known ones best-effort. They were once
+  out of step — the writer stored 152 rates, the reader kept 2 — and country
+  detection then displayed KES and nothing else, with no error anywhere.
+  **If you narrow one, narrow both.** A missing rate renders as nothing by
+  design, so this class of defect is invisible without a browser.
+
+- **A page that reads `searchParams` must not export `revalidate`.** Added
+  2026-10-24, see `docs/104` §4. Such a page is dynamic in Next 15, so the
+  directive is inert — measured against production, all four such routes
+  answer `private, no-cache, no-store` while all five that do not read
+  `searchParams` answer `s-maxage=300`.
+  `src/app/revalidate-honesty.ratchet.test.ts` fails the build on the
+  combination. Same class as the sixteen inert exports `docs/88` removed from
+  admin.
+
+- ⛔ **Cloudflare does not front this site, and `docs/26` is amended.**
+  Verified 2026-10-24: Cloudflare DNS *is* authoritative (two resolvers agree
+  on `lauryn/maciej.ns.cloudflare.com`), but every record is `proxied=false`
+  and the apex A record points at the Fly IP — so there is no edge cache, no
+  WAF and **no `CF-IPCountry`** for page requests. Do not write code that
+  expects a Cloudflare header. Turning the proxy on is an owner decision:
+  `ssl` is `full` where `docs/26` §3 requires `strict`, and it would cache
+  almost no HTML anyway (`docs/104` §3).
 
 - **An exchange rate is for display, and never for accounting.** Added
   2026-10-24, see `docs/102`. Convert with `convertMinor` from

@@ -25,6 +25,7 @@ import { db } from '@/db';
 import { siteSettings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { SUPPORTED_CURRENCY_CODES } from './currencies';
+import { KNOWN_CURRENCY_CODES } from './world-currencies';
 import type { FxSnapshot } from './fx-providers';
 
 /**
@@ -52,13 +53,45 @@ export function parseFxSnapshot(value: unknown): FxSnapshot | null {
 
   const raw = v.rates as Record<string, unknown>;
   const rates: Record<string, number> = {};
+
+  const usable = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+  /*
+    COLLECTABLE currencies are REQUIRED. A snapshot missing one cannot convert
+    it, and a partial table read as complete is how a page ends up showing one
+    currency converted and another silently not.
+  */
   for (const code of SUPPORTED_CURRENCY_CODES) {
-    const r = raw[code];
-    // A snapshot missing a currency we support cannot convert it, and a
-    // partial table read as complete is how a page ends up showing one
-    // currency converted and another silently not.
-    if (typeof r !== 'number' || !Number.isFinite(r) || r <= 0) return null;
-    rates[code] = r;
+    if (!usable(raw[code])) return null;
+    rates[code] = raw[code] as number;
+  }
+
+  /*
+    ⛔ THE OTHER 150 ARE KEPT, AND THIS LOOP IS LOAD-BEARING.
+
+    It was missing, and the omission shipped. `narrowToSupported` in
+    `fx-providers.ts` was widened to persist every known currency's rate, and
+    this reader was left iterating `SUPPORTED_CURRENCY_CODES` only - so the
+    refresh wrote 152 rates and every read threw 150 of them away. Country
+    detection could therefore only ever display KES: the feature was 98.7%
+    inert, and silently, because `convertMinor` returns null for a missing
+    rate and the UI renders nothing by design.
+
+    THE INVARIANT: the reader's accepted set MUST be a superset of the
+    writer's. If you narrow one, narrow both.
+
+    Nothing unit-tested caught it - the store's round-trip only ever used USD
+    and KES, so it could not fail on a third currency. It was found by a real
+    browser at `Africa/Kampala` showing no shillings
+    (`e2e/local-currency-e2e.spec.ts`).
+
+    Filtered to KNOWN_CURRENCY_CODES rather than passed through wholesale, so
+    a provider's crypto or metals keys still cannot reach a money store.
+  */
+  for (const code of KNOWN_CURRENCY_CODES) {
+    if (code in rates) continue;
+    if (usable(raw[code])) rates[code] = raw[code] as number;
   }
 
   return {

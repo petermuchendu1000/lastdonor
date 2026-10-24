@@ -19,6 +19,8 @@ import {
 } from './fx-store.server';
 import { convertMinor } from './fx-convert';
 import type { FxSnapshot } from './fx-providers';
+import { KNOWN_CURRENCY_CODES } from './world-currencies';
+import { SUPPORTED_CURRENCY_CODES } from './currencies';
 
 const SNAPSHOT: FxSnapshot = {
   base: 'USD',
@@ -116,5 +118,74 @@ describe('parseFxSnapshot rejects what it should', () => {
 
   it('accepts the real shape', () => {
     expect(parseFxSnapshot(SNAPSHOT)).not.toBeNull();
+  });
+});
+
+describe('the reader must keep what the writer stores', () => {
+  /*
+    THE REGRESSION THESE EXIST FOR, shipped in 2ac929a and found by a real
+    browser rather than by any of these suites.
+
+    `narrowToSupported` in `fx-providers.ts` was widened to persist a rate for
+    every KNOWN currency; `parseFxSnapshot` was left iterating
+    `SUPPORTED_CURRENCY_CODES`. So 152 rates were written and 150 discarded on
+    every read, and the only currency that could ever be displayed was KES.
+
+    The old round-trip test used USD and KES exclusively, which is precisely
+    why it could not fail. These use a NON-collectable currency on purpose.
+  */
+  beforeEach(clearFx);
+  afterAll(clearFx);
+
+  it('keeps a known-but-not-collectable currency through a round-trip', async () => {
+    await writeFxSnapshot({ ...SNAPSHOT, rates: { USD: 1, KES: 129.84786, UGX: 3700 } });
+    const got = await readFxSnapshot();
+    expect(got).not.toBeNull();
+    expect(got!.rates.UGX).toBe(3700);
+  });
+
+  it('a stored UGX rate actually drives a conversion after a read', async () => {
+    await writeFxSnapshot({ ...SNAPSHOT, rates: { USD: 1, KES: 129.84786, UGX: 3700 } });
+    const got = await readFxSnapshot();
+    // $10,000 -> UGX 37,000,000 (UGX is zero-decimal, so minor == major).
+    const out = convertMinor(
+      got!,
+      { amountMinor: 1_000_000, fromCurrency: 'USD', toCurrency: 'UGX' },
+      new Date('2026-10-24T12:00:00Z'),
+    );
+    expect(out).toBe(37_000_000);
+  });
+
+  it('the reader accepts EVERY currency the writer can store', async () => {
+    // The superset invariant, asserted directly rather than by example.
+    const rates = Object.fromEntries(KNOWN_CURRENCY_CODES.map((c) => [c, c === 'USD' ? 1 : 2]));
+    await writeFxSnapshot({ ...SNAPSHOT, rates });
+    const got = await readFxSnapshot();
+    expect(got).not.toBeNull();
+    expect(Object.keys(got!.rates).sort()).toEqual([...KNOWN_CURRENCY_CODES].sort());
+  });
+
+  it('still REQUIRES every collectable currency', async () => {
+    // Widening the reader must not have made it permissive about the two
+    // currencies that actually take money.
+    for (const missing of SUPPORTED_CURRENCY_CODES) {
+      const rates = Object.fromEntries(
+        KNOWN_CURRENCY_CODES.filter((c) => c !== missing).map((c) => [c, c === 'USD' ? 1 : 2]),
+      );
+      await clearFx();
+      await db.insert(siteSettings).values({ key: FX_SNAPSHOT_KEY, value: { ...SNAPSHOT, rates } });
+      expect(await readFxSnapshot(), `missing ${missing} must reject`).toBeNull();
+    }
+  });
+
+  it('still refuses junk keys a provider might offer', async () => {
+    await writeFxSnapshot({
+      ...SNAPSHOT,
+      rates: { USD: 1, KES: 129.84786, UGX: 3700, BTC: 0.0000094, XAU: 0.0004 } as Record<string, number>,
+    });
+    const got = await readFxSnapshot();
+    expect(got!.rates).not.toHaveProperty('BTC');
+    expect(got!.rates).not.toHaveProperty('XAU');
+    expect(got!.rates.UGX).toBe(3700);
   });
 });

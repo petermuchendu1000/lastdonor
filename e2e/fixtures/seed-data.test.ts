@@ -15,7 +15,9 @@
  * @vitest-environment node
  */
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
-import { assertDatabaseIsDisposable, E2E_FIXTURE_IDS } from './seed-data';
+import { assertDatabaseIsDisposable, E2E_FIXTURE_IDS, E2E_FX_FIXTURE } from './seed-data';
+import { FX_SNAPSHOT_KEY } from '@/lib/money/fx-store.server';
+import { isKnownCurrency, isCollectableCurrency } from '@/lib/money/world-currencies';
 
 const KEYS = ['DATABASE_URL', 'E2E_ALLOW_NONLOCAL_DB'] as const;
 const saved = new Map<string, string | undefined>();
@@ -120,5 +122,42 @@ describe('E2E fixture: ids', () => {
       E2E_FIXTURE_IDS.campaignUpdate,
     ];
     expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+describe('the seeded exchange-rate snapshot', () => {
+  /*
+    The fixture hardcodes the settings key because `fx-store.server.ts` is
+    `server-only` and throws under `tsx`. This is the guard that makes the
+    literal safe: under Vitest, `server-only` is aliased to a stub
+    (`vitest.config.ts`), so the real constant CAN be imported here and
+    compared.
+  */
+  it('uses the SAME key the application reads', () => {
+    expect(E2E_FX_FIXTURE.key).toBe(FX_SNAPSHOT_KEY);
+  });
+
+  it('covers every currency the local-currency spec asserts', () => {
+    for (const code of ['USD', 'KES', 'UGX', 'NGN', 'TZS']) {
+      expect(E2E_FX_FIXTURE.rates).toHaveProperty(code);
+      expect(E2E_FX_FIXTURE.rates[code as 'USD']).toBeGreaterThan(0);
+    }
+  });
+
+  it('is USD-based, or every conversion off it would be scaled', () => {
+    expect(E2E_FX_FIXTURE.rates.USD).toBe(1);
+  });
+
+  it('includes KNOWN-but-not-COLLECTABLE currencies, which is the case that broke', () => {
+    /*
+      The snapshot reader once rebuilt its rate table from the COLLECTABLE
+      currencies only, so a stored UGX rate was discarded on read and nothing
+      outside KES could ever be displayed. A fixture carrying only collectable
+      currencies could not have caught that, so it carries these on purpose.
+    */
+    for (const code of ['UGX', 'NGN', 'TZS']) {
+      expect(isKnownCurrency(code), `${code} must be known`).toBe(true);
+      expect(isCollectableCurrency(code), `${code} must NOT be collectable`).toBe(false);
+    }
   });
 });

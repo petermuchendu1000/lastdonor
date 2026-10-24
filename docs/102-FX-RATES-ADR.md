@@ -119,6 +119,13 @@ table onward, which is inside those terms.
 The rate-limit guidance is also why the refresh is daily — their own docs say an
 hourly request "will never get rate limited", so daily is comfortably inside it.
 
+> **⛔ AMENDED 2026-10-24.** `parseFxSnapshot`, described below, rebuilt its
+> rate table from `SUPPORTED_CURRENCY_CODES` only. When `docs/103` widened the
+> WRITER to persist 152 currencies, this reader kept 2 and discarded 150 on
+> every read — so country detection could display KES and nothing else, with
+> no error anywhere. **The invariant: the reader's accepted set must be a
+> SUPERSET of the writer's.** Fixed and tested in `docs/104` §1.
+
 ## 7. Where the snapshot lives, and where it does not
 
 `site_settings` (key/value jsonb) under its own key namespace.

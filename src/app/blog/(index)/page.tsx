@@ -5,7 +5,25 @@ import { eq, desc, and } from 'drizzle-orm';
 import { BlogCard } from '@/components/blog/BlogCard';
 import { seoKeywords } from '@/lib/seo/keywords';
 
-export const revalidate = 300; // ISR: refresh every 5 minutes
+/*
+  NO `revalidate` HERE, DELIBERATELY.
+
+  This page reads `searchParams`, which makes it dynamic in Next 15 - its
+  output depends on the query string, so it cannot be prerendered or
+  ISR-cached. It used to carry `export const revalidate = 300` and that line
+  was INERT.
+
+  Measured against production on 2026-10-24: this route answers
+  `cache-control: private, no-cache, no-store, max-age=0, must-revalidate`,
+  while the five `revalidate` pages that do NOT read `searchParams` answer
+  `s-maxage=300, stale-while-revalidate=...`. The correlation was exact
+  across all ten.
+
+  Same class as the sixteen inert `revalidate` exports docs/88 removed from
+  the admin tree: a cache directive that reads as a promise and does nothing.
+  `src/app/revalidate-honesty.ratchet.test.ts` fails the build if the two are
+  combined again.
+*/
 
 export const metadata: Metadata = {
   title: 'Campaign Stories & Impact Updates | LastDonor',
