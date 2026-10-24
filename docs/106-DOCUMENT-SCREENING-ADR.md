@@ -263,6 +263,65 @@ up as an amount the platform holds.
 - **Deployment.** Needs the app deployed (for `poppler-utils` and the route)
   and then the cron Worker redeployed, in that order (`docs/104` §5.1).
 
+## 10a. The public footer on admin pages
+
+The screening screen shipped under a newsletter signup and a four-column
+marketing footer taking roughly half its height. That is not this page's
+doing: `src/app/layout.tsx:254,275` renders `<Navbar />` and `<Footer />`
+unconditionally, and it is the only root layout, so they wrap all 24 admin
+pages.
+
+**The approach NOT taken, because it is the obvious one.** Forward the
+pathname from middleware and branch on `headers()` in the root layout. A
+dynamic API in the ROOT layout opts every route out of static rendering.
+**[VERIFIED]** by capturing the build's route table first: 216 routes, **181
+dynamic / 32 static / 3 ISR**. All 35 static and ISR routes would have gone
+dynamic to hide a footer. Multiple root layouts via route groups was also
+rejected: moving ~40 route directories and duplicating fonts, metadata,
+Providers and JSON-LD, which is a much larger version of the layout change
+`docs/80` records going wrong.
+
+**What was done.** A pure predicate (`src/lib/public-chrome.ts`) and a small
+client gate (`PublicFooterGate`) that receives the server-rendered `<Footer />`
+as children and returns null under `/admin`. The root layout gains no dynamic
+API. **[VERIFIED]** rebuilding gives **181 / 32 / 3 again, zero routes changed
+mode.**
+
+⛔ **The NAVBAR is deliberately not gated.** The admin sidebar has no sign-out
+- checked, there is no signout/logout anywhere in `AdminSidebar.tsx` or the
+admin layout - so the navbar is an administrator's only way out of the tool.
+
+⚠️ **The predicate is anchored**, because `startsWith('/admin')` also matches
+`/administrator`. Same prefix-dragging bug `middleware.public-routes.test.ts`
+guards against on the public API list. It also fails toward SHOWING the footer
+on an unreadable pathname: showing one where it is unwanted is cosmetic, while
+hiding it everywhere strips the site's navigation, legal links and unsubscribe
+route on every page at once.
+
+### 10a.1 A check of mine that could not fail, and did not
+
+The first verification grepped `page.content()` for footer strings with
+JavaScript disabled, found them on `/admin/screening`, and I reported that the
+gate did not work server-side. **That was wrong.** `page.content()` includes
+the RSC flight payload Next embeds in `<script>` tags, so the check matched
+both the working and the broken version - exactly the failure mode of a check
+that cannot fail.
+
+Separating the rendered DOM from the payload:
+
+```
+/admin/screening   <footer> in DOM: false | markers in DOM: NONE | only in RSC payload: 4
+/ (control)        <footer> in DOM: true  | markers in DOM: all 4 | only in RSC payload: 0
+```
+
+Instrumenting the gate confirmed the mechanism directly: `usePathname()`
+resolves during server rendering, returning `"/admin/screening"` with
+`shows=false`, and `"/"` with `shows=true`.
+
+The footer's serialized output does still travel in the flight payload on
+admin pages - a few KB, invisible, and the accepted price of keeping `Footer`
+a server component rather than turning 35 routes dynamic.
+
 ## 11. Verification record
 
 | Check | Result |

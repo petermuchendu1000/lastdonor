@@ -129,7 +129,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6834 pass + 16 skipped, 215 files, as of 2026-10-24)
+npm run test:unit      # Vitest (6852 pass + 16 skipped, 216 files, as of 2026-10-24)
 npm run test:integration  # Vitest + a throwaway Postgres (113 tests, 13 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -619,6 +619,27 @@ These exist for a reason; changing them has consequences beyond the local file.
   checks `aria-checked` and the parent role, both of which were already
   right, and three of these groups sat on pages passing a full WCAG 2.1 AA
   run.
+
+- **The root layout must not read a dynamic API, and `/admin` has no public
+  footer.** Added 2026-10-24, see `docs/106` §10a. `src/app/layout.tsx` is the
+  only root layout, so everything it renders wraps every route - which put a
+  newsletter signup and a marketing footer on all 24 admin pages. The footer is
+  now gated by `PublicFooterGate` (a client component taking the server-rendered
+  `<Footer />` as children) using `showsPublicFooter` from
+  `src/lib/public-chrome.ts`.
+
+  ⛔ **Do NOT branch on `headers()` in the root layout** to do this. It is the
+  obvious fix and a dynamic API there opts EVERY route out of static rendering:
+  measured, the build is 216 routes at **181 dynamic / 32 static / 3 ISR**, and
+  all 35 would have gone dynamic. The gate keeps it at 181/32/3 exactly.
+
+  ⛔ **The navbar is NOT gated**: the admin sidebar has no sign-out, so it is an
+  administrator's only way out. And the predicate is **anchored** -
+  `startsWith('/admin')` also matches `/administrator`.
+
+  ⚠️ Verifying this needs the rendered DOM, not `page.content()`: that includes
+  the RSC flight payload, where the footer's serialized output still appears, so
+  a naive grep matches both the fixed and broken versions.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

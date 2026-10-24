@@ -134,6 +134,7 @@ import { Providers } from '@/components/Providers';
 import { SkipToContent } from '@/components/layout/SkipToContent';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
+import { PublicFooterGate } from '@/components/layout/PublicFooterGate';
 import { SUPABASE_HOST } from '@/lib/supabase-host';
 
 // The CSS variable names below are the ones `globals.css` reads in its
@@ -272,7 +273,16 @@ export default function RootLayout({
           <main id="main-content" tabIndex={-1} className="flex-1">
             {children}
           </main>
-          <Footer />
+          {/*
+            The footer is gated, the navbar is not. See
+            `src/components/layout/PublicFooterGate.tsx` for why, and
+            `src/lib/public-chrome.ts` for why the decision is not made with
+            `headers()` here (it would turn all 35 static and ISR routes
+            dynamic).
+          */}
+          <PublicFooterGate>
+            <Footer />
+          </PublicFooterGate>
           <Toaster richColors position="top-right" />
         </Providers>
       </body>
