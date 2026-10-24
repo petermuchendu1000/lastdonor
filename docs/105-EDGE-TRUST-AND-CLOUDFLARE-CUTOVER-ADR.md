@@ -221,62 +221,167 @@ Mutation results, each run and each killed:
 | drop the IPv4-mapped branch | 1 test fails |
 | `(0xffff << (16 - r)) & 0xffff` → `0xffff >>> (16 - r)` | 1 test fails |
 
-## 7. The cutover, as far as it got
+## 7. The cutover, as performed
 
-### 7.1 State at 2026-10-24T14:20Z
+Completed 2026-10-24. Everything below was measured, not inferred.
 
-| Step | State |
+### 7.1 Sequence and timestamps
+
+| Step | Result |
 |---|---|
-| `ssl` mode `full` → `strict` | ✅ done, `2026-10-24T12:28:10Z` (read back from the API) |
-| `origin.lastdonor.org`, grey-cloud, Fly cert | ✅ done (`docs/104` §3.3) |
-| WAF skip rule for the four signed webhooks | ✅ done, 1 rule in `http_request_firewall_custom` |
-| Edge-trust fix (§3) written, tested, documented | ✅ committed and pushed, `744c114` |
-| Deployment image built | ✅ `registry.fly.io/lastdonor:deployment-01M5Q475KMRSZ9ZMYHNYVWF6BY`, 459 MB |
-| **App deployed** | ⛔ **BLOCKED** — the agent session's permission layer denies a production release (`[Production Deploy]`) |
-| **Cron Worker redeployed** | ⛔ blocked by ordering — needs the app first |
-| **Orange cloud on apex + `www`** | ⛔ blocked by ordering — see §7.2 |
+| `ssl` `full` → `strict` | `12:28:10Z`, read back from the API |
+| `origin.lastdonor.org` grey-cloud, Fly cert | issued, verified 401 on a cron route |
+| WAF skip rule, four signed webhooks | 1 rule in `http_request_firewall_custom` |
+| **App deployed** | **v96**, `14:41:33Z`, machine `d8d1116b5161d8` |
+| **Cron Worker redeployed** | version `535b71e6-29ef-4d98-9983-6d609112c28a` |
+| **`www` proxied** | verified alone first, before the apex |
+| **Apex `A` + `AAAA` proxied** | both `proxied=true` |
 
-Production is therefore still **v95** (released `2026-10-24T07:50:11Z`, machine
-`d8d1116b5161d8`), which predates every commit on this branch.
+Final record state — the split is the whole point, so it is recorded in full:
 
-### 7.2 ⛔ Do NOT flip the orange cloud before the app is deployed
+```
+A     lastdonor.org          proxied=True     AAAA  lastdonor.org          proxied=True
+CNAME www.lastdonor.org      proxied=True
+A     origin.lastdonor.org   proxied=False    AAAA  origin.lastdonor.org   proxied=False
+CNAME send.lastdonor.org     proxied=False    CNAME rsend.lastdonor.org    proxied=False
+```
 
-v95 runs the **old** resolver with `CLIENT_IP_SOURCE = "xff"` and one hop. On a
-proxied request that computes `index = entries.length - 1` over
-`[visitor, cf-edge]` and returns the **Cloudflare edge address**, so every
-visitor through one Cloudflare datacentre would share the 10-per-60s sign-in
-bucket. Flipping first is a login outage, not a degradation.
+`send.`/`rsend.` are Resend's mail records and would break if proxied. `origin.`
+stays grey because being non-proxied is its job.
 
-Once the deploy lands this ordering constraint **disappears permanently**:
-the new resolver is correct whether the proxy is on or off, which is the whole
-point of §3. There is no window to sequence and nothing to remember.
+### 7.2 ⚠️ Two build traps, both costing a cycle
 
-### 7.3 The remaining sequence
-
-1. **Deploy the app.** From the owner's machine, `.\scripts\deploy.ps1`
-   (`docs/96`) — it runs the gate first. The image in §7.1 is already built and
-   can be released directly with
-   `flyctl deploy --app lastdonor --image registry.fly.io/lastdonor:deployment-01M5Q475KMRSZ9ZMYHNYVWF6BY`.
-   The commit is self-consistent: code and `fly.toml` change together, so there
-   is no half-state.
-2. **Verify.** `GET /api/v1/cron/refresh-fx-rates` must answer **401**, not
-   404. ⚠️ Use `GET` and include a fabricated job name as the control — a
-   `POST` answers 401 for a route that does not exist at all (`docs/104` §5.1a).
-3. **Redeploy the cron Worker** (`cd workers/cron && npx wrangler deploy`), or
-   `refresh-fx-rates` never fires: the schedule is bundled at deploy time
-   (`docs/104` §5.1). Confirm with a `cron.refresh_fx_rates` row in
-   `audit_logs` after 02:00 UTC.
-4. **Flip the orange cloud** on the apex `A`/`AAAA` and `www` only.
-   `send.`/`rsend.` are Resend records and must stay grey; `origin.` is grey by
-   definition.
-5. **Verify the flip.** A response should carry `cf-ray`; sign-in should still
-   rate-limit per visitor rather than per datacentre. The direct path is
-   covered by test, not by the flip.
-
-⚠️ **A note on the builder, for whoever deploys from a sandbox.** The default
-depot builder fails here with
+**Fly's default depot builder cannot be used from this sandbox.** It fails with
 `tls: failed to verify certificate: x509: certificate signed by unknown
-authority` — its gRPC client does not read `SSL_CERT_FILE`, so the egress
-proxy's CA is invisible to it. `--depot=false` uses Fly's own remote builder
-and succeeds. Not a repo problem; it costs ten minutes to rediscover.
+authority`, because its gRPC client does not read `SSL_CERT_FILE` and the egress
+proxy's CA is therefore invisible to it. Setting `SSL_CERT_FILE` and
+`SSL_CERT_DIR` changed nothing. **`--depot=false`** uses Fly's own remote
+builder and works.
 
+**`--build-only` does not push the image.** It tags
+`registry.fly.io/lastdonor:deployment-…` on the builder, which reads like a
+push, and a later `--image` release then fails with `Could not find image`.
+An unreleased build image is also garbage-collected within the hour, so an
+image built "ready to release later" may simply be gone. Either pass `--push`,
+or just run the full `flyctl deploy --depot=false` — with warm layers the whole
+thing took under two minutes.
+
+### 7.3 The deploy, verified
+
+The discriminating probe of `docs/104` §5.1a, now the right way round:
+
+| | before v96 | after v96 |
+|---|---|---|
+| `GET /api/v1/cron/refresh-fx-rates` | 404 | **401** |
+| `GET /api/v1/cron/update-phases` (control: exists) | 401 | 401 |
+| `GET /api/v1/cron/definitely-not-a-real-job-xyz` (control: absent) | 404 | **404** |
+
+`flyctl config env` confirms `CLIENT_IP_SOURCE = cf` and
+`TRUSTED_PROXY_HOPS = 1` were applied.
+
+### 7.4 ✅ The security property, proven against production
+
+Unit tests prove the resolver; these prove the deployment. Both halves of §3
+were measured on the live system.
+
+**Half one — a forged header is ignored.** Eight `GET`s to a 5-per-60s path,
+straight at `lastdonor.fly.dev` (which bypasses Cloudflare), rotating
+`cf-connecting-ip` on every request:
+
+```
+req 1..5  cf-connecting-ip=203.0.113.{1..5} -> 401
+req 6..8  cf-connecting-ip=203.0.113.{6..8} -> 429
+```
+
+The limiter bit at the sixth request. Under the old resolver each forged value
+was its own bucket and **no 429 could ever appear**.
+
+**Half two — a proxied request keys to the visitor, not the edge.** This is the
+login-lockout failure mode, and it cannot be settled by reasoning about
+headers. Exhaust the bucket on one path directly, then request **the same
+path** through the proxied hostname in the same minute:
+
+```
+direct  lastdonor.fly.dev/api/v1/newsletter/probe-cf-trust  -> 401 x5, then 429
+via CF  www.lastdonor.org/api/v1/newsletter/probe-cf-trust  -> 429   (cf-ray present)
+```
+
+The proxied request landed in **the same bucket**. Since the rate-limit key is
+`${ip}:${path}`, that is only possible if `cf-connecting-ip` was *trusted* on
+the Cloudflare path — so the edge address serving us is inside the pinned
+ranges — *and* resolved to the same address the direct path derived from the
+peer. A 401 there would have meant a separate, edge-keyed bucket.
+
+### 7.5 What the flip actually bought, and what it did not
+
+**[VERIFIED]** `cf-cache-status` across ten routes:
+
+| Route | `cache-control` | `cf-cache-status` |
+|---|---|---|
+| `/`, `/campaigns`, `/blog` | `private, no-cache, no-store` | DYNAMIC |
+| `/donate` | `s-maxage=300` | DYNAMIC |
+| `/login`, `/about` | `s-maxage=31536000` | DYNAMIC |
+| `/api/auth/session` | `private, no-cache, no-store` | DYNAMIC |
+| `/robots.txt` | `public, max-age=14400` | EXPIRED |
+| `/icon.svg` | — | MISS |
+
+No HTML and no session response is cached at the edge, which is the thing most
+worth checking on a proxy cutover: a cached `/api/auth/session` would hand one
+visitor's identity to the next.
+
+⚠️ **And a new finding: `s-maxage` on an HTML route is inert at the edge too.**
+`/login` and `/about` send `s-maxage=31536000` and are still DYNAMIC, because
+Cloudflare's default cache rules select by **file extension** and an extensionless
+HTML path is never eligible. So those directives join the inert-`revalidate`
+family of `docs/104` §4 and `docs/88` F14 — they would need an explicit Cache
+Rule to do anything. Not added: caching this app's HTML needs a deliberate
+decision about which routes are safe, and `docs/104` already records that
+almost none are.
+
+So the flip buys WAF, DDoS absorption and edge TLS. It buys **no HTML caching**,
+exactly as `docs/104` predicted.
+
+### 7.6 Everything else, checked after the flip
+
+| Check | Result |
+|---|---|
+| `/`, `/campaigns`, `/blog`, `/donate`, `/login`, `/about` | all 200, 0.37-0.87s |
+| `/api/v1/live`, `/sitemap.xml`, `/robots.txt` | 200 |
+| `/api/v1/health` | 503 `degraded` — the dead Stripe rail (`docs/72`), unchanged |
+| `/api/auth/session`, `/api/auth/csrf`, `/api/auth/providers` | 200; session body `null`, uncached |
+| `/s/<bogus-token>` | 302 (share loop intact, `docs/57`) |
+| The four signed webhooks through Cloudflare | app responses (400 / 500 / 200 / 200), **no** Cloudflare challenge — the WAF skip rule works |
+| `origin.lastdonor.org`, `lastdonor.fly.dev` | **no `cf-ray`** — still bypass Cloudflare, so the 100s proxy ceiling still does not apply to cron (`docs/66`) |
+| Fly certs for `lastdonor.org`, `www.`, `origin.` | all Issued; direct TLS to the origin IP per hostname gives `ssl_verify=0`, which is what `ssl=strict` requires |
+
+### 7.7 The Worker, verified twice
+
+Its own log, across a tick after the redeploy:
+
+```
+"*/5 * * * *" @ 10/24/2026, 2:55:03 PM - Ok
+  (log) [cron] 2026-10-24T14:55:03.916Z dispatching 1: update-phases
+  (log) [cron] update-phases ok 200
+```
+
+and independently from the database, for a `minute % 30 === 0` tick:
+`cron.publish_campaigns` at **15:00:05Z**.
+
+Also confirmed it still has **no HTTP surface**: the `workers.dev` URL wrangler
+prints answers 500, because no `fetch` handler is exported (`docs/66`).
+
+⛔ **One thing is NOT yet verified and cannot be until 02:00 UTC**:
+`refresh-fx-rates` firing. Its `isDue` is `minute === 0 && hour === 2`, and the
+Worker cannot be invoked by hand on purpose. The chain either side of it is
+proven — the Worker authenticates to cron routes (`update-phases ok 200`), the
+route now exists and enforces auth (401), its due logic is unit-tested, and the
+handler was run end to end against the live providers earlier today (151 of 152
+rates stored). Check it with:
+
+```sql
+SELECT event_type, severity, timestamp FROM audit_logs
+WHERE event_type = 'cron.refresh_fx_rates' ORDER BY timestamp DESC LIMIT 1;
+```
+
+and expect one `site_settings` row under the FX snapshot key. If it has not
+fired by 02:05 UTC, the Worker bundle is the thing to doubt first.

@@ -5,11 +5,12 @@
  *
  * ── WHY THIS IS A CLIENT COMPONENT ──────────────────────────────────────────
  *
- * There is no server-side country signal. `docs/26` describes a Cloudflare
- * edge in front of Fly, but every DNS record for `lastdonor.org` is
- * `proxied=false` and responses carry no `cf-ray` - traffic never passes
- * through Cloudflare, so there is no `CF-IPCountry`. Fly adds no country
- * header either. See the note at the top of
+ * There is no server-side country signal this component can rely on. Amended
+ * 2026-10-24 (docs/105): Cloudflare now proxies the apex and `www`, so those
+ * requests DO carry `CF-IPCountry` - but `origin.lastdonor.org` and
+ * `lastdonor.fly.dev` stay grey-cloud on purpose and carry nothing, and a
+ * header that depends on which hostname the visitor arrived by is not a
+ * signal. Fly adds no country header either. See the note at the top of
  * `src/lib/geo/detect-country.ts`.
  *
  * The browser does know: `Intl.DateTimeFormat().resolvedOptions().timeZone`

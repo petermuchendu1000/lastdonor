@@ -2,14 +2,21 @@
  * Working out which country a visitor is in, and therefore which currency to
  * show them an approximate figure in.
  *
- * ── WHAT IS NOT AVAILABLE, MEASURED 2026-10-24 ──────────────────────────────
+ * ── WHY `CF-IPCountry` IS STILL NOT USED (amended 2026-10-24, docs/105) ─────
  *
- * **`CF-IPCountry` cannot be used.** `docs/26` describes a Cloudflare edge in
- * front of Fly, but every DNS record for `lastdonor.org` is `proxied=false`
- * and a response from it carries no `cf-ray` - the apex A record points
- * straight at the Fly IP. Requests do not pass through Cloudflare at all, so
- * Cloudflare adds no country header. Fly adds none either (checked: only
- * `fly-request-id`).
+ * The original note here said Cloudflare was not in the request path at all,
+ * so no country header existed. **That changed the same day**: the apex and
+ * `www` are now proxied, and a proxied request does carry `CF-IPCountry`.
+ *
+ * It is still not used, and the reason is sharper than "it does not exist".
+ * **Two ingress paths now exist permanently** and only one of them has the
+ * header: `origin.lastdonor.org` and `lastdonor.fly.dev` are deliberately
+ * grey-cloud (the cron Worker needs the latter to dodge Cloudflare's 100s
+ * ceiling - docs/66), so the header is absent there. A signal present on some
+ * requests and absent on others is worse than no signal: it would silently
+ * change what a visitor is shown based on which hostname they arrived by.
+ *
+ * Fly adds no country header either (checked: only `fly-request-id`).
  *
  * So detection happens from what the BROWSER tells us, which is also what the
  * owner asked for. No IP geolocation service is involved: it would be a paid
