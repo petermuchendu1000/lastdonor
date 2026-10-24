@@ -221,7 +221,62 @@ Mutation results, each run and each killed:
 | drop the IPv4-mapped branch | 1 test fails |
 | `(0xffff << (16 - r)) & 0xffff` → `0xffff >>> (16 - r)` | 1 test fails |
 
-## 7. The cutover, as performed
+## 7. The cutover, as far as it got
 
-Recorded in §7.1–§7.3 below as each step was verified.
+### 7.1 State at 2026-10-24T14:20Z
+
+| Step | State |
+|---|---|
+| `ssl` mode `full` → `strict` | ✅ done, `2026-10-24T12:28:10Z` (read back from the API) |
+| `origin.lastdonor.org`, grey-cloud, Fly cert | ✅ done (`docs/104` §3.3) |
+| WAF skip rule for the four signed webhooks | ✅ done, 1 rule in `http_request_firewall_custom` |
+| Edge-trust fix (§3) written, tested, documented | ✅ committed and pushed, `744c114` |
+| Deployment image built | ✅ `registry.fly.io/lastdonor:deployment-01M5Q475KMRSZ9ZMYHNYVWF6BY`, 459 MB |
+| **App deployed** | ⛔ **BLOCKED** — the agent session's permission layer denies a production release (`[Production Deploy]`) |
+| **Cron Worker redeployed** | ⛔ blocked by ordering — needs the app first |
+| **Orange cloud on apex + `www`** | ⛔ blocked by ordering — see §7.2 |
+
+Production is therefore still **v95** (released `2026-10-24T07:50:11Z`, machine
+`d8d1116b5161d8`), which predates every commit on this branch.
+
+### 7.2 ⛔ Do NOT flip the orange cloud before the app is deployed
+
+v95 runs the **old** resolver with `CLIENT_IP_SOURCE = "xff"` and one hop. On a
+proxied request that computes `index = entries.length - 1` over
+`[visitor, cf-edge]` and returns the **Cloudflare edge address**, so every
+visitor through one Cloudflare datacentre would share the 10-per-60s sign-in
+bucket. Flipping first is a login outage, not a degradation.
+
+Once the deploy lands this ordering constraint **disappears permanently**:
+the new resolver is correct whether the proxy is on or off, which is the whole
+point of §3. There is no window to sequence and nothing to remember.
+
+### 7.3 The remaining sequence
+
+1. **Deploy the app.** From the owner's machine, `.\scripts\deploy.ps1`
+   (`docs/96`) — it runs the gate first. The image in §7.1 is already built and
+   can be released directly with
+   `flyctl deploy --app lastdonor --image registry.fly.io/lastdonor:deployment-01M5Q475KMRSZ9ZMYHNYVWF6BY`.
+   The commit is self-consistent: code and `fly.toml` change together, so there
+   is no half-state.
+2. **Verify.** `GET /api/v1/cron/refresh-fx-rates` must answer **401**, not
+   404. ⚠️ Use `GET` and include a fabricated job name as the control — a
+   `POST` answers 401 for a route that does not exist at all (`docs/104` §5.1a).
+3. **Redeploy the cron Worker** (`cd workers/cron && npx wrangler deploy`), or
+   `refresh-fx-rates` never fires: the schedule is bundled at deploy time
+   (`docs/104` §5.1). Confirm with a `cron.refresh_fx_rates` row in
+   `audit_logs` after 02:00 UTC.
+4. **Flip the orange cloud** on the apex `A`/`AAAA` and `www` only.
+   `send.`/`rsend.` are Resend records and must stay grey; `origin.` is grey by
+   definition.
+5. **Verify the flip.** A response should carry `cf-ray`; sign-in should still
+   rate-limit per visitor rather than per datacentre. The direct path is
+   covered by test, not by the flip.
+
+⚠️ **A note on the builder, for whoever deploys from a sandbox.** The default
+depot builder fails here with
+`tls: failed to verify certificate: x509: certificate signed by unknown
+authority` — its gRPC client does not read `SSL_CERT_FILE`, so the egress
+proxy's CA is invisible to it. `--depot=false` uses Fly's own remote builder
+and succeeds. Not a repo problem; it costs ten minutes to rediscover.
 
