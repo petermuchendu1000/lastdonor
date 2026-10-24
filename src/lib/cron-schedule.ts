@@ -87,6 +87,27 @@ export const CRON_JOBS: readonly CronJob[] = [
     isDue: ({ minute, hour }) => minute === 0 && hour === 4,
   },
   {
+    /*
+      Exchange rates, once a day.
+
+      02:00 UTC is deliberate. The primary provider publishes
+      `time_last_update_utc` around 00:02 UTC and `time_next_update_utc`
+      around 00:17 UTC (measured 2026-10-24), so 02:00 is comfortably after
+      the new table exists without racing it. Running more often would spend
+      requests against a rate-limited free endpoint for data that changes
+      once a day - the provider's own documentation says an hourly request
+      "will never get rate limited", and daily is well inside that.
+
+      MAX_FX_AGE_HOURS is 48, so this cadence tolerates exactly one missed
+      run before conversions stop being displayed. That relationship is the
+      invariant: the refresh interval MUST be less than half the staleness
+      tolerance, or a single failure takes the feature down.
+    */
+    job: 'refresh-fx-rates',
+    cron: '0 2 * * *',
+    isDue: ({ minute, hour }) => minute === 0 && hour === 2,
+  },
+  {
     job: 'blog-topics',
     cron: '0 6 * * *',
     isDue: ({ minute, hour }) => minute === 0 && hour === 6,

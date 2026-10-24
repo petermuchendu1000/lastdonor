@@ -46,6 +46,24 @@ export default defineConfig({
     sequence: { concurrent: false },
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      /*
+        The SAME stub the unit config uses, added 2026-10-24.
+
+        It was missing here, so ANY integration test importing a module with
+        `import 'server-only'` failed at collection with "This module cannot be
+        imported from a Client Component module" - which names the wrong
+        problem and reads like a mistake in the test. 20-odd server modules
+        were unreachable from the integration suite as a result, silently:
+        nothing failed, the tests simply could not be written.
+
+        This is the docs/89 finding again, where one `server-only` import broke
+        five suites at collection while the summary still read "5898 passed" -
+        80 tests silently not running. That was fixed in `vitest.config.ts`
+        only.
+      */
+      'server-only': path.resolve(__dirname, './test/stubs/server-only.ts'),
+    },
   },
 });

@@ -11,6 +11,8 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
 import { PendingVerificationBadge } from '@/components/campaigns/TrustBadge';
+import { ApproxMoney } from '@/components/money/ApproxMoney';
+import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import { Suspense } from 'react';
 import { ShareButtons } from '@/components/campaign/ShareButtons';
 import { CATEGORY_LABELS } from '@/lib/categories';
@@ -263,6 +265,18 @@ export default async function CampaignDetailPage({ params }: PageProps) {
   const campaign = lookup.campaign;
 
   /*
+    The exchange-rate snapshot, read SEQUENTIALLY and never inside a
+    Promise.all. `src/db/pool-fanout.ratchet.test.ts` caps an entry point at
+    three CONCURRENT queries against a pool of five, and this page already
+    issues its own; a fourth in parallel is how /admin/settings came to take
+    15 seconds and leave wedged backends (docs/87).
+
+    `null` is a normal outcome, not an error - before the first cron run there
+    is no snapshot, and `ApproxMoney` renders nothing for it.
+  */
+  const fxSnapshot = await readFxSnapshot();
+
+  /*
     ONE query here, not five.
 
     This was `Promise.all` over five single-query helpers, on a pool of
@@ -449,6 +463,32 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 currency={campaign.currency}
                 className="mt-3"
               />
+
+              {/*
+                An approximate USD equivalent of the goal, for a campaign
+                denominated in something else.
+
+                Only in that direction, deliberately. USD is the reference a
+                diaspora donor reading a KES appeal can interpret; the reverse
+                would mean guessing which currency a reader of a USD campaign
+                thinks in, and this codebase has no viewer-locale detection.
+                When one exists, this is where it goes.
+
+                Display only. The figure is never stored, never summed, and
+                never used to decide anything - see the boundary note in
+                `src/lib/money/fx-convert.ts`.
+              */}
+              {campaign.currency !== 'USD' && (
+                <p className="mt-2">
+                  <span className="text-sm text-muted-foreground">Goal is </span>
+                  <ApproxMoney
+                    minor={campaign.goalAmount}
+                    fromCurrency={campaign.currency}
+                    toCurrency="USD"
+                    snapshot={fxSnapshot}
+                  />
+                </p>
+              )}
               <p className="mt-2 text-sm text-muted-foreground">
                 {campaign.subjectName}
                 {campaign.subjectHometown && ` · ${campaign.subjectHometown}`}

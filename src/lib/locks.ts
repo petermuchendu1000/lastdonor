@@ -224,6 +224,7 @@ export type CronJobName =
   | 'ingest-news'
   | 'publish-campaigns'
   | 'reconcile'
+  | 'refresh-fx-rates'
   | 'send-newsletter'
   | 'simulate-donations'
   | 'update-phases';
@@ -299,6 +300,17 @@ export const CRON_LOCKS: Record<CronJobName, CronLockSpec> = {
     'blog-topics', 300, 'skip',
     'Spends AI tokens and inserts topic-queue rows; overlap double-fills ' +
     'category slots.',
+  ),
+  'refresh-fx-rates': spec(
+    'refresh-fx-rates', 60, 'skip',
+    'Writes ONE cached rate snapshot to site_settings and no money, so it ' +
+    'converges and a fail-open policy would be defensible. It fails CLOSED ' +
+    'anyway, because the cost of skipping is the mildest in the table: a ' +
+    'missed run ages the snapshot, and once it passes MAX_FX_AGE_HOURS the ' +
+    'display component renders nothing at all rather than a stale figure. ' +
+    'Nobody is paid wrongly and no page breaks - approximate equivalents ' +
+    'just stop appearing. "reconcile" remains the only job worth arguing ' +
+    'fail-open for.',
   ),
   'blog-refresh': spec(
     'blog-refresh', 300, 'skip',
