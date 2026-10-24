@@ -1,5 +1,30 @@
 # 26 — Deployment Architecture (Cloudflare + Fly.io + Supabase)
 
+> ## ⛔ AMENDMENT 2026-10-24: Cloudflare is NOT in the request path
+>
+> This document describes Cloudflare in front of Fly — the two-hostname
+> design in §3, the 100s proxy ceiling, the WAF, and "Layer 1 — Cloudflare
+> edge (HTML + assets)" in §5. **Measured 2026-10-24, none of that is
+> happening for web traffic:**
+>
+> - every DNS record for `lastdonor.org` reports **`proxied: false`**;
+> - the apex `A` record points **straight at the Fly IP** (66.241.124.43);
+> - a response from `lastdonor.org` carries **no `cf-ray`** and the same
+>   `server: Fly/…` header as hitting the origin directly.
+>
+> So there is no edge cache, no WAF and no `CF-IPCountry` for page requests,
+> and the 100s proxy ceiling that drives the two-hostname design is not
+> currently binding on them either. The cron Worker of `docs/66` is real and
+> unaffected: it *calls* the app, it does not front it.
+>
+> Nothing in this document has been rewritten, because the design may still
+> be the intended destination — turning the orange cloud on is a deliberate
+> change with its own consequences (SSL mode must be Full (strict), per §3,
+> and the cron hostname must stay grey). It is recorded here so no future
+> reader assumes the edge layer exists. Found while building country
+> detection; see `docs/103` §5.
+
+
 Target architecture for running LastDonor off Vercel. Every constraint below was
 verified against this repository at commit time, not assumed. Claims that depend
 on provider behaviour cite the provider; claims that depend on load are marked

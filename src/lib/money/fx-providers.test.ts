@@ -79,13 +79,25 @@ describe('open.er-api.com parsing', () => {
     expect(new Date(s.asOf).toISOString()).toBe('2026-10-24T00:02:31.000Z');
   });
 
-  it('keeps ONLY supported currencies, dropping the other 160-odd', () => {
-    // EUR is in the measured response and is not a supported campaign
-    // currency; storing it would be storing rates we have no use for.
+  it('keeps known currencies as well as collectable ones', async () => {
+    /*
+      Changed 2026-10-24 (docs/103): the snapshot used to hold only USD and
+      KES. It now carries every KNOWN currency the provider offers, because a
+      visitor in Lagos needs a naira rate to see a KES appeal in their own
+      money - and no gateway takes naira. Collectable currencies stay
+      REQUIRED; the rest are best effort.
+    */
     mockFetch(ER_API_OK);
-    return fetchFromErApi().then((s) => {
-      expect(Object.keys(s.rates).sort()).toEqual(['KES', 'USD']);
-    });
+    const s = await fetchFromErApi();
+    expect(Object.keys(s.rates).sort()).toEqual(['EUR', 'KES', 'USD']);
+  });
+
+  it('a missing NON-collectable rate does not take the snapshot down', async () => {
+    // The provider publishes 166 codes and we know 152; neither is a subset
+    // of the other, so one absent currency must not stop every conversion.
+    mockFetch({ ...ER_API_OK, rates: { USD: 1, KES: 129.84786 } });
+    const s = await fetchFromErApi();
+    expect(Object.keys(s.rates).sort()).toEqual(['KES', 'USD']);
   });
 
   it('rejects a table missing a currency this platform supports', async () => {
@@ -117,13 +129,18 @@ describe('the fallback: lowercase keys and cryptocurrencies', () => {
     `eth`, and fiat codes are LOWERCASE. Both facts would corrupt a money
     table if passed through.
   */
-  it('reads lowercase keys and ignores crypto entries', async () => {
+  it('reads lowercase keys, keeps known fiat, and ignores crypto entries', async () => {
     mockFetch({
       date: '2026-10-23',
       usd: { kes: 129.85584106, eur: 0.89177251, btc: 0.0000094, eth: 0.00031, '1inch': 3.2, ada: 1.7 },
     });
     const s = await fetchFromCurrencyApi();
-    expect(Object.keys(s.rates).sort()).toEqual(['KES', 'USD']);
+    // EUR is a real currency and is kept; the crypto entries are not and
+    // must never reach a money store, whatever the provider calls them.
+    expect(Object.keys(s.rates).sort()).toEqual(['EUR', 'KES', 'USD']);
+    for (const notACurrency of ['BTC', 'ETH', '1INCH', 'ADA', 'btc', 'eth', 'ada']) {
+      expect(s.rates).not.toHaveProperty(notACurrency);
+    }
     expect(s.rates.KES).toBe(129.85584106);
     expect(s.rates.USD).toBe(1);
   });

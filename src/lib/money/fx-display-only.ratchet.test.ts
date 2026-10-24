@@ -44,6 +44,7 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/lib/money/fx-providers.ts': 'the providers themselves',
   'src/lib/money/fx-store.server.ts': 'persistence for the snapshot',
   'src/components/money/ApproxMoney.tsx': 'the one display component',
+  'src/components/money/LocalAmount.tsx': 'detects the viewer currency and delegates to ApproxMoney',
   'src/app/api/v1/cron/refresh-fx-rates/route.ts': 'the refresh job',
   'src/app/campaigns/[slug]/page.tsx': 'reads the snapshot to pass to ApproxMoney',
 };

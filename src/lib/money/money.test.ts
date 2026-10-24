@@ -145,8 +145,46 @@ describe('formatMoney', () => {
     }
   });
 
-  it('refuses to format in a currency with no rail behind it', () => {
-    expect(() => formatMoney(100, 'NGN')).toThrow(/Unsupported currency/);
+  /*
+    SUPERSEDED 2026-10-24, and replaced rather than removed.
+
+    This used to assert `formatMoney(100, 'NGN')` throws, on the rule that a
+    currency with no payment rail should not be renderable. That rule was
+    correct while the only currencies the platform named were ones it could
+    collect.
+
+    The owner then asked for every country to be added with gateways to
+    follow (docs/103), which makes "renderable but not collectable" the
+    intended state for 150 currencies - a visitor in Lagos should see a KES
+    appeal's goal in naira even though nothing can take naira yet.
+
+    So the guarantee moves rather than disappears: FORMATTING widens to any
+    known currency, and the MONEY path stays exactly as strict as it was. The
+    two tests below are the replacement, and the second is the one that
+    matters.
+  */
+  it('formats a known currency that has no rail, because display is not collection', () => {
+    expect(() => formatMoney(100, 'NGN')).not.toThrow();
+    expect(formatMoney(100, 'NGN')).toMatch(/1/);
+  });
+
+  it('still refuses a code that is not a currency at all', () => {
+    for (const notACurrency of ['ZZZ', 'BTC', 'XAU', 'DOGE', '']) {
+      expect(() => formatMoney(100, notACurrency)).toThrow();
+    }
+  });
+
+  it('MONEY conversion stays strict: minorToMajor refuses a non-collectable currency', () => {
+    /*
+      The load-bearing half. `minorToMajor` is called by
+      `payhero-settlement.ts` to check what a real payment settled for, so
+      widening it would let a money comparison run on a currency no gateway
+      can settle. `formatMoney` does its own division for exactly this
+      reason.
+    */
+    expect(() => minorToMajor(100, 'NGN')).toThrow(/Unsupported currency/);
+    expect(() => majorToMinor(1, 'NGN')).toThrow(/Unsupported currency/);
+    expect(minorToMajor(5_000, 'KES')).toBe(50);
   });
 });
 

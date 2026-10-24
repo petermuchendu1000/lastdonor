@@ -21,6 +21,7 @@
  */
 
 import { getCurrency } from './currencies';
+import { resolveDisplayCurrency } from './world-currencies';
 
 /**
  * `whole` drops the minor units (`$1,250`) and is the default for every
@@ -68,13 +69,25 @@ export function formatMoney(
   currency: string,
   precision: MoneyPrecision = 'whole',
 ): string {
-  const def = getCurrency(currency);
+  /*
+    Resolved through the DISPLAY registry, not `getCurrency`, so an
+    approximate figure can be rendered in any of the 152 known currencies
+    (`src/lib/money/world-currencies.ts`). USD and KES still resolve to their
+    collectable definitions first, so no existing output changes.
+
+    `minorToMajor` below is deliberately NOT used here and deliberately stays
+    strict: it is called by `payhero-settlement.ts` to check the amount a real
+    payment settled for, and widening it would let a money comparison run on a
+    currency no gateway can settle. The division is done inline instead.
+  */
+  const def = resolveDisplayCurrency(currency);
   const fractionDigits = precision === 'whole' ? 0 : def.exponent;
+  const major = def.exponent === 0 ? minor : minor / 10 ** def.exponent;
 
   return new Intl.NumberFormat(def.locale, {
     style: 'currency',
     currency: def.code,
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
-  }).format(minorToMajor(minor, currency));
+  }).format(major);
 }

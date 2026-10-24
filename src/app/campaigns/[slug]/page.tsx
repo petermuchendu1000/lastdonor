@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
 import { PendingVerificationBadge } from '@/components/campaigns/TrustBadge';
-import { ApproxMoney } from '@/components/money/ApproxMoney';
+import { LocalAmount } from '@/components/money/LocalAmount';
 import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import { Suspense } from 'react';
 import { ShareButtons } from '@/components/campaign/ShareButtons';
@@ -478,17 +478,22 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 never used to decide anything - see the boundary note in
                 `src/lib/money/fx-convert.ts`.
               */}
-              {campaign.currency !== 'USD' && (
-                <p className="mt-2">
-                  <span className="text-sm text-muted-foreground">Goal is </span>
-                  <ApproxMoney
-                    minor={campaign.goalAmount}
-                    fromCurrency={campaign.currency}
-                    toCurrency="USD"
-                    snapshot={fxSnapshot}
-                  />
-                </p>
-              )}
+              <p className="mt-2">
+                <span className="text-sm text-muted-foreground">Goal is </span>
+                <LocalAmount
+                  minor={campaign.goalAmount}
+                  fromCurrency={campaign.currency}
+                  /*
+                    A non-USD campaign falls back to USD, which is what most
+                    readers can interpret; a USD campaign falls back to
+                    nothing, because the figure above it is already in the
+                    reference currency. Either way the browser's own
+                    detection replaces it once it resolves.
+                  */
+                  fallbackCurrency={campaign.currency === 'USD' ? null : 'USD'}
+                  snapshot={fxSnapshot}
+                />
+              </p>
               <p className="mt-2 text-sm text-muted-foreground">
                 {campaign.subjectName}
                 {campaign.subjectHometown && ` · ${campaign.subjectHometown}`}

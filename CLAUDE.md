@@ -115,6 +115,7 @@ transcript or a commit message is lost.
 | `100-RADIO-GROUP-KEYBOARD-ADR.md` | **All SEVEN hand-rolled `role="radiogroup"`s now implement the pattern they claim. An ARIA role is a promise about BEHAVIOUR: a radio group is ONE tab stop with arrow keys inside it, and none of the seven had a key handler or managed `tabIndex` — so arrow keys did nothing (the one interaction a screen reader tells its user to use) and the groups were 23, 7, 6, 3 and 2 tab stops instead of one each. ⚠️ axe did NOT flag any of it: `aria-checked` and the parent role were all correct, and keyboard behaviour is not something axe can see — three of these sat on pages passing a full WCAG 2.1 AA run. Use `onRadioGroupKeyDown` + `rovingTabIndex` from `src/lib/radio-group-keys.ts`; if a new group is a plain list of labels, use a native `<input type="radio">` instead. The first-option fallback in `rovingTabIndex` is LOAD-BEARING — four of the seven groups render with nothing selected, and without it every option would be `-1` and the group unreachable by keyboard. ⛔ Two groups (the review-screen category and relationship editors) pass `{ selectOnMove: false }` and that is NOT a style choice: selecting there calls `setEditField(null)` and UNMOUNTS the group, so select-on-move would let the first ArrowRight commit a value and close the panel, leaving 22 of 23 categories unreachable — a REGRESSION on markup that previously had 23 tab stops. Read §3 before changing any `selectOnMove`.** |
 | `101-PRE-VERIFICATION-RAISE-CAP-ADR.md` | **An unverified campaign may now raise only up to a per-currency cap (US$500 / KES 50,000). Money OUT was always gated on verification (`withdraw/route.ts` refuses anything but `fully_verified`, and `createTransfer` has exactly ONE caller) while money IN was gated on campaign STATUS ONLY — so all 20 production campaigns, every one `unverified`, could raise without limit and only discover at payout that they could not be paid. The review gate of docs/78-79 is UNTOUCHED: the owner declined instant go-live, because it would falsify 44 lines across 23 files including the site title itself. ⚠️ Contains the drizzle trap worth reading before writing ANY `sql` template: interpolating a Column renders it **UNQUALIFIED**, so `WHERE ${donations.campaignId} = ${campaigns.id}` emits `WHERE "campaign_id" = "id"`, both resolve to the inner table, and the subquery returns 0 for every row — valid SQL, no error, cap silently never fires. Unit tests, the text ratchet and typecheck ALL passed; only running it against a real Postgres caught it. The cap is measured over REAL un-refunded donations via `src/db/real-raised.ts`, never the seed-blended `raised_amount`. The concurrency overshoot is accepted and TESTED as a known bound, not closed — closing it would mean auto-refunding, which moves money.** |
 | `102-FX-RATES-ADR.md` | **Exchange rates, DISPLAY ONLY. Providers chosen by PROBING them from the sandbox AND from the production machine (docs/90 habit): primary `open.er-api.com`, fallback `@fawazahmed0` over jsDelivr. ⚠️ `api.frankfurter.dev` is the obvious clean choice and is USELESS here - ECB reference rates are 29 currencies and `has_KES: false`, and KES is our only working rail. `api.exchangerate-api.com/v4` rejected as FAKE REDUNDANCY (same operator as the primary - the docs/86 lesson); `exchangerate.host` now 401s. TWO TRAPS: the primary reports its OWN errors with **HTTP 200** (`{"result":"error"}`), so `res.ok` proves nothing (docs/92's PayHero trap again); the fallback's keys are lowercase and include crypto (`1inch`, `btc`). Staleness is a REFUSAL - past 48h `convertMinor` returns null and the UI renders nothing, because a money figure you cannot date is worse than none. Attribution is a LICENCE TERM, pinned by a ratchet. The boundary is enforced mechanically: an import allowlist fails the build if any money-writing module can see a rate. Also records a mutation survivor fixed rather than excused (hardcoded `100` vs reading each currency's exponent - the 100x bug waiting for UGX/RWF/XOF), and the finding that `vitest.config.integration.ts` did NOT alias `server-only`, so EIGHT server modules were silently unreachable from the integration suite.** |
+| `103-WORLD-CURRENCIES-AND-COUNTRY-DETECTION.md` | **152 currencies, 254 countries and 549 timezones added, with NO gateway (owner's call: gateways later). The design that makes that safe: **KNOWN is not COLLECTABLE**. `CURRENCIES` still means "we can take money in this" and still holds two entries, so none of the 16 money-path consumers changed; `WORLD_CURRENCY_EXPONENTS` means "this is a real currency and we know its decimals". Pouring 152 into `CURRENCIES` would have needed 150 invented floors/caps and could have stranded a campaign in a currency no gateway can settle - the composite FK makes a campaign's currency immutable once money arrives. ⚠️ ISO 4217 and CLDR DISAGREE on 13 currencies (IQD is 3 vs 0 - a factor of 1,000); display follows CLDR, ISO is kept beside it, and a test forbids any of the 13 becoming collectable. ⛔ `CF-IPCountry` DOES NOT EXIST HERE: every `lastdonor.org` DNS record is `proxied=false` and responses carry no `cf-ray`, so Cloudflare fronts nothing - docs/26's edge layer is not in the path (docs/26 amended). Detection is browser-side and REFUSES to guess: `Intl.Locale('en').maximize().region` is `US` and `sw` is `TZ`, so a region-less language tag yields NOTHING rather than calling a Kenyan American. Uses `zone.tab` NOT `zone1970.tab` (which merges Uganda into Kenya), and the generator's own gate caught the first version inheriting link TARGET countries - Africa/Kampala links to Africa/Nairobi. 418/418 ICU zones covered.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -125,7 +126,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6477 pass + 12 skipped, 203 files, as of 2026-10-24)
+npm run test:unit      # Vitest (6720 pass + 12 skipped, 206 files, as of 2026-10-24)
 npm run test:integration  # Vitest + a throwaway Postgres (108 tests, 13 files)
 npm run test:e2e       # Playwright: 152 tests over 2 Chromium projects, 21 files
                        #   128 pass / 0 fail / 24 declared skips (docs/99 §8)
@@ -443,6 +444,42 @@ These exist for a reason; changing them has consequences beyond the local file.
   a comment as a fact to work around. If you find yourself setting an env
   var so a module can be imported, that is a defect in the module, not
   setup. Check whether `npm run build` survives without it.
+
+- **A currency the platform KNOWS is not a currency it can COLLECT.** Added
+  2026-10-24, see `docs/103`. `CURRENCIES` (`src/lib/money/currencies.ts`)
+  means money can be taken in it: it carries a `gateway`, donation bounds and
+  a pre-verification cap, and 16 money-path files read it. It still holds two
+  entries. `WORLD_CURRENCY_EXPONENTS` (`src/lib/money/world-currencies.ts`)
+  holds **152** and means only "real currency, known decimals" — it is for
+  formatting and for an approximate converted figure.
+  **Adding a country is a data change; making its currency collectable is a
+  deliberate edit to `CURRENCIES` once a gateway exists.** `getCurrency` still
+  throws for the other 150, and a test pins that. Regenerate the tables with
+  `python3 -I scripts/generate-world-currencies.py` — never hand-edit a
+  `*.generated.ts`.
+
+  ⚠️ **ISO 4217 and CLDR disagree about 13 currencies** and both are right:
+  ISO defines a subunit (the Iraqi fils, the Somali cent) that nobody quotes,
+  and CLDR sets the display digits to 0. For IQD that is a factor of **1,000**.
+  Display follows CLDR; `ISO_MINOR_UNITS` is kept beside it; and a test
+  **forbids any of the 13 becoming collectable** until someone checks which
+  convention the gateway expects.
+
+- **Country detection is browser-side, and refuses to guess.** Added
+  2026-10-24, see `docs/103`. ⛔ There is **no `CF-IPCountry`**: every
+  `lastdonor.org` DNS record is `proxied=false` and responses carry no
+  `cf-ray`, so Cloudflare is not in the request path at all and `docs/26`'s
+  edge layer does not exist (that doc is amended). Fly supplies no country
+  header either. Use `detectLocale` from `src/lib/geo/detect-country.ts`.
+
+  ⚠️ **Never use `Intl.Locale(tag).maximize()` to find a region.**
+  `'en'` maximizes to **US** and `'sw'` to **TZ** — CLDR's likeliest regions,
+  not facts about the visitor — so it would tell a Kenyan on an English-only
+  browser they are American and show them dollars. Only an **explicit** region
+  in the tag counts; otherwise render nothing. Timezone beats language,
+  because a Kenyan browsing in `en-US` is the common case. And the timezone
+  table is built from **`zone.tab`, not `zone1970.tab`**: the latter merges
+  countries that share a clock, which puts Kampala in Kenya.
 
 - **An exchange rate is for display, and never for accounting.** Added
   2026-10-24, see `docs/102`. Convert with `convertMinor` from

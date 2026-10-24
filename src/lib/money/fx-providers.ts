@@ -57,6 +57,7 @@
  */
 
 import { SUPPORTED_CURRENCY_CODES } from './currencies';
+import { KNOWN_CURRENCY_CODES } from './world-currencies';
 
 /** Required by the primary provider's terms. Render wherever a rate is used. */
 export const FX_ATTRIBUTION = Object.freeze({
@@ -90,15 +91,44 @@ function narrowToSupported(
   provider: string,
 ): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const code of SUPPORTED_CURRENCY_CODES) {
+
+  const read = (code: string): number | null => {
     // The primary keys by uppercase code, the fallback by lowercase.
     const value = raw[code] ?? raw[code.toLowerCase()];
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : null;
+  };
+
+  /*
+    COLLECTABLE currencies are REQUIRED. A table without KES cannot price the
+    one rail that takes money, and storing it would let a later read believe
+    rates are available when they are not.
+  */
+  for (const code of SUPPORTED_CURRENCY_CODES) {
+    const value = read(code);
+    if (value === null) {
       throw new FxProviderError(
-        `${provider}: no usable rate for ${code} (got ${JSON.stringify(value)})`,
+        `${provider}: no usable rate for ${code} (got ${JSON.stringify(raw[code] ?? raw[code.toLowerCase()])})`,
       );
     }
     out[code] = value;
+  }
+
+  /*
+    The other 150 KNOWN currencies are best effort.
+
+    Deliberately not required: the primary publishes 166 codes and the
+    fallback 288, neither of which is exactly our 152, and a currency either
+    one happens to omit must not take the whole snapshot down and stop every
+    conversion on the site. A missing rate simply means `convertMinor`
+    returns null for that currency and the UI shows nothing - the same
+    refusal it already makes for a stale snapshot.
+  */
+  for (const code of KNOWN_CURRENCY_CODES) {
+    if (code in out) continue;
+    const value = read(code);
+    if (value !== null) out[code] = value;
   }
   // A USD-based table must say 1 USD = 1 USD. If it does not, the base is not
   // what we asked for and every conversion would be silently scaled.

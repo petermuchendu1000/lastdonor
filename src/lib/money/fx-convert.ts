@@ -35,7 +35,7 @@
  * date is worse than no figure.
  */
 
-import { getCurrency, isSupportedCurrency } from './currencies';
+import { isKnownCurrency, resolveDisplayCurrency } from './world-currencies';
 import type { FxSnapshot } from './fx-providers';
 
 /**
@@ -86,10 +86,17 @@ export function convertMinor(
 ): number | null {
   if (!Number.isInteger(amountMinor) || !Number.isFinite(amountMinor)) return null;
   if (!isFxFresh(snapshot, now)) return null;
-  if (!isSupportedCurrency(fromCurrency) || !isSupportedCurrency(toCurrency)) return null;
+  /*
+    KNOWN, not collectable. A visitor in Uganda should see a KES appeal's goal
+    in shillings even though no gateway can take UGX yet - that is the whole
+    point of the country work. The import allowlist in
+    `fx-display-only.ratchet.test.ts` is what stops this reaching a money
+    decision; the currency filter here is not, and must not pretend to be.
+  */
+  if (!isKnownCurrency(fromCurrency) || !isKnownCurrency(toCurrency)) return null;
 
-  const from = getCurrency(fromCurrency);
-  const to = getCurrency(toCurrency);
+  const from = resolveDisplayCurrency(fromCurrency);
+  const to = resolveDisplayCurrency(toCurrency);
   if (from.code === to.code) return amountMinor;
 
   const rateFrom = snapshot.rates[from.code];
