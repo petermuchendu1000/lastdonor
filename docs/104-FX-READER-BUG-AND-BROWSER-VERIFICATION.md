@@ -344,6 +344,49 @@ first would have it call a 404 every day at 02:00. This was not deployed; it
 is the deploy-ordering note the owner needs, not something to act on from
 here.
 
+#### 5.1a That probe only works with GET, and it needed a control
+
+Re-run on the same day, the probe above gave **401** for
+`refresh-fx-rates` — the opposite conclusion — because the second run used
+`POST`. The full matrix, measured against production v95:
+
+| Method | Path | Code |
+|---|---|---|
+| GET | `/api/v1/cron/update-phases` | 401 |
+| GET | `/api/v1/cron/reconcile` | 401 |
+| GET | `/api/v1/cron/publish-campaigns` | 401 |
+| GET | `/api/v1/cron/refresh-fx-rates` | **404** |
+| GET | `/api/v1/cron/definitely-not-a-real-job-xyz123` | **404** |
+| POST | any of the five, real or fabricated | 401 |
+
+Two things follow. **Every cron route in this codebase exports `GET` only**,
+and middleware lets a `GET` under `/api/v1/cron/` through to the handler so
+that `verifyCronAuth` can do the timing-safe compare — which is why a
+deployed route answers 401 from inside the handler and an absent one falls
+through to Next's 404. A `POST` is denied by middleware before routing, so it
+answers **401 for a path that does not exist at all**.
+
+So `401` on a `POST` is not evidence either way, and the original reading
+stands only because of the control row: a fabricated job name answers 404
+exactly like `refresh-fx-rates`, and three routes known to be in the image
+answer 401. **A probe that gives the same answer for a real route and an
+invented one is not a check** — the fabricated name is what makes this one
+bite, and it was missing from the first run.
+
+#### 5.1b What is actually deployed
+
+`flyctl releases` shows **v95 as the newest release, 2026-10-24T07:50:11Z**,
+and no release since. The first commit of this branch's feature work
+(`bf9a67a`, the raise cap) is timestamped **08:43:08Z**. So production runs
+code that predates the cap, the FX work, the country list, the FX reader fix
+and the Cloudflare preparation — all five commits are on the branch and in
+neither deployment. The 404 above is the one independent confirmation of
+that; `/api/v1/health` reports `commit: "local"` and cannot confirm anything.
+
+Production health on the same read: `status: "degraded"`, with
+`database ok (6ms)`, `payhero ok (529ms)`, `redis ok (25ms)` and
+`stripe error` — the dead card rail of `docs/72`, unchanged and expected.
+
 ### 5.2 The FX cron, run end to end against the live providers
 
 The route had never executed anywhere. It does now — locally, against a
