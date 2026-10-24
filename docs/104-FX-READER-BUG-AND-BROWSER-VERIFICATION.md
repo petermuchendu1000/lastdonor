@@ -186,13 +186,120 @@ The cron hostname is unaffected: the Worker calls `lastdonor.fly.dev`
 (`docs/66`), which is not in this zone, so Cloudflare's 100s proxy ceiling
 still does not apply to the 11 long-running routes.
 
-### 3.3 Why this is not mine to flip
+### 3.3 DONE 2026-10-24: `ssl=strict`, the origin hostname, and the WAF rule
 
-It changes how every request for the site is routed, for all users at once.
-The rollback (toggle back) is simple, but the window between is not something
-I can bound, and the SSL-mode change must land first or the edge may fail to
-validate the origin. **Presented, not done.** `docs/26` carries an amendment
-pointing here.
+Three of the runbook's four steps are now in place. **The proxy itself is
+still OFF.**
+
+**`ssl` is now `strict`** (was `full`). A no-op for live traffic while
+grey-cloud — nothing consults it — and verified safe for later: Fly holds
+Let's Encrypt certificates for `lastdonor.org` and `www.lastdonor.org`, both
+"verified and active" per Fly's own API. Rollback: one PATCH to `"full"`.
+
+> The real origin certificate could NOT be observed from this sandbox. TLS
+> here is intercepted by the agent proxy, which presented its own
+> `Anthropic Egress Gateway` certificate for `lastdonor.org`. Fly's API is the
+> source for that claim, not an `openssl` handshake.
+
+**`origin.lastdonor.org` now exists**, grey cloud, A + AAAA to the Fly
+ingress IPs, with a Fly-issued Let's Encrypt certificate. Verified reachable
+and identical to the other hostnames:
+
+```
+origin.lastdonor.org   /api/v1/cron/update-phases -> 401   /api/v1/health -> 503   / -> 200
+lastdonor.org          401   503   200
+lastdonor.fly.dev      401   503   200
+401 body: {"code":"UNAUTHORIZED","message":"Invalid cron authorization."}
+```
+
+The 401 is the useful signal: it proves DNS, TLS, routing, middleware and
+`verifyCronAuth` all work on the new name without needing `CRON_SECRET`.
+
+⚠ **`docs/26` §3 names `lastdonor.com` and `origin.lastdonor.com` throughout.
+No `.com` zone exists on this account** — only `lastdonor.org`, which holds
+the live site, the Fly certificates and the Resend verification records. The
+`.com` references are stale; the hostname created is `origin.lastdonor.org`.
+
+**One WAF skip rule** now exists in the `http_request_firewall_custom` phase.
+The zone had no custom rules at all, so the entrypoint ruleset was created.
+
+```
+action   = skip
+products = waf, bic, securityLevel, rateLimit, hot, uaBlock, zoneLockdown
+phases   = http_request_firewall_managed
+expr     = http.request.uri.path in {"/api/v1/donations/webhook"
+             "/api/v1/stripe-connect/webhook"
+             "/api/v1/verification/didit/webhook"
+             "/api/v1/donations/payhero/callback"}
+```
+
+Exact paths, read from `src/middleware.ts` lines 118/124/129/153 — no prefix
+matching, so nothing else is exempted. `bic` and `securityLevel` are the two
+that matter: the zone has `browser_check = on` and `security_level = medium`,
+and a server-to-server POST carries no browser headers. Skipping security on
+these four removes nothing real: `middleware.ts` records each as authenticated
+by Stripe signature or, for Didit and PayHero, by re-fetching the outcome over
+our own authenticated call (`docs/81`, `docs/92`).
+
+`/api/v1/cron/*` is deliberately **not** in the rule. Those are reached on the
+grey hostnames, so the WAF never sees them, and including them would exempt
+more than intended.
+
+**[INFERRED, not verified]** that the rule is *effective*. It is verified as
+correctly **configured** — Cloudflare accepted the expression, which means it
+parsed, and the read-back matches. But the WAF does not run on grey-cloud
+traffic, so whether a real Stripe delivery passes cleanly can only be
+confirmed after the proxy is on.
+
+### 3.3.1 The two staged changes, deliberately NOT applied
+
+**`fly.toml` client-IP values stay `xff`/`1`.** The cutover values are
+staged as a commented block directly above them. They were not applied
+because this branch also carries unrelated work, and `cf`/`2` deployed while
+the proxy is still off is precisely the configuration `fly.toml` §88-101
+proves unsafe — `cf-connecting-ip` becomes client-forgeable and mints
+unlimited rate-limit keys. A comment cannot be deployed by accident.
+
+`test/security/client-ip-trust-boundary.test.ts` is the interlock, and it
+behaves correctly in all three directions: `cf`/`1` fails 2 tests, `xff`/`2`
+fails 1, and the full coherent `cf`/`2` **passes** — it is a valid
+configuration, just not a currently true one.
+
+**The cron Worker still targets `lastdonor.fly.dev`.** The retarget to
+`origin.lastdonor.org` is staged as a comment in `workers/cron/wrangler.toml`
+and was not applied, because it buys nothing: `lastdonor.fly.dev` is not in
+the Cloudflare zone, so it is already immune to the 100s ceiling the grey
+hostname exists to dodge. Against zero gain stands the fact that this Worker
+is the only scheduler this project has ever had firing (`docs/65`: nine jobs
+dead for the platform's entire life; `docs/66`: the first to run), and
+`reconcile` is a financial control.
+
+There is also one thing not verifiable from here: **how a Cloudflare Worker
+resolves a grey-cloud hostname in a zone on its own account.** `docs/66`
+records being wrong about exactly this class of thing — an IP allow-list
+advised from a `curl` measurement when the real calls egressed from a
+different address — and its lesson was to measure the path the real calls
+take. That path cannot be measured without deploying.
+
+### 3.4 Why the flip itself is not mine
+
+It changes how every request for the site is routed, for all users at once,
+and **step ① is still not live**: `CLIENT_IP_SOURCE`/`TRUSTED_PROXY_HOPS` can
+only reach production by a deploy, which CLAUDE.md reserves to the owner.
+Flipping the proxy before that deploy locks real users out of login — not a
+degradation, an outage.
+
+The remaining sequence is therefore:
+
+1. Apply the staged `fly.toml` block (`cf`/`2`) and **deploy it**. Owner.
+2. Flip the orange cloud on the apex A + AAAA and `www` records — and **only**
+   those. `send.` and `rsend.` are Resend mail records and must stay grey;
+   proxying them would break outbound email. `origin.` must stay grey by
+   definition.
+3. Confirm `cf-ray` appears, `/api/v1/health` still answers from the origin,
+   and a `cron.%` audit row still lands within ten minutes.
+
+**Presented, not done.** `docs/26` carries an amendment pointing here.
 
 ## 4. Three inert `revalidate` exports, removed
 

@@ -23,6 +23,16 @@
 > and the cron hostname must stay grey). It is recorded here so no future
 > reader assumes the edge layer exists. Found while building country
 > detection; see `docs/103` §5.
+>
+> **Two corrections to §3 while you are here.** (1) This document says
+> `lastdonor.com` and `origin.lastdonor.com` throughout. **No `.com` zone
+> exists on this Cloudflare account** — the live site, the Fly certificates
+> and the Resend records are all on `lastdonor.org`. (2) The grey-cloud origin
+> hostname §3 calls for now EXISTS as **`origin.lastdonor.org`** (created
+> 2026-10-24, A + AAAA to the Fly ingress IPs, Fly certificate issued,
+> verified answering 401 on a cron route). `ssl` has also been moved from
+> `full` to `strict` as §3 requires. The proxy is still off and the
+> client-IP cutover is staged but not deployed — `docs/104` §3.3.
 
 
 Target architecture for running LastDonor off Vercel. Every constraint below was

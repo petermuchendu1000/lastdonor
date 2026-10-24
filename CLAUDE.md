@@ -501,14 +501,28 @@ These exist for a reason; changing them has consequences beyond the local file.
   combination. Same class as the sixteen inert exports `docs/88` removed from
   admin.
 
-- ⛔ **Cloudflare does not front this site, and `docs/26` is amended.**
+- ⛔ **Cloudflare does not front this site YET, and `docs/26` is amended.**
   Verified 2026-10-24: Cloudflare DNS *is* authoritative (two resolvers agree
   on `lauryn/maciej.ns.cloudflare.com`), but every record is `proxied=false`
   and the apex A record points at the Fly IP — so there is no edge cache, no
-  WAF and **no `CF-IPCountry`** for page requests. Do not write code that
-  expects a Cloudflare header. Turning the proxy on is an owner decision:
-  `ssl` is `full` where `docs/26` §3 requires `strict`, and it would cache
-  almost no HTML anyway (`docs/104` §3).
+  WAF and **no `CF-IPCountry`** for page requests. **Do not write code that
+  expects a Cloudflare header.**
+
+  Cutover prep DONE (`docs/104` §3.3): `ssl` moved `full` → **`strict`**;
+  **`origin.lastdonor.org`** created grey-cloud with a Fly certificate
+  (verified 401 on a cron route); one **WAF skip rule** covers the four
+  signature-authenticated webhooks. Note `docs/26` says `.com` throughout and
+  **no `.com` zone exists** — the domain is `.org`.
+
+  ⛔ **STILL BLOCKING THE FLIP, and it is an outage not a degradation:**
+  `fly.toml` still carries `CLIENT_IP_SOURCE="xff"` / `TRUSTED_PROXY_HOPS="1"`.
+  With the proxy on and `1`, `getClientIp` returns the **Cloudflare edge IP**,
+  and `/api/v1/auth` is 10 req/60s per IP — every visitor through one CF
+  datacentre shares that bucket and real users cannot log in. The `cf`/`2`
+  values are STAGED as a commented block in `fly.toml` and must be
+  **deployed before** the orange cloud is flipped. When flipping, proxy only
+  the apex A/AAAA and `www`: `send.`/`rsend.` are Resend mail records and
+  `origin.` must stay grey.
 
 - **An exchange rate is for display, and never for accounting.** Added
   2026-10-24, see `docs/102`. Convert with `convertMinor` from

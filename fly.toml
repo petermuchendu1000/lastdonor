@@ -109,6 +109,33 @@ kill_timeout = "30s"
   TRUSTED_PROXY_HOPS = "1"
 
   # ---------------------------------------------------------------------------
+  # ⬇ CUTOVER BLOCK — staged 2026-10-24, NOT ACTIVE. See docs/104 §3.
+  #
+  # Uncomment these two and delete the two `xff`/`1` lines above IN THE SAME
+  # COMMIT that turns the Cloudflare proxy on, and deploy that commit BEFORE
+  # flipping the orange cloud.
+  #
+  #   CLIENT_IP_SOURCE = "cf"
+  #   TRUSTED_PROXY_HOPS = "2"
+  #
+  # Left commented rather than applied, deliberately. The branch this was
+  # staged on also carries unrelated work, and `cf`/`2` deployed while the
+  # proxy is still OFF is the exact configuration the block above proves
+  # unsafe: `cf-connecting-ip` becomes client-forgeable and mints unlimited
+  # rate-limit keys. A comment cannot be deployed by accident; a value can.
+  #
+  # WHY THE ORDER IS THIS WAY ROUND, measured 2026-10-24:
+  # with the proxy ON and `1`, `getClientIp` computes
+  # `index = entries.length - 1` against `[client, cf-edge]` and returns the
+  # CLOUDFLARE EDGE IP. `/api/v1/auth` is 10 requests/60s per IP, so every
+  # visitor through one Cloudflare datacentre would share that bucket and
+  # real users would be locked out of login. Deploying `cf`/`2` first is
+  # safe: `cf-connecting-ip` is simply absent until the proxy is on, and the
+  # XFF fallback computes `index = max(0, 1 - 2) = 0` on Fly's single-entry
+  # header, which is still the real client.
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
   # CLOUDFLARE PROXY IS DELIBERATELY OFF (grey cloud) as of the 2026-10-14 DNS
   # cutover, which is why `xff` / `1` above is correct.
   #

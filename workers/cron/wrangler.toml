@@ -26,6 +26,32 @@ compatibility_date = "2026-09-01"
 [vars]
 ORIGIN = "https://lastdonor.fly.dev"
 
+# ⬇ NOT APPLIED, and the reason is on purpose. See docs/104 §2.
+#
+# `origin.lastdonor.org` now EXISTS (created 2026-10-24, grey cloud, Fly cert
+# issued and verified), so the premise of the comment above - "that record
+# does not exist" - no longer holds. The retarget would be:
+#
+#   ORIGIN = "https://origin.lastdonor.org"
+#
+# It was NOT made, because it buys nothing. `lastdonor.fly.dev` is not in the
+# Cloudflare zone at all, so it is already immune to the 100s proxy ceiling
+# that the grey-cloud hostname exists to dodge. Against that, this Worker is
+# the only scheduler this project has ever had working (docs/65 found NINE
+# jobs dead for the platform's entire life; docs/66 is the first one to fire),
+# and `reconcile` is a financial control.
+#
+# There is also one thing that cannot be verified without deploying it: how a
+# Worker resolves a GREY-CLOUD hostname in a zone on its OWN account. docs/66
+# already records being wrong about exactly this class of thing - an IP
+# allow-list advised from a `curl` measurement when the real calls egressed
+# from a different address. Its lesson was to measure the path the actual
+# calls take, and that path cannot be measured from here.
+#
+# Take this change only if domain independence from `fly.dev` is wanted, and
+# verify it by watching for a fresh `cron.%` row in `audit_logs` within ten
+# minutes of deploying.
+
 # CRON_SECRET is a secret, set with `wrangler secret put`, never listed here.
 
 [triggers]
