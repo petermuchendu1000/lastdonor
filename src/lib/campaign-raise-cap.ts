@@ -143,14 +143,28 @@ export function checkRaiseCap(
   }
 
   if (amountMinor > remainingMinor) {
+    /*
+      Two wordings, because one of them read as a bug.
+
+      When nothing has been raised yet, `remainingMinor` EQUALS `cap`, and the
+      two-figure sentence rendered "can take $500.00 more for now. It can
+      accept up to $500.00 before..." - the same number twice, which reads to
+      a donor like the site contradicting itself. Caught by exercising the
+      route over HTTP; every unit test passed on it, because they asserted the
+      code and the headroom rather than reading the sentence.
+    */
+    const headroomIsTheWholeCap = remainingMinor === cap;
     return {
       allowed: false,
       code: 'CAP_EXCEEDED',
       remainingMinor,
-      message:
-        `This campaign can take ${formatMoney(remainingMinor, def.code, 'exact')} more for now. ` +
-        `It can accept up to ${formatMoney(cap, def.code, 'exact')} before the organiser's ID ` +
-        `is checked. Try a smaller amount. Nothing has been charged.`,
+      message: headroomIsTheWholeCap
+        ? `This campaign can accept up to ${formatMoney(cap, def.code, 'exact')} ` +
+          `before the organiser's ID is checked. Try a smaller amount. ` +
+          `Nothing has been charged.`
+        : `This campaign can take ${formatMoney(remainingMinor, def.code, 'exact')} more for now. ` +
+          `It can accept up to ${formatMoney(cap, def.code, 'exact')} before the organiser's ID ` +
+          `is checked. Try a smaller amount. Nothing has been charged.`,
     };
   }
 

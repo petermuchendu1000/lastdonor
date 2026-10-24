@@ -16,6 +16,7 @@ import {
   CAP_EXEMPT_VERIFICATION_STATUSES,
 } from './campaign-raise-cap';
 import { CURRENCIES, getCurrency } from './money/currencies';
+import { formatMoney } from './money/format';
 
 const USD = getCurrency('USD');
 const KES = getCurrency('KES');
@@ -217,5 +218,55 @@ describe('the concurrency bound, stated rather than assumed', () => {
       USD.minDonationMinor,
     );
     expect(d.allowed).toBe(false);
+  });
+});
+
+describe('the donor-facing wording', () => {
+  /*
+    Found by exercising `create-checkout` over HTTP, not by a unit test: with
+    nothing raised yet, `remainingMinor` equals the cap and the message said
+    "can take $500.00 more for now. It can accept up to $500.00 before..." -
+    the same figure twice. Every assertion here previously checked the CODE
+    and the headroom, never the sentence.
+  */
+  it('does not print the same figure twice when nothing has been raised', () => {
+    const d = checkRaiseCap(
+      { verificationStatus: 'unverified', realRaisedMinor: 0, currency: 'USD' },
+      USD.unverifiedCapMinor + 1,
+    );
+    expect(d.allowed).toBe(false);
+    if (d.allowed) return;
+    const cap = formatMoney(USD.unverifiedCapMinor, 'USD', 'exact');
+    const occurrences = d.message.split(cap).length - 1;
+    expect(occurrences, `"${cap}" appears ${occurrences}x in: ${d.message}`).toBe(1);
+    expect(d.message).not.toMatch(/more for now/);
+  });
+
+  it('DOES name the remaining headroom once some has been used', () => {
+    const raised = USD.unverifiedCapMinor - 2_000; // $20 left
+    const d = checkRaiseCap(
+      { verificationStatus: 'unverified', realRaisedMinor: raised, currency: 'USD' },
+      USD.unverifiedCapMinor,
+    );
+    expect(d.allowed).toBe(false);
+    if (d.allowed) return;
+    expect(d.message).toMatch(/\$20\.00 more for now/);
+    expect(d.message).toMatch(/up to \$500\.00/);
+  });
+
+  it('every refusal says nothing has been charged', () => {
+    const cases = [
+      { realRaisedMinor: 0, amount: USD.unverifiedCapMinor + 1 },
+      { realRaisedMinor: USD.unverifiedCapMinor, amount: USD.minDonationMinor },
+      { realRaisedMinor: USD.unverifiedCapMinor - 100, amount: USD.minDonationMinor },
+    ];
+    for (const c of cases) {
+      const d = checkRaiseCap(
+        { verificationStatus: 'unverified', realRaisedMinor: c.realRaisedMinor, currency: 'USD' },
+        c.amount,
+      );
+      expect(d.allowed).toBe(false);
+      if (!d.allowed) expect(d.message).toMatch(/Nothing has been charged\./);
+    }
   });
 });

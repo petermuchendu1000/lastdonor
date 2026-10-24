@@ -116,7 +116,19 @@ describe('campaign submission receipt — brevity', () => {
     */
     const hrefs = [...email.html.matchAll(/<a\s[^>]*href="([^"]+)"/g)].map((m) => m[1]);
     const ownLinks = hrefs.filter((h) => !h.endsWith('/settings'));
-    expect(ownLinks).toEqual(['https://lastdonor.org/dashboard']);
+
+    /*
+      Asserted as a PATH, not as `https://lastdonor.org/dashboard`.
+
+      The absolute form made this test depend on the ambient environment:
+      `appBaseUrl()` reads `NEXTAUTH_URL`, so a developer (or a verification
+      run) with `NEXTAUTH_URL=http://localhost:3000` in their shell saw this
+      fail with a correct email. The property worth pinning is "exactly one
+      call to action of its own, and it goes to the dashboard" - the host is
+      the shell's business, not this template's.
+    */
+    expect(ownLinks).toHaveLength(1);
+    expect(ownLinks[0]).toMatch(/\/dashboard$/);
     expect(hrefs.some((h) => h.startsWith('mailto:'))).toBe(false);
   });
 });

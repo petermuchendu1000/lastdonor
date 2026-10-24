@@ -9,18 +9,37 @@
  * P11 (Queries/knot):    Verify ORDER BY rejects injection via column names
  * P12 (Encoding/sponge): Verify sanitize doesn't double-encode on re-render
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { randomBytes } from 'crypto';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 // ── P9: Economy of Mechanism - "salt" oblique ───────────────────────────
 // A simple AES-256-GCM call is secure only if the IV is unique per call.
 // Two encryptions of the same plaintext MUST produce different ciphertexts.
 describe('P9-oblique: AES-256-GCM IV uniqueness', () => {
   it('encrypts the same plaintext to different ciphertexts each time', async () => {
-    // Only run if SETTINGS_ENCRYPTION_KEY is set
-    if (!process.env.SETTINGS_ENCRYPTION_KEY) {
-      console.log('Skipping: SETTINGS_ENCRYPTION_KEY not set');
-      return;
-    }
+    /*
+      This used to `return` early when `SETTINGS_ENCRYPTION_KEY` was unset,
+      and log "Skipping". It is unset in every normal run, so a SECURITY
+      property - that the IV is unique per call - was never actually checked
+      and the test reported a pass for years. Same class as the ten E2E tests
+      docs/99 found wrapped in `if (await locator.isVisible())`.
+
+      It also made the test env-coupled in the other direction: a developer
+      with a real key in their shell saw it run, and a key of the wrong
+      LENGTH made it fail inside `getEncryptionKey` - which is correct
+      fail-closed behaviour being reported as a broken test.
+
+      So the test now supplies its own key and always runs. 64 hex chars is
+      what `getEncryptionKey` requires (32 bytes for AES-256).
+    */
+    vi.stubEnv(
+      'SETTINGS_ENCRYPTION_KEY',
+      randomBytes(32).toString('hex'),
+    );
     const { encryptSecret } = await import('@/lib/crypto.server');
     const plaintext = 'test-secret-value-12345';
     const encrypted1 = encryptSecret(plaintext);

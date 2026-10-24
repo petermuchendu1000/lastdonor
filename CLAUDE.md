@@ -127,7 +127,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6727 pass + 12 skipped, 207 files, as of 2026-10-24)
+npm run test:unit      # Vitest (6730 pass + 12 skipped, 207 files, as of 2026-10-24)
 npm run test:integration  # Vitest + a throwaway Postgres (113 tests, 13 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -263,6 +263,18 @@ This means **`main` can be ahead of production**. Do not infer the
 deployed version from the repository: read it with
 `fly status --app lastdonor`, and remember that `/api/v1/health` reports
 `commit: "local"` and tells you nothing about which commit is live.
+
+**A new cron job needs TWO deploys, in order: the app, then the Worker.**
+Added 2026-10-24. `workers/cron/src/index.ts` imports `dueJobs` from
+`src/lib/cron-schedule.ts`, so the schedule is **bundled into the Worker at
+`wrangler deploy` time** — it is not read from the app at runtime. Adding a
+row to `CRON_SCHEDULE` therefore changes nothing in production until the
+Worker is redeployed, and redeploying the Worker *first* makes it call a
+route the live image does not serve yet (a 404 the Worker logs and nothing
+else surfaces). Deploy the app, confirm the route answers **401** rather
+than 404 unauthenticated, then redeploy the Worker. `refresh-fx-rates` is
+in this state right now: in the repo and on `main`, not yet in either
+deployment.
 
 When you touch `.github/workflows/`, remember that a valid YAML file can still
 be an invalid workflow: Actions expressions are a second language nested inside

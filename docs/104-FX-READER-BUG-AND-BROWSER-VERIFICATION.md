@@ -318,15 +318,179 @@ combined again. **Mutation: re-adding one fails 2 tests.**
 
 No runtime change: production already serves these as dynamic.
 
-## 5. Verification record
+## 5. Exercising it for real, and the four things that found
+
+Everything above was tested. This section is what happened when the work was
+driven through its actual HTTP surface instead.
+
+### 5.1 ⛔ The Worker BUNDLES the cron table, so the new job needs a Worker deploy
+
+`workers/cron/src/index.ts:38` does
+`import { dueJobs } from '../../../src/lib/cron-schedule'`. The schedule is
+compiled INTO the Worker. Adding `refresh-fx-rates` to `CRON_JOBS` therefore
+does nothing in production until `wrangler deploy` runs in `workers/cron`.
+
+**And the order matters.** Verified against production:
+
+```
+lastdonor.fly.dev   /api/v1/cron/refresh-fx-rates -> 404   (route not deployed)
+origin.lastdonor.org                              -> 404
+lastdonor.fly.dev   /api/v1/cron/update-phases    -> 401   (control: exists)
+production site_settings rows: 0
+```
+
+So the sequence is **app deploy → then Worker deploy**. Deploying the Worker
+first would have it call a 404 every day at 02:00. This was not deployed; it
+is the deploy-ordering note the owner needs, not something to act on from
+here.
+
+### 5.2 The FX cron, run end to end against the live providers
+
+The route had never executed anywhere. It does now — locally, against a
+production build, a real Postgres and the **real** upstream providers.
+
+First attempt returned, correctly:
+
+```json
+{"ok":true,"data":{"skipped":true,
+ "reason":"Lock backend unavailable and refresh-fx-rates fails closed; exiting without running."}}
+```
+
+That is the `'skip'` policy of `docs/102` §11 working — and it also means
+**this route cannot be smoke-tested in any environment without Upstash
+credentials**, which is a real consequence of choosing fail-closed. Closed
+here with a ~40-line stand-in for the Upstash REST API implementing exactly
+the three calls `src/lib/locks.ts` makes (`SET … NX EX`, `EVAL` release,
+`PING`). It is a throwaway harness, not committed; the technique is recorded
+because it makes every cron route exercisable.
+
+With a lock backend present:
+
+| | |
+|---|---|
+| provider | `open.er-api.com` (primary, `degraded: false`) |
+| `asOf` / age | 2026-10-24T00:02:31Z / 12.83h |
+| rates stored | **151** |
+| audit row | `cron.refresh_fx_rates`, severity `info`, 0 provider errors |
+
+**151 of 152, and the one absent is `KPW`** — the provider carries no North
+Korean won rate. `extra = none`, so nothing outside `KNOWN_CURRENCY_CODES`
+reached the store. That is the best-effort design doing exactly its job: one
+missing currency did not take the snapshot down, which under the pre-`docs/104`
+reader would have been 150 missing instead.
+
+Conversions read back out of the stored row, through the real formatter:
+
+```
+$10,000 -> UGX  UGX 41,661,706      (zero-decimal, known-only)
+$10,000 -> NGN  NGN 13,297,998      (known-only)
+$10,000 -> KES  Ksh 1,298,479       (collectable)
+$10,000 -> JPY  ¥1,568,397          (zero-decimal)
+$10,000 -> KWD  KWD 3,103           (THREE-decimal)
+$10,000 -> IQD  IQD 15,174,283      (ISO/CLDR divergent - 0 digits, per §4)
+```
+
+**The overlap guard, proven under real concurrency.** Three simultaneous
+calls: exactly **one ran, two skipped**, and the stub's log shows the
+mechanism — `SET … NX` returns `OK` once and `null` twice.
+
+### 5.3 The raise cap, exercised over HTTP for the first time
+
+`docs/101` tested the cap's arithmetic and its SQL. It had never been driven
+through a money-in route. Against `POST /api/v1/donations/create-checkout`
+with a USD, `active`, `unverified` fixture campaign (cap = $500):
+
+| case | state | request | result |
+|---|---|---|---|
+| A | no donations | $600 | **409 `CAP_EXCEEDED`** |
+| B | no donations | $5 | 503 `PAYMENTS_UNAVAILABLE` — passed the cap, died at the dead Stripe key |
+| C | $500 of **real** donations | $5 | **409 `CAP_REACHED`** |
+| D | **$5,000 of SEED** donations | $5 | 503 `PAYMENTS_UNAVAILABLE` — **seed money did not consume headroom** |
+
+**D is the money-safety invariant proven end to end.** `raised_amount` was
+500,000 minor — ten times the cap — and a real donor was still allowed,
+because the cap reads `realRaisedMinorSql`, not the blended column.
+
+### 5.4 A copy defect only a real request could show
+
+Case A's message read:
+
+> This campaign can take **$500.00** more for now. It can accept up to
+> **$500.00** before the organiser's ID is checked.
+
+The same figure twice. With nothing raised, `remainingMinor` EQUALS `cap`, so
+both slots render identically and the sentence reads like the site
+contradicting itself. Every unit test passed on it, because they all asserted
+the `code` and the headroom and none read the sentence.
+
+Now two wordings, verified over HTTP:
+
+```
+nothing raised:  This campaign can accept up to $500.00 before the organiser's ID is checked.
+$480 raised:     This campaign can take $20.00 more for now. It can accept up to $500.00 before …
+```
+
+Pinned by a test that counts occurrences of the figure; reverting the branch
+fails it.
+
+### 5.5 Two tests that depended on the environment, one of which could not fail
+
+Two unrelated unit tests failed during this pass, and **neither was caused by
+the code** — they were caused by the verification shell having env vars set.
+Isolated precisely:
+
+| var set | test that broke |
+|---|---|
+| `SETTINGS_ENCRYPTION_KEY` | `oblique-p9-12` — AES-256-GCM IV uniqueness |
+| `NEXTAUTH_URL` | `email-templates.submission-receipt` — "exactly one action of its own" |
+| `NEXTAUTH_SECRET` | harmless |
+
+**The crypto one is the serious finding, and it is not a crypto bug.**
+`encryptSecret` is sound: a fresh `randomBytes(12)` IV per call, and
+`getEncryptionKey()` throws on anything but 64 hex characters with **no
+plaintext fallback**. With a valid key the suite is 9/9. What was wrong is the
+test:
+
+```ts
+if (!process.env.SETTINGS_ENCRYPTION_KEY) {
+  console.log('Skipping: SETTINGS_ENCRYPTION_KEY not set');
+  return;                      // <- every normal run took this path
+}
+```
+
+The key is unset in every normal run, so **a security property reported a pass
+without ever being checked** — the same class as the ten E2E tests `docs/99`
+found wrapped in `if (await locator.isVisible())`. It now stubs a generated
+64-hex key and always runs. Proven to bite: replacing the random IV with a
+fixed one fails it (`expected 'BwcHBwcH…' not to be 'BwcHBwcH…'`), where the
+old version could not have.
+
+The email test hardcoded `https://lastdonor.org/dashboard`, and `appBaseUrl()`
+reads `NEXTAUTH_URL` — so a contributor with a populated `.env.local` saw a
+correct email fail. It now asserts the property (exactly one own link, ending
+`/dashboard`) and not the host.
+
+> ⚠ A correction worth keeping: on first seeing the crypto failure I said the
+> two ciphertexts had come back identical and treated it as a possible
+> plaintext-fallback exposure. I had read only the test NAME, not the failure
+> message. The actual error was `getEncryptionKey` throwing on a 41-character
+> key — correct fail-closed behaviour. Reading the message first would have
+> cost one command and avoided raising a false alarm.
+
+## 5a. Verification record
 
 | Check | Result |
 |---|---|
 | `npm run lint` | exit 0 |
 | `npm run typecheck` | exit 0 |
-| `npm run test:unit` | **6727 passed / 12 skipped**, 207 files (was 6720 / 206) |
+| `npm run test:unit` | **6730 passed / 12 skipped**, 207 files (was 6720 / 206) |
 | `npm run test:integration` | **113 passed**, 13 files (was 108) |
 | `npm run test:e2e` (both Chromium) | **138 passed / 24 skipped / 0 failed** (was 128) |
+| `cron/refresh-fx-rates`, live providers | **151 rates stored**, audit row `info`, 0 errors |
+| cron overlap, 3 concurrent | **1 ran, 2 skipped** |
+| raise cap over HTTP | 4 cases: 409/503/409/503 as designed |
+| Mutation, fixed IV in `encryptSecret` | **killed** (the old test could not) |
+| Mutation, duplicate-figure copy | **killed** |
 | Mutation, FX reader | 2 mutants, **2 killed** (4 and 1 failures) |
 | Mutation, revalidate ratchet | 1 mutant, **1 killed** (2 failures) |
 | Mutation, detection | 4 mutants, **4 killed** |
