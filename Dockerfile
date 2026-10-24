@@ -256,8 +256,15 @@ WORKDIR /app
 # dumb-init: a real PID 1 that forwards SIGTERM, so Fly's rolling deploys and
 # `kill_signal` in fly.toml actually drain in-flight requests (the donation
 # webhook is the path that must not be cut mid-transaction, docs/26 §7).
+# poppler-utils: `pdftocairo` and `pdfinfo`, used by
+# `src/lib/screening/rasterise.ts` to turn page 1 of an uploaded PDF into a
+# PNG. The uploader accepts application/pdf and a vision model cannot read
+# one, and `sharp` cannot help - this libvips is built WITHOUT poppler and
+# answers `Input file contains unsupported image format`. Probed on the live
+# machine 2026-10-24: pdftoppm, pdftocairo, convert and gs were ALL absent,
+# so PDF screening was impossible in production while working in the sandbox.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates dumb-init \
+ && apt-get install -y --no-install-recommends ca-certificates dumb-init poppler-utils \
  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \

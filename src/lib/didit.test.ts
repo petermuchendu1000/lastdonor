@@ -16,6 +16,7 @@ import {
   DiditNotConfiguredError,
   DiditApiError,
   type DiditStatus,
+  readVerifiedName,
 } from './didit';
 
 const REAL_FETCH = globalThis.fetch;
@@ -133,7 +134,7 @@ describe('reading a decision', () => {
     });
 
     const d = await getDiditDecision('sess-1');
-    expect(d).toEqual({ sessionId: 'sess-1', status: 'Approved', vendorData: 'campaign-abc' });
+    expect(d).toEqual({ sessionId: 'sess-1', status: 'Approved', vendorData: 'campaign-abc', verifiedName: null });
   });
 
   it('escapes the session id into the path', async () => {
@@ -175,5 +176,68 @@ describe('what counts as verified', () => {
     expect(isTerminal('Expired')).toBe(true);
     expect(isTerminal('In Review')).toBe(false);
     expect(isTerminal('In Progress')).toBe(false);
+  });
+});
+
+describe('reading the verified name off a decision', () => {
+  /*
+    ⚠️ The keys inside `kyc` are UNVERIFIED. A real (not-started) session was
+    probed on 2026-10-24 and `kyc` came back **null**, so the only way to see
+    the real field names is a session someone actually completes. These cases
+    cover the conventional shapes AND the reporting that will identify the
+    real one from the logs on first use - which is the part that matters,
+    because guessing again is how this stays wrong.
+  */
+  it('reads a single full-name field', () => {
+    for (const key of ['full_name', 'name', 'legal_name']) {
+      const r = readVerifiedName({ kyc: { [key]: '  Asha W. Mutiso ' } });
+      expect(r.name, key).toBe('Asha W. Mutiso');
+      expect(r.source, key).toBe(`kyc.${key}`);
+    }
+  });
+
+  it('joins first and last name fields', () => {
+    const r = readVerifiedName({ kyc: { first_name: 'Asha', last_name: 'Mutiso' } });
+    expect(r.name).toBe('Asha Mutiso');
+    expect(r.source).toBe('kyc.first_name + kyc.last_name');
+  });
+
+  it('accepts the other conventional spellings of those two', () => {
+    expect(readVerifiedName({ kyc: { given_names: 'Asha', surname: 'Mutiso' } }).name).toBe('Asha Mutiso');
+    expect(readVerifiedName({ kyc: { given_name: 'Asha', family_name: 'Mutiso' } }).name).toBe('Asha Mutiso');
+  });
+
+  it('takes whichever half is present rather than nothing', () => {
+    expect(readVerifiedName({ kyc: { surname: 'Mutiso' } }).name).toBe('Mutiso');
+    expect(readVerifiedName({ kyc: { first_name: 'Asha' } }).name).toBe('Asha');
+  });
+
+  it('returns null, with a reason, when kyc is absent or null', () => {
+    expect(readVerifiedName({}).name).toBeNull();
+    expect(readVerifiedName({ kyc: null }).source).toBe('kyc absent or null');
+    expect(readVerifiedName({ kyc: 'nonsense' }).name).toBeNull();
+  });
+
+  it('REPORTS THE KEYS IT SAW when it recognises none of them', () => {
+    // This is the mechanism that makes the unknown self-resolving: the first
+    // completed session puts the real field names in the log.
+    const r = readVerifiedName({ kyc: { document_number: 'X', nationality: 'KE', portrait: '...' } });
+    expect(r.name).toBeNull();
+    expect(r.source).toContain('document_number');
+    expect(r.source).toContain('nationality');
+  });
+
+  it('never puts a NAME in the reported source, only key names', () => {
+    // These are the fields of someone's identity document. The diagnostic
+    // reports the shape; it must not leak the contents into a log.
+    const r = readVerifiedName({ kyc: { weird_key: 'Asha W. Mutiso' } });
+    expect(r.source).not.toContain('Asha');
+    expect(r.source).toContain('weird_key');
+  });
+
+  it('ignores blank and non-string values', () => {
+    expect(readVerifiedName({ kyc: { full_name: '   ' } }).name).toBeNull();
+    expect(readVerifiedName({ kyc: { full_name: 42 } }).name).toBeNull();
+    expect(readVerifiedName({ kyc: { full_name: null, surname: 'Mutiso' } }).name).toBe('Mutiso');
   });
 });

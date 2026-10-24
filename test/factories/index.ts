@@ -66,6 +66,7 @@ export function buildCampaign(overrides: Partial<Campaign> = {}): Campaign {
     stripeVerificationUrl: null,
     diditSessionId: null,
     diditSessionUrl: null,
+    diditVerifiedName: null,
     seedDonationCount: 0,
     messageCount: 0,
     updateCount: 0,

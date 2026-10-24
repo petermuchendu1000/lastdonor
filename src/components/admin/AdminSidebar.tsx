@@ -79,6 +79,7 @@ const NAV_GROUPS: NavGroup[] = [
     adminOnly: true,
     items: [
       { href: '/admin/verification', label: 'Verification Queue', icon: ShieldCheckIcon },
+      { href: '/admin/screening', label: 'Document Screening', icon: ClipboardDocumentListIcon },
       { href: '/admin/payouts', label: 'Payouts', icon: BanknotesIcon },
       { href: '/admin/governance', label: 'Governance', icon: ExclamationTriangleIcon },
       { href: '/admin/info-requests', label: 'Info Requests', icon: InformationCircleIcon },

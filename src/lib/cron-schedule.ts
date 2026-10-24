@@ -108,6 +108,25 @@ export const CRON_JOBS: readonly CronJob[] = [
     isDue: ({ minute, hour }) => minute === 0 && hour === 2,
   },
   {
+    /*
+      Document pre-screening, every five minutes.
+
+      Matched to the upload it follows, not to a provider's quota: an
+      organiser who uploads a hospital bill should not wait an hour to find
+      out it was read. The job takes a batch of five and does nothing at all
+      when the queue is empty, so a five-minute cadence over an empty table
+      costs one indexed query per tick.
+
+      (Written in words, not as a cron expression: a slash-star comment cannot
+      contain a star-slash, and the obvious spelling of this cadence ends the
+      comment three lines early. It compiled as a syntax error here; in a
+      place where the following lines happened to parse it would not have.)
+    */
+    job: 'screen-documents',
+    cron: '*/5 * * * *',
+    isDue: () => true,
+  },
+  {
     job: 'blog-topics',
     cron: '0 6 * * *',
     isDue: ({ minute, hour }) => minute === 0 && hour === 6,

@@ -225,6 +225,7 @@ export type CronJobName =
   | 'publish-campaigns'
   | 'reconcile'
   | 'refresh-fx-rates'
+  | 'screen-documents'
   | 'send-newsletter'
   | 'simulate-donations'
   | 'update-phases';
@@ -300,6 +301,16 @@ export const CRON_LOCKS: Record<CronJobName, CronLockSpec> = {
     'blog-topics', 300, 'skip',
     'Spends AI tokens and inserts topic-queue rows; overlap double-fills ' +
     'category slots.',
+  ),
+  'screen-documents': spec(
+    'screen-documents', 300, 'skip',
+    'Reads uploaded documents with a vision model and may set ONE document ' +
+    'to approved. Fails CLOSED. Overlap is already impossible to get wrong - ' +
+    'document_screenings.document_id is UNIQUE and the approval is keyed on ' +
+    'the document still being pending - but two runs would still pay for the ' +
+    'same provider calls twice and hold two database connections across a ' +
+    '30-second HTTP call each, against a pool of 5 (docs/87). Skipping costs ' +
+    'five minutes of latency on a queue that has never had an item in it.',
   ),
   'refresh-fx-rates': spec(
     'refresh-fx-rates', 60, 'skip',

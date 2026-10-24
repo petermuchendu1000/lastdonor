@@ -21,6 +21,7 @@ import {
   type ScreeningInput,
 } from './decide';
 import { DOCUMENT_TYPES } from '@/lib/validators/verification';
+import { downgradeForUnreadPages } from './run';
 
 const MODEL = 'nvidia/nemotron-3.5-super-vl:free';
 const APPROVED = [MODEL] as const;
@@ -224,5 +225,47 @@ describe('the reviewer-facing summary', () => {
     const d = decideScreening(input());
     expect(d.summary).toContain('KENYATTA MEMORIAL HOSPITAL');
     expect(d.summary).toContain('KES 205,555');
+  });
+});
+
+describe('a multi-page document is only partly read', () => {
+  /*
+    Only page 1 is ever rendered (`rasterise.ts`), so an otherwise-clean
+    9-page document has NOT been checked. This rule lives in `run.ts` because
+    it depends on the rasteriser's output, and it is tested here because it is
+    the difference between "the document was checked" and "a fragment of it
+    was" - exactly the kind of distinction that vanishes into an inline
+    conditional and never gets asserted.
+  */
+  it('downgrades a clean approval when pages were not read', () => {
+    const clean = decideScreening(input());
+    expect(clean.action).toBe('auto_approve');
+
+    const d = downgradeForUnreadPages(clean, true, 9);
+    expect(d.action).toBe('needs_human');
+    expect(d.flags).toContain('pages_not_read');
+    expect(d.summary).toContain('page 1 of 9');
+  });
+
+  it('leaves a single-page document exactly as decided', () => {
+    const clean = decideScreening(input());
+    const d = downgradeForUnreadPages(clean, false, 1);
+    expect(d.action).toBe('auto_approve');
+    expect(d.flags).toEqual([]);
+    expect(d.summary).toBe(clean.summary);
+  });
+
+  it('does not overwrite a more specific reason it was already going to a person', () => {
+    const mismatch = decideScreening(input({ trustedName: 'Someone Else' }));
+    const d = downgradeForUnreadPages(mismatch, true, 4);
+    expect(d.action).toBe('needs_human');
+    expect(d.flags).toContain('name_mismatch');
+    expect(d.summary).toMatch(/not the verified name/i);
+  });
+
+  it('copes with an unknown page count rather than printing null', () => {
+    const d = downgradeForUnreadPages(decideScreening(input()), true, null);
+    expect(d.summary).not.toContain('null');
+    expect(d.summary).toContain('several');
   });
 });

@@ -42,6 +42,7 @@ describe('each job fires exactly as often as its cron expression says', () => {
   // Hand-derived from the expression, NOT from the implementation.
   const EXPECTED: Record<string, number> = {
     'update-phases': 2016, //   */5    -> every tick
+    'screen-documents': 2016, // */5  -> every tick
     'ingest-news': 336, //      */30   -> 48/day x 7
     'publish-campaigns': 336, // */30  -> 48/day x 7
     'fetch-news': 28, //        0 */6  -> 4/day x 7

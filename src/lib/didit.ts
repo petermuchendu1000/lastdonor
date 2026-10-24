@@ -51,6 +51,81 @@ export interface DiditDecision {
   status: DiditStatus;
   /** Whatever we attached at creation, used to tie the session to a campaign. */
   vendorData: string | null;
+  /**
+   * The person's name as read off their identity document, when Didit
+   * supplies one. Null whenever it is absent, which is every status before
+   * `Approved` and possibly after - see `readVerifiedName`.
+   *
+   * This is the ONLY trustworthy name the platform has. `users.name` is
+   * self-declared, so comparing a document against it proves nothing:
+   * whoever uploaded the document also typed the name.
+   */
+  verifiedName: string | null;
+}
+
+/**
+ * The shape of a decision response, as PROBED on 2026-10-24.
+ *
+ * A real (not-started) session returned exactly these top-level keys:
+ *
+ *   session_id, session_number, session_url, status, vendor_data, callback,
+ *   features, kyc, aml, face, location, poa, phone, email, kyb, warnings,
+ *   user_href, reviews, extra_images, questionnaire, document_ai_documents,
+ *   environment, sandbox_scenario, created_at, expires_at
+ *
+ * `features` was `["ID_VERIFICATION","LIVENESS","FACE_MATCH","IP_ANALYSIS"]`
+ * and the create response described the workflow as
+ * `"OCR + LIVENESS + FACE_MATCH + IP_ANALYSIS"` - so Didit DOES read the ID,
+ * and the result belongs under `kyc`.
+ *
+ * ⚠️ `kyc` was **null**, because the session had not been completed, so the
+ * KEYS INSIDE IT ARE UNVERIFIED. Populating it needs a real person finishing
+ * the hosted flow, which cannot be done from a sandbox. `readVerifiedName`
+ * therefore tries several conventional shapes AND REPORTS WHAT IT ACTUALLY
+ * FOUND, so the first real session answers the question in the logs instead
+ * of leaving it to be guessed again.
+ */
+const NAME_KEY_CANDIDATES = ['full_name', 'name', 'legal_name'] as const;
+const FIRST_KEY_CANDIDATES = ['first_name', 'given_name', 'given_names', 'forenames'] as const;
+const LAST_KEY_CANDIDATES = ['last_name', 'surname', 'family_name'] as const;
+
+function pickString(source: Record<string, unknown>, keys: readonly string[]): { key: string; value: string } | null {
+  for (const key of keys) {
+    const v = source[key];
+    if (typeof v === 'string' && v.trim()) return { key, value: v.trim() };
+  }
+  return null;
+}
+
+/**
+ * Extract the ID name from a decision payload, and say where it came from.
+ *
+ * Returns the name plus the key path it was read from, so the caller can log
+ * it once. An unrecognised shape returns the keys that WERE present, which is
+ * the information needed to fix this properly rather than guess again.
+ */
+export function readVerifiedName(data: Record<string, unknown>): {
+  name: string | null;
+  source: string;
+} {
+  const kyc = data.kyc;
+  if (!kyc || typeof kyc !== 'object') {
+    return { name: null, source: 'kyc absent or null' };
+  }
+  const obj = kyc as Record<string, unknown>;
+
+  const whole = pickString(obj, NAME_KEY_CANDIDATES);
+  if (whole) return { name: whole.value, source: `kyc.${whole.key}` };
+
+  const first = pickString(obj, FIRST_KEY_CANDIDATES);
+  const last = pickString(obj, LAST_KEY_CANDIDATES);
+  if (first && last) return { name: `${first.value} ${last.value}`, source: `kyc.${first.key} + kyc.${last.key}` };
+  if (last) return { name: last.value, source: `kyc.${last.key}` };
+  if (first) return { name: first.value, source: `kyc.${first.key}` };
+
+  // Nothing recognised. Report the shape, NOT the values: these are the
+  // fields of someone's identity document and must not reach a log.
+  return { name: null, source: `kyc present, no known name key; keys=[${Object.keys(obj).sort().join(',')}]` };
 }
 
 function apiKey(): string {
@@ -139,10 +214,18 @@ export async function getDiditDecision(sessionId: string): Promise<DiditDecision
     method: 'GET',
   })) as Record<string, unknown>;
 
+  const { name, source } = readVerifiedName(data);
+  if (!name) {
+    // Logged at info, once per decision fetch, because the keys inside `kyc`
+    // are the one thing about this integration that could not be probed.
+    console.info(`[didit] no verified name read: ${source}`);
+  }
+
   return {
     sessionId: (data.session_id as string) ?? sessionId,
     status: (data.status as DiditStatus) ?? 'Not Started',
     vendorData: typeof data.vendor_data === 'string' ? data.vendor_data : null,
+    verifiedName: name,
   };
 }
 

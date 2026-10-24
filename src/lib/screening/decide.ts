@@ -73,7 +73,13 @@ export type ScreeningFlag =
   | 'no_issuer_found'
   | 'no_amount_found'
   | 'model_not_approved'
-  | 'low_text_yield';
+  | 'low_text_yield'
+  /**
+   * Raised by `run.ts`, not by `decideScreening`: only page 1 of a multi-page
+   * document is ever rendered, so an otherwise-clean multi-page document is
+   * still only partly read.
+   */
+  | 'pages_not_read';
 
 /** What the vision step managed to read. Every field may be absent. */
 export interface ExtractedFields {

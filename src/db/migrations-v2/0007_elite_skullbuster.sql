@@ -1,0 +1,1 @@
+ALTER TABLE "campaigns" ADD COLUMN "didit_verified_name" text;

@@ -409,6 +409,20 @@ export const campaigns = pgTable(
     */
     diditSessionId: text('didit_session_id'),
     diditSessionUrl: text('didit_session_url'),
+    /*
+      The organiser's name as read off their identity document by Didit.
+
+      The ONLY trustworthy name the platform holds. `users.name` is
+      self-declared, so comparing an uploaded bill against it proves nothing -
+      whoever uploaded the document also typed the name. Document screening
+      (`src/lib/screening/`) refuses to auto-approve anything while this is
+      null, which is the correct behaviour and currently the case for every
+      campaign: no Didit session has ever been completed.
+
+      PII: a legal name from a government ID. It is written only by the Didit
+      decision path and read only by screening and admin review.
+    */
+    diditVerifiedName: text('didit_verified_name'),
     // Echo columns: pre-computed counters to avoid N+1 queries on listing pages
     seedDonationCount: integer('seed_donation_count').notNull().default(0),
     messageCount: integer('message_count').notNull().default(0),
@@ -1180,6 +1194,66 @@ export const verificationDocuments = pgTable(
   (table) => [
     index('idx_verification_docs_campaign').on(table.campaignId),
     index('idx_verification_docs_status').on(table.status),
+  ],
+);
+
+// ─── Document Screening ─────────────────────────────────────────────────────
+
+/**
+ * What the machine made of one uploaded verification document.
+ *
+ * ADVISORY PLUS ONE NARROW ACTION. A row here records what was read and what
+ * was decided; the only thing screening may change elsewhere is
+ * `verification_documents.status`, and only to `approved`, and only when the
+ * flag list is empty. It never writes `campaigns.verification_status`, so it
+ * cannot authorise a payout (`withdraw/route.ts` requires `fully_verified`)
+ * or lift the pre-verification raise cap (`docs/101`). See
+ * `src/lib/screening/decide.ts`.
+ *
+ * `document_id` is UNIQUE, which is the replay guard: a job that runs twice
+ * over the same document cannot screen it twice or approve it twice.
+ */
+export const documentScreenings = pgTable(
+  'document_screenings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    documentId: uuid('document_id')
+      .notNull()
+      .unique()
+      .references(() => verificationDocuments.id),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id),
+    /** 'auto_approve' | 'needs_human'. There is deliberately no auto-reject. */
+    action: text('action').notNull(),
+    /** Every reason it went to a person. Empty array means it was approved. */
+    flags: jsonb('flags').notNull().default(sql`'[]'::jsonb`),
+    summary: text('summary').notNull(),
+    nameMatchKind: text('name_match_kind').notNull(),
+    /**
+     * 0-100, an INTEGER percentage.
+     *
+     * Not a float: this is displayed to a reviewer beside a decision about
+     * someone's appeal, and a stored binary float that renders as
+     * 0.8200000000000001 undermines the one thing it is there to do.
+     */
+    nameMatchScore: integer('name_match_score').notNull(),
+    nameMatchDistance: integer('name_match_distance'),
+    /** The fields read off the document. Null when the read failed entirely. */
+    extracted: jsonb('extracted'),
+    /** As the PROVIDER reported it, which is what the allowlist is checked against. */
+    modelUsed: text('model_used'),
+    latencyMs: integer('latency_ms'),
+    /** Pages in the source document; only page 1 is ever read. */
+    pageCount: integer('page_count'),
+    hasMorePages: boolean('has_more_pages').notNull().default(false),
+    /** Why the read failed, when it did. */
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_document_screenings_campaign').on(table.campaignId),
+    index('idx_document_screenings_action').on(table.action),
   ],
 );
 

@@ -122,10 +122,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, data: { status: decision.status, changed: false } });
     }
 
-    await db
-      .update(campaigns)
-      .set({ verificationStatus: next, updatedAt: new Date() })
-      .where(eq(campaigns.id, campaign.id));
+    /*
+      The verified name is written whenever Didit supplies one, and NEVER
+      cleared when it does not: a later decision payload that omits the field
+      must not erase a name an earlier one established, or document screening
+      would silently stop being able to check anything.
+    */
+    const update: Partial<typeof campaigns.$inferInsert> = {
+      verificationStatus: next,
+      updatedAt: new Date(),
+    };
+    if (decision.verifiedName) update.diditVerifiedName = decision.verifiedName;
+
+    await db.update(campaigns).set(update).where(eq(campaigns.id, campaign.id));
 
     await db.insert(auditLogs).values({
       eventType: 'identity_verification_decided',
@@ -133,7 +142,14 @@ export async function POST(request: NextRequest) {
       targetType: 'campaign',
       targetId: campaign.id,
       severity: next === 'rejected' ? 'warning' : 'info',
-      details: { provider: 'didit', diditStatus: decision.status, verificationStatus: next },
+      details: {
+        provider: 'didit',
+        diditStatus: decision.status,
+        verificationStatus: next,
+        // Whether a name arrived, never the name itself: audit rows are read
+        // far more widely than the column is.
+        verifiedNameCaptured: Boolean(decision.verifiedName),
+      },
     });
 
     if (campaign.creatorId) {

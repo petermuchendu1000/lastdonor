@@ -121,6 +121,8 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   // Scheduler cannot hold a session; every handler calls verifyCronAuth.
   'GET /api/v1/cron/refresh-fx-rates': 'verifyCronAuth.',
   'HEAD /api/v1/cron/refresh-fx-rates': 'verifyCronAuth.',
+  'GET /api/v1/cron/screen-documents': 'verifyCronAuth.',
+  'HEAD /api/v1/cron/screen-documents': 'verifyCronAuth.',
   'GET /api/v1/cron/blog-generate': 'verifyCronAuth.',
   'HEAD /api/v1/cron/blog-generate': 'verifyCronAuth.',
   'GET /api/v1/cron/blog-refresh': 'verifyCronAuth.',

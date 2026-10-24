@@ -297,6 +297,32 @@ export function parseStorageRef(
  * established authorisation — this function performs no authorisation of its
  * own, it just mints the credential.
  */
+/**
+ * Read a private object's BYTES, server-side.
+ *
+ * Distinct from `createSignedObjectUrl` on purpose: that mints a credential a
+ * browser can follow, this one never produces a shareable handle at all. Used
+ * by document screening (`src/lib/screening/`), which has to put the file in
+ * front of a model and must not create a URL to do it.
+ *
+ * Performs NO authorisation. The only caller is a cron-authenticated job
+ * (`verifyCronAuth`), and any new caller must establish its own.
+ */
+export async function downloadPrivateObject(
+  bucket: string,
+  key: string,
+): Promise<{ bytes: Buffer | null; error: string | null }> {
+  if (!key || key.includes('..')) {
+    return { bytes: null, error: 'Invalid storage key' };
+  }
+
+  const { data, error } = await supabase.storage.from(bucket).download(normaliseKey(key));
+  if (error || !data) {
+    return { bytes: null, error: error?.message ?? 'Failed to download object' };
+  }
+  return { bytes: Buffer.from(await data.arrayBuffer()), error: null };
+}
+
 export async function createSignedObjectUrl(
   bucket: string,
   key: string,
