@@ -3,6 +3,8 @@ import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { createIntentSchema } from '@/lib/validators/donation';
+import { checkRaiseCap } from '@/lib/campaign-raise-cap';
+import { realRaisedMinorSql } from '@/db/real-raised';
 import { stripe } from '@/lib/stripe';
 import { randomUUID } from 'crypto';
 import type { ApiResponse, ApiError } from '@/types/api';
@@ -36,6 +38,11 @@ export async function POST(request: NextRequest) {
         id: campaigns.id,
         title: campaigns.title,
         status: campaigns.status,
+        currency: campaigns.currency,
+        verificationStatus: campaigns.verificationStatus,
+        // Real, un-refunded donations only - NOT the blended `raised_amount`.
+        // One verified expression: see `src/db/real-raised.ts`.
+        realRaisedMinor: realRaisedMinorSql,
       })
       .from(campaigns)
       .where(
@@ -59,6 +66,35 @@ export async function POST(request: NextRequest) {
         },
       };
       return NextResponse.json(errorBody, { status: 404 });
+    }
+
+    /*
+     * The pre-verification cap (`src/lib/campaign-raise-cap.ts`).
+     *
+     * This route is absent from `PUBLIC_API_ROUTES` (src/middleware.ts), so
+     * it is auth-gated by default-deny and no UI calls it - but a signed-in
+     * caller can still reach it directly, and a money-in path that skipped
+     * the cap would be a hole in it.
+     */
+    const capDecision = checkRaiseCap(
+      {
+        verificationStatus: campaign.verificationStatus,
+        realRaisedMinor: Number(campaign.realRaisedMinor ?? 0),
+        currency: campaign.currency,
+      },
+      data.amount,
+    );
+    if (!capDecision.allowed) {
+      const capError: ApiError = {
+        ok: false,
+        error: {
+          code: capDecision.code,
+          message: capDecision.message,
+          field: 'amount',
+          requestId,
+        },
+      };
+      return NextResponse.json(capError, { status: 409 });
     }
 
     // Create Stripe PaymentIntent

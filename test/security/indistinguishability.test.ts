@@ -34,6 +34,26 @@ const EXPECTED_CAMPAIGN_KEYS = [
   'completedAt',
   'createdAt',
   'creatorId',
+  /*
+    Added 2026-10-24 with the pre-verification cap. `PendingVerificationBadge`
+    names a per-currency figure, so the campaign page cannot render it without
+    this field.
+
+    Why it does not weaken the property this file protects: that property is
+    SHAPE identity between a simulated campaign and a real one, and both are
+    served by this one select object, so adding a key to it adds the key to
+    both. The value is also already inferable from the rendered page - amounts
+    are formatted in the campaign's currency and the donate flow routes KES to
+    M-Pesa and USD to card.
+
+    Measured honestly, the values are not evenly spread today: of 20 campaigns
+    in production, 17 simulated and 2 manual are USD, and the single KES
+    campaign is manual. That is because multi-currency landed 2026-10-21 and
+    the simulation engine has not generated a KES campaign yet, not because
+    currency encodes simulation state - USD covers both kinds. If the engine
+    is ever restricted to one currency, revisit this.
+  */
+  'currency',
   'donorCount',
   'fundUsagePlan',
   'galleryImages',

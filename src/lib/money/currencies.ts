@@ -70,6 +70,29 @@ export interface CurrencyDefinition {
   /** Largest donation accepted, in minor units. */
   readonly maxDonationMinor: number;
   /**
+   * Most a campaign may raise, cumulatively, while it is NOT verified.
+   *
+   * This is a trust control, not a payment bound: `minDonationMinor` and
+   * `maxDonationMinor` above bound a SINGLE donation, and nothing bounded the
+   * running total until now. An unverified campaign could raise without limit
+   * and only discover at payout that it could not be paid (payout has been
+   * gated on `fully_verified` all along -
+   * `src/app/api/v1/user-campaigns/[id]/withdraw/route.ts`). The cap moves
+   * that discovery to before donors have given money rather than after.
+   *
+   * Measured against REAL, un-refunded donations only - never
+   * `campaigns.raised_amount`, which is a BLENDED figure the simulation
+   * engine also increments for `source = 'seed'` rows carrying no money. A
+   * cap read off the blended column would let fabricated seed money lock a
+   * campaign out of real donations.
+   *
+   * Chosen per currency, NOT converted: there is no FX anywhere in this
+   * codebase, so these are two independent policy numbers that happen to be
+   * the same order of magnitude. Set to `Infinity` to disable the cap for a
+   * currency - that is the single-constant rollback.
+   */
+  readonly unverifiedCapMinor: number;
+  /**
    * Which gateway takes money in this currency. Used to pick the rail and to
    * refuse a donation the platform cannot actually collect.
    */
@@ -97,6 +120,8 @@ export const CURRENCIES: Readonly<Record<string, CurrencyDefinition>> = Object.f
     locale: 'en-US',
     minDonationMinor: 500,
     maxDonationMinor: 10_000_000,
+    // US$500.00. The figure the owner named when specifying the tiered model.
+    unverifiedCapMinor: 50_000,
     gateway: 'stripe' as const,
   }),
 
@@ -142,6 +167,16 @@ export const CURRENCIES: Readonly<Record<string, CurrencyDefinition>> = Object.f
     locale: 'en-KE',
     minDonationMinor: 5_000,
     maxDonationMinor: 25_000_000,
+    /*
+      KES 50,000.00. A POLICY NUMBER, not a conversion of the USD cap: this
+      codebase has no exchange rate and inventing one here would bake a
+      moving figure into a constant. Chosen as a round harambee-scale amount
+      of the same order as the USD cap, and it is one line to change.
+
+      Note it is 2x M-Pesa's KES 250,000 single-transaction ceiling, so the
+      cap is reachable only across several donations - never by one.
+    */
+    unverifiedCapMinor: 5_000_000,
     gateway: 'payhero' as const,
   }),
 });

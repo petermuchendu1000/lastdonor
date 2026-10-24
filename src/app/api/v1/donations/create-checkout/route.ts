@@ -4,6 +4,8 @@ import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 import { checkDonationAmount, createIntentSchema } from '@/lib/validators/donation';
 import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { checkRaiseCap } from '@/lib/campaign-raise-cap';
+import { realRaisedMinorSql } from '@/db/real-raised';
 import { stripe } from '@/lib/stripe';
 import {
   SHARE_ATTRIBUTION_COOKIE,
@@ -52,6 +54,10 @@ export async function POST(request: NextRequest) {
         slug: campaigns.slug,
         status: campaigns.status,
         currency: campaigns.currency,
+        verificationStatus: campaigns.verificationStatus,
+        // Real, un-refunded donations only - NOT the blended `raised_amount`.
+        // One verified expression: see `src/db/real-raised.ts`.
+        realRaisedMinor: realRaisedMinorSql,
       })
       .from(campaigns)
       .where(
@@ -149,6 +155,32 @@ export async function POST(request: NextRequest) {
         },
       };
       return NextResponse.json(errorBody, { status: 400 });
+    }
+
+    /*
+     * The pre-verification cap, before Stripe is asked to create a session.
+     * Refusing here costs the donor nothing; refusing after the charge would
+     * mean a refund. See `src/lib/campaign-raise-cap.ts`.
+     */
+    const capDecision = checkRaiseCap(
+      {
+        verificationStatus: campaign.verificationStatus,
+        realRaisedMinor: Number(campaign.realRaisedMinor ?? 0),
+        currency: campaignCurrency.code,
+      },
+      data.amount,
+    );
+    if (!capDecision.allowed) {
+      const capError: ApiError = {
+        ok: false,
+        error: {
+          code: capDecision.code,
+          message: capDecision.message,
+          field: 'amount',
+          requestId,
+        },
+      };
+      return NextResponse.json(capError, { status: 409 });
     }
 
     // One donor-context object, used on every Stripe object we can attach it

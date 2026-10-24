@@ -10,6 +10,7 @@ import { eq, and, or } from 'drizzle-orm';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
+import { PendingVerificationBadge } from '@/components/campaigns/TrustBadge';
 import { Suspense } from 'react';
 import { ShareButtons } from '@/components/campaign/ShareButtons';
 import { CATEGORY_LABELS } from '@/lib/categories';
@@ -434,6 +435,20 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               <h1 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
                 {campaign.title}
               </h1>
+
+              {/*
+                The pre-verification cap, stated to the donor BEFORE the story
+                and before the donate box, because it changes what giving here
+                means: there is a ceiling on what this campaign can raise, and
+                nothing can be paid out to the organiser, until a person has
+                checked their ID. Renders nothing once the campaign is
+                verified. See `src/lib/campaign-raise-cap.ts`.
+              */}
+              <PendingVerificationBadge
+                verificationStatus={campaign.verificationStatus}
+                currency={campaign.currency}
+                className="mt-3"
+              />
               <p className="mt-2 text-sm text-muted-foreground">
                 {campaign.subjectName}
                 {campaign.subjectHometown && ` · ${campaign.subjectHometown}`}

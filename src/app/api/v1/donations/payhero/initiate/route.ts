@@ -5,6 +5,8 @@ import { db } from '@/db';
 import { auditLogs, campaigns, payheroPaymentRequests } from '@/db/schema';
 import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
 import { checkDonationAmount } from '@/lib/validators/donation';
+import { checkRaiseCap } from '@/lib/campaign-raise-cap';
+import { realRaisedMinorSql } from '@/db/real-raised';
 import { normalisePhone } from '@/lib/phone';
 /*
   `appBaseUrl` lives in `unsubscribe-tokens` because that is where it was
@@ -104,6 +106,10 @@ export async function POST(request: NextRequest) {
         slug: campaigns.slug,
         status: campaigns.status,
         currency: campaigns.currency,
+        verificationStatus: campaigns.verificationStatus,
+        // Real, un-refunded donations only - NOT the blended `raised_amount`.
+        // One verified expression: see `src/db/real-raised.ts`.
+        realRaisedMinor: realRaisedMinorSql,
       })
       .from(campaigns)
       .where(
@@ -142,6 +148,29 @@ export async function POST(request: NextRequest) {
 
     const amountError = checkDonationAmount(data.amount, currency.code);
     if (amountError) return fail(400, 'VALIDATION_ERROR', amountError, { field: 'amount' });
+
+    /*
+      The pre-verification cap, decided BEFORE PayHero is asked for anything.
+
+      This is the last point at which refusing costs the donor nothing. By the
+      time `settlePayHeroRequest` runs, M-Pesa has already taken the money,
+      and refusing there would mean refunding - which moves money and burns
+      the flat KES 8.9 collection fee the platform absorbs (docs/92).
+
+      See `src/lib/campaign-raise-cap.ts`, including the concurrency bound
+      this placement accepts.
+    */
+    const capDecision = checkRaiseCap(
+      {
+        verificationStatus: campaign.verificationStatus,
+        realRaisedMinor: Number(campaign.realRaisedMinor ?? 0),
+        currency: currency.code,
+      },
+      data.amount,
+    );
+    if (!capDecision.allowed) {
+      return fail(409, capDecision.code, capDecision.message, { field: 'amount' });
+    }
 
     // ── The phone, normalised against OUR region before anything else ───────
     const phone = normalisePhone(data.phone);

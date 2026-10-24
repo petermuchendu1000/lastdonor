@@ -33,6 +33,9 @@ export const publicCampaignSelect = {
   storyHtml: campaigns.storyHtml,
   goalAmount: campaigns.goalAmount,
   raisedAmount: campaigns.raisedAmount,
+  // Needed by `PendingVerificationBadge`: the pre-verification cap is a
+  // per-currency figure, so the badge cannot name it without this.
+  currency: campaigns.currency,
   donorCount: campaigns.donorCount,
   category: campaigns.category,
   location: campaigns.location,

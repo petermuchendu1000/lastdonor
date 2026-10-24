@@ -63,7 +63,21 @@ export interface ApiError {
       /* A code that expired, was already used, or ran out of attempts. */
       | 'CODE_UNUSABLE'
       /* Consent to be texted, asked for before the number was proved. */
-      | 'PHONE_NOT_VERIFIED';
+      | 'PHONE_NOT_VERIFIED'
+      /*
+        An unverified campaign has raised everything it may raise before
+        verification, so no donation to it can succeed right now. 409: the
+        caller did nothing wrong and nothing they change about this request
+        will help - the campaign's organiser must get verified.
+        See `src/lib/campaign-raise-cap.ts`.
+      */
+      | 'CAP_REACHED'
+      /*
+        This particular donation would carry an unverified campaign past its
+        pre-verification cap, but a smaller one still fits. 409 with the
+        remaining headroom named in the message.
+      */
+      | 'CAP_EXCEEDED';
     message: string;
     field?: string;
     requestId: string;

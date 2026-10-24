@@ -9,6 +9,9 @@
 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { isCapExempt } from '@/lib/campaign-raise-cap';
+import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
 
 // ─── Verification Badge ──────────────────────────────────────────────────────
 
@@ -47,6 +50,66 @@ export function VerificationBadge({ status, className, compact }: VerificationBa
     >
       {config.icon} {compact ? '' : config.label}
     </Badge>
+  );
+}
+
+// ─── Pending Verification ────────────────────────────────────────────────────
+
+type PendingVerificationBadgeProps = {
+  /** `campaigns.verification_status`. */
+  verificationStatus: string;
+  /** `campaigns.currency` - the cap is a per-currency figure. */
+  currency: string;
+  className?: string;
+};
+
+/**
+ * The donor-facing counterpart of the pre-verification cap.
+ *
+ * Deliberately NOT an extra entry in `VERIFICATION_CONFIG` above. That map
+ * feeds `VerificationBadge`, whose only two callers are admin screens
+ * (`src/components/admin/CampaignsList.tsx`,
+ * `src/components/admin/CampaignDetail.tsx`). Adding an `unverified` entry
+ * there would have put a new badge on every row of two admin tables as a side
+ * effect of a donor-facing change.
+ *
+ * It is also a different statement. `VerificationBadge` reports a status;
+ * this reports a CONSEQUENCE - that there is a ceiling on what this campaign
+ * can raise until a person has checked the organiser's ID - which is the part
+ * a donor needs before deciding.
+ *
+ * Renders nothing once the campaign is past the cap gate, so it disappears
+ * on its own when verification lands.
+ */
+export function PendingVerificationBadge({
+  verificationStatus,
+  currency,
+  className,
+}: PendingVerificationBadgeProps) {
+  if (isCapExempt(verificationStatus)) return null;
+
+  // `getCurrency` throws on an unknown code rather than defaulting to USD
+  // (docs/92), which is right for money arithmetic and wrong for a badge:
+  // a server component that throws takes the whole campaign page down.
+  if (!isSupportedCurrency(currency)) return null;
+
+  const def = getCurrency(currency);
+  if (!Number.isFinite(def.unverifiedCapMinor)) return null;
+
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100',
+        className,
+      )}
+    >
+      <span className="font-semibold">&#9203; Pending verification</span>
+      <span>
+        We have not checked this organiser&apos;s ID yet. This campaign can raise up to{' '}
+        {formatMoney(def.unverifiedCapMinor, def.code, 'exact')} until we do, and no money can
+        be paid out to them before then.
+      </span>
+    </div>
   );
 }
 

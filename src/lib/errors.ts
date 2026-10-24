@@ -20,6 +20,24 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
   FORBIDDEN: { status: 403, message: 'You do not have permission to perform this action.' },
   NOT_FOUND: { status: 404, message: 'The requested resource was not found.' },
   CONFLICT: { status: 409, message: 'This action conflicts with the current state.' },
+  /*
+    The pre-verification fundraising cap (`src/lib/campaign-raise-cap.ts`).
+    Both are 409, not 400: the request is well-formed and the donor has done
+    nothing wrong - the campaign is in a state that cannot accept it. The
+    routes always pass their own message, which names the actual figures;
+    these defaults exist so the registry stays exhaustive.
+  */
+  CAP_REACHED: {
+    status: 409,
+    message:
+      'This campaign has raised all it can for now. Nothing has been charged.',
+  },
+  CAP_EXCEEDED: {
+    status: 409,
+    message:
+      'This campaign cannot take a donation that large right now. Try a smaller ' +
+      'amount. Nothing has been charged.',
+  },
   RATE_LIMITED: { status: 429, message: 'Too many requests. Please try again later.' },
   INTERNAL_ERROR: { status: 500, message: 'Something went wrong. Please try again later.' },
   CONNECT_NOT_ENABLED: { status: 400, message: 'This feature is not currently available.' },
