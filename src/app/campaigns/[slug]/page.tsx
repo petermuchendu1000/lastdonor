@@ -580,7 +580,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
 
             {/* Share + Subscribe */}
             <div className="flex flex-wrap items-center gap-3">
-              <ShareButtons url={canonicalUrl} title={campaign.title} />
+              <ShareButtons url={canonicalUrl} title={campaign.title} campaignSlug={campaign.slug} />
               <SubscribeButton campaignSlug={campaign.slug} />
             </div>
 

@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { ShareIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { cn } from '@/lib/utils';
 import { useAuthState } from '@/lib/auth-state';
+import { mintAttributedUrl } from '@/lib/attributed-share';
 
 interface SidebarShareButtonProps {
   /** The plain campaign URL. Always the fallback, never a dead end. */
@@ -13,15 +14,6 @@ interface SidebarShareButtonProps {
   campaignSlug?: string;
   className?: string;
 }
-
-/**
- * How long we will wait for an attributed link before sharing the plain URL.
- *
- * The share sheet must open. A sharer whose network is slow gets an
- * uncredited share, which is a worse outcome than a credited one and a far
- * better outcome than a button that appears broken.
- */
-const MINT_TIMEOUT_MS = 1_500;
 
 /**
  * The sidebar's second primary action.
@@ -70,27 +62,10 @@ export function SidebarShareButton({
     if (minted.current) return minted.current;
     if (!isAuthenticated || !campaignSlug) return url;
 
-    try {
-      const response = await fetch(
-        `/api/v1/campaigns/${encodeURIComponent(campaignSlug)}/share-link`,
-        {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { accept: 'application/json' },
-          signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
-        },
-      );
-      if (!response.ok) return url;
-      const body = await response.json();
-      const attributed = body?.data?.url;
-      if (typeof attributed !== 'string' || !attributed) return url;
-      minted.current = attributed;
-      return attributed;
-    } catch {
-      // Offline, timed out, 401, malformed - all the same answer: share the
-      // page. Nothing here is worth a toast; the sharer asked to share.
-      return url;
-    }
+    const attributed = await mintAttributedUrl(campaignSlug);
+    if (!attributed) return url;
+    minted.current = attributed;
+    return attributed;
   }
 
   async function handleShare() {
