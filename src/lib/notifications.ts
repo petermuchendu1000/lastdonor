@@ -36,6 +36,7 @@ import {
   firstDonationCelebrationEmail,
   campaignCompletedCreatorEmail,
   verificationReminderEmail,
+  verificationConsequenceEmail,
   verificationDocumentsAdminEmail,
   verificationApprovedCreatorEmail,
   verificationRejectedCreatorEmail,
@@ -99,6 +100,16 @@ async function wantsEmail(userId: string): Promise<boolean> {
 }
 
 /** Insert notification row and optionally send email. Returns silently on error. */
+/**
+ * Create the in-app notification and, if the user accepts mail, send it.
+ *
+ * Returns what actually happened, or `null` when even the notification row
+ * could not be written. Added 2026-10-25 for `cron/verification-reminders`,
+ * which keeps a send-once ledger and would otherwise be recording an
+ * intention as a fact: every failure in here is logged and swallowed, so a
+ * caller that assumed success had no way to know. Existing callers ignore
+ * the value.
+ */
 export async function createAndEmail(p: {
   userId: string;
   type: NotificationType;
@@ -106,7 +117,7 @@ export async function createAndEmail(p: {
   message: string;
   link?: string;
   email?: { to: string; subject: string; html: string };
-}) {
+}): Promise<{ notificationId: string; emailed: boolean } | null> {
   try {
     const [notif] = await db
       .insert(notifications)
@@ -119,6 +130,7 @@ export async function createAndEmail(p: {
       })
       .returning({ id: notifications.id });
 
+    let emailed = false;
     if (p.email) {
       const canEmail = await wantsEmail(p.userId);
       if (canEmail) {
@@ -141,11 +153,14 @@ export async function createAndEmail(p: {
             .update(notifications)
             .set({ emailSent: true })
             .where(eq(notifications.id, notif.id));
+          emailed = true;
         }
       }
     }
+    return { notificationId: notif.id, emailed };
   } catch (err) {
     console.error(`[notifications] Failed to notify ${p.userId} (${p.type}):`, err);
+    return null;
   }
 }
 
@@ -981,6 +996,62 @@ export async function notifyVerificationReminder(p: {
       : `Reminder: Complete verification for "${p.campaignTitle}"`,
     message: `Your campaign was fully funded ${p.daysSinceCompletion} days ago. Complete verification to receive your funds. ${p.deadlineDays} days remaining.`,
     link: `/dashboard/campaigns/${p.campaignSlug}/verification`,
+    email: { to: p.creatorEmail, ...emailContent },
+  });
+}
+
+/**
+ * Send ONE consequence-keyed verification reminder, chosen by
+ * `src/lib/verification-reminders.ts` and fired by
+ * `cron/verification-reminders`.
+ *
+ * ⛔ Not `notifyVerificationReminder` above. That one is written for a funded
+ * campaign on a deadline that does not exist; see the header of
+ * `verification-reminders.ts`. This one says what is true now.
+ *
+ * The money labels arrive already formatted, so nothing here touches a minor
+ * unit.
+ */
+export async function notifyVerificationConsequence(p: {
+  creatorId: string;
+  creatorEmail: string;
+  creatorName: string;
+  campaignId: string;
+  campaignTitle: string;
+  level: 'first_money' | 'approaching_cap' | 'at_cap' | 'funded_and_stuck';
+  capLabel: string;
+  raisedLabel: string;
+  goalLabel: string;
+}) {
+  const emailContent = verificationConsequenceEmail({
+    campaignerName: p.creatorName || 'Campaigner',
+    campaignTitle: p.campaignTitle,
+    campaignId: p.campaignId,
+    level: p.level,
+    capLabel: p.capLabel,
+    raisedLabel: p.raisedLabel,
+    goalLabel: p.goalLabel,
+  });
+
+  /*
+    The in-app message mirrors the email's one true statement rather than
+    paraphrasing it. docs/110 found seven surfaces each with their own idea of
+    the journey; a notification row that says something subtly different from
+    the email it accompanies is how that starts.
+  */
+  const message = {
+    first_money: 'Your campaign has started raising money. We cannot pay you until we check your ID.',
+    approaching_cap: `This campaign can raise up to ${p.capLabel} until we check your ID.`,
+    at_cap: 'This campaign has stopped taking gifts until we check your ID.',
+    funded_and_stuck: 'Your campaign met its goal. We cannot send the money until we check your ID and your papers.',
+  }[p.level];
+
+  return createAndEmail({
+    userId: p.creatorId,
+    type: 'info_request',
+    title: emailContent.subject,
+    message,
+    link: `/dashboard/campaigns/${p.campaignId}/verification`,
     email: { to: p.creatorEmail, ...emailContent },
   });
 }

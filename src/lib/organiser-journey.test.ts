@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 import {
   nextOrganiserAction,
   organiserJourney,
+  organiserJourneyOutline,
   unverifiedCapLabel,
   type JourneyFacts,
   type StepId,
@@ -236,6 +237,53 @@ describe('nextOrganiserAction', () => {
       expect(s.href, `${s.id} has no href`).toBeTruthy();
       expect(s.action, `${s.id} has no action label`).toBeTruthy();
     }
+  });
+});
+
+describe('the outline cannot drift from the ladder', () => {
+  /*
+    `/how-it-works` and the wizard never mentioned the ID check at all
+    (docs/110), so somebody deciding whether to start a campaign learned
+    nothing until after they submitted. The outline is what those surfaces
+    render. Written as prose on the page it would have been a SEVENTH idea of
+    the journey, so it lives beside the ladder - and this is the assertion
+    that keeps it honest.
+  */
+  it('has the same steps, in the same order', () => {
+    expect(organiserJourneyOutline().map((s) => s.id)).toEqual(
+      organiserJourney(base).map((s) => s.id),
+    );
+  });
+
+  it('every step says something, in the second person', () => {
+    for (const s of organiserJourneyOutline()) {
+      expect(s.title, s.id).toBeTruthy();
+      expect(s.detail.length, s.id).toBeGreaterThan(10);
+      expect(s.detail.endsWith('.'), s.id).toBe(true);
+    }
+  });
+
+  it('⛔ names the photo ID, which is the sentence that was missing', () => {
+    const identity = organiserJourneyOutline().find((s) => s.id === 'identity')!;
+    expect(identity.detail.toLowerCase()).toContain('photo id');
+    // And says what the check is for. "Verification" alone reads as
+    // paperwork rather than as the thing between them and the money.
+    expect(identity.detail.toLowerCase()).toContain('money');
+  });
+
+  it('marks the one step where the organiser waits on us', () => {
+    const weAct = organiserJourneyOutline().filter((s) => s.weAct).map((s) => s.id);
+    expect(weAct).toEqual(['review']);
+  });
+
+  it('⛔ quotes no turnaround and promises no decision email', () => {
+    // Same two rules as the ladder (docs/78, docs/93), asserted separately
+    // because this copy is on a PUBLIC page and reaches more people.
+    const all = organiserJourneyOutline()
+      .flatMap((s) => [s.title, s.detail])
+      .join(' ');
+    expect(all).not.toMatch(/\b\d+\s*(hours?|days?|weeks?)\b/i);
+    expect(all).not.toMatch(/when it is decided|\bdecision\b|either way/i);
   });
 });
 

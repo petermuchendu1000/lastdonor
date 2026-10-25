@@ -1852,7 +1852,33 @@ export function ShareYourStoryForm() {
                 <p className="text-base font-semibold text-foreground">What happens next?</p>
                 <ul className="mt-3 space-y-2 text-sm leading-relaxed text-muted-foreground">
                   <li>A person reads your campaign before it is published. It is not public yet</li>
-                  <li>We email you when it is decided, and tell you exactly what to change if anything needs changing</li>
+                  {/*
+                    ⛔ This line used to read "We email you when it is decided,
+                    and tell you exactly what to change if anything needs
+                    changing". That is the EXACT sentence docs/93 deleted from
+                    the submission email, for the reason it is still deleted
+                    there: a REFUSED campaign notifies nobody. `under_review`
+                    transitions only to `active` or `suspended`, and the
+                    suspend path returns early for anything outside
+                    ['completed','archived'] and addresses DONORS, of which an
+                    unpublished campaign has none.
+
+                    It survived here, on the screen immediately above the
+                    submit button, which is the most load-bearing place in the
+                    product for it to be false. Only the approval half may be
+                    promised, because only that email sends.
+                  */}
+                  <li>We email you if it goes live</li>
+                  {/*
+                    The step nothing in this flow mentioned (docs/110). An
+                    organiser learned about the ID check only after
+                    submitting, and only if they found one grey line on the
+                    dashboard. Named here, before they commit.
+                  */}
+                  <li>
+                    Before we can pay you, we check who you are. You will need a
+                    photo ID, and proof of what the money is for
+                  </li>
                   <li>Once it is published, share the link with friends, family and social media</li>
                   <li>That email carries tips to maximize your reach</li>
                 </ul>

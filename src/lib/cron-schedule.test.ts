@@ -48,6 +48,7 @@ describe('each job fires exactly as often as its cron expression says', () => {
     'fetch-news': 28, //        0 */6  -> 4/day x 7
     reconcile: 7, //            0 4    -> 1/day x 7
     'refresh-fx-rates': 7, //   0 2    -> 1/day x 7
+    'verification-reminders': 7, // 0 9 -> 1/day x 7
     'blog-topics': 7, //        0 6    -> 1/day x 7
     'blog-generate': 7, //      0 8    -> 1/day x 7
     'send-newsletter': 1, //    0 14 * * 4 -> 1 Thursday

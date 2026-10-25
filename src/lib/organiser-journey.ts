@@ -348,6 +348,81 @@ export function organiserJourney(f: JourneyFacts): JourneyStep[] {
 }
 
 /**
+ * The same six steps, described for somebody who has no campaign yet.
+ *
+ * ── WHY THIS IS HERE AND NOT ON THE MARKETING PAGE ──────────────────────────
+ *
+ * `/how-it-works` and the six wizard screens never mentioned the ID check at
+ * all (`docs/110`), so a person deciding whether to start a campaign learned
+ * nothing about it until after they had submitted. The fix is a section on
+ * that page - and the moment it is written there as prose, there are SEVEN
+ * ideas of the journey again, which is the defect this module exists to end.
+ *
+ * So the outline lives here, beside the ladder, and
+ * `organiser-journey.test.ts` asserts the two have the same steps in the same
+ * order. A step added to one cannot go missing from the other.
+ *
+ * No state, no links, no campaign id: this reader has none of those. What it
+ * keeps is the part that makes the path worth reading - what each step is
+ * for, and which ones involve waiting on us.
+ */
+export interface JourneyOutlineStep {
+  id: StepId;
+  title: string;
+  /** One sentence, in the second person, true before any campaign exists. */
+  detail: string;
+  /** True when LastDonor acts and the organiser waits. */
+  weAct: boolean;
+}
+
+export function organiserJourneyOutline(): JourneyOutlineStep[] {
+  return [
+    {
+      id: 'write',
+      title: 'Write your campaign',
+      detail: 'Say who needs help, what for, and how much.',
+      weAct: false,
+    },
+    {
+      id: 'review',
+      title: 'A person reads it',
+      detail: 'Someone on our team checks it before anyone else can see it.',
+      weAct: true,
+    },
+    {
+      id: 'identity',
+      title: 'Check your ID',
+      /*
+        The sentence the whole product was missing. It names the document
+        they need and it says what the check is FOR, because "verification"
+        on its own reads as paperwork rather than as the thing between them
+        and the money.
+      */
+      detail: 'You show us a photo ID. We do this before we send anyone money.',
+      weAct: false,
+    },
+    {
+      id: 'documents',
+      title: 'Send your papers',
+      detail: 'Proof of what the money is for, such as a hospital bill.',
+      weAct: false,
+    },
+    {
+      id: 'payout_account',
+      title: 'Add where the money goes',
+      detail: 'Tell us the account to pay.',
+      weAct: false,
+    },
+    {
+      id: 'withdraw',
+      title: 'Take the money out',
+      detail: 'Ask for a payout and we send it.',
+      weAct: false,
+    },
+  ];
+}
+
+/**
  * The one thing to put in front of the organiser right now, or null.
  *
  * For a compact surface - a dashboard row, an email subject - where the whole

@@ -179,36 +179,122 @@ on `hasPublicPage` (`docs/109` §5a).
 
 ---
 
-## 7. ⛔ Still to build: the reminder ladder
+## 7. ✅ RESOLVED 2026-10-25: the reminder ladder
 
-Owner approved wiring the four reminder emails to a cron. **They cannot be
-wired as they stand**, and this is the finding that matters most for whoever
-picks it up:
+Owner approved wiring the four reminder emails to a cron. **They could not be
+wired as they stood**, and the finding below is the reason. The replacement
+ships as `cron/verification-reminders`, daily at 09:00 UTC.
 
-Every one of the four levels says *"Your campaign reached its goal N days
-ago"* and threatens *"we may have to send the money back to the people who
-gave it"*. That copy is written for a **funded** campaign whose money is
-stuck. Fired on the chosen trigger — live, unverified, possibly with zero
-donations — **every sentence of it would be false.**
+### 7.1 The original finding, which still holds
 
-So the existing ladder stays as it is, for its own situation, and the chosen
-policy needs one keyed on **consequence rather than elapsed days**:
+`notifyVerificationReminder` had four urgency levels and zero callers. Every
+one of the four opens with *"Your campaign reached its goal N days ago"* and
+threatens *"we may have to send the money back to the people who gave it"*.
+That copy is written for a **funded** campaign whose money is stuck. Fired on
+the chosen trigger - live, unverified, possibly with zero donations - every
+sentence of it would be false.
 
-| level | when | what is true |
+### 7.2 ⚠️ A correction to this document's own proposal
+
+The table below originally said level 4 could reuse *"the existing funded
+ladder"*. **That was wrong**, and it was wrong for a reason worth recording:
+the funded ladder's problem is not only that it counts days.
+
+[VERIFIED 2026-10-25, by enumerating every refund call site in `src/`] **No
+mechanism sends money back on a clock.** Every refund path is admin-initiated
+(`admin/donations/[id]`, `admin/campaigns/[campaignId]/cancel`,
+`admin/refund-batches/[id]`) or a gateway webhook reacting to a failed charge.
+There is no deadline clock, no constant naming a verification deadline, and
+`deadlineDays` exists only as a field an admin types into an **info request**.
+
+So the threat has nothing behind it and the countdown counts down to nothing.
+A cron is exactly what turns dormant bad copy into mail somebody receives, so
+level 4 got new copy too. `verificationReminderEmail` is left in place,
+unused, for its own hypothetical situation.
+
+### 7.3 What shipped
+
+| level | when it is true | what the email says |
 |---|---|---|
-| 1 | live, unverified, well under the cap | you can take donations; we cannot pay you |
-| 2 | approaching the cap | at `<cap>` this campaign stops taking donations |
-| 3 | at the cap | this campaign cannot take any more money |
-| 4 | goal reached, unverified | the existing funded ladder — money stuck |
+| `first_money` | live, unverified, first real donation arrived | you have money coming in; we cannot send it until we check your ID; the campaign can raise up to `<cap>` |
+| `approaching_cap` | real raised ≥ 70% of the cap | it can raise up to `<cap>`, then it stops taking gifts |
+| `at_cap` | real raised ≥ the cap | it has stopped; people who try to give are turned away |
+| `funded_and_stuck` | goal reached, not `fully_verified` | we hold the money and cannot send it until a person checks your ID and your papers |
 
-Send-once tracking belongs in `audit_logs.details`, the pattern `docs/41` uses
-for the bulk-email filter.
+Keyed on **consequence, not elapsed days**. A day count is the easy trigger
+and it says nothing: *"it has been 14 days"* is not a reason to act, *"this
+campaign stops taking money at $500"* is.
 
-⚠️ Also unresolved: the existing ladder signs off to **`verify@lastdonor.org`**,
-a different mailbox from the `support@lastdonor.org` used everywhere else.
-Whether it exists is unverified; `docs/73` would be the place to check.
+- **Pure decision**: `src/lib/verification-reminders.ts` (no database).
+- **Queries**: `src/lib/verification-reminders.server.ts` - extracted so a
+  test can execute them, because `docs/107` is a doc about a query that lived
+  inline in a handler and was run by nothing.
+- **Route**: `src/app/api/v1/cron/verification-reminders/route.ts` - the loop
+  and the mail, nothing else.
+- **Schedule**: one row in `CRON_SCHEDULE`, `0 9 * * *`.
+- **Ledger**: `audit_logs` rows of type `verification_reminder.sent`, keyed
+  `target_id = campaign id`, level in `details.level` - the `docs/41` pattern.
+
+### 7.4 ⚠️ The two tiers, again
+
+`identity_verified` **lifts the raise cap**. So for such a campaign all three
+cap levels are FALSE - telling that organiser their campaign stops at $500
+would be a lie, and it is exactly the state a naive "not fully verified"
+filter would mail. Only `funded_and_stuck` survives there, and it is still
+true, because a payout needs `fully_verified`.
+
+### 7.5 Bounds, and what was deliberately not built
+
+- **Four emails, ever.** Each level sends at most once per campaign for its
+  whole life, plus a 24-hour floor between any two sends. A unit test walks a
+  campaign across all four levels and asserts the bound.
+- **Silence at zero donations.** `first_money` requires a real donation.
+  REJECTED: firing level 1 a fixed number of days after publication - that is
+  the day-count trigger this ladder exists to avoid, and per `docs/72` most
+  campaigns have never had a donation, so it would have mailed nearly every
+  organiser about nothing.
+- **No retry on a failed send.** `createAndEmail` logs and swallows every
+  failure, so the ledger row is written AFTER the send and records
+  `emailed: true|false` rather than an intention. A failed or opted-out email
+  still spends the level. REJECTED: retrying tomorrow - the in-app
+  notification exists either way, the dashboard ladder says the same thing,
+  and a retry loop around a send nobody can un-send is how an organiser gets
+  mailed twice about their own money. The accepted cost is that a Resend
+  outage silently eats one level per affected campaign; `details.emailed`
+  makes it visible rather than guessable.
+- **The lock fails CLOSED.** Send-once is written after the send, so two
+  overlapping runs could both read "not sent" and both mail. That is the one
+  duplicate the ledger cannot prevent on its own, so overlap is refused
+  instead.
+- **No cap claim in a currency we cannot price.** `capMinor` returns null
+  rather than letting `getCurrency` throw mid-sweep (`docs/92`), and a null
+  cap reaches no level that quotes one.
+- **Daily, not hourly.** The decision is already send-once with a 24-hour
+  floor, so hourly would send exactly the same emails 23 times more often
+  over an empty candidate set.
+- **A per-run ceiling of 25**, oldest-published first. A backlog must not
+  become a hundred sequential Resend calls in one request against a pool of
+  five (`docs/87`); a campaign deferred today is at the front tomorrow.
+
+### 7.6 Measured against the real figure
+
+The cap is read from `realRaisedMinorSql` (`src/db/real-raised.ts`), never
+`campaigns.raised_amount`, which is blended with fabricated seed money
+(`docs/33`). **Proven by injection**: swapping the expression for
+`campaigns.raisedAmount` fails 8 of the 13 integration tests, including the
+one that sets the two columns to disagree.
+
+### 7.7 ⚠️ Still unresolved: the `verify@lastdonor.org` mailbox
+
+The old ladder signs off to `verify@lastdonor.org`, a mailbox nothing else in
+the product uses. **Its existence is [UNKNOWN]** - `dig` is not available in
+this sandbox, so the MX records were not read, and Resend does not handle
+inbound mail. The new copy uses `support@lastdonor.org`, which every other
+template uses, and a test forbids the other address. Whoever has DNS access
+should either confirm `verify@` receives mail or delete the old template.
 
 ---
+
 
 ## 8. Verified
 
@@ -238,15 +324,136 @@ Gate: lint clean, typecheck clean, **6,977 unit tests pass + 16 skipped across
 
 ---
 
-## 9. What this does not fix
+## 9. ✅ RESOLVED 2026-10-25: told before they start
 
-- The reminder ladder (§7) — approved, not built.
-- ⛔ **A refused campaign still notifies nobody** (`docs/93`, open). The
-  journey copy is careful never to promise a decision email, which is a
-  mitigation, not a fix.
-- `/how-it-works` still never mentions verification. Somebody deciding whether
-  to start a campaign learns nothing about it until after they submit.
-- The wizard's six screens still say nothing; only the confirmation after them
-  does. Naming it earlier is a bigger copy change than this pass.
+§9 of this document used to say `/how-it-works` never mentioned verification
+and that the wizard's six screens said nothing. Both are now fixed, and
+fixing them turned up a defect worse than the one being fixed.
+
+### 9.1 The outline lives beside the ladder, not on the page
+
+`organiserJourneyOutline()` (in `organiser-journey.ts`) returns the same six
+steps described for somebody with no campaign yet: no state, no links, no
+campaign id, but each step's purpose and a flag for the one step where
+LastDonor acts and the organiser waits.
+
+It is in that module **because writing it as prose on the marketing page
+would have been a seventh partial idea of the journey**, which is the exact
+defect this document exists to end. `organiser-journey.test.ts` asserts the
+outline and the ladder have the same steps in the same order, so a step added
+to one cannot go missing from the other.
+
+Rendered on `/how-it-works` as "If you are starting a campaign". Two FAQ
+entries added there and one on `/share-your-story`, which is the page somebody
+reads while *deciding* - and those feed the `FAQPage` JSON-LD, so the answer
+is machine-readable too.
+
+The wizard gets one line in the existing "What happens next?" block rather
+than a new screen or a new panel: `docs/75` cut screen 1 from asking its
+question three times down to once, and re-bloating it would undo that.
+
+### 9.2 ⛔ The defect found on the way: a promise already deleted once
+
+The wizard's "What happens next?" list said:
+
+> *"We email you when it is decided, and tell you exactly what to change if
+> anything needs changing"*
+
+**That is the exact sentence `docs/93` deleted from the submission email**,
+for a reason that has not changed: a REFUSED campaign notifies nobody.
+`under_review` transitions only to `active` or `suspended`; the suspend path
+reaches `notifyCampaignStatusChange`, which returns early for anything
+outside `['completed','archived']` and addresses DONORS, of which an
+unpublished campaign has none.
+
+It was sitting on the screen immediately above the submit button - the most
+load-bearing place in the product for it to be false. Now: *"We email you if
+it goes live"*, which is the half that genuinely sends, and the same words
+`organiserJourney`'s review step already used.
+
+### 9.3 ⚠️ Why it survived, which is the transferable part
+
+The rule was **already asserted in two places** when it was broken in a
+third:
+
+| surface | asserted by |
+|---|---|
+| `SubmittedForReviewNotice` | `submit-redirect.test.ts:154` |
+| the submission email | `email-templates.submission-receipt.test.ts:163` |
+| the wizard's own list | **nothing** |
+
+Two correct assertions and one unswept surface read, from the outside,
+exactly like coverage. So the fix is not a third assertion:
+`src/app/share-your-story/organiser-promises.test.ts` **sweeps every
+organiser-facing screen** under four directories and applies three rules to
+all of them. Proven by injection - restoring the old line fails 3 of its 13
+tests.
+
+### 9.4 ⚠️ The sweep's own false positive, and why it was narrowed not excluded
+
+The first version of the turnaround rule matched `within \d+ days` anywhere
+and flagged `FundraiserPreviewModal.tsx`, which says a donor may request a
+refund *"normally within 30 days of giving"*. [VERIFIED] `/refund-policy`
+says the same thing, it is hedged, and it is about refunds, not review. A
+false positive, not a defect.
+
+The rule now requires the duration to sit in the same sentence as a word
+about review or publication, and a test pins the refund sentence as
+acceptable - because a rule that forbids every duration would push the next
+person to delete a true, useful sentence to get the suite green.
+
+---
+
+## 10. ⛔ Found and NOT fixed: the Stripe fee claim
+
+While reading `/how-it-works` and the wizard, both were found quoting
+**Stripe's fee schedule**:
+
+> *"Stripe charges 2.9% plus 30 cents to process the payment. On a $50
+> donation that is $1.75, so the campaign gets $48.25."*
+
+[VERIFIED 2026-10-25, from `/api/v1/health` in production] Stripe answers
+`"status":"error"`, PayHero answers `"status":"ok"`. `docs/72` records that
+`STRIPE_SECRET_KEY` on Fly is a placeholder and that `donations` had zero
+rows on that rail; `docs/92` records the live rail as PayHero over M-Pesa,
+with real money collected. `docs/94` already removed two Stripe-specific
+lines from outgoing mail for this reason.
+
+So the public pages quote a fee schedule for a gateway that cannot take a
+payment, and omit the one that can.
+
+**It is reported rather than fixed, deliberately.** It is in **ten files**:
+
+```
+src/components/campaign/DonationForm.tsx
+src/components/homepage/Testimonials.tsx
+src/components/homepage/WhereYourMoneyGoes.tsx
+src/components/homepage/HomepageFAQ.tsx
+src/app/donate/page.tsx
+src/app/donor-faq/page.tsx
+src/app/share-your-story/page.tsx
+src/app/share-your-story/ShareYourStoryForm.tsx
+src/app/compare/page.tsx
+src/app/how-it-works/page.tsx
+```
+
+Changing two of them would be a patchwork, and the replacement wording is not
+a mechanical substitution: `docs/59` holds the fee ledger and GoFundMe's
+verified published fees, and `docs/92` records that **PayHero's own published
+fee table is wrong** (flat KES 8.9, not KES 6, so 17.8% is absorbed at the
+floor). So there is no correct number to swap in without an owner decision
+about what the platform says about each rail. Needs one pass over all ten,
+with that decision made first.
+
+---
+
+## 11. What this still does not fix
+
+- ⛔ **A refused campaign still notifies nobody** (`docs/93`, open — an owner
+  policy call). Every piece of copy in this pass is careful never to promise a
+  decision email, which is a mitigation, not a fix.
+- ⛔ **The Stripe fee claim in ten files** (§10) — needs an owner decision
+  first.
+- ⚠️ The `verify@lastdonor.org` mailbox (§7.7) — existence [UNKNOWN].
 - No E2E coverage of any of it — `docs/99` records the missing signed-in
   fixture, which is the gap that let all of this sit unobserved.

@@ -228,7 +228,8 @@ export type CronJobName =
   | 'screen-documents'
   | 'send-newsletter'
   | 'simulate-donations'
-  | 'update-phases';
+  | 'update-phases'
+  | 'verification-reminders';
 
 export interface CronLockSpec {
   name: CronJobName;
@@ -342,6 +343,16 @@ export const CRON_LOCKS: Record<CronJobName, CronLockSpec> = {
     'including a body fetch and an AI classification for every new article ' +
     '(capped at MAX_NEW_ARTICLES_PER_RUN), so overlap is a real cost. Fail ' +
     'closed like the other AI jobs.',
+  ),
+  'verification-reminders': spec(
+    'verification-reminders', 300, 'skip',
+    'SENDS EMAIL. Send-once is tracked by an audit row written AFTER the ' +
+    'send, so two concurrent runs can both read "not sent yet" and both ' +
+    'mail the same organiser - the one duplicate this ledger cannot ' +
+    'prevent on its own. A mailed duplicate cannot be retracted; the job ' +
+    'runs daily, so deferring one window costs a day of latency on a ' +
+    'reminder that is not time-critical by construction (it is keyed on ' +
+    'consequence, not on a clock). Fail closed.',
   ),
   reconcile: spec(
     'reconcile', 300, 'run',

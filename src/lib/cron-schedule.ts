@@ -127,6 +127,24 @@ export const CRON_JOBS: readonly CronJob[] = [
     isDue: () => true,
   },
   {
+    /*
+      Verification reminders, once a day at 09:00 UTC.
+
+      Daily, not hourly, and the cadence is a property of the DECISION not of
+      the queue: `dueReminder` sends each of the four levels at most once per
+      campaign for its whole life, and holds a 24-hour floor between any two
+      sends to the same campaign. Running hourly would therefore send exactly
+      the same emails, 23 times more often over an empty candidate set.
+
+      09:00 UTC is noon in Nairobi and morning in most of the US daytime
+      window - a reminder that asks somebody to find a photo ID is better
+      read awake. Nothing depends on the hour; it is not racing another job.
+    */
+    job: 'verification-reminders',
+    cron: '0 9 * * *',
+    isDue: ({ minute, hour }) => minute === 0 && hour === 9,
+  },
+  {
     job: 'blog-topics',
     cron: '0 6 * * *',
     isDue: ({ minute, hour }) => minute === 0 && hour === 6,

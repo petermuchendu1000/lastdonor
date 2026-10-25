@@ -726,6 +726,93 @@ export function verificationReminderEmail(p: {
   };
 }
 
+/**
+ * The consequence-keyed verification reminder, sent by
+ * `cron/verification-reminders`.
+ *
+ * ⛔ This is NOT `verificationReminderEmail` above, and the difference is
+ * deliberate. That one opens every level with "reached its goal N days ago"
+ * and threatens to send the donations back. [VERIFIED 2026-10-25] nothing in
+ * this codebase sends money back on a clock - every refund path is started by
+ * an admin - and the campaigns this cron finds have usually reached no goal.
+ * See the header of `src/lib/verification-reminders.ts`.
+ *
+ * Each level states one thing that is true of the campaign right now. No
+ * deadline, no countdown, no turnaround time (`docs/78`), and no claim about
+ * what happens to money nobody has decided to move.
+ *
+ * `capLabel`, `raisedLabel` and `goalLabel` arrive already formatted by
+ * `formatMoney`, so this template does no money arithmetic and cannot divide
+ * a zero-decimal currency by 100 (`docs/92`).
+ */
+export function verificationConsequenceEmail(p: {
+  campaignerName: string;
+  campaignTitle: string;
+  campaignId: string;
+  level: 'first_money' | 'approaching_cap' | 'at_cap' | 'funded_and_stuck';
+  capLabel: string;
+  raisedLabel: string;
+  goalLabel: string;
+}) {
+  const title = `<strong>&quot;${esc(p.campaignTitle)}&quot;</strong>`;
+
+  const levels = {
+    first_money: {
+      subject: 'Your campaign has money. Now check your ID.',
+      heading: 'Check your ID',
+      headingColor: '#0F766E',
+      body:
+        `<p>People have started giving to ${title}.</p>` +
+        `<p>We cannot send you any of it until we check who you are.</p>` +
+        `<p>It takes a few minutes. You need a photo ID.</p>` +
+        `<p>This campaign can raise up to ${esc(p.capLabel)} before it stops taking gifts.</p>`,
+    },
+    approaching_cap: {
+      subject: 'Your campaign is close to its limit',
+      heading: 'Your campaign is close to its limit',
+      headingColor: '#0F766E',
+      body:
+        `<p>${title} has raised ${esc(p.raisedLabel)}.</p>` +
+        `<p>It can raise up to ${esc(p.capLabel)} until we check who you are.</p>` +
+        `<p>After that it stops taking gifts.</p>` +
+        `<p>Checking your ID takes a few minutes and lifts the limit.</p>`,
+    },
+    at_cap: {
+      subject: 'Your campaign has stopped taking gifts',
+      heading: 'Your campaign has stopped taking gifts',
+      headingColor: '#EA580C',
+      body:
+        `<p>${title} has raised ${esc(p.raisedLabel)}.</p>` +
+        `<p style="color: #EA580C; font-weight: 600;">It cannot take any more until we check who you are.</p>` +
+        `<p>People who try to give are turned away.</p>` +
+        `<p>Checking your ID takes a few minutes. Then it starts again.</p>`,
+    },
+    funded_and_stuck: {
+      subject: 'Your campaign met its goal. We need your ID.',
+      heading: 'Your campaign met its goal',
+      headingColor: '#0F766E',
+      body:
+        `<p>${title} has reached its goal of ${esc(p.goalLabel)}.</p>` +
+        `<p>We hold that money for you.</p>` +
+        `<p>We cannot send it until a person has checked your ID and your papers.</p>` +
+        `<p>Start with your ID. It takes a few minutes.</p>`,
+    },
+  };
+
+  const config = levels[p.level];
+  return {
+    subject: config.subject,
+    html: wrap(`
+      <h1 style="color: ${config.headingColor}; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">${config.heading}</h1>
+      <p>Hi ${esc(p.campaignerName)},</p>
+      ${config.body}
+      ${ctaButton(`${BASE_URL}/dashboard/campaigns/${p.campaignId}/verification`, 'Check my ID')}
+      <p style="color: #666; font-size: 14px;">Stuck? Write to <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a> and we will help.</p>
+    `),
+  };
+}
+
+
 // ─── Identity Verification Emails ──────────────────────────────────────────
 
 export function identityApprovedEmail(p: {

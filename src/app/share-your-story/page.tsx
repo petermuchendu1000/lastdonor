@@ -41,6 +41,18 @@ const faqs = [
       'Yes. You can create a personal fundraiser for yourself or start a fundraiser for a family member, friend, colleague, organization, or community member.',
   },
   {
+    /*
+      Added 2026-10-25 (docs/110). Nothing in this flow mentioned the ID
+      check - not this page, not the six wizard screens - so an organiser
+      learned about it only after submitting. This is the page somebody reads
+      while DECIDING whether to start, so it is the right place to say it,
+      and it also feeds the FAQPage JSON-LD below.
+    */
+    question: 'Do I need to prove who I am?',
+    answer:
+      'Yes, before we send you any money. You show us a photo ID, and proof of what the money is for, such as a hospital bill. You do not need either to write your campaign or to send it in. You do it from your dashboard afterwards, and it takes a few minutes.',
+  },
+  {
     question: 'Does LastDonor charge a setup fee?',
     answer:
       'No. We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',

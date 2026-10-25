@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { organiserJourneyOutline } from '@/lib/organiser-journey';
 import {
   MagnifyingGlassIcon,
   CurrencyDollarIcon,
@@ -75,6 +76,16 @@ const faqs = [
       'Name the person the money is for. Say where they live. Ask for an amount you can explain. Add a bill or letter if you have one. Write the story the way you would tell a friend.',
   },
   {
+    question: 'Do I have to prove who I am?',
+    answer:
+      'Yes, before we send you any money. You show us a photo ID. Until that is done your campaign can still take gifts, but only up to a limit, and we cannot pay you. You do this from your dashboard after you send your campaign in.',
+  },
+  {
+    question: 'When do I need my ID ready?',
+    answer:
+      'Not to write your campaign, and not to send it in. You need it before we can pay you, so it is worth doing as soon as your campaign is live. We also ask for proof of what the money is for, such as a hospital bill.',
+  },
+  {
     question: 'How do donors know what happened after a campaign closes?',
     answer:
       'The campaign posts an update on its page. It can include photos, receipts, and a note about what the money paid for. You get an email when it does.',
@@ -136,6 +147,57 @@ export default function HowItWorksPage() {
             );
           })}
         </div>
+
+        {/*
+          What an organiser actually has to do, named BEFORE they start.
+
+          Until 2026-10-25 this page never mentioned the ID check - the word
+          "verification" did not appear on it - so somebody deciding whether
+          to start a campaign learned nothing about it until after they had
+          submitted (`docs/110`). The steps come from `organiserJourneyOutline`
+          rather than being written here, so this section cannot drift from
+          the ladder the dashboard shows. Do not retype them.
+        */}
+        <section className="mt-16" aria-labelledby="organiser-path">
+          <h2 id="organiser-path" className="font-display text-2xl font-bold text-foreground">
+            If you are starting a campaign
+          </h2>
+          <p className="mt-2 max-w-prose text-muted-foreground">
+            Here is every step, start to finish. You need a photo ID before we
+            can send you money, so it is worth knowing now.
+          </p>
+          <ol className="mt-6 space-y-4">
+            {organiserJourneyOutline().map((step, i) => (
+              <li key={step.id} className="flex gap-4">
+                <span
+                  aria-hidden="true"
+                  className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs font-bold text-primary"
+                >
+                  {i + 1}
+                </span>
+                <div>
+                  <h3 className="font-semibold text-foreground">
+                    {step.title}
+                    {step.weAct && (
+                      <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                        we do this
+                      </span>
+                    )}
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    {step.detail}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <Link
+            href="/share-your-story"
+            className="mt-6 inline-flex rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent/90"
+          >
+            Start a campaign
+          </Link>
+        </section>
 
         <section className="mt-16" aria-labelledby="how-it-works-faq">
           <h2 id="how-it-works-faq" className="font-display text-2xl font-bold text-foreground">
