@@ -1465,6 +1465,100 @@ export const institutionVouches = pgTable(
   ],
 );
 
+// ─── Campaign collaborators ─────────────────────────────────────────────────
+
+/**
+ * People the organiser has invited to help run a campaign.
+ *
+ * ── WHY THIS TABLE EXISTS, AND WHAT IT DELIBERATELY CANNOT DO ───────────────
+ *
+ * GoFundMe's team-fundraising loop: a family in crisis has one cousin running
+ * the page, another posting updates, and three more pushing it to their own
+ * networks. Added 2026-10-25, see `docs/111`.
+ *
+ * ⛔ A collaborator row grants CONTENT capabilities and NOTHING ELSE. It
+ * cannot authorise a payout, change where money is sent, upload identity
+ * documents, delete a campaign, or invite further collaborators. The
+ * enumerated set lives in `src/lib/collaborators/capabilities.ts` and a
+ * boundary test fails the build if this module can write a money column.
+ *
+ * ⚠️ WHY THAT RESTRICTION IS NOT OPTIONAL. [VERIFIED 2026-10-25]
+ * `user-campaigns/[id]/withdraw/route.ts:146-154` resolves the payout
+ * destination with `eq(users.id, session.user.id)` - the CALLER's Stripe
+ * Connect account - and hands it to `createTransfer` at line 405. There is no
+ * later re-check that the destination belongs to the creator. The invariant
+ * "the credited account belongs to the person the funds are owed to" holds
+ * ONLY because line 138 enforces `creatorId === session.user.id` eight lines
+ * earlier. Treating a collaborator as an owner would therefore pay a
+ * family's crisis funds into the cousin's bank account, with no error.
+ *
+ * ⚠️ And identity: `verification/documents/route.ts:63` is creator-gated. The
+ * platform's claim is that it has checked who the ORGANISER is. A helper
+ * uploading their own ID would make that claim false - the same reasoning
+ * `docs/108` used to refuse `fully_verified` for an institutional vouch.
+ *
+ * ── SHAPE ───────────────────────────────────────────────────────────────────
+ *
+ * Its own table rather than `verification_tokens`, which is keyed
+ * `(identifier, token)` with a composite primary key and has nowhere to hang
+ * a campaign, an inviter, or an accepted-at. Same reasoning as
+ * `phone_verification_codes` (`docs/85`).
+ *
+ * `user_id` is NULL until the invite is accepted, because the person invited
+ * may not have an account yet. `canCollaborate` therefore requires BOTH a
+ * non-null `accepted_at` and a null `revoked_at`, so a pending invite grants
+ * nothing.
+ */
+export const campaignCollaborators = pgTable(
+  'campaign_collaborators',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** NULL until accepted. The invitee may have no account when invited. */
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    /** Lower-cased, enforced by a CHECK so two cases cannot both be live. */
+    invitedEmail: text('invited_email').notNull(),
+    invitedBy: uuid('invited_by')
+      .notNull()
+      .references(() => users.id),
+    /** SHA-256 only. The raw token exists in the invite email and nowhere else. */
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_campaign_collaborators_token').on(table.tokenHash),
+    index('idx_campaign_collaborators_campaign').on(table.campaignId),
+    index('idx_campaign_collaborators_user').on(table.userId),
+    /*
+      One LIVE invite or membership per (campaign, email). Partial on
+      `revoked_at is null` in the `institution_vouches` idiom, so revoking and
+      re-inviting the same person is allowed while double-inviting is not.
+    */
+    uniqueIndex('idx_campaign_collaborators_live')
+      .on(table.campaignId, table.invitedEmail)
+      .where(sql`${table.revokedAt} is null`),
+    check(
+      'campaign_collaborators_email_lower',
+      sql`${table.invitedEmail} = lower(${table.invitedEmail})`,
+    ),
+    /*
+      An accepted row must name the user who accepted it. Without this a row
+      could read "accepted" with a null `user_id`, which `canCollaborate`
+      matches on - and a null never equals a session id, so it would grant
+      nothing while looking granted. Cheap to forbid outright.
+    */
+    check(
+      'campaign_collaborators_accepted_has_user',
+      sql`${table.acceptedAt} is null or ${table.userId} is not null`,
+    ),
+  ],
+);
+
 // ─── Impact Updates ─────────────────────────────────────────────────────────
 
 export const impactUpdates = pgTable(

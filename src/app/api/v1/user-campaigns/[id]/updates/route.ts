@@ -10,6 +10,7 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import type { ApiResponse, ApiError } from '@/types/api';
+import { canCollaborate } from '@/lib/collaborators/can-collaborate';
 
 const createUpdateSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters').max(200),
@@ -46,7 +47,21 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const role = session.user.role as string;
     const isOwner = campaign.creatorId === session.user.id;
-    if (!isOwner && !['editor', 'admin'].includes(role)) {
+    const isStaff = ['editor', 'admin'].includes(role);
+    /*
+      A collaborator the organiser invited may post updates (`docs/111`).
+
+      ⚠️ `canCollaborate` is evaluated LAST on purpose. It issues a query, and
+      every route here is capped at three concurrent database queries
+      (`src/db/pool-fanout.ratchet.test.ts`, pool `max: 5`, `docs/87`); the
+      short-circuit keeps the owner's path - the common one - at the cost it
+      had before this feature existed.
+    */
+    if (
+      !isOwner &&
+      !isStaff &&
+      !(await canCollaborate(campaign.id, session.user.id, 'post_update'))
+    ) {
       throw new ForbiddenError();
     }
 

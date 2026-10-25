@@ -8,6 +8,8 @@ import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import type { ApiResponse, ApiError } from '@/types/api';
+import { canCollaborate } from '@/lib/collaborators/can-collaborate';
+import type { Capability } from '@/lib/collaborators/capabilities';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -16,7 +18,24 @@ interface Params {
 /**
  * Verify session + ownership. Returns { session, campaign } or a Response.
  */
-async function requireOwner(id: string, _requestId: string) {
+/**
+ * Resolve the campaign and authorise the caller.
+ *
+ * `allowCollaborator` is the capability a non-owner collaborator may use to
+ * reach this handler, or `undefined` for creator-and-staff only.
+ *
+ * ⛔ DELETE passes NOTHING, deliberately. Destroying a campaign and its
+ * history is not a content capability, and `delete_campaign` is named in
+ * `NEVER_DELEGATED` (`src/lib/collaborators/capabilities.ts`). The parameter
+ * is explicit at every call site precisely so that widening one method cannot
+ * widen the others by accident - which is what a single shared `requireOwner`
+ * would have done.
+ */
+async function requireOwner(
+  id: string,
+  _requestId: string,
+  allowCollaborator?: Capability,
+) {
   const session = await auth();
   if (!session?.user) throw new UnauthorizedError();
 
@@ -48,7 +67,17 @@ async function requireOwner(id: string, _requestId: string) {
 
   const role = session.user.role as string;
   const isOwner = campaign.creatorId === session.user.id;
-  if (!isOwner && !['editor', 'admin'].includes(role)) {
+  const isStaff = ['editor', 'admin'].includes(role);
+
+  // See the note on `canCollaborate`'s short-circuit order: the query only
+  // runs for a caller who is neither the owner nor staff.
+  const asCollaborator =
+    !isOwner &&
+    !isStaff &&
+    allowCollaborator !== undefined &&
+    (await canCollaborate(campaign.id, session.user.id, allowCollaborator));
+
+  if (!isOwner && !isStaff && !asCollaborator) {
     throw new ForbiddenError();
   }
 
@@ -63,7 +92,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
   const { id } = await params;
 
   try {
-    const result = await requireOwner(id, requestId);
+    const result = await requireOwner(id, requestId, 'edit_content');
 
     if (!result) {
       return NextResponse.json(
@@ -118,7 +147,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   const { id } = await params;
 
   try {
-    const result = await requireOwner(id, requestId);
+    const result = await requireOwner(id, requestId, 'edit_content');
 
     if (!result) {
       return NextResponse.json(
