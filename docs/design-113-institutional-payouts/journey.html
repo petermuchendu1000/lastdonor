@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Direct Institutional Payouts — Journey Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#0F766E; --primary-elevated:#0D655F; --primary-fg:#fff;
+    --accent:#D97706; --surface-teal:#ECF4F2; --surface-amber:#FDF3E4;
+    --surface-sage:#EEF4EE; --surface-ink:#0B2B28;
+    --ink:#1A1A1A; --muted:#5A6A67; --line:#E3EAE8; --bg:#fff;
+    --rose:#B42318; --surface-rose:#FEF3F2;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',system-ui,sans-serif;color:var(--ink);background:#F4F6F6}
+
+  /* ---- a screen is a fixed-size frame we screenshot by id ---- */
+  .frame{background:var(--bg);position:relative;overflow:hidden}
+  .frame.phone{width:390px;height:844px}
+  .frame.wide{width:1100px;min-height:520px}
+  .stage{padding:0;display:block}
+
+  /* the watermark is non-negotiable: these are designs, not the product */
+  .wm{position:absolute;top:0;right:0;z-index:99;background:var(--rose);color:#fff;
+      font-size:9px;font-weight:700;letter-spacing:.09em;padding:4px 8px;
+      border-bottom-left-radius:8px}
+  .wmd{position:absolute;inset:0;z-index:98;pointer-events:none;
+       background:repeating-linear-gradient(135deg,rgba(180,35,24,.028) 0 14px,transparent 14px 28px)}
+
+  h1,h2,.serif{font-family:'DM Serif Display',Georgia,serif;font-weight:400}
+
+  /* chrome */
+  .nav{height:52px;border-bottom:1px solid var(--line);display:flex;align-items:center;
+       justify-content:space-between;padding:0 16px;flex:none}
+  .logo{font-family:'DM Serif Display',serif;font-size:17px;color:var(--primary)}
+  .burger{width:20px;display:flex;flex-direction:column;gap:4px}
+  .burger i{height:2px;background:var(--ink);border-radius:2px}
+  .body{padding:16px;overflow:hidden}
+
+  .eyebrow{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .h-scr{font-size:25px;line-height:1.18;letter-spacing:-.01em;margin:6px 0 8px}
+  .p{font-size:14px;line-height:1.5;color:var(--muted)}
+  .p.ink{color:var(--ink)}
+  .sm{font-size:12px;line-height:1.45;color:var(--muted)}
+  .xs{font-size:11px;line-height:1.4;color:var(--muted)}
+
+  .card{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+  .card+.card{margin-top:10px}
+  .card.sel{border-color:var(--primary);box-shadow:0 0 0 2px rgba(15,118,110,.16)}
+  .card.flat{background:var(--surface-teal);border-color:#D4E6E2}
+
+  .btn{display:block;width:100%;text-align:center;background:var(--primary);color:#fff;
+       border:0;border-radius:10px;padding:14px;font-size:15px;font-weight:700;font-family:inherit}
+  .btn.ghost{background:#fff;color:var(--primary);border:1.5px solid var(--primary)}
+  .btn.dim{background:#EDF1F0;color:#8C9B98}
+  .btn.row{display:inline-block;width:auto;padding:9px 14px;font-size:13px}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;
+        padding:4px 9px;font-size:11px;font-weight:700;letter-spacing:.01em}
+  .pill.teal{background:var(--surface-teal);color:#0B5750}
+  .pill.amber{background:var(--surface-amber);color:#8A4C06}
+  .pill.rose{background:var(--surface-rose);color:var(--rose)}
+  .pill.grey{background:#F0F3F2;color:var(--muted)}
+
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+
+  .bar{height:7px;border-radius:999px;background:#EBF0EF;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--primary)}
+
+  .field{border:1px solid #CFDAD8;border-radius:10px;padding:11px 12px;font-size:14px;color:var(--ink)}
+  .field.ph{color:#9CA9A7}
+  .lbl{font-size:12px;font-weight:700;margin-bottom:6px;display:block}
+
+  .note{border-left:3px solid var(--accent);background:var(--surface-amber);
+        padding:10px 12px;border-radius:0 8px 8px 0}
+  .note.block{border-left-color:var(--rose);background:var(--surface-rose)}
+  .note.ok{border-left-color:var(--primary);background:var(--surface-teal)}
+  .note>b{font-size:12px;display:block;margin-bottom:3px}
+  .note span b{display:inline;font-size:inherit}
+  .note span{font-size:11.5px;line-height:1.45;color:var(--ink);display:block}
+
+  .hero{height:150px;background:linear-gradient(145deg,#15605A,#0B2B28);position:relative}
+  .hero .cap{position:absolute;bottom:10px;left:12px;right:12px;color:#fff}
+
+  .money{font-family:'DM Serif Display',serif;font-size:27px}
+  .money small{font-family:'DM Sans',sans-serif;font-size:12px;color:var(--muted);font-weight:500}
+
+  .steps{display:flex;gap:6px;align-items:center}
+  .steps i{height:3px;border-radius:2px;background:#E3EAE8;flex:1}
+  .steps i.on{background:var(--primary)}
+
+  /* admin */
+  .adm{display:flex;height:100%}
+  .side{width:208px;background:var(--surface-ink);color:#CFE3E0;padding:16px 12px;flex:none}
+  .side .logo{color:#fff;margin-bottom:16px;display:block}
+  .side a{display:block;font-size:12.5px;padding:8px 10px;border-radius:7px;color:#AFC9C5;text-decoration:none}
+  .side a.on{background:rgba(255,255,255,.1);color:#fff;font-weight:700}
+  .main{flex:1;padding:22px 26px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+     text-align:left;padding:0 10px 8px;font-weight:700}
+  td{font-size:13px;padding:11px 10px;border-top:1px solid var(--line);vertical-align:middle}
+  .tile{border:1px solid var(--line);border-radius:10px;padding:12px}
+  .tile .n{font-family:'DM Serif Display',serif;font-size:22px}
+  .tile .k{font-size:10.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;font-weight:700}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .row{display:flex;align-items:center;gap:10px}
+  .between{display:flex;align-items:center;justify-content:space-between}
+  .mt{margin-top:12px}.mt2{margin-top:18px}.mt3{margin-top:26px}
+  .stack>*+*{margin-top:10px}
+  hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+  .ledger{display:flex;justify-content:space-between;font-size:13px;padding:7px 0}
+  .ledger+.ledger{border-top:1px dashed var(--line)}
+  .ledger b{font-weight:700}
+  .recv{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .recv .top{background:var(--surface-teal);padding:11px 13px}
+  .recv .mid{padding:13px}
+</style>
+</head>
+<body>
+
+<!-- ============ A1 · ADMIN records the payee (the trust root) ============ -->
+<div class="stage"><div class="frame wide" id="s-a1">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="adm">
+    <div class="side">
+      <span class="logo">LastDonor</span>
+      <a href="#">Dashboard</a><a href="#">Campaigns</a><a href="#">Verification</a>
+      <a class="on" href="#">Institutions</a><a href="#">Payouts</a><a href="#">Audit log</a>
+    </div>
+    <div class="main">
+      <div class="eyebrow">Institutions · new payee record</div>
+      <h2 style="font-size:24px;margin:5px 0 3px">Kenyatta National Hospital</h2>
+      <p class="sm">Verified as an institution on 12 Oct 2026 by amina@lastdonor.org. Adding payment
+         details is a <b>separate</b> decision from vouching, and only you can make it.</p>
+
+      <div class="note block mt2">
+        <b>This is the record that can send a family's money to a stranger.</b>
+        <span>A wrong paybill or account field is not recoverable by us — M-Pesa reversals are manual,
+        slow and not guaranteed. Whoever saves this must have confirmed the number against the
+        institution directly, not from a website or a message.</span>
+      </div>
+
+      <div class="grid2 mt2">
+        <div>
+          <span class="lbl">M-Pesa paybill</span>
+          <div class="field">4&#8202;0&#8202;3&#8202;4&#8202;8&#8202;0</div>
+          <p class="xs mt">Shortcode the institution publishes for bill payment.</p>
+        </div>
+        <div>
+          <span class="lbl">Account number format</span>
+          <div class="field ph">e.g. IP number, or patient file number</div>
+          <p class="xs mt">What the organiser will be asked to type. Shown to them verbatim.</p>
+        </div>
+      </div>
+
+      <div class="mt2">
+        <span class="lbl">How you confirmed this paybill <span style="color:var(--rose)">· required</span></span>
+        <div class="field" style="height:58px">Called the billing office on the number printed on an
+          official invoice and read the shortcode back to them. Spoke to J. Mwangi, 24 Oct.</div>
+      </div>
+
+      <div class="note mt2">
+        <b>Not decided yet, and this screen cannot proceed without it</b>
+        <span>Whether LastDonor may settle a third party's bill at all is a licensing question
+        (CBK in Kenya, money transmission in the US). It is not an engineering gate.</span>
+      </div>
+
+      <div class="row mt2">
+        <button class="btn row dim">Save payee details</button>
+        <span class="xs">Disabled until the licence question in <b>docs/113 §5</b> is answered.</span>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+
+<!-- ============ B1 · ORGANISER is offered the choice ============ -->
+<div class="stage"><div class="frame phone" id="s-b1">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="body">
+    <div class="eyebrow">Your campaigns</div>
+    <h1 class="h-scr">Treatment for Baby Amani</h1>
+
+    <div class="card">
+      <div class="between">
+        <span class="pill amber"><span class="dot"></span>Waiting for review</span>
+        <span class="xs">KES 18,400 raised</span>
+      </div>
+      <div class="bar mt"><i style="width:37%"></i></div>
+      <p class="xs mt">Goal KES 50,000</p>
+    </div>
+
+    <div class="card flat mt">
+      <span class="eyebrow">Step 3 of 5 · where the money goes</span>
+      <p class="p ink mt" style="font-weight:700;font-size:15px">Send the money straight to the hospital?</p>
+      <p class="sm mt">You can have what people give sent directly to the hospital's own account,
+         instead of to you. Many donors trust this more.</p>
+      <p class="sm mt"><b>If you choose it, you will not receive this money yourself.</b>
+         It goes to the hospital to pay the bill.</p>
+      <button class="btn mt">Choose the hospital</button>
+      <button class="btn ghost mt">Keep it paid to me</button>
+    </div>
+
+    <div class="note mt">
+      <b>Design question for you</b>
+      <span>This puts the choice with the organiser, not the donor. A donor choosing per donation
+      would split one campaign across destinations and break the single-ledger rule
+      (<b>docs/92</b>).</span>
+    </div>
+  </div>
+</div></div>
+
+
+<!-- ============ B2 · pick the institution ============ -->
+<div class="stage"><div class="frame phone" id="s-b2">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="body">
+    <div class="steps mt"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+    <div class="eyebrow mt">Where the money goes · 2 of 4</div>
+    <h1 class="h-scr">Which hospital is treating Amani?</h1>
+    <p class="sm">We can only send money to places we have checked ourselves.</p>
+
+    <div class="field ph mt2">Search hospitals, clinics, funeral homes</div>
+
+    <div class="card sel mt">
+      <div class="between">
+        <div>
+          <p class="p ink" style="font-weight:700">Kenyatta National Hospital</p>
+          <p class="xs">Nairobi · public hospital</p>
+        </div>
+        <span class="pill teal"><span class="dot"></span>Checked</span>
+      </div>
+      <p class="xs mt">We confirmed this account belongs to the hospital on 24 Oct 2026.</p>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <div>
+          <p class="p ink" style="font-weight:700">Mater Misericordiae Hospital</p>
+          <p class="xs">Nairobi · private hospital</p>
+        </div>
+        <span class="pill teal"><span class="dot"></span>Checked</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <div>
+          <p class="p ink" style="font-weight:700">Nairobi Hospital</p>
+          <p class="xs">Nairobi · private hospital</p>
+        </div>
+        <span class="pill grey">No account yet</span>
+      </div>
+      <p class="xs mt">We have not checked a payment account here, so we cannot send money to it.</p>
+    </div>
+
+    <div class="note mt">
+      <b>Not in the list?</b>
+      <span>There is deliberately no "add your own". Anyone who could add a payee could point a
+      family's money at an account they control.</span>
+    </div>
+  </div>
+</div></div>
+
+
+<!-- ============ B3 · the account number ============ -->
+<div class="stage"><div class="frame phone" id="s-b3">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="body">
+    <div class="steps mt"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+    <div class="eyebrow mt">Where the money goes · 3 of 4</div>
+    <h1 class="h-scr">What is Amani's bill number?</h1>
+    <p class="sm">Kenyatta National Hospital asks for the <b>patient file number</b>. You will find it
+       on the top of any invoice they gave you.</p>
+
+    <div class="mt2">
+      <span class="lbl">Patient file number</span>
+      <div class="field">IP/2026/118-447</div>
+    </div>
+
+    <div class="mt2">
+      <span class="lbl">Type it again</span>
+      <div class="field">IP/2026/118-447</div>
+      <p class="xs mt">We ask twice because we cannot get this money back if it goes to the wrong bill.</p>
+    </div>
+
+    <div class="card flat mt2">
+      <p class="xs" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0B5750">We will send to</p>
+      <p class="p ink mt" style="font-weight:700">Kenyatta National Hospital</p>
+      <p class="sm">Paybill 403480 · account IP/2026/118-447</p>
+    </div>
+
+    <div class="note block mt">
+      <b>This is the field that can be wrong</b>
+      <span>The paybill we checked. The account number is <b>yours</b>, typed by you, and nothing
+      can check it. A right paybill with a wrong account pays a stranger's bill at the right
+      hospital.</span>
+    </div>
+
+    <button class="btn mt">Continue</button>
+  </div>
+</div></div>
+
+
+<!-- ============ B4 · what they are giving up ============ -->
+<div class="stage"><div class="frame phone" id="s-b4">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="body">
+    <div class="steps mt"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+    <div class="eyebrow mt">Where the money goes · 4 of 4</div>
+    <h1 class="h-scr">Read this before you agree</h1>
+
+    <div class="stack mt">
+      <div class="card">
+        <p class="p ink" style="font-weight:700">You will not get this money</p>
+        <p class="sm mt">Everything people give goes to the hospital, to the bill number you typed.
+           It will not reach your own account at any point.</p>
+      </div>
+      <div class="card">
+        <p class="p ink" style="font-weight:700">You cannot change it once we have sent money</p>
+        <p class="sm mt">You can change the hospital or the bill number up until the first payment
+           leaves. After that it stays.</p>
+      </div>
+      <div class="card">
+        <p class="p ink" style="font-weight:700">We still need to see your ID</p>
+        <p class="sm mt">Sending to a hospital does not replace the ID check. We still check who you
+           are before any money moves.</p>
+      </div>
+    </div>
+
+    <div class="note mt">
+      <b>Why the ID check stays</b>
+      <span>Verification gates money out of the platform. Letting a destination substitute for it
+      would let anyone raise, name a real hospital and a bill that is not theirs, and pay off a
+      stranger's debt with other people's donations.</span>
+    </div>
+
+    <button class="btn mt">I understand — send it to the hospital</button>
+    <button class="btn ghost mt">Go back</button>
+  </div>
+</div></div>
+
+
+<!-- ============ C1 · what the DONOR sees on the campaign ============ -->
+<div class="stage"><div class="frame phone" id="s-c1">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="hero"><div class="cap">
+    <span class="pill teal" style="background:rgba(255,255,255,.92)"><span class="dot"></span>Paid to the hospital</span>
+  </div></div>
+  <div class="body">
+    <h1 class="h-scr">Treatment for Baby Amani</h1>
+    <p class="sm">Nairobi, Kenya · medical</p>
+
+    <div class="mt2">
+      <p class="money">KES 18,400 <small>of KES 50,000</small></p>
+      <div class="bar mt"><i style="width:37%"></i></div>
+      <p class="xs mt">31 people have given</p>
+    </div>
+
+    <div class="card flat mt2">
+      <p class="p ink" style="font-weight:700;font-size:14px">Your money goes straight to the hospital</p>
+      <p class="sm mt">We send what you give to <b>Kenyatta National Hospital</b>, to Amani's bill.
+         It does not pass through the family's own account.</p>
+      <p class="xs mt" style="color:#0B5750"><b>What we checked:</b> that the account belongs to the
+         hospital. <b>What we have not:</b> we have not seen the organiser's ID yet.</p>
+    </div>
+
+    <button class="btn mt2">Donate</button>
+    <button class="btn ghost mt">Share</button>
+
+    <div class="note mt2">
+      <b>The sentence this whole feature rests on</b>
+      <span>It may only say what an admin actually confirmed. "Goes straight to the hospital" is a
+      factual claim about where funds land — if the rail cannot guarantee it, the words must
+      change, not the rail.</span>
+    </div>
+  </div>
+</div></div>
+
+
+<!-- ============ C2 · the donate screen ============ -->
+<div class="stage"><div class="frame phone" id="s-c2">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="body">
+    <div class="eyebrow">Treatment for Baby Amani</div>
+    <h1 class="h-scr">How much would you like to give?</h1>
+
+    <div class="grid2 mt">
+      <div class="card" style="text-align:center;padding:16px 0"><b>KES 200</b></div>
+      <div class="card sel" style="text-align:center;padding:16px 0"><b>KES 500</b></div>
+      <div class="card" style="text-align:center;padding:16px 0;margin-top:0"><b>KES 1,000</b></div>
+      <div class="card" style="text-align:center;padding:16px 0;margin-top:0"><b>Other</b></div>
+    </div>
+
+    <div class="card flat mt2">
+      <p class="xs" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0B5750">Your KES 500 goes to</p>
+      <p class="p ink mt" style="font-weight:700">Kenyatta National Hospital</p>
+      <p class="sm">Amani's bill · account IP/2026/118-447</p>
+    </div>
+
+    <div class="mt2">
+      <div class="ledger"><span>You give</span><b>KES 500.00</b></div>
+      <div class="ledger"><span>LastDonor keeps</span><b>KES 0.00</b></div>
+      <div class="ledger"><span>Mobile money charge</span><b>KES 8.90</b></div>
+      <div class="ledger"><span>Reaches the hospital</span><b>KES 491.10</b></div>
+    </div>
+
+    <div class="mt">
+      <span class="lbl">M-Pesa number</span>
+      <div class="field">0712 345 678</div>
+    </div>
+
+    <button class="btn mt2">Give KES 500</button>
+
+    <div class="note block mt">
+      <b>Both numbers above are unsettled</b>
+      <span>The published PayHero table is wrong (flat KES 8.9, not 6 — <b>docs/92</b>), and ten
+      other screens still quote Stripe's dead "2.9% + $0.30". A fee shown to a donor must be the
+      fee charged.</span>
+    </div>
+  </div>
+</div></div>
+
+
+<!-- ============ C3 · the receipt ============ -->
+<div class="stage"><div class="frame phone" id="s-c3">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="nav"><span class="logo">LastDonor</span><div class="burger"><i></i><i></i><i></i></div></div>
+  <div class="body">
+    <h1 class="h-scr">Thank you. Your KES 500 is on its way to the hospital.</h1>
+
+    <div class="recv mt2">
+      <div class="top">
+        <p class="xs" style="font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0B5750">Receipt</p>
+        <p class="sm" style="color:#0B5750">25 Oct 2026, 11:42</p>
+      </div>
+      <div class="mid">
+        <div class="ledger"><span>You gave</span><b>KES 500.00</b></div>
+        <div class="ledger"><span>To</span><b>Kenyatta National Hospital</b></div>
+        <div class="ledger"><span>For</span><b>Amani's bill IP/2026/118-447</b></div>
+        <div class="ledger"><span>M-Pesa code</span><b>SJ94KD2MX1</b></div>
+      </div>
+    </div>
+
+    <div class="card mt2">
+      <p class="p ink" style="font-weight:700;font-size:14px">We will show you the hospital's receipt</p>
+      <p class="sm mt">When the hospital confirms the payment, we put their receipt on the campaign
+         page so everyone who gave can see it.</p>
+    </div>
+
+    <button class="btn mt2">Share this campaign</button>
+
+    <div class="note ok mt2">
+      <b>This is the part worth building first</b>
+      <span>A published institutional receipt buys most of the donor trust with no new rail, no
+      licence and no destination that can be wrong (<b>docs/113 §7.1</b>). It works on the rail
+      that already collects money today.</span>
+    </div>
+  </div>
+</div></div>
+
+
+<!-- ============ D1 · ADMIN releases ============ -->
+<div class="stage"><div class="frame wide" id="s-d1">
+  <span class="wm">DESIGN · NOT BUILT</span><div class="wmd"></div>
+  <div class="adm">
+    <div class="side">
+      <span class="logo">LastDonor</span>
+      <a href="#">Dashboard</a><a href="#">Campaigns</a><a href="#">Verification</a>
+      <a href="#">Institutions</a><a class="on" href="#">Payouts</a><a href="#">Audit log</a>
+    </div>
+    <div class="main">
+      <div class="eyebrow">Payouts · to institutions</div>
+      <h2 style="font-size:24px;margin:5px 0 14px">Ready to send</h2>
+
+      <div class="grid4">
+        <div class="tile"><span class="k">Designated</span><p class="n">0</p></div>
+        <div class="tile"><span class="k">Ready to send</span><p class="n">0</p></div>
+        <div class="tile"><span class="k">Sent all time</span><p class="n">0</p></div>
+        <div class="tile"><span class="k">Receipts published</span><p class="n">0</p></div>
+      </div>
+
+      <table class="mt2">
+        <tr><th>Campaign</th><th>Destination</th><th>Account</th><th>Amount</th><th>Organiser ID</th><th></th></tr>
+        <tr>
+          <td>Treatment for Baby Amani</td>
+          <td>Kenyatta National Hospital</td>
+          <td style="font-variant-numeric:tabular-nums">IP/2026/118-447</td>
+          <td><b>KES 18,400</b></td>
+          <td><span class="pill rose"><span class="dot"></span>Not checked</span></td>
+          <td style="text-align:right"><button class="btn row dim">Send</button></td>
+        </tr>
+        <tr>
+          <td>Funeral costs for Joseph Kimani</td>
+          <td>Lee Funeral Home</td>
+          <td style="font-variant-numeric:tabular-nums">LFH-2026-3391</td>
+          <td><b>KES 42,000</b></td>
+          <td><span class="pill teal"><span class="dot"></span>ID seen</span></td>
+          <td style="text-align:right"><button class="btn row">Send</button></td>
+        </tr>
+      </table>
+
+      <div class="note block mt2">
+        <b>Every figure above is zero in reality, and that is the real finding</b>
+        <span>Money has never left this platform: <b>campaign_withdrawals</b> 0 rows, 0 Connect
+        accounts, 0 campaigns verified enough to withdraw, and the only out-rail answers
+        <b>status: error</b>. 14 live campaigns can take money and none can receive it. This screen
+        is second; a working payout to the organiser is first.</span>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+</body>
+</html>

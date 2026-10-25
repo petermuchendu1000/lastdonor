@@ -311,3 +311,81 @@ the deferral has not made that question smaller.
 The work actually landed in this pass is the consent record of §10.2, which
 is upstream of every rail and needed regardless of which gateway arrives
 first.
+
+---
+
+## 11. The journey, designed — 2026-10-25
+
+⛔ **These are DESIGNS. None of it is built.** Every frame carries a
+`DESIGN · NOT BUILT` watermark and a diagonal hatch, so a cropped screenshot
+cannot pass as the product. Source and screens:
+`docs/design-113-institutional-payouts/` (`journey.html` is the source;
+`shoot.js` regenerates every image — do not hand-edit a `.jpg`).
+
+| Screen | Actor | What it settles |
+|---|---|---|
+| `A1` | Admin | Recording an institution's payment details — separate from vouching |
+| `B1` | Organiser | Being offered the choice, and what it costs them |
+| `B2` | Organiser | Picking from admin-checked institutions only |
+| `B3` | Organiser | The account number at that institution |
+| `B4` | Organiser | What they give up, before they agree |
+| `C1` | Donor | The destination on the campaign page |
+| `C2` | Donor | The destination above the pay button |
+| `C3` | Donor | The receipt, and the promise of the institution's own receipt |
+| `D1` | Admin | The release queue |
+
+### 11.1 Six decisions the design takes
+
+Recorded so they are argued with rather than inherited. Each is reversible
+**now** and expensive later.
+
+1. **The ORGANISER designates, not the donor.** A donor choosing per donation
+   splits one campaign's money across destinations, which the composite FK on
+   `(campaign_id, currency)` makes unrepresentable (`docs/92`) and which no
+   single `raised_amount` can describe.
+2. **All-or-nothing per campaign.** No partial split in v1. A split needs a
+   second ledger dimension; see decision 1.
+3. **The account number is typed twice, and that is not politeness.** The
+   paybill is admin-checked; the account field is organiser-typed and
+   **nothing can check it**. A right paybill with a wrong account pays a
+   stranger's bill at the right hospital, and M-Pesa reversals are manual,
+   slow and not guaranteed.
+4. **The ID check is NOT replaced by the destination** (`B4`). Otherwise
+   anyone raises money against a real hospital and a bill that is not theirs
+   and settles a stranger's debt with other people's donations. Verification
+   gates money OUT; a destination is not a substitute for knowing who raised
+   it.
+5. **No self-serve institution** (`B2`), extending `docs/108`. Anyone who can
+   add a payee can aim a family's money at an account they control.
+6. **Mutable until the first payment leaves, fixed after.** Before any money
+   moves, a wrong choice is an edit; after, it is a reversal we cannot
+   perform.
+
+### 11.2 The two screens that deliberately show a dead button
+
+`A1`'s **Save payee details** is disabled, and `D1`'s tiles all read **0**.
+Neither is placeholder art.
+
+- `A1` is blocked on §5, which is a licensing question and not an engineering
+  gate. A mockup that shows it saving would assert the question away.
+- `D1`'s zeros are the measured state of production (§2): `campaign_withdrawals`
+  0 rows, 0 Connect accounts, 0 campaigns verified enough to withdraw.
+  **14 live campaigns can take money and none can receive it.**
+
+### 11.3 The sentence the feature rests on
+
+On `C1`: *"We send what you give to Kenyatta National Hospital, to Amani's
+bill. It does not pass through the family's own account."* followed by
+**what was checked and what was not** — the `docs/108` `VouchedByBadge`
+shape, for the same reason: the value is the donor believing it, so it may
+only say what an admin actually confirmed. ⛔ If the rail cannot guarantee
+the claim, **the words change, not the rail**.
+
+### 11.4 What the design does NOT answer
+
+- The licence (§5). Unchanged, and still blocking a real `A1`.
+- Whether PayHero can disburse (§3). Still [UNKNOWN].
+- `C2` prints a KES 8.90 charge from the `docs/92` live test. PayHero's own
+  published table contradicts it, and ten other screens still quote Stripe's
+  dead "2.9% + $0.30" (`docs/110` §10). **A fee shown to a donor must be the
+  fee charged** — still an owner decision.
