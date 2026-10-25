@@ -77,7 +77,33 @@ export interface ApiError {
         pre-verification cap, but a smaller one still fits. 409 with the
         remaining headroom named in the message.
       */
-      | 'CAP_EXCEEDED';
+      | 'CAP_EXCEEDED'
+      /*
+        ── Institutional vouches (docs/108) ──────────────────────────────
+        One vocabulary, shared with `src/lib/trust-network/decide.ts`,
+        rather than a mapping table between its codes and these - a
+        mapping is one more place for the two to drift.
+      */
+      /* The organisation is suspended, so it cannot vouch. 409. */
+      | 'INSTITUTION_SUSPENDED'
+      /*
+        The organisation has used its whole rolling vouch budget. 429:
+        this is a rate limit, and the same request later - or after an
+        admin raises the limit - can succeed.
+      */
+      | 'INSTITUTION_BUDGET_SPENT'
+      /* The campaign's status does not admit a vouch. 409. */
+      | 'CAMPAIGN_STATE'
+      /*
+        The campaign's verification does not admit a vouch - usually
+        because it is already verified, so a vouch would add nothing or
+        would be a downgrade. 409.
+      */
+      | 'VERIFICATION_STATE'
+      /* This organisation already has a live vouch for this campaign. 409. */
+      | 'ALREADY_VOUCHED'
+      /* The vouch being revoked was already revoked. 409. */
+      | 'ALREADY_REVOKED';
     message: string;
     field?: string;
     requestId: string;

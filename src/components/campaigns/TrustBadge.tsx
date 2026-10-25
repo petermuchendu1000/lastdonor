@@ -113,6 +113,60 @@ export function PendingVerificationBadge({
   );
 }
 
+// ─── Vouched by an organisation ──────────────────────────────────────────────
+
+type VouchedByBadgeProps = {
+  /** Live vouches only. Empty renders nothing. */
+  institutions: { institutionName: string; institutionCountry: string }[];
+  className?: string;
+};
+
+/**
+ * What replaces the pending-verification banner when an organisation vouched.
+ *
+ * ── THE COPY IS THE WHOLE COMPONENT ─────────────────────────────────────────
+ *
+ * Before a vouch, a donor is told plainly that nobody has checked the
+ * organiser's ID and that there is a ceiling on what the campaign can raise.
+ * A vouch removes both, so something has to take its place or the donor is
+ * left to assume the usual check happened. It did not.
+ *
+ * ⛔ So this says who confirmed it and does NOT say "verified". It must never
+ * read as though LastDonor saw a document, because nobody did - that is the
+ * entire trade `docs/108` makes, and `TrustBadge.vouched.test.tsx` pins the
+ * wording against exactly that drift.
+ *
+ * Deliberately NOT an entry in `VERIFICATION_CONFIG` above: that map feeds
+ * `VerificationBadge`, whose only callers are two admin screens, and adding
+ * to it would put a new badge on every row of two admin tables as a side
+ * effect of a donor-facing change. Same reasoning as
+ * `PendingVerificationBadge` (docs/101).
+ */
+export function VouchedByBadge({ institutions, className }: VouchedByBadgeProps) {
+  if (institutions.length === 0) return null;
+
+  const names = institutions.map((i) => i.institutionName);
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100',
+        className,
+      )}
+    >
+      <span className="font-semibold">Confirmed by {list}</span>
+      <span>
+        {names.length === 1 ? 'They told us' : 'They told us'} this need is real.
+        We have not seen the organiser&apos;s ID ourselves.
+      </span>
+    </div>
+  );
+}
+
 // ─── Payout Indicator ────────────────────────────────────────────────────────
 
 type FundReleaseIndicatorProps = {

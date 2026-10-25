@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation';
 import { db } from '@/db';
-import { campaigns, donations, campaignUpdates } from '@/db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { campaigns, donations, campaignUpdates, institutionVouches, trustedInstitutions } from '@/db/schema';
+import { eq, desc, sql, and, gte } from 'drizzle-orm';
 import { CampaignDetail } from '@/components/admin/CampaignDetail';
+import { CampaignVouches } from '@/components/admin/CampaignVouches';
+import { VOUCH_WINDOW_DAYS } from '@/lib/trust-network/decide';
+import { countCampaignDocuments, listCampaignVouches } from '@/lib/trust-network/vouch';
 import type { Metadata } from 'next';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -72,7 +75,43 @@ export default async function AdminCampaignDetailPage({
     .where(eq(donations.campaignId, id))
     .groupBy(donations.phaseAtTime);
 
+  /*
+    Trust-network reads, sequential like everything else on this page. docs/87
+    caps an entry point at THREE concurrent queries; nothing here runs in a
+    `Promise.all`, so the page uses one connection at a time.
+
+    docs/83's lesson is why this block exists at all: the Didit verification
+    flow worked and was unreachable for days because its only link was behind
+    a condition nothing could satisfy. A vouch panel that only appeared for
+    campaigns in some particular state would repeat that, so this renders on
+    every campaign, in every state, and says what it can do.
+  */
+  const vouches = await listCampaignVouches(id);
+  const documents = await countCampaignDocuments(id);
+  const vouchWindowStart = new Date(Date.now() - VOUCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const institutions = await db
+    .select({
+      id: trustedInstitutions.id,
+      name: trustedInstitutions.name,
+      country: trustedInstitutions.country,
+      monthlyVouchLimit: trustedInstitutions.monthlyVouchLimit,
+      vouchesInWindow: db
+        .$count(
+          institutionVouches,
+          and(
+            eq(institutionVouches.institutionId, trustedInstitutions.id),
+            gte(institutionVouches.createdAt, vouchWindowStart),
+          ),
+        )
+        .as('vouches_in_window'),
+    })
+    .from(trustedInstitutions)
+    .where(eq(trustedInstitutions.status, 'active'))
+    .orderBy(trustedInstitutions.name)
+    .limit(200);
+
   return (
+    <>
     <CampaignDetail
       campaign={{
         ...campaign,
@@ -98,5 +137,24 @@ export default async function AdminCampaignDetailPage({
         total: p.total ?? 0,
       }))}
     />
+    <div className="mt-6">
+      <CampaignVouches
+        campaignId={id}
+        verificationStatus={campaign.verificationStatus}
+        verificationSource={campaign.verificationSource}
+        vouches={vouches.map((v) => ({
+          ...v,
+          createdAt: v.createdAt.toISOString(),
+          revokedAt: v.revokedAt?.toISOString() ?? null,
+        }))}
+        documents={documents}
+        institutions={institutions.map((i) => ({
+          ...i,
+          vouchesInWindow: Number(i.vouchesInWindow),
+        }))}
+        windowDays={VOUCH_WINDOW_DAYS}
+      />
+    </div>
+    </>
   );
 }

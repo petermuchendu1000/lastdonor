@@ -38,6 +38,33 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
       'This campaign cannot take a donation that large right now. Try a smaller ' +
       'amount. Nothing has been charged.',
   },
+  /*
+    Institutional vouches (docs/108). Every one of these is a refusal the
+    caller did nothing wrong to earn, so none is a 400 and none is a 500.
+    The routes pass their own message, which names the organisation, the
+    status or the figures; these defaults keep the registry exhaustive.
+  */
+  INSTITUTION_SUSPENDED: {
+    status: 409,
+    message: 'This organisation is suspended and cannot vouch for campaigns.',
+  },
+  INSTITUTION_BUDGET_SPENT: {
+    status: 429,
+    message: 'This organisation has used all of its vouches for now.',
+  },
+  CAMPAIGN_STATE: {
+    status: 409,
+    message: 'This campaign is not in a state that can be vouched for.',
+  },
+  VERIFICATION_STATE: {
+    status: 409,
+    message: 'This campaign\u2019s verification is not in a state that can be vouched for.',
+  },
+  ALREADY_VOUCHED: {
+    status: 409,
+    message: 'This organisation has already vouched for this campaign.',
+  },
+  ALREADY_REVOKED: { status: 409, message: 'This vouch was already revoked.' },
   RATE_LIMITED: { status: 429, message: 'Too many requests. Please try again later.' },
   INTERNAL_ERROR: { status: 500, message: 'Something went wrong. Please try again later.' },
   CONNECT_NOT_ENABLED: { status: 400, message: 'This feature is not currently available.' },

@@ -79,6 +79,16 @@ const EXPECTED_CAMPAIGN_KEYS = [
   'totalReleasedAmount',
   'updatedAt',
   'verificationStatus',
+  /*
+    Added 2026-10-25 with docs/108. HOW a campaign was verified, not WHO by:
+    `documents`, `institution_vouch` or null. Deliberately public, because a
+    donor who no longer sees the pending-verification banner would otherwise
+    assume the usual ID check happened - and when an organisation vouched,
+    it did not. The vouching organisation's NAME is fetched separately and
+    only for a vouched campaign, so this column is also what keeps the
+    campaign page from adding a query for every other one.
+  */
+  'verificationSource',
   'youtubeUrl',
 ].sort();
 

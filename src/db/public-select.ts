@@ -53,6 +53,16 @@ export const publicCampaignSelect = {
   lastDonorAmount: campaigns.lastDonorAmount,
   creatorId: campaigns.creatorId,
   verificationStatus: campaigns.verificationStatus,
+  /*
+    HOW the campaign was verified (docs/108). Safe to expose, and deliberately
+    exposed: its three values are `documents`, `institution_vouch` and null,
+    none of which is personal or operational. A donor is TOLD when an
+    organisation's word is what lifted the raise cap - saying nothing there
+    would let them assume the usual ID check happened, and it did not. The
+    campaign page reads it to decide whether to render `VouchedByBadge`, and
+    to avoid a query for every campaign that was not vouched for.
+  */
+  verificationSource: campaigns.verificationSource,
   totalReleasedAmount: campaigns.totalReleasedAmount,
   pausedReason: campaigns.pausedReason,
   suspendedReason: campaigns.suspendedReason,

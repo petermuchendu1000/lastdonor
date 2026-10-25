@@ -120,6 +120,7 @@ transcript or a commit message is lost.
 | `105-EDGE-TRUST-AND-CLOUDFLARE-CUTOVER-ADR.md` | **✅ DEPLOYED (v96) AND THE PROXY IS ON (2026-10-24) - read §7 for the verification record, including the two Fly build traps and the proof that a proxied request keys to the VISITOR not the edge (exhaust a bucket directly, then hit the same path through the proxy: a 429 is the only possible answer if `cf-connecting-ip` was trusted AND equals the direct path's peer). The staged Cloudflare cutover (`CLIENT_IP_SOURCE=cf` + `TRUSTED_PROXY_HOPS=2`) was UNSAFE and is replaced. `cf` used to trust `cf-connecting-ip` whenever present, with no evidence the request came through Cloudflare - and `lastdonor.fly.dev` (outside the DNS zone, and the cron Worker's target) plus `origin.lastdonor.org` (grey-cloud on purpose) reach the origin directly FOREVER, so rotating that header mints unlimited rate-limit keys against sign-in, the `sms` tier guarding a six-digit code (docs/85) and PayHero's phone guard (docs/92). ⚠️ **A hop count cannot describe two ingress paths**: via Cloudflare two hops are appended, direct one, and both stay reachable - `2` puts the trusted index on a direct caller's own XFF prefix, `1` keys every proxied visitor by their Cloudflare datacentre and locks real users out of login. `cf` now decides PER REQUEST from the right-most XFF entry (the peer Fly appends, which no caller can choose) and believes `cf-connecting-ip` only when that peer is in Cloudflare's published space (`src/lib/cloudflare-ips.ts`, 15 IPv4 / 7 IPv6 pinned and verified live). `TRUSTED_PROXY_HOPS` is unread in `cf` mode and **stays 1 forever**. Staleness fails SAFE (a new CF range reads as direct, over-counting, never under-counting) and `1.1.1.1` is NOT an edge. ⚠️ The security test written to prevent a bad cutover asserted `cf`->`2` as the SAFE target, so it would have gone green on the unsafe change; its companion covered the forged header only "when CLIENT_IP_SOURCE is unset", which the cutover sets. Read before touching `getClientIp`, `fly.toml`'s client-IP block, or turning the proxy on.** |
 | `106-DOCUMENT-SCREENING-ADR.md` | **AI pre-screening of verification documents. BUILT, NOT DEPLOYED. A document with NOTHING flagged is approved without a person; everything else waits. ⚠️ The safety argument is one boundary, traced not assumed: approving a DOCUMENT writes only `verification_documents`, and every writer of `campaigns.verification_status` was enumerated - no path advances a campaign from document approval, so screening cannot authorise a payout or lift the raise cap. ANYTHING THAT COUPLES THE TWO REOPENS THIS DECISION. There is deliberately NO auto-reject, and a MISSING trusted name is 'cannot judge' never 'no mismatch' - no campaign has a verified name today, so that one confusion would auto-approve every document on the platform. ⚠️ Probed OCR error: `ASHA W. MUTISO` came back `ASHAW. MUTISO`, so names compare with ALL SEPARATORS REMOVED. ⛔ TWO 'exit 0 is not success' traps: a vision failure arrives as HTTP 200 with no `choices` key, and `pdftoppm` exited 0 with empty stderr and 0 bytes on a malformed PDF (also: `pdftoppm -` writes a file called `-` into the CWD - use pdftocairo). Only page 1 of a PDF is read, so a clean multi-page document is downgraded. Model list contains only models RUN against a real document (two of my first three were 403/429-only). `campaigns.didit_verified_name` is new; ⛔ the keys inside Didit's `kyc` are UNVERIFIED because a not-started session returns null - the parse REPORTS the keys it saw so the first real session answers it in the log. Didit's own `poa`/`document_ai_documents` may already do this (owner chose bespoke knowingly). Read before touching `src/lib/screening/`, the screening cron or `/admin/screening`.** |
 | `107-ADMIN-REPORTS-500-AND-THE-SQL-DATE-TRAP.md` | **`/admin/reports` answered 500 on EVERY load and nothing in the repo could tell: lint, typecheck, 6,855 unit tests, CI and nine ratchets were all green. A JS `Date` interpolated into a `sql` template is bound as a parameter with NO encoder and throws inside the driver (`The "string" argument must be of type string ... Received an instance of Date`) - a typed `gte()` carries the column's encoder, a `sql` template does not. Same family as the docs/101 unqualified-identifier trap: a `sql` template silently discards what the typed builders carry, and only running it against real Postgres finds it. Fixed with `sql.param(value, column)`; the query moved to `src/lib/report-periods.ts` SO THAT A TEST COULD RUN IT. Two checks, both proven by injection: 6 integration tests (all 6 fail against the defect) and a TYPE-DRIVEN ratchet over all 282 interpolating `sql` templates in `src/`. A falsification sweep found the defect in exactly one page. Also: `/dashboard` had the marketing footer too (amends docs/106 §10a). ⛔ Records the open hole: NO admin page's data query is executed by any test.** |
+| `108-TRUST-NETWORKS-ADR.md` | **Institutional vouchers: a hospital, church, school or registered charity confirms a crisis instead of the organiser uploading documents. BUILT, NOT DEPLOYED (no institution exists anywhere). ⛔ The whole safety argument in one line: a vouch grants `identity_verified` and NOTHING ELSE - it lifts the docs/101 raise cap, releases no money, and does NOT publish anything. `fully_verified` was refused because it RELEASES MONEY in the same transaction, so a third party's email would move funds. Note there are TWO queues: the request's words name the VERIFICATION queue, which is bypassed; the docs/78-79 publication review is untouched, because 'every campaign is reviewed by a person' is claimed in ~44 lines across 23 files. The trust root is an admin: there is NO self-serve institution signup, because anyone who can create one can lift the cap. `representative_*` is ATTRIBUTION, not authentication - v1 has no institutional login, on the docs/76/77/81 rule against shipping unexercised paths. Contained by a rolling 30-day budget that COUNTS REVOKED VOUCHES (otherwise revoke-and-retry is unlimited), per-vouch revocation, and suspension that deliberately does NOT cascade. ⚠️ A repo-wide 'who writes fully_verified' test was WRONG and was DELETED: it missed `didit/webhook/route.ts:137`, which does `.set(update)` from a variable - the docs/101 lesson that a grep proves text, not semantics. What survives is structural and proven by injection (7 tests reading `.update()` targets and `.set({})` keys). Donors are TOLD: 'Confirmed by X - we have not seen the organiser's ID ourselves', with a test forbidding the words verified/verification/document. Read §1.1, §3.1 and §8 before touching any of it.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -130,8 +131,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6855 pass + 16 skipped, 215 files, as of 2026-10-25)
-npm run test:integration  # Vitest + a throwaway Postgres (119 tests, 14 files)
+npm run test:unit      # Vitest (6892 pass + 16 skipped, 218 files, as of 2026-10-25)
+npm run test:integration  # Vitest + a throwaway Postgres (136 tests, 15 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
@@ -662,6 +663,41 @@ These exist for a reason; changing them has consequences beyond the local file.
   ⚠️ Verifying this needs the rendered DOM, not `page.content()`: that includes
   the RSC flight payload, where the footer's serialized output still appears, so
   a naive grep matches both the fixed and broken versions.
+
+- **An institutional vouch grants `identity_verified` and nothing else.**
+  Added 2026-10-25, see `docs/108`. A verified organisation (hospital, church,
+  school, registered charity) can confirm a crisis instead of the organiser
+  uploading documents. That lifts the `docs/101` raise cap and is ALL it does:
+  it releases no money, and it does not touch `campaigns.status`, so the
+  `docs/78`/`docs/79` publication review still happens. ⛔ `fully_verified` is
+  refused because the admin verification route writes
+  `total_released_amount` in the same transaction that sets it - a third
+  party's word must never move money.
+
+  Use `recordVouch` / `revokeVouch` from `src/lib/trust-network/vouch.ts`; the
+  decisions are in `decide.ts` and have no database in them.
+  `vouch-boundary.test.ts` reads the directory's `.update()` targets and
+  `.set({})` keys and fails the build if anything there writes a money column,
+  another table, `campaigns.status` or the status literal. ⛔ Do not widen that
+  allowlist to let a change through - that reopens the decision.
+
+  ⚠️ **There is no self-serve institution signup, and that is the security
+  model.** Anyone who can create an institution can lift the cap on any
+  campaign it vouches for. An admin creates one and must say how they checked
+  it. `representative_*` on a vouch is ATTRIBUTION, not authentication, and no
+  screen may imply otherwise.
+
+  ⚠️ **The vouch budget counts REVOKED vouches.** It is a rate of assertions:
+  if revoking returned budget, an institution could vouch, revoke, vouch,
+  revoke forever. And revocation only un-verifies a campaign whose
+  `verification_source` is `institution_vouch` - a NULL source means UNKNOWN,
+  never "this vouch's doing".
+
+  Donors are told, in `VouchedByBadge`: "Confirmed by X - they told us this
+  need is real. We have not seen the organiser's ID ourselves." A test forbids
+  the words *verified*, *verification*, *document* and *we checked* in that
+  copy, because one edit to "Verified" makes it a claim the platform cannot
+  substantiate and nothing else would notice.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

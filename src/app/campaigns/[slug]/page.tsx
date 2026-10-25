@@ -10,7 +10,8 @@ import { eq, and, or } from 'drizzle-orm';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
-import { PendingVerificationBadge } from '@/components/campaigns/TrustBadge';
+import { PendingVerificationBadge, VouchedByBadge } from '@/components/campaigns/TrustBadge';
+import { getVouchDisclosure } from '@/lib/trust-network/public';
 import { LocalAmount } from '@/components/money/LocalAmount';
 import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import { Suspense } from 'react';
@@ -295,6 +296,19 @@ export default async function CampaignDetailPage({ params }: PageProps) {
   */
   const relatedRaw = await getRelatedCampaigns(campaign.category, campaign.id);
 
+  /*
+    Who vouched for this campaign, when a vouch is what verified it.
+
+    GUARDED, not unconditional. This page's query budget is spent (docs/87)
+    and it is the hottest public page, so the read happens only when
+    `verification_source` - a column already in hand - says an organisation's
+    word is what lifted the cap. Every other campaign pays nothing.
+  */
+  const vouchedBy =
+    campaign.verificationSource === 'institution_vouch'
+      ? await getVouchDisclosure(campaign.id)
+      : [];
+
   const relatedCampaigns = relatedRaw
     .filter((c) => c.id !== campaign.id)
     .slice(0, 3);
@@ -463,6 +477,14 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 currency={campaign.currency}
                 className="mt-3"
               />
+
+              {/*
+                And what takes its place when an organisation's word is what
+                lifted that cap. Exactly one of these two ever renders: the
+                first returns null once the campaign is cap-exempt, and this
+                one is empty unless `verification_source` is a vouch.
+              */}
+              <VouchedByBadge institutions={vouchedBy} className="mt-3" />
 
               {/*
                 An approximate USD equivalent of the goal, for a campaign

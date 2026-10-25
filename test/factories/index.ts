@@ -60,6 +60,7 @@ export function buildCampaign(overrides: Partial<Campaign> = {}): Campaign {
     verificationReviewerId: null,
     verificationReviewedAt: null,
     verificationNotes: null,
+    verificationSource: null,
     totalReleasedAmount: 0,
     totalWithdrawnAmount: 0,
     stripeVerificationId: null,

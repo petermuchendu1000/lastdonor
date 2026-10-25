@@ -155,6 +155,47 @@ export const verificationStatusEnum = pgEnum('verification_status', [
   'suspended',
 ]);
 
+/**
+ * What kind of organisation a trusted voucher is (`docs/108`).
+ *
+ * Kept short and non-overlapping on purpose. The kind is shown to donors, so
+ * it has to be a word they can check against the organisation's own website;
+ * it is NOT a legal classification and the platform makes no claim about one.
+ * `nonprofit` covers a US 501(c)(3), a Kenyan NGO-Board registration and a UK
+ * charity alike - the registration number goes in a column of its own, and is
+ * only a CLAIM until `registration_verified_at` is set.
+ */
+export const institutionKindEnum = pgEnum('institution_kind', [
+  'nonprofit',
+  'faith',
+  'hospital',
+  'university',
+  'school',
+  'government',
+  'employer',
+  'other',
+]);
+
+export const institutionStatusEnum = pgEnum('institution_status', [
+  'active',
+  'suspended',
+]);
+
+/**
+ * How a campaign came to be verified.
+ *
+ * Exists so revoking an institutional vouch is unambiguous. Deriving it from
+ * the presence of a live vouch row would have to guess whether a campaign
+ * that is ALSO document-verified should fall back to `unverified`, and a
+ * guess about someone's verification state is the wrong kind of guess.
+ *
+ * NULL means not verified, or verified before this column existed.
+ */
+export const verificationSourceEnum = pgEnum('verification_source', [
+  'documents',
+  'institution_vouch',
+]);
+
 export const withdrawalStatusEnum = pgEnum('withdrawal_status', [
   'requested',
   'approved',
@@ -396,6 +437,14 @@ export const campaigns = pgTable(
     verificationReviewerId: uuid('verification_reviewer_id').references(() => users.id),
     verificationReviewedAt: timestamp('verification_reviewed_at', { withTimezone: true }),
     verificationNotes: text('verification_notes'),
+    /**
+     * Which check produced the current `verification_status` (`docs/108`).
+     *
+     * NULL for an unverified campaign and for anything verified before this
+     * column existed - so a reader must treat NULL as "unknown", never as
+     * "documents".
+     */
+    verificationSource: verificationSourceEnum('verification_source'),
     totalReleasedAmount: integer('total_released_amount').notNull().default(0),
     totalWithdrawnAmount: integer('total_withdrawn_amount').notNull().default(0),
     stripeVerificationId: text('stripe_verification_id'),
@@ -1254,6 +1303,165 @@ export const documentScreenings = pgTable(
   (table) => [
     index('idx_document_screenings_campaign').on(table.campaignId),
     index('idx_document_screenings_action').on(table.action),
+  ],
+);
+
+// ─── Trust Networks ─────────────────────────────────────────────────────────
+
+/**
+ * An organisation whose word the platform is willing to act on (`docs/108`).
+ *
+ * ── THE TRUST ROOT IS A PERSON, AND IT IS US ────────────────────────────────
+ *
+ * There is NO self-serve path to a row in this table. An institution exists
+ * here because a LastDonor admin checked that it is real and recorded how
+ * (`verified_by`, `verified_at`, `verification_notes`). That is deliberate and
+ * it is the whole security model: a vouch lifts the pre-verification raise cap
+ * (`docs/101`), so anyone who can create an institution can lift the cap on
+ * any campaign. Making institutions self-registering would hand that to the
+ * internet.
+ *
+ * ── WHAT A VOUCH MAY AND MAY NOT DO ─────────────────────────────────────────
+ *
+ * ⛔ A vouch writes `campaigns.verification_status = 'identity_verified'` and
+ * NOTHING ELSE. It can never write `fully_verified`, because that status
+ * RELEASES MONEY: `admin/campaigns/[campaignId]/verification/route.ts` sets
+ * `total_released_amount` in the same transaction. A payout therefore still
+ * needs an admin's own decision on top of the vouch, and
+ * `src/lib/trust-network/vouch-boundary.test.ts` pins it.
+ *
+ * ── CONTAINMENT ─────────────────────────────────────────────────────────────
+ *
+ * `monthly_vouch_limit` is a budget, not a formality: a careless or
+ * compromised institution gets a bounded number of campaigns, not all of
+ * them. `status = 'suspended'` stops new vouches immediately, and revoking an
+ * existing vouch puts the campaign back under the cap (see
+ * `institution_vouches.revoked_at`).
+ */
+export const trustedInstitutions = pgTable(
+  'trusted_institutions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    kind: institutionKindEnum('kind').notNull(),
+    /** ISO 3166-1 alpha-2. Shown to donors beside the name. */
+    country: text('country').notNull(),
+    website: text('website'),
+    /**
+     * The organisation's own registration number, as THEY state it - an EIN,
+     * an NGO-Board number, a charity number.
+     *
+     * ⚠️ A CLAIM, not a finding, until `registration_verified_at` is set. The
+     * platform must never render this as though it checked it; `docs/33` and
+     * the CLAUDE.md rule on trust copy both apply - a registration number
+     * printed without qualification reads as verified to every donor.
+     */
+    registrationId: text('registration_id'),
+    registrationVerifiedAt: timestamp('registration_verified_at', { withTimezone: true }),
+    status: institutionStatusEnum('status').notNull().default('active'),
+    /** When a LastDonor admin confirmed the organisation is real. */
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Which admin. Not nullable: an institution with no author is not trusted. */
+    verifiedBy: uuid('verified_by')
+      .notNull()
+      .references(() => users.id),
+    /** How they checked. Free text, read by the next admin, never by a donor. */
+    verificationNotes: text('verification_notes'),
+    /** Vouches this institution may record in a rolling 30 days. */
+    monthlyVouchLimit: integer('monthly_vouch_limit').notNull().default(10),
+    suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+    suspendedReason: text('suspended_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_trusted_institutions_status').on(table.status),
+    index('idx_trusted_institutions_kind').on(table.kind),
+    /*
+      One row per organisation per country, case-insensitively. Two rows for
+      the same church is not a cosmetic duplicate: each carries its own vouch
+      budget, so a duplicate silently doubles the budget.
+    */
+    uniqueIndex('idx_trusted_institutions_name_country').on(
+      sql`lower(${table.name})`,
+      table.country,
+    ),
+    check('trusted_institutions_country_iso', sql`${table.country} ~ '^[A-Z]{2}$'`),
+    check('trusted_institutions_vouch_limit', sql`${table.monthlyVouchLimit} between 0 and 1000`),
+  ],
+);
+
+/**
+ * One institution asserting that one campaign's crisis is real (`docs/108`).
+ *
+ * ── WHO WRITES THIS ROW, AND WHY IT IS NOT THE INSTITUTION ──────────────────
+ *
+ * v1: a LastDonor admin records it, naming the representative who made the
+ * assertion. There is no institutional login yet, and shipping one would mean
+ * shipping an authentication path no real institution has ever exercised -
+ * which is exactly what `docs/76` (an auto-goal toggle that was never POSTed)
+ * and `docs/77` (a review claim with no review) were about, and what
+ * `docs/81` refused for Didit v2. The columns a self-serve portal needs are
+ * here, so adding one later is a route and a session, not a migration.
+ *
+ * ⚠️ `representative_*` is therefore ATTRIBUTION, not AUTHENTICATION. The row
+ * records who the institution said was speaking for it. Nothing in the
+ * platform has proven that person's identity, and no screen may imply it has.
+ *
+ * ── REVOCATION IS THE POINT ─────────────────────────────────────────────────
+ *
+ * A vouch is reversible by design: `revoked_at` set, and the campaign goes
+ * back under the raise cap if nothing else verifies it. That is what makes a
+ * mistaken or abused vouch containable rather than permanent, and it is why
+ * `verification_source` exists as a column on `campaigns`.
+ */
+export const institutionVouches = pgTable(
+  'institution_vouches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    institutionId: uuid('institution_id')
+      .notNull()
+      .references(() => trustedInstitutions.id),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id),
+    /** The person at the institution who asserted it. Attribution only. */
+    representativeName: text('representative_name').notNull(),
+    representativeRole: text('representative_role').notNull(),
+    representativeEmail: text('representative_email').notNull(),
+    /** How the institution knows the person the campaign is for. */
+    relationship: text('relationship').notNull(),
+    /** What they are vouching for, in their words. Shown to admins. */
+    statement: text('statement').notNull(),
+    /** The LastDonor admin who recorded it. */
+    recordedBy: uuid('recorded_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokedBy: uuid('revoked_by').references(() => users.id),
+    revokedReason: text('revoked_reason'),
+  },
+  (table) => [
+    index('idx_institution_vouches_campaign').on(table.campaignId),
+    index('idx_institution_vouches_institution').on(table.institutionId),
+    index('idx_institution_vouches_created_at').on(table.createdAt),
+    /*
+      One LIVE vouch per institution per campaign. Partial, so a revoked vouch
+      stays on the record and the same institution can vouch again after a
+      revocation - without a second live row inflating the appearance of
+      independent support.
+
+      Several DIFFERENT institutions may vouch for one campaign; that is real
+      corroboration and is allowed.
+    */
+    uniqueIndex('idx_institution_vouches_live')
+      .on(table.institutionId, table.campaignId)
+      .where(sql`${table.revokedAt} is null`),
+    check(
+      'institution_vouches_revocation_complete',
+      sql`(${table.revokedAt} is null) = (${table.revokedBy} is null)`,
+    ),
   ],
 );
 
