@@ -14,7 +14,13 @@ import {
   CARD_WIDTH,
   FALLBACK_MARK_PX,
   OG_TYPE,
+  TITLE_BOX_HEIGHT,
+  TITLE_BOX_WIDTH,
+  TITLE_LINE_HEIGHT,
+  TITLE_SIZES,
 } from '@/lib/og-card-metrics';
+import { fitTitle } from '@/lib/og-title-fit';
+import { titleMeasure } from '@/lib/og-title-measure';
 
 export const runtime = 'nodejs';
 
@@ -118,6 +124,23 @@ export async function GET(_request: Request, { params }: Params) {
   const context = [categoryLabel, campaign.location].filter(Boolean).join('  ·  ');
   const fonts = await loadOgFonts();
 
+  /*
+    The title is sized to FIT, not clamped. It used to cut off at three lines
+    with an ellipsis, so a long appeal lost the end of its own sentence in
+    every share of it - and the validator allows 200 characters. Measured
+    against the real font, because `M` is 2.8x the width of `i` in this face
+    and a character count would be wrong by that much at the extremes.
+  */
+  const measure = await titleMeasure();
+  const title = fitTitle({
+    text: campaign.title,
+    measure,
+    maxWidth: TITLE_BOX_WIDTH,
+    maxHeight: TITLE_BOX_HEIGHT,
+    sizes: TITLE_SIZES,
+    lineHeight: TITLE_LINE_HEIGHT,
+  });
+
   const INK = '#0F172A';
   const MUTED = '#64748B';
   const TEAL = '#0F766E';
@@ -219,19 +242,25 @@ export async function GET(_request: Request, { params }: Params) {
 
             <div
               style={{
-                display: '-webkit-box',
+                display: 'flex',
+                flexDirection: 'column',
                 marginTop: '14px',
-                fontSize: OG_TYPE.title,
-                lineHeight: 1.14,
+                fontSize: title.size,
+                lineHeight: TITLE_LINE_HEIGHT,
                 fontFamily: 'DM Serif Display',
                 color: INK,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical',
+                /*
+                  Rendered line by line, from the same wrap the fit computed.
+                  Letting the renderer re-wrap would risk disagreeing with
+                  the measurement that chose the size - the two have to be
+                  the same wrap or the fit guarantees nothing.
+                */
+                wordBreak: 'break-word',
               }}
             >
-              {campaign.title}
+              {title.lines.map((line, i) => (
+                <div key={i} style={{ display: 'flex' }}>{line}</div>
+              ))}
             </div>
           </div>
 

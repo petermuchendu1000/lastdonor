@@ -943,6 +943,17 @@ These exist for a reason; changing them has consequences beyond the local file.
   4.14x, everything else against 3.00x - and a test RECOMPUTES it rather than
   pinning today's numbers.
 
+  ⛔ **The title is sized to FIT, never clamped.** Added 2026-10-25, see
+  `docs/112` §9. It used to cut off at three lines with an ellipsis, so a long
+  appeal lost the end of its own sentence in every share of it - and the
+  validator allows **200 characters**. `fitTitle` walks a ladder from 60px to
+  a floor of 24 and takes the largest size that fits.
+  ⚠️ It **measures** against the real font and does not count characters: `M`
+  advances 2.8x `i` in DM Serif Display, so a character rule is wrong by that
+  much. `@shuding/opentype.js` is a DECLARED dependency for this (the
+  `docs/97` `glob` lesson), with its probed API in
+  `src/types/shuding-opentype.d.ts`.
+
   ⛔ **The card is emitted as JPEG via `sharp`, not PNG.** `ImageResponse`
   produces PNG only, and production was serving **798-928KB** cards. ⚠️ The
   ~300KB WhatsApp ceiling is **community-observed, not documented by Meta**,

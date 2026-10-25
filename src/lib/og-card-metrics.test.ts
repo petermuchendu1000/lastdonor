@@ -23,6 +23,7 @@ import {
   OG_TYPE,
   PRIMARY_EFFECTIVE_PX,
   PRIMARY_KEYS,
+  TITLE_SIZES,
   WORST_DOWNSCALE,
   cardPx,
 } from '@/lib/og-card-metrics';
@@ -105,9 +106,18 @@ describe('the route uses the scale rather than its own numbers', () => {
     */
     const literals = [...src.matchAll(/fontSize:\s*(\d+)/g)].map((m) => m[1]);
     expect(literals, `hard-coded font sizes: ${literals.join(', ')}`).toEqual([]);
+    /*
+      Five of the six come straight from OG_TYPE. The title is the exception
+      and deliberately so: it is SIZED TO FIT by `fitTitle`, with
+      `OG_TYPE.title` as the top of the ladder rather than a fixed value, so
+      a long appeal is never cut off (`docs/112` §9).
+    */
     expect([...src.matchAll(/fontSize:\s*OG_TYPE\./g)]).toHaveLength(
-      Object.keys(OG_TYPE).length,
+      Object.keys(OG_TYPE).length - 1,
     );
+    expect(src).toContain('fontSize: title.size');
+    expect(src).not.toContain('WebkitLineClamp');
+    expect(TITLE_SIZES[0]).toBe(OG_TYPE.title);
     // The one sized thing that is a mark rather than text.
     expect(src).toContain('fontSize: FALLBACK_MARK_PX');
     expect(FALLBACK_MARK_PX).toBeGreaterThan(OG_TYPE.title);

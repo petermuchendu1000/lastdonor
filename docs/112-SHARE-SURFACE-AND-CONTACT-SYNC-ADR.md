@@ -497,3 +497,113 @@ cannot silently fall back. `og:image:type` now declares `image/jpeg`.
   and still 502s for the two SVG-hero campaigns.
 - No submission to Facebook's Sharing Debugger, X's Card Validator or
   LinkedIn's Post Inspector - all three need a public URL.
+
+---
+
+## 9. Every title fits, and the Facebook cache
+
+Added 2026-10-25.
+
+### 9.1 The title is sized to fit, not clamped
+
+§8 set the title at a fixed 60px and clamped it to three lines with an
+ellipsis. That meant a long appeal **lost the end of its own sentence in
+every share of it**, and the campaign validator allows **200 characters**
+(`src/lib/validators/campaign.ts:30`) while the longest title in production
+is 79.
+
+`fitTitle` (`src/lib/og-title-fit.ts`) walks a ladder from 60px down and
+returns the **largest** size at which the wrapped title fits the box. Pure,
+so every rule is executed by a test with a synthetic measurer, and then
+checked again against the real font.
+
+⚠️ **It measures, it does not count characters.** In DM Serif Display at
+60px, `M` advances **47.5px** and `i` advances **16.8px** - a factor of 2.8.
+A "shrink past 60 characters" rule would be wrong by nearly three times at
+the extremes. `src/lib/og-title-measure.ts` reads the advance widths from the
+font file.
+
+Measured outcomes:
+
+| title | chars | size | lines |
+|---|---|---|---|
+| "Tucson, Arizona Honors Harold Jennings" | 38 | 60px | 2 |
+| longest in production | 79 | 48px | 3 |
+| prose at the validator maximum | 200 | 28px | 5 |
+| 200 x `W` (worst the validator accepts) | 200 | 24px | 7 |
+
+The ladder floor of **24** is derived from that last row, not chosen.
+
+⚠️ **A corrected number.** This doc first recorded 200-character prose as
+fitting at 32px, from a `ceil(totalWidth / lineWidth)` estimate. Real greedy
+wrapping gives **six** lines at 32px (219px, just over the 216px box) because
+every line ends short of the edge, so the true answer is **28px**. The
+estimate under-counts lines; only wrapping for real settles it.
+
+⚠️ **`@shuding/opentype.js` is now a DECLARED dependency.** It arrives anyway
+as satori's own, which is exactly how `glob` came to be imported by four
+files and declared by none (`docs/97` §5.2) - `npm ci` installs only what is
+declared. Its API was probed, not read: `loadSync` returns undefined here and
+`parse` needs a real `ArrayBuffer`, not a Node `Buffer`.
+`src/types/shuding-opentype.d.ts` declares only that probed surface, so an
+upgrade that changes it fails the typecheck rather than a request.
+
+⚠️ **The renderer draws the lines the fit computed**, one `div` each, rather
+than being handed the string and re-wrapping. If the two wrapped differently
+the measurement would guarantee nothing.
+
+### 9.2 ⛔ Forcing Facebook to re-scrape is BLOCKED on a credential
+
+**[VERIFIED 2026-10-25]** The Graph API refuses an unauthenticated scrape:
+
+```
+POST https://graph.facebook.com/v21.0/?id=<url>&scrape=true
+{"error":{"message":"(#100) Must have a valid access token or a valid
+ url_hmac","type":"OAuthException","code":100}}
+```
+
+There is no Facebook or Meta credential in this project. So the cached cards
+- Facebook still holds the 798-928KB PNGs and the old title-repeating
+description for every live campaign - **cannot be refreshed from here.**
+
+⚠️ **And versioning the image URL does not substitute for it.** Platforms
+cache the scraped page (the tags, including the `og:image` URL) *and* the
+bytes. A new image URL is only seen once the page is scraped again, so it
+helps every FUTURE change and does nothing for what is already cached.
+`CARD_VERSION` exists for that forward case and is honest about it.
+
+**What actually clears it** is one of:
+
+1. The owner opens
+   `https://developers.facebook.com/tools/debug/?q=<campaign URL>` while
+   logged in and presses **Scrape Again**, per URL.
+2. A Graph API call with a valid app access token, which can be scripted
+   across all campaigns at once - that needs a Meta app and token this
+   project does not have.
+3. Waiting. Facebook re-scrapes on its own schedule and when somebody shares
+   the link again.
+
+LinkedIn (`https://www.linkedin.com/post-inspector/`) and X
+(`https://cards-dev.twitter.com/validator`) are the same shape: a logged-in
+UI, no unauthenticated API.
+
+### 9.3 Verified
+
+- 14 tests in `og-title-fit.test.ts`, run against both a synthetic measurer
+  and the real DM Serif Display file.
+- **8 mutants, 8 killed** - though M1 (replacing the height test with
+  `lines.length <= 3`) **SURVIVED the first round**: nothing asserted that a
+  title may take more than three lines rather than shrink. That gap is now a
+  named test, and the mutant dies on it.
+- Rendered in a local production build: 38, 79 and 200-character titles, all
+  whole, none truncated.
+- Gate: lint 0 errors, typecheck clean, **unit 7230 passed / 16 skipped,
+  235 files**.
+
+### 9.4 UNCHECKED
+
+- The Facebook/LinkedIn/X caches, per §9.2 - owner action.
+- Non-Latin titles. The measurement is correct for any glyph the font
+  contains, but DM Serif Display has limited coverage and Satori would fall
+  back for a script it lacks, where the measured width and the drawn width
+  would disagree. No production title is non-Latin today.

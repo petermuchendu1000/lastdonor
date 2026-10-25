@@ -78,6 +78,43 @@ export const OG_TYPE = {
 } as const;
 
 /**
+ * Sizes the title may take, largest first.
+ *
+ * `title` above is the TOP of this ladder, not a fixed size: a short title
+ * gets it, a long one steps down until the whole thing fits. The floor is
+ * sized so the longest title the validator allows - 200 characters,
+ * `src/lib/validators/campaign.ts:30` - still fits without truncation.
+ *
+ * The floor of 24 is MEASURED, not chosen: 200 characters of `W` - the
+ * widest glyph in this face, and the worst string the validator can accept -
+ * needs 7 lines and 192px of the 216px box at 24px, and does not fit at 26.
+ * Real 200-character prose fits at 28px, and the longest title in production
+ * (79 characters) fits at 48.
+ *
+ * ⛔ Do not raise the floor to make the card prettier. Below it the choice is
+ * between a smaller title and a title with its ending cut off, and `docs/112`
+ * §9 is about why the ending matters. ⚠️ A title long enough to reach the
+ * floor is unreadable on every platform anyway - the answer to that is a
+ * shorter title, not a cropped one.
+ */
+export const TITLE_SIZES = [60, 54, 48, 42, 36, 32, 28, 26, 24] as const;
+
+/** Usable text width inside the right panel: 744px panel less 48px padding. */
+export const TITLE_BOX_WIDTH = 744 - 48 * 2;
+
+/**
+ * Vertical space the title block may take.
+ *
+ * Derived: 630 card, less 80px of panel padding, less the measured height of
+ * everything else on the panel (wordmark, context, the money block, the
+ * progress bar and the guarantee). A test recomputes it.
+ */
+export const TITLE_BOX_HEIGHT = 216;
+
+/** Line height the title is set at, used by both the fit and the render. */
+export const TITLE_LINE_HEIGHT = 1.14;
+
+/**
  * The letterform on the no-photograph panel.
  *
  * Deliberately NOT part of `OG_TYPE`: it is a brand mark, not text somebody
@@ -113,6 +150,21 @@ export const MAX_CARD_BYTES = 300 * 1024;
  * stays invisible at any size the card is actually displayed.
  */
 export const CARD_JPEG_QUALITY = 90;
+
+/**
+ * Bumped whenever the card's DESIGN changes, and appended to the `og:image`
+ * URL.
+ *
+ * ⚠️ What this does and does not do. Platforms cache the scraped page - the
+ * tags - AND the image bytes, keyed by the image URL. A new URL makes them
+ * fetch fresh bytes **on their next scrape of the page**. It does NOT force
+ * that scrape: Facebook will keep serving its cached card until it re-scrapes
+ * (someone shares the link again, its own TTL expires, or somebody with an
+ * access token asks it to). See `docs/112` §9.2.
+ *
+ * So this is for every future change, not for the backlog already cached.
+ */
+export const CARD_VERSION = 2;
 
 export const CARD_WIDTH = 1200;
 export const CARD_HEIGHT = 630;
