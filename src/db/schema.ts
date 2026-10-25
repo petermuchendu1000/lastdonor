@@ -426,6 +426,33 @@ export const campaigns = pgTable(
     lastDonorAmount: integer('last_donor_amount'),
     creatorId: uuid('creator_id').references(() => users.id),
     beneficiaryRelation: text('beneficiary_relation'),
+    /*
+      What the organiser agreed to at submission, and when.
+
+      The wizard has always SHOWN a clickwrap notice and the client has
+      always posted `agreedToTerms: true` - but nothing recorded it, so the
+      platform could not show that any given organiser accepted the terms,
+      when, or which terms. `docs/113` makes that record necessary: a
+      payment intermediary is asked for exactly this.
+
+      Timestamps, not booleans, for the reason `docs/41` gives for mail
+      consent and `docs/82` for SMS - a boolean cannot answer "before or
+      after we changed the terms", which is the only question that is ever
+      asked afterwards.
+
+      ⚠️ `beneficiaryConsentAt` is NULL when the organiser is the
+      beneficiary (`relation === 'self'`), because the second notice is not
+      shown then. Stamping it unconditionally would record a consent nobody
+      was asked for. `requiresBeneficiaryConsent` in
+      `src/lib/campaign-consent.ts` is the one condition both the wizard and
+      the route read.
+
+      Nullable because every campaign created before this column existed has
+      no record, and inventing one would be worse than admitting the gap.
+    */
+    termsAcceptedAt: timestamp('terms_accepted_at', { withTimezone: true }),
+    termsVersion: text('terms_version'),
+    beneficiaryConsentAt: timestamp('beneficiary_consent_at', { withTimezone: true }),
     verificationStatus: verificationStatusEnum('verification_status').notNull().default('unverified'),
     cancellationReason: text('cancellation_reason'),
     cancellationNotes: text('cancellation_notes'),

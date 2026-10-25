@@ -49,6 +49,11 @@ export function buildCampaign(overrides: Partial<Campaign> = {}): Campaign {
     lastDonorAmount: null,
     creatorId: null,
     beneficiaryRelation: null,
+    // Null, like every campaign created before these columns existed. A
+    // fixture that needs a recorded consent passes it explicitly.
+    termsAcceptedAt: null,
+    termsVersion: null,
+    beneficiaryConsentAt: null,
     verificationStatus: 'unverified' as const,
     cancellationReason: null,
     cancellationNotes: null,

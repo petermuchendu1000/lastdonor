@@ -961,6 +961,27 @@ These exist for a reason; changing them has consequences beyond the local file.
   and sources conflict (300KB vs 600KB) - treat it as a safety target, not a
   fact. Quality 90 lands the same cards at 47-141KB.
 
+- **What an organiser agreed to is RECORDED, as a timestamp, by the server.**
+  Added 2026-10-25, see `docs/113` §10.2. The wizard has always shown a real
+  clickwrap notice and the client has always posted `agreedToTerms: true`,
+  `confirmedTruthful: true` and `beneficiaryConsent: true` as hard-coded
+  literals - the validator's `z.literal(true)` is a gate that CANNOT FAIL,
+  because the client is what sets it - and the create route persisted none of
+  them. The agreement was given; the record was not kept. Build it with
+  `consentRecord` from `src/lib/campaign-consent.ts`.
+
+  ⛔ **Timestamps, not booleans** (`docs/41`, `docs/82`): a boolean cannot
+  answer "before or after we changed the terms", which is the only question
+  ever asked afterwards. ⛔ **The server stamps its own clock** - a consent
+  built from a client field is a claim the submitter made about themselves.
+
+  ⛔ **`beneficiary_consent_at` is NULL when the relation is `self`**, because
+  the wizard shows no second notice then; recording it anyway fabricates a
+  consent nobody was asked for. `requiresBeneficiaryConsent` is read by BOTH
+  the screen and the route so the two cannot drift (`docs/109`). ⚠️ Bump
+  `TERMS_VERSION` in the same commit that edits `/terms` - nothing enforces
+  it, and a stale value attests to the wrong document.
+
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
   shared handler, multi-instance deploys serve stale HTML silently. See

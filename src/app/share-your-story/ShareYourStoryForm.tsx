@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { onRadioGroupKeyDown, rovingTabIndex } from '@/lib/radio-group-keys';
 import { FundraiserPreviewModal } from './FundraiserPreviewModal';
+import { requiresBeneficiaryConsent } from '@/lib/campaign-consent';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -678,7 +679,14 @@ export function ShareYourStoryForm() {
 
   const storyLen = form.story.trim().length;
   const storyMsg = storyCharMessage(storyLen);
-  const showBeneficiaryConsent = form.beneficiaryRelation && form.beneficiaryRelation !== 'self';
+  /*
+    The SAME predicate the route uses to decide whether to record that
+    consent. Duplicating it is how `docs/109` happened - two ends each
+    right and a stale line between them - and here the failure mode is
+    worse than a 404: a recorded consent the organiser was never shown is a
+    fabricated record.
+  */
+  const showBeneficiaryConsent = requiresBeneficiaryConsent(form.beneficiaryRelation);
 
   return (
     /*

@@ -184,3 +184,104 @@ with its own boundary test (§6) → a donor-facing designation, defaulting OFF.
   institution exists in `trusted_institutions` today (`docs/108` shipped the
   tables; nothing populates them).
 - Nothing in this document was built. No code changed.
+
+---
+
+## 10. Owner decision, 2026-10-25
+
+> platform willing to be a payment intermediary
+> card+payhero (we'll add as many gateways to cover global presence)
+
+Both questions in §8 are answered. **§5 is settled as a business posture**
+and the feature is approved in principle.
+
+⚠️ **Willingness is not a licence.** §5 said the question is legal, and the
+answer above is the owner's appetite, not a regulator's permission. It is
+recorded as the former. Nothing in §5 is withdrawn: before money is routed
+to a third-party institution, somebody still has to establish under what
+authority this platform may do it. That is not an engineering gate and no
+amount of careful code substitutes for it.
+
+### 10.1 What did NOT change
+
+§2 still stands and is still the binding constraint: **money has never left
+this platform.** Approving a destination does not create a rail. The order in
+§7.3 is unchanged, and the next engineering step is still a working payout to
+the organiser, not a second kind of payout.
+
+§3 is unchanged too: whether PayHero can disburse is still [UNKNOWN], and
+settling it needs the owner to ask PayHero. "Card" means Stripe, which on
+this platform answers `status: error` (`docs/72`) and has **0** Connect
+accounts.
+
+### 10.2 What was built instead, and why it is the right first thing
+
+Nothing that moves money. What the decision *did* make necessary immediately
+is the record a payment intermediary is asked for - and it was missing.
+
+**[VERIFIED 2026-10-25] The platform recorded no consent of any kind at
+campaign creation.** The wizard shows a real clickwrap notice:
+
+> By submitting this campaign you agree to LastDonor's Terms of Service and
+> Privacy Policy, and confirm that the information you've provided is
+> accurate.
+
+and, when the campaign is for somebody else, a second line confirming that
+person knows about it. The agreement was genuinely given. **The record was
+not kept.** The client posted `agreedToTerms: true`, `confirmedTruthful: true`
+and `beneficiaryConsent: true` as hard-coded literals (`ShareYourStoryForm`
+`:607`, `:615`, `:616`), the validator demanded `z.literal(true)` - a gate
+that can never fail, because the client is what sets it - and
+`POST /api/v1/user-campaigns` persisted **none of them**. No column existed.
+
+⚠️ Note the correction to my own first reading: this is *not* "consent was
+never collected". It was collected, by a notice on screen. It was never
+**recorded**, which is a narrower and still serious thing - the platform
+cannot show, for any campaign, that its organiser accepted the terms, when,
+or which terms.
+
+Now recorded, as **timestamps** rather than booleans, following `docs/41`
+(mail consent) and `docs/82` (SMS): a boolean cannot answer *"before or after
+we changed the terms"*, and that is the only question ever asked afterwards.
+`migrations-v2/0011` adds `terms_accepted_at`, `terms_version` and
+`beneficiary_consent_at` to `campaigns`, all nullable - every campaign
+created before this has no record, and inventing one would be worse than
+admitting the gap.
+
+⛔ **The server stamps its own clock.** A consent built from a client-set
+field is a claim the submitter made about themselves. A test asserts the
+route never reads `data.agreedToTerms` into a column.
+
+⛔ **`beneficiary_consent_at` is NULL for a `self` campaign**, because the
+wizard shows no second notice then. Recording it unconditionally would
+fabricate a consent nobody was asked for - worse than no record. The
+condition lives once, in `requiresBeneficiaryConsent`, read by **both** the
+screen that shows the notice and the route that records it, so the two cannot
+drift (`docs/109`).
+
+⚠️ `TERMS_VERSION` is a human step: nothing enforces bumping it when `/terms`
+changes, and a stale value attests to the wrong document. Whoever edits the
+terms bumps it in the same commit.
+
+**Verified:** 11 tests; **7 mutants injected, 7 killed**, including stamping
+consent for `self`, inverting the predicate, blanking the version, and the
+route trusting the client's field instead of its clock. Gate: lint 0 errors,
+typecheck clean, unit **7259 passed / 16 skipped, 237 files**.
+
+### 10.3 Also found, not fixed
+
+The same legal notice quotes **"2.9% + $0.30"** - Stripe's published card fee,
+on a platform whose card rail answers `status: error` and whose live rail is
+PayHero. That is `docs/110` §10's open item (ten files), and this submit
+screen is an eleventh site. Still blocked on the same owner decision: the
+replacement number, since PayHero's own published table is wrong too
+(`docs/92`).
+
+### 10.4 Next, in order
+
+1. **Ask PayHero whether they disburse**, and on what endpoint (§3). One
+   email; it decides the whole KES architecture.
+2. **A working payout to the organiser** on whichever rail answers first,
+   exercised with real money the way `docs/92` exercised collections.
+3. Only then: the payee record, the designation, and the donor-facing claim
+   (§6, §7.3).

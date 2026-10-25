@@ -37,6 +37,9 @@ export const BENEFICIARY_RELATIONS = [
   'other',
 ] as const;
 
+/** One of `BENEFICIARY_RELATIONS`. Exported so consent rules can name it. */
+export type BeneficiaryRelation = (typeof BENEFICIARY_RELATIONS)[number];
+
 // ─── Campaign Creation Schema ────────────────────────────────────────────────
 
 /**

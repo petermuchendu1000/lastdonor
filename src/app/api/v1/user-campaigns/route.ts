@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
+import { consentRecord } from '@/lib/campaign-consent';
 import { campaigns, users, auditLogs } from '@/db/schema';
 import { eq, and, desc, sql, inArray, gte } from 'drizzle-orm';
 import { createUserCampaignSchema } from '@/lib/validators/user-campaign';
@@ -186,6 +187,19 @@ export async function POST(request: NextRequest) {
           source: 'manual',
           creatorId: userId,
           beneficiaryRelation: data.beneficiaryRelation,
+          /*
+            ⛔ Stamped from the SERVER's clock, never the client's. The
+            request carries `agreedToTerms: true` and friends as hard-coded
+            literals - a client-set field is a claim, not a record. What is
+            stored is that this server accepted this submission at this
+            moment, against this version of the terms.
+
+            `beneficiaryConsentAt` is null for a `self` campaign because the
+            wizard shows no second notice then; the condition lives in
+            `requiresBeneficiaryConsent` so the screen and this row cannot
+            disagree.
+          */
+          ...consentRecord({ relation: data.beneficiaryRelation, now: new Date() }),
           verificationStatus: 'unverified',
           publishedAt: null,
         })
