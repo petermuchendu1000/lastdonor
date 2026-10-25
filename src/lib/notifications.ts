@@ -37,6 +37,7 @@ import {
   campaignCompletedCreatorEmail,
   verificationReminderEmail,
   verificationConsequenceEmail,
+  campaignRefusedEmail,
   verificationDocumentsAdminEmail,
   verificationApprovedCreatorEmail,
   verificationRejectedCreatorEmail,
@@ -996,6 +997,48 @@ export async function notifyVerificationReminder(p: {
       : `Reminder: Complete verification for "${p.campaignTitle}"`,
     message: `Your campaign was fully funded ${p.daysSinceCompletion} days ago. Complete verification to receive your funds. ${p.deadlineDays} days remaining.`,
     link: `/dashboard/campaigns/${p.campaignSlug}/verification`,
+    email: { to: p.creatorEmail, ...emailContent },
+  });
+}
+
+/**
+ * Tell an organiser their campaign was NOT published, and why.
+ *
+ * Until 2026-10-25 a refused campaign notified nobody: `under_review`
+ * transitions only to `active` or `suspended`, and the suspend path reached
+ * `notifyCampaignStatusChange`, which returns early for anything outside
+ * `['completed','archived']` and addresses DONORS - of which a campaign that
+ * was never published has none. `docs/93` left it open as a policy call;
+ * owner decision 2026-10-25 is to email the organiser with the admin's
+ * reason.
+ *
+ * ⚠️ `campaign_status_changed` is reused deliberately. A new
+ * `notification_type` value would mean a migration for a notification row,
+ * and a Postgres enum value can never be removed once added.
+ *
+ * ⚠️ The reason is admin-typed free text. `campaignRefusedEmail` escapes it;
+ * the notification row carries it as plain text, which is how
+ * `notifications.message` is rendered everywhere.
+ */
+export async function notifyCampaignRefused(p: {
+  creatorId: string;
+  creatorEmail: string;
+  creatorName: string;
+  campaignTitle: string;
+  reason: string;
+}) {
+  const emailContent = campaignRefusedEmail({
+    campaignerName: p.creatorName || 'Campaigner',
+    campaignTitle: p.campaignTitle,
+    reason: p.reason,
+  });
+
+  return createAndEmail({
+    userId: p.creatorId,
+    type: 'campaign_status_changed',
+    title: `We could not publish "${p.campaignTitle}"`,
+    message: `A person read it and decided not to publish it. What they said: ${p.reason}`,
+    link: '/dashboard/campaigns',
     email: { to: p.creatorEmail, ...emailContent },
   });
 }

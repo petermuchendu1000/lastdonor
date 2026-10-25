@@ -116,22 +116,81 @@ Writing one would have meant inventing the policy.
 reassurance while committing to the same thing the product cannot do. A vague
 promise is not more honest than a specific one.
 
-### ⛔ OPEN — owner decision
+### ✅ RESOLVED 2026-10-25 — owner decision: reject with a reason
 
-**A campaign refused at review tells its organiser nothing.** The options are
-a product call:
+**Owner decision:** the organiser is emailed, with a reason the admin writes.
+The *request changes* option (a revision loop with a transition back to
+`under_review`) was put to the owner as the better product answer and the
+bigger build, and was **not** chosen for now; *leave it silent* was offered
+and declined.
 
-- **Reject with a reason**, mailed to the organiser, campaign stays read-only.
-- **Request changes**, mailed with the reason, organiser can edit and
-  resubmit (needs a transition back to `under_review`).
-- **Leave as is** and accept that refusal is silent — in which case the
-  dashboard should at least show the status plainly, since "Check status" is
-  what this email now points at.
+So refusal now sends `campaignRefusedEmail` via `notifyCampaignRefused`:
+what happened, the admin's reason verbatim, and where to write. It
+deliberately does **not** promise to look at it again, because that is the
+revision loop the owner did not take, and a promise with no path behind it is
+what `docs/76`, `docs/77` and `docs/81` are all about.
 
-Until one is chosen, the honest copy is what shipped. Whoever builds it should
-relax the assertion in
-`src/lib/email-templates.submission-receipt.test.ts` deliberately rather than
-delete it.
+#### What it took, which was more than adding an email
+
+Three things had to change before a reason could be mailed at all.
+
+**1. The refusal path addressed the wrong audience.** It called
+`notifyCampaignSuspended`, which iterates **subscribed donors**. A campaign
+that was never published has none, so it sent zero emails, returned 200, and
+looked like it had worked. One status, `suspended`, covers two different
+situations — refusing an unpublished campaign and investigating a live one —
+and only the second had anybody to tell. The route now branches on
+`previousStatus === 'under_review'` and the audit event is
+`campaign.refused`, so the queue is auditable as `submitted -> published` or
+`submitted -> refused`.
+
+**2. ⛔ The Suspend button had never worked.** `CampaignDetail.tsx` posted
+`{ publicReason }` to a route whose `suspendCampaignSchema` requires
+`reason` (min 3 characters). An unknown key is ignored by the schema and the
+required one was absent, so **every click of Suspend in the campaign detail
+screen answered 400** — "Reason must be at least 3 characters" — for as long
+as the button has existed. Typecheck could not see it: the body is
+`Record<string, unknown>`. [VERIFIED by reading the schema against the call
+site; no test covered this route's request shape.]
+
+**3. There was a second, reasonless refusal door.**
+`PATCH /api/v1/admin/campaigns/[campaignId]` took `{ status }` and nothing
+else, and `under_review -> suspended` was in its `ALLOWED_TRANSITIONS`. A
+refusal through it could carry no reason, so the organiser could not be told
+anything. That transition is **removed** — it was the only route to
+`suspended` that endpoint had — and the route now answers with a message
+naming the endpoint that does take a reason. `/admin/campaigns`' own status
+dialog was rewired to post to `/suspend` with a required reason textarea
+that says, on screen, that the organiser is emailed it.
+
+Closing that door is the part that makes the decision hold. Leaving it open
+"for convenience" would have kept a path that cannot notify anybody, which
+is the defect being fixed.
+
+#### Checks
+
+`refuse.test.ts` calls the route handler directly. The assertion that
+matters is **which audience is addressed** — `notifyCampaignRefused` called,
+`notifyCampaignSuspended` not — because a test asserting merely that "a
+notification happened" would have passed against the defect. It also pins
+the live-campaign half, so suspending a published campaign still tells its
+donors their money is safe.
+
+`email-templates.refusal.test.ts` covers what the ratchets cannot see: the
+reason is **admin-typed free text rendered into a document**, so it is
+escaped (`docs/94` §4 is the same hazard in the preheader), and the copy
+promises no re-review, no turnaround time, and nothing about money being
+sent back.
+
+#### Still not done
+
+- The organiser of a **live** campaign that is suspended for investigation is
+  still not told directly; only donors are. That is arguably deliberate for a
+  fraud investigation, and it is a different decision from this one.
+- There is no revision loop. A refused campaign is `suspended` and read-only.
+  An admin can move it back to `active` (`suspended -> active` remains in
+  `ALLOWED_TRANSITIONS`), so a reversal is possible by hand, but nothing in
+  the product invites or tracks one.
 
 ---
 

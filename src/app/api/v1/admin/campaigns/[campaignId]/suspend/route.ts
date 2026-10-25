@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { campaigns, auditLogs } from '@/db/schema';
+import { campaigns, auditLogs, users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { suspendCampaignSchema } from '@/lib/validators/verification';
-import { notifyCampaignSuspended } from '@/lib/notifications';
+import { notifyCampaignSuspended, notifyCampaignRefused } from '@/lib/notifications';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import type { CampaignStatus, UserRole } from '@/types';
@@ -54,6 +54,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: campaigns.title,
         slug: campaigns.slug,
         status: campaigns.status,
+        creatorId: campaigns.creatorId,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }).where(eq(campaigns.id, campaignId));
 
     await db.insert(auditLogs).values({
-      eventType: 'campaign.suspended',
+      eventType: campaign.status === 'under_review' ? 'campaign.refused' : 'campaign.suspended',
       actorId: session.user?.id ?? null,
       actorRole: session.user?.role as UserRole,
       targetType: 'campaign',
@@ -90,11 +91,47 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       details: { title: campaign.title, previousStatus: campaign.status, reason, internalNotes },
     });
 
-    notifyCampaignSuspended({
-      campaignId,
-      campaignTitle: campaign.title,
-      campaignSlug: campaign.slug ?? '',
-    }).catch((err) => console.error('[campaign.suspended] notification error:', err));
+    /*
+      TWO DIFFERENT SITUATIONS WEAR THE SAME STATUS.
+
+      Suspending a LIVE campaign is an investigation: it has donors, and
+      `notifyCampaignSuspended` tells them their money is safe. Suspending an
+      `under_review` campaign is a REFUSAL: it has never been public, so it
+      has no donors at all, and the person who needs telling is the organiser.
+
+      Until 2026-10-25 only the first case notified anybody, so a refused
+      campaign notified NOBODY - `notifyCampaignSuspended` iterates subscribed
+      donors, and an unpublished campaign has none, so it sent zero emails and
+      looked like it had worked. `docs/93` found it; the owner's decision is to
+      email the organiser with this reason.
+    */
+    const isRefusalAtReview = campaign.status === 'under_review';
+
+    if (isRefusalAtReview) {
+      if (campaign.creatorId) {
+        const [creator] = await db
+          .select({ email: users.email, name: users.name })
+          .from(users)
+          .where(eq(users.id, campaign.creatorId))
+          .limit(1);
+
+        if (creator?.email) {
+          notifyCampaignRefused({
+            creatorId: campaign.creatorId,
+            creatorEmail: creator.email,
+            creatorName: creator.name ?? '',
+            campaignTitle: campaign.title,
+            reason,
+          }).catch((err) => console.error('[campaign.refused] notification error:', err));
+        }
+      }
+    } else {
+      notifyCampaignSuspended({
+        campaignId,
+        campaignTitle: campaign.title,
+        campaignSlug: campaign.slug ?? '',
+      }).catch((err) => console.error('[campaign.suspended] notification error:', err));
+    }
 
     revalidatePath(`/campaigns/${campaign.slug}`);
     return NextResponse.json({ ok: true, data: { id: campaignId, status: 'suspended' } });

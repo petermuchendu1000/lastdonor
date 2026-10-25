@@ -28,6 +28,7 @@ import { VerificationBadge } from '@/components/campaigns/TrustBadge';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
 import { ListCount } from '@/components/admin/ListCount';
+import { Textarea } from '@/components/ui/textarea';
 import {
   PlusIcon,
   MagnifyingGlassIcon,
@@ -103,30 +104,59 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
   const [statusTarget, setStatusTarget] = useState<{ campaign: Campaign; newStatus: string } | null>(null);
+  /*
+    Refusing a campaign at review is the one status change that carries a
+    REASON, because the organiser is emailed it (docs/93, owner decision
+    2026-10-25). Every other transition goes through PATCH with `{ status }`.
+  */
+  const [refusalReason, setRefusalReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const handleStatusChange = useCallback(async () => {
     if (!statusTarget) return;
+
+    /*
+      A refusal goes to the `suspend` endpoint, not to PATCH. PATCH takes
+      `{ status }` and nothing else, so a refusal through it could carry no
+      reason and the organiser could not be told anything - which is how a
+      refused campaign came to notify nobody at all. PATCH now REFUSES this
+      transition outright; see the note on its ALLOWED_TRANSITIONS.
+    */
+    const isRefusal = statusTarget.newStatus === 'suspended';
+    const reason = refusalReason.trim();
+
+    if (isRefusal && reason.length < 3) {
+      setActionError('Write a reason. The organiser is emailed it.');
+      return;
+    }
+
     setActionLoading(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/v1/admin/campaigns/${statusTarget.campaign.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: statusTarget.newStatus }),
-      });
+      const res = isRefusal
+        ? await fetch(`/api/v1/admin/campaigns/${statusTarget.campaign.id}/suspend`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          })
+        : await fetch(`/api/v1/admin/campaigns/${statusTarget.campaign.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: statusTarget.newStatus }),
+          });
       const body = await res.json();
       if (!res.ok) {
         setActionError(body?.error?.code === 'VALIDATION_ERROR' ? (body?.error?.message ?? 'Failed to change status') : 'Failed to change status');
         return;
       }
       setStatusTarget(null);
+      setRefusalReason('');
       router.refresh();
     } finally {
       setActionLoading(false);
     }
-  }, [statusTarget, router]);
+  }, [statusTarget, refusalReason, router]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -442,21 +472,49 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
       )}
 
       {/* Status change confirmation */}
-      <Dialog open={!!statusTarget} onOpenChange={() => { setStatusTarget(null); setActionError(null); }}>
+      <Dialog open={!!statusTarget} onOpenChange={() => { setStatusTarget(null); setActionError(null); setRefusalReason(''); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Change Campaign Status</DialogTitle>
+            <DialogTitle>
+              {statusTarget?.newStatus === 'suspended' && statusTarget?.campaign.status === 'under_review'
+                ? 'Do not publish this campaign'
+                : 'Change Campaign Status'}
+            </DialogTitle>
             <DialogDescription>
               Change &ldquo;{statusTarget?.campaign.title}&rdquo; from{' '}
               <strong>{STATUS_LABELS[statusTarget?.campaign.status ?? ''] ?? statusTarget?.campaign.status}</strong>{' '}
               to <strong>{STATUS_LABELS[statusTarget?.newStatus ?? ''] ?? statusTarget?.newStatus}</strong>?
             </DialogDescription>
           </DialogHeader>
+          {statusTarget?.newStatus === 'suspended' && (
+            <div className="space-y-2">
+              <label htmlFor="refusal-reason" className="text-sm font-medium text-foreground">
+                Reason
+              </label>
+              <Textarea
+                id="refusal-reason"
+                value={refusalReason}
+                onChange={(e) => setRefusalReason(e.target.value)}
+                maxLength={500}
+                rows={3}
+                placeholder="What the organiser needs to know"
+              />
+              {/*
+                The admin must know this is read by the organiser, not an
+                internal note. docs/93 left this path silent; it is not silent
+                now, so the words matter.
+              */}
+              <p className="text-xs text-muted-foreground">
+                This is emailed to the organiser, in your words. Up to 500
+                characters.
+              </p>
+            </div>
+          )}
           {actionError && (
             <p className="text-sm text-destructive">{actionError}</p>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setStatusTarget(null); setActionError(null); }} disabled={actionLoading}>
+            <Button variant="outline" onClick={() => { setStatusTarget(null); setActionError(null); setRefusalReason(''); }} disabled={actionLoading}>
               Cancel
             </Button>
             <Button onClick={handleStatusChange} disabled={actionLoading}>

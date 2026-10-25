@@ -22,7 +22,21 @@ const ALLOWED_TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
   completed: ['archived'],
   archived: ['draft'],
   paused: ['active'],
-  under_review: ['active', 'suspended'],
+  /*
+    ⛔ `under_review -> suspended` is DELIBERATELY ABSENT, and this is the
+    only route to `suspended` that ever existed here.
+
+    Refusing a campaign at review is the one status change that must carry a
+    REASON: the organiser is emailed it (`docs/93`, owner decision
+    2026-10-25). This endpoint takes `{ status }` and nothing else, so every
+    refusal through it was reasonless AND silent. The refusal path is
+    `POST /api/v1/admin/campaigns/[campaignId]/suspend`, whose schema
+    requires a reason of at least three characters.
+
+    Leaving it here "for convenience" would keep a door open that cannot
+    notify anybody, which is exactly the defect being closed.
+  */
+  under_review: ['active'],
   suspended: ['active', 'cancelled'],
   cancelled: [],
 };
@@ -86,6 +100,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const currentStatus = campaign.status as CampaignStatus;
+
+    // Name the right endpoint rather than leaving an admin to guess from
+    // "Allowed: active". See the note on ALLOWED_TRANSITIONS above.
+    if (currentStatus === 'under_review' && newStatus === 'suspended') {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: 'Refusing a campaign needs a reason the organiser can be told. Use POST /api/v1/admin/campaigns/[campaignId]/suspend with a reason.', requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+
     const allowed = ALLOWED_TRANSITIONS[currentStatus];
     if (!allowed?.includes(newStatus)) {
       return NextResponse.json(

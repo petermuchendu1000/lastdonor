@@ -155,11 +155,33 @@ describe('returning an already-published campaign to active', () => {
 describe('a rejected submission', () => {
   beforeEach(() => given({ status: 'under_review', publishedAt: null }));
 
-  it('can be suspended, and is never stamped as published', async () => {
+  it('⛔ cannot be refused through THIS endpoint, because a refusal needs a reason', async () => {
+    /*
+      CHANGED DELIBERATELY 2026-10-25, not deleted - `docs/93` asked for
+      exactly that.
+
+      This used to assert that PATCH *could* suspend an `under_review`
+      campaign, and it could: reasonlessly and silently. That is how a
+      refused campaign came to notify nobody. This endpoint takes
+      `{ status }` and nothing else, so there was no reason to email the
+      organiser, and `under_review -> suspended` was its only route to
+      `suspended` at all.
+
+      Refusal now goes through `.../suspend`, whose schema requires a reason.
+      The concern this test carried - a refusal must never stamp
+      `publishedAt` nor send the "your campaign is live" email - is asserted
+      in `refuse.test.ts` against the path that now does the work.
+    */
     const res = await PATCH(patch('suspended'), { params });
-    expect(res.status).toBe(200);
-    expect(state.updates[0]).not.toHaveProperty('publishedAt');
+    expect(res.status).toBe(400);
+    expect(state.updates).toHaveLength(0);
     expect(notifyWelcome).not.toHaveBeenCalled();
+
+    // And the error names where to go, rather than leaving an admin to
+    // guess from "Allowed: active".
+    const body = await res.json();
+    expect(body.error.message).toMatch(/reason/i);
+    expect(body.error.message).toMatch(/suspend/);
   });
 
   it('cannot jump straight to completed', async () => {

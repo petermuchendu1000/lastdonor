@@ -172,7 +172,15 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
     try {
       const body: Record<string, unknown> = {};
       if (governanceAction.action === 'pause') body.reason = governanceReason || 'Administrative action';
-      if (governanceAction.action === 'suspend') body.publicReason = governanceReason || 'Under investigation';
+      /*
+        ⛔ This sent `publicReason` until 2026-10-25, and `suspendCampaignSchema`
+        requires `reason` (min 3 characters). An unknown key is ignored by the
+        schema and the required one was absent, so EVERY click of Suspend
+        answered 400 "Reason must be at least 3 characters" - the button had
+        never worked. Typecheck could not see it: the body is
+        `Record<string, unknown>`.
+      */
+      if (governanceAction.action === 'suspend') body.reason = governanceReason || 'Under investigation';
       if (governanceAction.action === 'cancel') body.reason = governanceReason || 'policy_violation';
 
       const res = await fetch(`/api/v1/admin/campaigns/${campaign.id}/${governanceAction.action}`, {

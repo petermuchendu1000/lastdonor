@@ -745,6 +745,55 @@ export function verificationReminderEmail(p: {
  * `formatMoney`, so this template does no money arithmetic and cannot divide
  * a zero-decimal currency by 100 (`docs/92`).
  */
+/**
+ * What an organiser is told when a person decides NOT to publish their
+ * campaign.
+ *
+ * -- WHY THIS EXISTS -----------------------------------------------------------
+ *
+ * Until 2026-10-25 a refused campaign notified NOBODY, the organiser
+ * included. `docs/93` found it and left it open as a policy call, because
+ * what should happen to a refused campaign is not an engineering decision.
+ * Owner decision, 2026-10-25: email the organiser, with a reason the admin
+ * writes.
+ *
+ * -- WHAT IT MAY NOT SAY -----------------------------------------------------
+ *
+ * (STOP) No promise to look at it again, and no promise of a revision loop.
+ * The owner chose the version that ends the silence, not one that commits to
+ * a process the product does not have. It says what happened, why, and where
+ * to write.
+ *
+ * (STOP) No turnaround time (`docs/78`).
+ *
+ * (STOP) `reason` is TYPED BY AN ADMIN and goes straight into the document,
+ * so it is escaped. The same hazard as the preheader in `docs/94` section 4.
+ */
+export function campaignRefusedEmail(p: {
+  campaignerName: string;
+  campaignTitle: string;
+  reason: string;
+}) {
+  return {
+    subject: 'We could not publish your campaign',
+    html: wrap(
+      `
+      <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">We could not publish your campaign</h1>
+      <p>Hi ${esc(p.campaignerName)},</p>
+      <p>A person read <strong>&quot;${esc(p.campaignTitle)}&quot;</strong>. We have decided not to publish it.</p>
+      <p style="background: #fff7ed; padding: 16px; border-radius: 8px; border-left: 4px solid #EA580C; margin: 20px 0;">
+        <strong>What they said:</strong> ${esc(p.reason)}
+      </p>
+      <p>Your campaign is not public. Nobody can see it or give to it.</p>
+      <p>If you want to talk about this, write to us.</p>
+      ${ctaButton(`${BASE_URL}/dashboard/campaigns`, 'See your campaigns')}
+      <p style="color: #666; font-size: 14px;">Write to <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a> and a person will read it.</p>
+    `,
+      'A person read it and decided not to publish it.',
+    ),
+  };
+}
+
 export function verificationConsequenceEmail(p: {
   campaignerName: string;
   campaignTitle: string;
