@@ -2,9 +2,11 @@ import { ImageResponse } from '@vercel/og';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
-import { getCampaignPhase, getPhaseLabel } from '@/lib/utils/phase';
+import { getCampaignPhase } from '@/lib/utils/phase';
+import { CATEGORY_LABELS } from '@/lib/categories';
+import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 import { loadOgFonts } from '@/lib/og-fonts';
+import { ogCardModel, probeHeroSrc } from '@/lib/og-card-model';
 
 export const runtime = 'nodejs';
 
@@ -12,13 +14,49 @@ interface Params {
   params: Promise<{ slug: string }>;
 }
 
-const PHASE_COLORS: Record<string, string> = {
-  first_believers: '#0F766E',
-  the_push: '#0F766E',
-  closing_in: '#D97706',
-  last_donor_zone: '#8B2332',
-};
-
+/**
+ * The 1200x630 card every shared LastDonor link carries.
+ *
+ * This is not decoration. On WhatsApp and Facebook the image is the largest
+ * element in the card and is read before any text; on X's
+ * `summary_large_image` it is very nearly the ONLY thing shown. For most
+ * people who ever see a campaign second-hand, this picture is the campaign.
+ *
+ * ── What was wrong with the version this replaces ────────────────────────
+ *
+ * All of the following were observed against production on 2026-10-25,
+ * not reasoned about:
+ *
+ *  1. **It 502'd for 2 of 14 live campaigns.** A campaign whose
+ *     `heroImageUrl` is a relative path (`/images/categories/...svg`) made
+ *     `ImageResponse` throw, so `harold-jennings` and `david-l-jones` had no
+ *     share image at all and every platform fell back to a text-only card.
+ *     Satori needs an absolute URL, and it does not render SVG as an `<img>`.
+ *     Both are now handled, and a hero that cannot be used degrades to a
+ *     designed panel rather than a 502.
+ *  2. **"$0.00 raised · 0 donors"** was printed on every card. Every live
+ *     campaign has raised nothing (`docs/72`), so the single most
+ *     discouraging fact about a campaign was the headline of every share.
+ *     The product's own zero state is "Be the first to donate" (`docs/71`),
+ *     and that is what this shows.
+ *  3. **It hardcoded USD.** `centsToDollars` formats as dollars whatever the
+ *     row's currency is, while every amount column is in the MINOR UNITS OF
+ *     ITS OWN ROW'S CURRENCY (`docs/92`). Latent only because the one KES
+ *     campaign is `archived` and so unservable - it would have become
+ *     shillings behind a dollar sign in every preview the day a KES campaign
+ *     went live. Now `formatMoney(minor, currency)`.
+ *  4. **Cents on whole-dollar goals** - "$0.00 of $35,000.00".
+ *  5. **It repeated the page title and added nothing.** Category, location
+ *     and the review guarantee - the things that make a stranger trust an
+ *     appeal - were all absent.
+ *
+ * ── Why the photo is on the left ─────────────────────────────────────────
+ *
+ * X draws its own copy of `og:title` in a black badge over the BOTTOM LEFT
+ * of the image. The old card put its title there too, so on X the title was
+ * printed on top of itself. Moving the text to the right half means X's
+ * badge lands on the photo, where it belongs.
+ */
 export async function GET(_request: Request, { params }: Params) {
   const { slug } = await params;
 
@@ -28,7 +66,9 @@ export async function GET(_request: Request, { params }: Params) {
       heroImageUrl: campaigns.heroImageUrl,
       raisedAmount: campaigns.raisedAmount,
       goalAmount: campaigns.goalAmount,
-      subjectName: campaigns.subjectName,
+      currency: campaigns.currency,
+      category: campaigns.category,
+      location: campaigns.location,
       donorCount: campaigns.donorCount,
     })
     .from(campaigns)
@@ -48,13 +88,32 @@ export async function GET(_request: Request, { params }: Params) {
     return new Response('Campaign not found', { status: 404 });
   }
 
-  const percent = campaign.goalAmount > 0
-    ? Math.min(Math.round((campaign.raisedAmount / campaign.goalAmount) * 100), 100)
-    : 0;
-  const phase = getCampaignPhase(campaign.raisedAmount, campaign.goalAmount);
-  const phaseColor = PHASE_COLORS[phase];
-  const phaseLabel = getPhaseLabel(phase);
+  const model = ogCardModel({
+    raisedMinor: campaign.raisedAmount,
+    goalMinor: campaign.goalAmount,
+    currency: campaign.currency,
+    donorCount: campaign.donorCount,
+    heroImageUrl: campaign.heroImageUrl,
+    baseUrl: appBaseUrl(),
+    phase: getCampaignPhase(campaign.raisedAmount, campaign.goalAmount),
+  });
+
+  /*
+    The shape check above cannot tell a JPEG from a WebP when the URL has no
+    extension, and an undecodable image makes `ImageResponse` throw mid-pipe
+    - which is the 502. One HEAD request settles it, and the result is
+    cached for a day with the card.
+  */
+  const heroSrc = model.heroSrc ? await probeHeroSrc(model.heroSrc) : null;
+
+  const categoryLabel = CATEGORY_LABELS[campaign.category] ?? 'Fundraiser';
+  const context = [categoryLabel, campaign.location].filter(Boolean).join('  ·  ');
   const fonts = await loadOgFonts();
+
+  const INK = '#0F172A';
+  const MUTED = '#64748B';
+  const TEAL = '#0F766E';
+  const TRACK = '#E2E8F0';
 
   return new ImageResponse(
     (
@@ -63,127 +122,209 @@ export async function GET(_request: Request, { params }: Params) {
           width: '100%',
           height: '100%',
           display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'flex-end',
-          position: 'relative',
+          flexDirection: 'row',
+          backgroundColor: '#FFFFFF',
           fontFamily: 'DM Sans',
         }}
       >
-        {/* Background image */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={campaign.heroImageUrl}
-          alt=""
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-          }}
-        />
-
-        {/* Gradient overlay */}
+        {/* ── Left: the photograph ─────────────────────────────────────── */}
         <div
           style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '60%',
-            background: 'linear-gradient(to top, rgba(0,0,0,0.85), transparent)',
-          }}
-        />
-
-        {/* Content */}
-        <div
-          style={{
-            position: 'relative',
             display: 'flex',
-            flexDirection: 'column',
-            padding: '40px 48px',
-            gap: '16px',
+            width: '456px',
+            height: '100%',
+            position: 'relative',
+            backgroundColor: '#0B3B38',
           }}
         >
-          {/* Title */}
-          <div
-            style={{
-              fontSize: 42,
-              fontFamily: 'DM Serif Display',
-              color: '#FFFFFF',
-              lineHeight: 1.2,
-              maxWidth: '80%',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-            }}
-          >
-            {campaign.title}
+          {heroSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={heroSrc}
+              alt=""
+              style={{ width: '456px', height: '630px', objectFit: 'cover' }}
+            />
+          ) : (
+            /*
+              No usable photograph. This is a designed state, not an empty
+              box: the old route threw here and answered 502, which is how
+              two live campaigns ended up with no share image at all.
+            */
+            <div
+              style={{
+                display: 'flex',
+                width: '456px',
+                height: '630px',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#0B3B38',
+                color: '#5EEAD4',
+                fontSize: 120,
+                fontFamily: 'DM Serif Display',
+              }}
+            >
+              L
+            </div>
+          )}
+        </div>
+
+        {/* ── Right: everything a stranger needs to decide ─────────────── */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            /*
+              Centred, not space-between. With two groups, space-between put
+              every unused pixel into one gap in the middle, so a short title
+              left a ~200px hole. Centring absorbs the slack evenly and a
+              three-line title still fills the panel.
+            */
+            justifyContent: 'center',
+            width: '744px',
+            height: '100%',
+            padding: '44px 48px',
+          }}
+        >
+          {/* Brand, context, headline */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div
+              style={{
+                display: 'flex',
+                fontSize: 30,
+                fontFamily: 'DM Serif Display',
+                color: TEAL,
+              }}
+            >
+              LastDonor
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                marginTop: '18px',
+                fontSize: 23,
+                color: MUTED,
+              }}
+            >
+              {context}
+            </div>
+
+            <div
+              style={{
+                display: '-webkit-box',
+                marginTop: '12px',
+                fontSize: 44,
+                lineHeight: 1.18,
+                fontFamily: 'DM Serif Display',
+                color: INK,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+              }}
+            >
+              {campaign.title}
+            </div>
           </div>
 
-          {/* Stats row */}
+          {/* Money, progress, and the guarantee */}
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: '24px',
-              color: '#E2E8F0',
-              fontSize: 20,
-            }}
-          >
-            <span>{centsToDollars(campaign.raisedAmount)} raised</span>
-            <span>·</span>
-            <span>{campaign.donorCount} donors</span>
-            <span>·</span>
-            <span style={{ color: phaseColor }}>{phaseLabel}</span>
-          </div>
-
-          {/* Progress bar */}
-          <div
-            style={{
-              display: 'flex',
-              width: '100%',
-              height: '12px',
-              borderRadius: '6px',
-              backgroundColor: 'rgba(255,255,255,0.2)',
-              overflow: 'hidden',
+              flexDirection: 'column',
+              marginTop: '36px',
             }}
           >
             <div
               style={{
-                width: `${percent}%`,
-                height: '100%',
-                borderRadius: '6px',
-                backgroundColor: phaseColor,
-              }}
-            />
-          </div>
-
-          {/* Footer */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              color: '#94A3B8',
-              fontSize: 16,
-            }}
-          >
-            <span>
-              {centsToDollars(campaign.raisedAmount)} of {centsToDollars(campaign.goalAmount)}
-            </span>
-            <span
-              style={{
-                fontSize: 18,
-                fontWeight: 600,
-                color: '#14B8A6',
+                display: 'flex',
+                alignItems: 'baseline',
+                fontSize: 42,
+                color: INK,
               }}
             >
-              lastdonor.org
-            </span>
+              {model.headline}
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                marginTop: '8px',
+                fontSize: 24,
+                color: MUTED,
+              }}
+            >
+              {model.subline}
+            </div>
+
+            {/* Progress */}
+            <div
+              style={{
+                display: 'flex',
+                width: '100%',
+                height: '14px',
+                marginTop: '18px',
+                borderRadius: '7px',
+                backgroundColor: TRACK,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  width: `${model.barPercent}%`,
+                  height: '14px',
+                  borderRadius: '7px',
+                  backgroundColor: model.barColor,
+                }}
+              />
+            </div>
+
+            {/*
+              The platform's actual differentiator, and the one claim
+              `docs/78`/`docs/79` make without qualification because BOTH
+              insert paths are gated. Do not soften or embellish it.
+            */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                marginTop: '28px',
+                paddingTop: '20px',
+                borderTop: `1px solid ${TRACK}`,
+                fontSize: 22,
+                color: MUTED,
+              }}
+            >
+              {/*
+                ⚠️ A rule, not a tick, and not by preference.
+
+                A literal check character is not in DM Sans, and Satori
+                reaches for the NETWORK for any glyph the supplied fonts
+                lack - observed here as `Failed to load dynamic font for ✓
+                ... Status: 400` (`docs/95`: Satori has no system fonts).
+                Drawing one as inline SVG works, but
+                `src/components/ui/icon/icon.test.tsx` ratchets the number of
+                files that hand-roll SVG downward and this would have been
+                the seventeenth (`docs/70`) - note that ratchet matches raw
+                TEXT, so even naming the tag in a comment trips it. The icon components cannot be
+                used either: they size by className and rely on
+                `vectorEffect`, neither of which Satori honours.
+
+                So the emphasis is a border, which needs no font and no
+                artwork.
+              */}
+
+              <div
+                style={{
+                  display: 'flex',
+                  borderLeft: `4px solid ${TEAL}`,
+                  paddingLeft: '14px',
+                }}
+              >
+                Reviewed by a person before it goes live  ·  lastdonor.org
+              </div>
+            </div>
           </div>
         </div>
       </div>

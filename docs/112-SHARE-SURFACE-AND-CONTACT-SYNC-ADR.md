@@ -236,3 +236,152 @@ have buried it.
 - Whether a WhatsApp or Facebook crawler renders our OG card well was not
   measured; only that the markup is produced.
 - Nothing in §5 was fixed, by choice.
+
+---
+
+## 7. The card itself: what a shared link looks like
+
+Added 2026-10-25, after the share row. The request was for "a complete well
+designed card that has as much relevant info as possible", and measuring the
+current one first turned up defects rather than taste questions.
+
+Everything here was **observed against production**, not reasoned about. The
+live `og:` tags were read from `/campaigns/mila-ostrowski` and the card images
+fetched from `/api/v1/og/campaign/<slug>`.
+
+### 7.1 ⛔ The card was an HTTP 502 for 2 of 14 live campaigns
+
+| Campaign | hero | card |
+|---|---|---|
+| `harold-jennings` | `/images/categories/veterans-default.svg` | **502** |
+| `david-l-jones` | `/images/categories/veterans-default.svg` | **502** |
+| `mila-ostrowski` | absolute `.jpg` | 200 |
+| `tuan-nguyen` | absolute unsplash | 200 |
+| `help-john-recover-...` | absolute | 200 |
+
+An exact correlation: both relative-SVG heroes fail, all three absolute
+controls pass. Satori needs an absolute URL and cannot decode SVG, and
+`ImageResponse` does not fail gracefully - it throws mid-stream (`failed to
+pipe response`). Those two campaigns had **no share image at all**; every
+platform fell back to a text-only card.
+
+### 7.2 ⚠️ The fix for that was itself a half-fix, and rendering it found out
+
+The first version blocked `.svg` alone - the format that happened to break.
+Rendering the card locally immediately produced
+`Unsupported image type: image/webp` from a fixture hero, and
+`src/lib/supabase-storage.ts:149` **accepts `image/webp` and `image/avif` on
+upload**, so an organiser's own photograph could have restored the 502.
+
+A blocklist can only ever hold the formats somebody has already been burned
+by. The extension cannot settle it either: production stores Unsplash URLs
+with **no extension at all**. So `probeHeroSrc` makes one HEAD request and
+accepts only `image/jpeg`, `image/png`, `image/gif`. Anything else - wrong
+type, 404, timeout, unreachable - returns null and renders a designed panel.
+**A card without a photograph is a small loss; a card that is a 502 is no
+card.**
+
+The lesson is the Gate 4 one: my mutation tests all passed because they
+encoded my own blocklist assumption. The webp case could not have failed
+them, because I never asked about webp. Rendering the thing is what asked.
+
+### 7.3 The other five defects
+
+1. **"$0.00 raised · 0 donors"** printed on every card. Every live campaign
+   has raised nothing (`docs/72`), so the most discouraging fact about a
+   campaign was the headline of every share of it. Now the product's own
+   zero state, "Be the first to donate" (`docs/71`), and the goal.
+2. **USD hardcoded.** `centsToDollars` formats as dollars whatever the row's
+   currency is (`docs/92`). Latent - the one KES campaign is `archived` -
+   and it would have become shillings behind a dollar sign the day a KES
+   campaign went live.
+3. **Cents on round goals**: "$0.00 of $35,000.00".
+4. **The title printed twice.** `og:description` began with the title
+   verbatim, and every platform renders `og:title` as a heading with the
+   description directly beneath, clamped to one or two lines - so WhatsApp
+   and Facebook showed the headline, then the headline again in grey,
+   truncated before it said anything new.
+5. **`twitter:description` was "0% funded. $0.00 raised."** - two zeros, and
+   X does not display a description on `summary_large_image` at all.
+
+Also absent entirely: `og:site_name`, `og:url`, the category, the location,
+and the review guarantee - the one claim `docs/78`/`docs/79` support without
+qualification and the platform's actual differentiator.
+
+### 7.4 The design, and why the photo is on the left
+
+X draws its own copy of `og:title` in a black badge over the **bottom left**
+of the image. The old card put its title there too, so on X the title was
+printed on top of itself. The photo now occupies the left 456px and the text
+the right 744px, so X's badge lands on the photograph.
+
+The right panel carries, in order: the wordmark, `Category · Location`, the
+title (clamped to three lines), the amount raised or the zero-state ask, the
+goal and donor count, a progress bar coloured by phase, and the review
+guarantee. Urgency is named **only** for `closing_in` and `last_donor_zone` -
+"First Believers" tells a cold reader nothing.
+
+Type sizes were raised once after looking at the result shrunk into a
+WhatsApp bubble, where the smallest line had been sub-pixel.
+
+### 7.5 ⚠️ Two Satori traps, both found by rendering
+
+- **A glyph outside the supplied fonts makes Satori hit the network.** The
+  check character is not in DM Sans and the render logged
+  `Failed to load dynamic font for ✓ ... Status: 400`. `docs/95` already says
+  Satori has no system fonts; this is the same rule for a single character.
+  The emphasis is now a **border**, which needs no font.
+- **Drawing it as inline SVG instead is blocked by our own ratchet.**
+  `src/components/ui/icon/icon.test.tsx` ratchets the count of files that
+  hand-roll SVG downward (`docs/70`) and this would have been the 17th. The
+  icon components cannot be used either - they size by `className` and rely
+  on `vectorEffect`, neither of which Satori honours. ⚠️ That ratchet matches
+  **raw text**, so even naming the tag inside a comment trips it.
+- Line clamping needs `display: '-webkit-box'`; with `display: 'flex'`,
+  `WebkitLineClamp` is silently ignored and a long title overflows the card.
+
+### 7.6 Verified
+
+- 19 tests in `og-card-model.test.ts`, 10 in `campaign-share-copy.test.ts`.
+- **10 mutants injected, 10 killed**: SVG guard removed, relative paths
+  rejected, zero state printing zero again, USD hardcoded, progress cap
+  removed, zero-goal divide reinstated, urgency on every phase, description
+  leading with the title, zero state reporting 0%, donor clause claiming zero.
+- Rendered in a local production build across four states - photo + funded,
+  long title + 95% + Last Donor Zone, zero-raised with an unusable hero, and
+  a webp hero. **All four HTTP 200, no server errors**, where two of those
+  shapes are 502 in production today.
+- Full gate: lint 0 errors, typecheck clean, unit **7202 passed / 16 skipped,
+  233 files**.
+
+### 7.6a ⚠️ A measurement error worth recording
+
+Three renders in a row were taken from a **stale server process**. `next
+start` had failed with `EADDRINUSE` because the previous instance was still
+bound to the port - the `pkill` meant to stop it kept matching and killing
+its own shell instead (exit 144), which looked like success. The new process
+died instantly, the old one kept serving, and every "after" screenshot was
+the build from twenty minutes earlier.
+
+What exposed it was not suspicion but arithmetic: the PNG came back
+**byte-identical** across a change that removed an inline graphic. Source,
+built chunk and response headers were all checked before the running process
+was - the last place looked at, and the only one that was wrong.
+
+The Gate 5 rule says measure only a quiescent system; the gap is that a
+*stale* system looks perfectly quiescent. **Confirm the thing under test is
+the thing running** - check the listening PID's start time, or that the
+output changed at all.
+
+### 7.7 UNCHECKED
+
+- Not deployed. The production cards still show the old design and the two
+  502s until this ships.
+- The card was not submitted to Facebook's Sharing Debugger, X's Card
+  Validator or LinkedIn's Post Inspector - the platform previews in this work
+  are **reconstructions** built from the real tags and the real image, not
+  captures from the platforms themselves.
+- `donate/page.tsx:61` still builds its own description with
+  `centsToDollars`; it was left alone rather than widening this change.
+- The HEAD probe adds one request per uncached card render. The card is
+  cached 24h (`s-maxage=86400`), so this was accepted without measurement.

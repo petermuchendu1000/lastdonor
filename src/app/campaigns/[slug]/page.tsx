@@ -20,6 +20,7 @@ import { CATEGORY_LABELS } from '@/lib/categories';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 import { MediaGallery } from '@/components/campaign/MediaGallery';
 import { centsToDollars } from '@/lib/utils/currency';
+import { campaignShareDescription } from '@/lib/campaign-share-copy';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { CampaignSidebarClient } from './client';
 import { CampaignActivity, CampaignActivitySkeleton } from './CampaignActivity';
@@ -153,12 +154,23 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const campaign = lookup.campaign;
 
-  const percent = campaign.goalAmount > 0
-    ? Math.round((campaign.raisedAmount / campaign.goalAmount) * 100)
-    : 0;
   const categoryLabel = CATEGORY_LABELS[campaign.category] ?? 'Fundraiser';
   const isIndexable = ['active', 'last_donor_zone', 'completed'].includes(campaign.status);
-  const description = `${campaign.title}. Reviewed ${categoryLabel.toLowerCase()} fundraiser for ${campaign.subjectName}. ${percent}% funded - ${centsToDollars(campaign.raisedAmount)} of ${centsToDollars(campaign.goalAmount)} raised.`;
+  /*
+    ⛔ Does NOT begin with the title. Every platform prints `og:title` as a
+    heading with this directly beneath it, so a description that opens with
+    the title shows the same sentence twice and is then clamped before it
+    says anything new. See `src/lib/campaign-share-copy.ts`.
+  */
+  const description = campaignShareDescription({
+    categoryLabel,
+    subjectName: campaign.subjectName,
+    location: campaign.location,
+    raisedMinor: campaign.raisedAmount,
+    goalMinor: campaign.goalAmount,
+    currency: campaign.currency,
+    donorCount: campaign.donorCount,
+  });
 
   return {
     title: `${campaign.title} | LastDonor.org`,
@@ -180,6 +192,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     openGraph: {
       title: campaign.title,
       description,
+      // Both were absent from the live page. `url` is what a platform
+      // canonicalises a re-share to; `siteName` is the small grey line a
+      // reader uses to decide whether the source is a real organisation.
+      url: `https://lastdonor.org/campaigns/${slug}`,
+      siteName: 'LastDonor',
       type: 'article',
       images: [
         {
@@ -193,7 +210,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     twitter: {
       card: 'summary_large_image',
       title: campaign.title,
-      description: `${percent}% funded. ${centsToDollars(campaign.raisedAmount)} raised.`,
+      description,
     },
   };
 }
@@ -313,9 +330,6 @@ export default async function CampaignDetailPage({ params }: PageProps) {
     .filter((c) => c.id !== campaign.id)
     .slice(0, 3);
 
-  const percent = campaign.goalAmount > 0
-    ? Math.min(Math.round((campaign.raisedAmount / campaign.goalAmount) * 100), 100)
-    : 0;
   const impactTiers = (campaign.impactTiers ?? []) as ImpactTier[];
   const sanitizedStory = sanitizeHtml(campaign.storyHtml);
   const canonicalUrl = `https://lastdonor.org/campaigns/${slug}`;
@@ -326,8 +340,15 @@ export default async function CampaignDetailPage({ params }: PageProps) {
     campaign.heroImageUrl,
     ...((campaign.galleryImages ?? []) as string[]),
   ].filter((image): image is string => typeof image === 'string' && image.length > 0);
-  const campaignDescription =
-    `Reviewed ${categoryLabel.toLowerCase()} fundraiser for ${campaign.subjectName}. ${percent}% funded with ${centsToDollars(campaign.raisedAmount)} raised toward ${centsToDollars(campaign.goalAmount)}.`;
+  const campaignDescription = campaignShareDescription({
+    categoryLabel,
+    subjectName: campaign.subjectName,
+    location: campaign.location,
+    raisedMinor: campaign.raisedAmount,
+    goalMinor: campaign.goalAmount,
+    currency: campaign.currency,
+    donorCount: campaign.donorCount,
+  });
 
   // JSON-LD structured data
   const jsonLd = {
