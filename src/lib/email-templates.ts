@@ -769,6 +769,44 @@ export function verificationReminderEmail(p: {
  * (STOP) `reason` is TYPED BY AN ADMIN and goes straight into the document,
  * so it is escaped. The same hazard as the preheader in `docs/94` section 4.
  */
+/**
+ * An invitation to help run somebody's campaign.
+ *
+ * ⛔ It says what the helper CANNOT do, in the body, not in small print. A
+ * person invited to "help with a fundraiser" will reasonably assume they are
+ * being given access to the money unless told otherwise, and the honest
+ * answer shapes whether they accept at all. `docs/111` §1 has the traced
+ * reason the capability set stops where it does.
+ *
+ * ⛔ `inviterName` and `campaignTitle` are other people's words rendered into
+ * a document, so both are escaped.
+ */
+export function collaboratorInviteEmail(p: {
+  inviterName: string;
+  campaignTitle: string;
+  acceptUrl: string;
+}) {
+  return {
+    subject: `${esc(p.inviterName)} asked you to help with a fundraiser`,
+    html: wrap(
+      `
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You have been asked to help</h1>
+      <p>Hi,</p>
+      <p><strong>${esc(p.inviterName)}</strong> asked you to help with <strong>&quot;${esc(p.campaignTitle)}&quot;</strong>.</p>
+      <p>You will be able to write updates for the page and change what it says.</p>
+      <p style="background: #fff7ed; padding: 16px; border-radius: 8px; border-left: 4px solid #EA580C; margin: 20px 0;">
+        <strong>You will not be able to touch the money.</strong> Only the person who started the campaign can ask for a payout or change where it goes.
+      </p>
+      <p>To start helping, sign in and accept.</p>
+      ${ctaButton(p.acceptUrl, 'Accept and start helping')}
+      <p>This link works for seven days. If you were not expecting this, you can ignore it.</p>
+      <p style="color: #666; font-size: 14px;">Questions? Write to <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a>.</p>
+    `,
+      'You can write updates for the page. You cannot touch the money.',
+    ),
+  };
+}
+
 export function campaignRefusedEmail(p: {
   campaignerName: string;
   campaignTitle: string;

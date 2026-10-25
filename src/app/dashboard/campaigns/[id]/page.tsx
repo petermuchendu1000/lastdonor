@@ -7,6 +7,7 @@ import { eq, desc, and } from 'drizzle-orm';
 import { centsToDollars } from '@/lib/utils/currency';
 import { hasPublicPage } from '@/lib/campaign-visibility';
 import { JourneyChecklist } from '@/components/dashboard/JourneyChecklist';
+import { CampaignTeamPanel } from '@/components/collaborators/CampaignTeamPanel';
 import { campaignStatusLabel, verificationStatusLabel } from '@/lib/campaign-labels';
 import { formatDate } from '@/lib/utils/dates';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -197,6 +198,16 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           currency: campaign.currency,
         }}
       />
+
+      {/*
+        Team management. The panel fetches its own list rather than being
+        handed one, so this server component issues no extra query - the page
+        is already inside the three-concurrent-query ceiling (`docs/87`) and
+        adding a fourth read here would have put it over.
+      */}
+      <div className="mt-6">
+        <CampaignTeamPanel campaignId={id} />
+      </div>
 
       {/* Quick Actions */}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

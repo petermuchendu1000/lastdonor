@@ -75,17 +75,45 @@ describe('the directory is sealed against money and identity', () => {
       and revoke memberships and leave an audit trail. A write to `campaigns`,
       `users`, `donations`, `campaignWithdrawals` or `verificationDocuments`
       would be a different and much larger feature.
+
+      ⚠️ The receiver is matched, not just the method name. A first version of
+      this assertion matched any `.update(x)` and flagged
+      `createHash('sha256').update(raw)` in `invites.ts` - a crypto call, not
+      a database write. Narrowing the pattern would normally weaken the
+      check, so the test below closes that off by proving there is no OTHER
+      database handle in the directory to write through.
     */
     const allowed = new Set(['campaignCollaborators', 'auditLogs']);
     for (const { name, code } of files) {
       for (const match of code.matchAll(
-        /\.(?:update|insert|delete)\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)/g,
+        /\b(?:db|tx)\s*\.\s*(?:update|insert|delete)\(\s*([A-Za-z][A-Za-z0-9_]*)\s*\)/g,
       )) {
         expect(
           allowed.has(match[1]),
           `${name} writes to \`${match[1]}\`, which is not in the allowed set`,
         ).toBe(true);
       }
+    }
+  });
+
+  it('⚠️ has no database handle other than `db`, so the check above is complete', () => {
+    /*
+      This is what makes the narrowed pattern sound. The assertion above only
+      sees writes through `db` or `tx`; if a file imported its own pool or
+      aliased the handle, a write could slip past it. So: the only database
+      import in this directory is `{ db } from '@/db'`, and nothing re-binds
+      it.
+    */
+    for (const { name, code } of files) {
+      const dbImports = [...code.matchAll(/import\s*\{([^}]*)\}\s*from\s*'@\/db'/g)];
+      for (const imp of dbImports) {
+        const named = imp[1].split(',').map((x) => x.trim()).filter(Boolean);
+        expect(named, `${name} imports more than \`db\` from @/db`).toEqual(['db']);
+      }
+      expect(code, `${name} imports postgres directly`).not.toMatch(/from\s*'postgres'/);
+      expect(code, `${name} builds its own drizzle client`).not.toContain('drizzle(');
+      // No aliasing of the handle, which would defeat the receiver match.
+      expect(code, `${name} re-binds the db handle`).not.toMatch(/=\s*db\s*;/);
     }
   });
 

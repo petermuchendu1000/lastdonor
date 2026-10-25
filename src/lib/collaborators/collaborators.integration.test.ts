@@ -18,6 +18,16 @@ import { eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { canCollaborate } from '@/lib/collaborators/can-collaborate';
+import {
+  acceptInvite,
+  countLiveCollaborators,
+  createInvite,
+  listCollaborators,
+  mintInviteToken,
+  revokeCollaborator,
+  tokenMatchesHash,
+  MAX_LIVE_COLLABORATORS,
+} from '@/lib/collaborators/invites';
 import { clearDatabase, seedCampaign, seedUser } from '../../../test/helpers';
 
 let seq = 0;
@@ -287,5 +297,242 @@ describe('deleting a campaign takes its collaborators with it', () => {
     await db.delete(schema.campaigns).where(eq(schema.campaigns.id, campaign.id));
     const left = await db.select().from(schema.campaignCollaborators);
     expect(left).toHaveLength(0);
+  });
+});
+
+describe('the invitation flow, end to end', () => {
+  it('mints a token that is never stored in the clear', async () => {
+    const { owner, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'helper@test.invalid',
+      invitedBy: owner.id,
+    });
+    expect(made).not.toBeNull();
+
+    const [stored] = await db
+      .select()
+      .from(schema.campaignCollaborators)
+      .where(eq(schema.campaignCollaborators.id, made!.row.id));
+
+    // The token in the email must not be recoverable from the row.
+    expect(stored.tokenHash).not.toBe(made!.token);
+    expect(stored.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(tokenMatchesHash(made!.token, stored.tokenHash)).toBe(true);
+    expect(tokenMatchesHash('wrong-token', stored.tokenHash)).toBe(false);
+  });
+
+  it('lower-cases the address on the way in', async () => {
+    // The CHECK would reject a mixed-case insert, so the service must
+    // normalise rather than hand the constraint a violation.
+    const { owner, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: '  MiXeD@Case.TEST  ',
+      invitedBy: owner.id,
+    });
+    expect(made!.row.invitedEmail).toBe('mixed@case.test');
+  });
+
+  it('⛔ refuses a duplicate invitation with the constraint, not a prior read', async () => {
+    const { owner, campaign } = await fixture();
+    const email = 'twice@test.invalid';
+    await createInvite({ campaignId: campaign.id, invitedEmail: email, invitedBy: owner.id });
+    await expect(
+      createInvite({ campaignId: campaign.id, invitedEmail: email, invitedBy: owner.id }),
+    ).rejects.toThrow(/idx_campaign_collaborators_live/);
+  });
+
+  it('⛔ two simultaneous invitations to the same address: exactly one survives', async () => {
+    /*
+      The concurrency case. A check-then-insert would let both through; the
+      partial unique index is what makes it one. Run them together rather
+      than in sequence, because sequence is the case that already passes.
+    */
+    const { owner, campaign } = await fixture();
+    const email = 'race@test.invalid';
+    const results = await Promise.allSettled([
+      createInvite({ campaignId: campaign.id, invitedEmail: email, invitedBy: owner.id }),
+      createInvite({ campaignId: campaign.id, invitedEmail: email, invitedBy: owner.id }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(await countLiveCollaborators(campaign.id)).toBe(1);
+  });
+
+  it('⛔ stops at the per-campaign cap and reports it rather than throwing', async () => {
+    const { owner, campaign } = await fixture();
+    for (let i = 0; i < MAX_LIVE_COLLABORATORS; i++) {
+      const made = await createInvite({
+        campaignId: campaign.id,
+        invitedEmail: `cap-${i}@test.invalid`,
+        invitedBy: owner.id,
+      });
+      expect(made, `invite ${i + 1} was refused below the cap`).not.toBeNull();
+    }
+    expect(await countLiveCollaborators(campaign.id)).toBe(MAX_LIVE_COLLABORATORS);
+
+    // One past the cap: null, so the route can say something specific.
+    expect(
+      await createInvite({
+        campaignId: campaign.id,
+        invitedEmail: 'one-too-many@test.invalid',
+        invitedBy: owner.id,
+      }),
+    ).toBeNull();
+  });
+
+  it('a revocation frees a slot', async () => {
+    const { owner, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'leaver@test.invalid',
+      invitedBy: owner.id,
+    });
+    expect(await countLiveCollaborators(campaign.id)).toBe(1);
+    expect(await revokeCollaborator({ campaignId: campaign.id, collaboratorId: made!.row.id }))
+      .toBe(true);
+    expect(await countLiveCollaborators(campaign.id)).toBe(0);
+  });
+
+  it('accepting grants, and only then', async () => {
+    const { owner, helper, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'grant@test.invalid',
+      invitedBy: owner.id,
+    });
+
+    expect(await canCollaborate(campaign.id, helper.id, 'post_update')).toBe(false);
+    const outcome = await acceptInvite({ token: made!.token, userId: helper.id });
+    expect(outcome).toEqual({ ok: true, campaignId: campaign.id });
+    expect(await canCollaborate(campaign.id, helper.id, 'post_update')).toBe(true);
+  });
+
+  it('⛔ an unknown token grants nothing', async () => {
+    const { helper } = await fixture();
+    const { raw } = mintInviteToken();
+    expect(await acceptInvite({ token: raw, userId: helper.id }))
+      .toEqual({ ok: false, reason: 'not_found' });
+  });
+
+  it('⛔ an expired invitation is refused', async () => {
+    const { owner, helper, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'late@test.invalid',
+      invitedBy: owner.id,
+    });
+    await db
+      .update(schema.campaignCollaborators)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(schema.campaignCollaborators.id, made!.row.id));
+
+    expect(await acceptInvite({ token: made!.token, userId: helper.id }))
+      .toEqual({ ok: false, reason: 'expired' });
+    expect(await canCollaborate(campaign.id, helper.id, 'post_update')).toBe(false);
+  });
+
+  it('⛔ a revoked invitation cannot be accepted', async () => {
+    const { owner, helper, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'gone@test.invalid',
+      invitedBy: owner.id,
+    });
+    await revokeCollaborator({ campaignId: campaign.id, collaboratorId: made!.row.id });
+
+    expect(await acceptInvite({ token: made!.token, userId: helper.id }))
+      .toEqual({ ok: false, reason: 'not_found' });
+  });
+
+  it('accepting twice from the SAME account is success, not an error', async () => {
+    // A double-clicked link must not read as a failure to the person who
+    // just succeeded.
+    const { owner, helper, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'twice-ok@test.invalid',
+      invitedBy: owner.id,
+    });
+    await acceptInvite({ token: made!.token, userId: helper.id });
+    expect(await acceptInvite({ token: made!.token, userId: helper.id }))
+      .toEqual({ ok: true, campaignId: campaign.id });
+  });
+
+  it('⛔ a second ACCOUNT cannot accept an invitation already taken', async () => {
+    const { owner, helper, campaign } = await fixture();
+    const other = await seedUser({ email: `other-${Date.now()}@test.invalid` });
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'shared@test.invalid',
+      invitedBy: owner.id,
+    });
+    await acceptInvite({ token: made!.token, userId: helper.id });
+
+    expect(await acceptInvite({ token: made!.token, userId: other.id }))
+      .toEqual({ ok: false, reason: 'already_accepted' });
+    expect(await canCollaborate(campaign.id, other.id, 'post_update')).toBe(false);
+  });
+
+  it('⛔ two simultaneous accepts of one invitation: exactly one wins', async () => {
+    /*
+      The `accepted_at IS NULL` guard on the UPDATE is what makes this one.
+      A read-then-write would attach the campaign to whichever account
+      happened to be scheduled second, with no error.
+    */
+    const { owner, helper, campaign } = await fixture();
+    const other = await seedUser({ email: `racer-${Date.now()}@test.invalid` });
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'accept-race@test.invalid',
+      invitedBy: owner.id,
+    });
+
+    const outcomes = await Promise.all([
+      acceptInvite({ token: made!.token, userId: helper.id }),
+      acceptInvite({ token: made!.token, userId: other.id }),
+    ]);
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(1);
+
+    const granted = await Promise.all([
+      canCollaborate(campaign.id, helper.id, 'post_update'),
+      canCollaborate(campaign.id, other.id, 'post_update'),
+    ]);
+    expect(granted.filter(Boolean)).toHaveLength(1);
+  });
+
+  it('⛔ revoking is scoped to the campaign, so an id from elsewhere does nothing', async () => {
+    const { owner, campaign } = await fixture();
+    const other = await seedCampaign({ creatorId: owner.id, slug: `scope-${Date.now()}` });
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'scoped@test.invalid',
+      invitedBy: owner.id,
+    });
+
+    // Same row id, wrong campaign: refused.
+    expect(await revokeCollaborator({ campaignId: other.id, collaboratorId: made!.row.id }))
+      .toBe(false);
+    expect(await countLiveCollaborators(campaign.id)).toBe(1);
+  });
+
+  it('lists pending and accepted members, and nothing revoked', async () => {
+    const { owner, helper, campaign } = await fixture();
+    const a = await createInvite({
+      campaignId: campaign.id, invitedEmail: 'a@test.invalid', invitedBy: owner.id,
+    });
+    await createInvite({
+      campaignId: campaign.id, invitedEmail: 'b@test.invalid', invitedBy: owner.id,
+    });
+    const c = await createInvite({
+      campaignId: campaign.id, invitedEmail: 'c@test.invalid', invitedBy: owner.id,
+    });
+    await acceptInvite({ token: a!.token, userId: helper.id });
+    await revokeCollaborator({ campaignId: campaign.id, collaboratorId: c!.row.id });
+
+    const listed = await listCollaborators(campaign.id);
+    expect(listed.map((r) => r.invitedEmail).sort()).toEqual(['a@test.invalid', 'b@test.invalid']);
+    expect(listed.find((r) => r.invitedEmail === 'a@test.invalid')!.acceptedAt).not.toBeNull();
+    expect(listed.find((r) => r.invitedEmail === 'b@test.invalid')!.acceptedAt).toBeNull();
   });
 });

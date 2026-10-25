@@ -1,6 +1,7 @@
 # 111 — Campaign collaborators (team fundraising)
 
-**Status:** safety core BUILT, NOT REACHABLE (no route creates a row yet).
+**Status:** BUILT (invite, accept, revoke, team panel). NOT DEPLOYED.
+⛔ A collaborator cannot yet reach a screen to use their capabilities — see §5a.
 **Date:** 2026-10-25.
 
 GoFundMe's team-fundraising loop, asked for by the owner: a family in crisis
@@ -186,29 +187,115 @@ cascade surviving a reordering of `clearDatabase`'s list.
 
 ---
 
-## 5. ⛔ Not built yet, and the feature is inert until it is
+## 5. The invitation flow
 
-**No route creates a collaborator row.** The capability check is wired, the
-table exists, and there is no way to populate it, so this change grants
-nobody anything today. That is deliberate — it makes the safety core
-reviewable on its own.
+An organiser invites by email, the invitee accepts from a link, and the
+organiser can remove anybody at any time.
 
-Still to build:
+| Route | Who |
+|---|---|
+| `GET/POST /api/v1/user-campaigns/[id]/collaborators` | **creator only** |
+| `DELETE …/collaborators/[collaboratorId]` | **creator only** |
+| `POST /api/v1/collaborators/accept` | any signed-in user, with the token |
 
-1. **Invite / accept / revoke routes.** ⚠️ The invite route **sends email**,
-   so it needs its own rate-limit tier: `/api/v1/user-campaigns/*` currently
-   falls through to the `default` 60/60s bucket in both lookups
-   (`getLimiterTier` and `ROUTE_LIMITS`), which would let one account mail 60
-   addresses a minute from `lastdonor.org`. It also needs a per-campaign cap.
-   Note the `docs/85` ordering trap: a more specific tier placed **after** a
-   broader prefix never fires, and the two lookups must agree.
-2. **A cap on collaborators per campaign**, for the same abuse reason.
-3. **UI**: a team list on the campaign's dashboard page, and the accept screen.
-4. **Surfacing the existing per-person share link** — see §6.
+⛔ Staff are **not** admitted to the team routes either. An admin managing
+somebody else's team is a different feature with different consent questions,
+and admins already have `/admin/campaigns`.
+
+### Tokens
+
+32 bytes from `randomBytes`, SHA-256 at rest. The raw token is in the email
+and nowhere else, so a database leak yields no working invitations. ⚠️ A plain
+digest and **not** the HMAC used for phone codes, deliberately: a six-digit
+code has a million possibilities and must be peppered or the space is
+precomputable, while 256 bits is not brute-forceable and a pepper would add a
+deployment dependency for nothing. `docs/85` makes the opposite call for the
+opposite reason.
+
+### ⚠️ The rate-limit tier, and why it is a predicate
+
+The invite route sends email from `lastdonor.org`. Without its own tier it
+sits in the generic `default` bucket (60/60 s), which lets one account mail
+sixty addresses a minute from our domain. So there is a `collab` tier at
+5/60 s.
+
+It is matched by a **predicate**, `isCollaboratorInvite`, not by a prefix.
+The path is `/api/v1/user-campaigns/<uuid>/collaborators` with the id in the
+**middle**, which `startsWith` cannot describe — and matching
+`/api/v1/user-campaigns` alone would put **the withdrawal route** into a
+five-a-minute email bucket, a denial of service on payouts introduced while
+adding a feature about invitations. A test asserts it does not.
+
+POST only. Listing and revoking cost us nothing and must not share the send
+budget: the SMS tier shipped matching every verb and 429'd a person typing a
+code we had just texted them (`docs/85`).
+
+⚠️ **Both lookups are pinned by test.** `getLimiterTier` (distributed) and
+`ROUTE_LIMITS`/`getConfig` (in-memory fallback) are separate code paths, and
+only the second runs when Upstash is unreachable — which is also when an
+abuser would most like to be sending mail. Removing the in-memory entry while
+leaving the distributed tier correct fails 2 tests; widening the predicate to
+the whole prefix fails 3.
+
+### The real abuse control is the cap, not the limit
+
+`MAX_LIVE_COLLABORATORS = 10` per campaign. The IP limit bounds how fast one
+address can send; the per-campaign cap bounds how many an **account** can send
+at all, which is what stops a campaign being used as a mailing list. Same
+division of labour as `docs/85`, where the per-code attempt counter is the
+control that works and the IP limit only bounds the spray.
+
+### ⚠️ The invitation page does not accept on load
+
+`/collaborate/accept` renders a **button**. Mail clients, link scanners and
+anti-virus proxies fetch the URLs in an email before a person sees it, so
+accepting on GET would hand the membership to whichever machine opened the
+message first, or burn the invitation before the invitee clicked. A GET must
+not mutate.
+
+It exists in the same change as the email that links to it. `docs/109` is the
+doc about a flow pointing at something that could not render; shipping the
+mail first would have been that defect on purpose.
+
+### Races, closed by the database rather than by reading first
+
+- **Two simultaneous invitations to one address** → the partial unique index
+  decides; exactly one survives. A check-then-insert would let both through.
+- **Two simultaneous accepts of one invitation** → the UPDATE is keyed on
+  `accepted_at IS NULL`, so the second updates zero rows. **Proven by
+  injection:** removing that guard makes both accounts gain access.
+- **A duplicate invite** is a 409 from the constraint, not a 500, and not a
+  prior SELECT.
+
+### What the invitee is told, and where
+
+The email and the accept screen both say, in the body and not in small
+print: *"You will not be able to touch the money. Only the person who started
+the campaign can ask for a payout or change where it goes."* Somebody invited
+to "help with a fundraiser" will reasonably assume it includes the money
+unless told plainly, and the honest answer shapes whether they accept at all.
+
+The organiser's panel says the same thing before they invite anybody.
 
 ---
 
-## 6. The growth loop mostly exists already, and nothing can reach it
+## 5a. ⛔ Still not done
+
+1. **A collaborator cannot REACH a screen to use their capabilities.** The API
+   admits them to `post_update` and `edit_content`, but
+   `/dashboard/campaigns/[id]` and the edit page are gated on
+   `creatorId === session.user.id || staff`. So the capability is wired and
+   unusable from the UI — the `docs/83` shape, recorded rather than
+   half-fixed, because widening several dashboard pages is its own change with
+   its own review.
+2. **`/dashboard/campaigns` does not list campaigns you only help with.** Its
+   query is `eq(campaigns.creatorId, session.user.id)`.
+3. **No E2E coverage.** `docs/99` records the missing signed-in fixture, which
+   is the same gap as everywhere else.
+
+---
+
+## 6. The growth loop was ALREADY COMPLETE, and nobody was told
 
 [VERIFIED] `campaign_share_links` (`schema.ts:629-647`) is **already
 per-person**: `campaign_id` + a nullable `user_id`, a unique token and a
@@ -217,10 +304,26 @@ donations to a link, and `docs/58` already built a "your impact" dashboard on
 top of it. The mint route `campaigns/[slug]/share-link/route.ts:74` requires
 only `auth()` — **not ownership**.
 
-So *"three cousins each blast it to their networks and each sees what they
-brought in"* — the actual ask — is largely built, needs **no campaign
-authority at all**, and has no door in the UI for anyone but the organiser.
+### ⚠️ CORRECTION, same day
 
-That is the `docs/83` shape a third time: a working mechanism nobody can
-reach. It may be most of the value in this request, and it is the cheapest
-item on the list.
+An earlier draft of this section said the loop "has no door in the UI for
+anyone but the organiser". **That was wrong**, and it was wrong in the
+direction that would have had me rebuild something that already works.
+
+[VERIFIED] `SidebarShareButton` is mounted on the public campaign page via
+`SidebarDonationSummary.tsx:115`, checks `isAuthenticated`
+(`SidebarShareButton.tsx:64`), and for a signed-in sharer resolves and shares
+`/s/<token>` rather than the plain URL (lines 69-94), falling back to the
+plain URL on any failure. `/dashboard/impact` then renders each link with its
+clicks, donors brought and amount brought.
+
+So **the growth loop is complete and needs nothing built.** Three cousins can
+each press Share today and each see what they brought in.
+
+What was actually missing is only that **nobody is told.** A helper who joins
+a campaign never learns that pressing Share gives them their own link, or
+that an impact page exists. So the whole of step 4 is one paragraph in the
+team panel pointing at both — which is what shipped.
+
+The lesson is the cheap one: the gap was discoverability, and reading the
+component before believing my own summary of it is what found that.

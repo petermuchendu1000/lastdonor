@@ -158,7 +158,14 @@ describe('the delegating surfaces delegate exactly what they claim', () => {
         if (e.isDirectory()) {
           walk(p);
         } else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
-          if (readFileSync(p, 'utf8').includes('canCollaborate')) {
+          /*
+            ⚠️ Comments stripped FIRST. The sweep's first version matched the
+            raw text and flagged three route files that mention
+            `canCollaborate` only to say they deliberately do not use it -
+            exactly the kind of note this boundary needs to carry. A rule that
+            punishes documenting itself would get the documentation deleted.
+          */
+          if (codeOnly(readFileSync(p, 'utf8')).includes('canCollaborate')) {
             found.push(relative(ROOT, p));
           }
         }

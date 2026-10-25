@@ -123,7 +123,7 @@ transcript or a commit message is lost.
 | `108-TRUST-NETWORKS-ADR.md` | **Institutional vouchers: a hospital, church, school or registered charity confirms a crisis instead of the organiser uploading documents. BUILT, NOT DEPLOYED (no institution exists anywhere). ⛔ The whole safety argument in one line: a vouch grants `identity_verified` and NOTHING ELSE - it lifts the docs/101 raise cap, releases no money, and does NOT publish anything. `fully_verified` was refused because it RELEASES MONEY in the same transaction, so a third party's email would move funds. Note there are TWO queues: the request's words name the VERIFICATION queue, which is bypassed; the docs/78-79 publication review is untouched, because 'every campaign is reviewed by a person' is claimed in ~44 lines across 23 files. The trust root is an admin: there is NO self-serve institution signup, because anyone who can create one can lift the cap. `representative_*` is ATTRIBUTION, not authentication - v1 has no institutional login, on the docs/76/77/81 rule against shipping unexercised paths. Contained by a rolling 30-day budget that COUNTS REVOKED VOUCHES (otherwise revoke-and-retry is unlimited), per-vouch revocation, and suspension that deliberately does NOT cascade. ⚠️ A repo-wide 'who writes fully_verified' test was WRONG and was DELETED: it missed `didit/webhook/route.ts:137`, which does `.set(update)` from a variable - the docs/101 lesson that a grep proves text, not semantics. What survives is structural and proven by injection (7 tests reading `.update()` targets and `.set({})` keys). Donors are TOLD: 'Confirmed by X - we have not seen the organiser's ID ourselves', with a test forbidding the words verified/verification/document. Read §1.1, §3.1 and §8 before touching any of it.** |
 | `109-SUBMIT-REDIRECT-404-ADR.md` | **Finishing the create-campaign wizard sent the organiser to a 404, with no confirmation that anything had been received - reported from production. The redirect was `/campaigns/<slug>?launched=true`, right when campaigns went live instantly; docs/78-79 made the insert `under_review` with `published_at: null`, and the public page serves only active/last_donor_zone/completed/paused/suspended/cancelled. NOTHING FAILED - a redirect stopped being valid because of work in another file (the docs/83 shape). ⚠️ A TEST WAS HOLDING IT IN PLACE: `instant-live-architecture.test.ts` asserted `toContain('?launched=true')` and passed the whole time, while SECTION 5 OF THE SAME FILE already asserted the route does NOT insert `status: 'active'` - the file asserted both halves of a contradiction and nothing compares two assertions to each other. Now redirects to `/dashboard/campaigns?submitted=1` with `SubmittedForReviewNotice`. ⛔ That copy may NOT promise an email on the DECISION (docs/93 deleted exactly that: a refused campaign notifies nobody, still open) and quotes no turnaround time (docs/78). `LaunchSuccessBanner` ('Your campaign is live') was not deleted - `?launched=true` moved to the APPROVAL email, the one moment its words are true. The replacement check DERIVES both ends from source (inserted status vs served statuses) rather than pinning today's answer, and is proven by injection BOTH ways: the production redirect fails 6 tests, and restoring instant-live on both ends makes the rule pass again.** |
 | `110-ORGANISER-JOURNEY-ADR.md` | **The product NEVER asked anybody to verify. `notifyVerificationReminder` has FOUR urgency levels and ZERO callers; no verification cron exists; `/how-it-works`, the wizard, the submission receipt and the "your campaign is live" email all never mention it. The only prompt was one grey line on `/dashboard`. ⛔ THREE DEFECTS: the verification screen decided "in progress" from `stripeVerificationId`, which the Didit path NEVER writes (docs/81), so it was permanently false and the status poll NEVER ARMED - an organiser finished the check and the screen never changed (docs/83 a second time); the Didit return at `/dashboard?verification=<slug>` was read by NOTHING; and the guide was linked from the footer, terms, refund-policy, campaign-rules and transparency but from NEITHER the verification screen nor the dashboard. ⚠️ TWO TIERS nothing named: `identity_verified` lifts the docs/101 cap, `fully_verified` is what the withdrawal route requires - a campaign could raise freely and still be unable to take a penny out. Also SEVEN status-label maps, three organiser-facing ones wrong: `FinancesClient` invented `pending_review`/`rejected` (not statuses) and was MISSING `under_review`; the verification screen showed organisers "Identity Verified (Tier 1)". Now one `organiser-journey.ts` feeding six surfaces, plus `campaign-labels.ts`. ✅ §7 RESOLVED 2026-10-25: the reminder ladder ships as `cron/verification-reminders`. The four emails that existed could NOT be wired - every level says "reached its goal N days ago" and three threaten to "send the money back", and [VERIFIED by enumerating every refund call site] NO mechanism sends money back on a clock, so both halves are false. New copy keyed on consequence instead; §7.2 corrects this doc's own proposal that level 4 could reuse the funded ladder. ✅ §9 RESOLVED: `/how-it-works`, `/share-your-story` and the wizard now name the ID check, rendered from `organiserJourneyOutline()` so the marketing page is not a seventh idea of the journey. §9.2 is the defect found doing it - the wizard promised an email "when it is decided", the EXACT sentence docs/93 deleted, sitting above the submit button; the rule was already asserted on the notice and the email and the third surface was swept by NOTHING, so the fix is a sweep (`organiser-promises.test.ts`), not a third assertion. ⛔ §10 OPEN: TEN files quote Stripe's "2.9% + 30c" on a platform where Stripe answers `status:error` and the live rail is PayHero - reported, not half-fixed, because the replacement number needs an owner decision (docs/92: PayHero's own published table is wrong too).** |
-| `111-CAMPAIGN-COLLABORATORS-ADR.md` | **Team fundraising: the organiser can invite helpers. SAFETY CORE BUILT, NOT REACHABLE - no route creates a row yet, so it grants nobody anything today. ⛔ A collaborator holds CONTENT capabilities only (`post_update`, `edit_content`) and can never withdraw, change the payout account, upload identity documents, delete, change status or invite. That is not caution: [VERIFIED] `withdraw/route.ts:146-154` resolves the payout destination with `eq(users.id, session.user.id)` - the CALLER's Connect account - and passes it to `createTransfer` at 405-408 with NO later creatorId re-check, so the invariant "the credited account belongs to the person owed" is held up by the ownership check 8 lines above and nothing else. Delegating ownership pays a family's money to a helper, silently. TWO tests because one is not enough: the module boundary (what this directory may write) plus the CALL SITES (six sealed routes must not consult `canCollaborate`) - a sealed module is useless if the withdrawal route calls it. Carries a TRIPWIRE ON ITS OWN PREMISE: if the payout destination stops being read from the caller, a test fails so somebody re-reads the decision. ⚠️ `reply_to_message` is absent because no organiser message-reply route EXISTS. §6: the per-person share loop is ALREADY BUILT (`campaign_share_links` is campaign+user, `donations.share_link_id` attributes, mint route needs only a session) and has no door in the UI - the docs/83 shape a third time.** |
+| `111-CAMPAIGN-COLLABORATORS-ADR.md` | **Team fundraising: the organiser invites helpers by email, they accept from a link, the organiser can remove anybody. BUILT, NOT DEPLOYED. ⛔ §5a: a collaborator cannot yet REACH a screen to use their capabilities - the API admits them, the dashboard pages are still creator-gated (the docs/83 shape, recorded not half-fixed). ⛔ A collaborator holds CONTENT capabilities only (`post_update`, `edit_content`) and can never withdraw, change the payout account, upload identity documents, delete, change status or invite. That is not caution: [VERIFIED] `withdraw/route.ts:146-154` resolves the payout destination with `eq(users.id, session.user.id)` - the CALLER's Connect account - and passes it to `createTransfer` at 405-408 with NO later creatorId re-check, so the invariant "the credited account belongs to the person owed" is held up by the ownership check 8 lines above and nothing else. Delegating ownership pays a family's money to a helper, silently. TWO tests because one is not enough: the module boundary (what this directory may write) plus the CALL SITES (six sealed routes must not consult `canCollaborate`) - a sealed module is useless if the withdrawal route calls it. Carries a TRIPWIRE ON ITS OWN PREMISE: if the payout destination stops being read from the caller, a test fails so somebody re-reads the decision. ⚠️ `reply_to_message` is absent because no organiser message-reply route EXISTS. §6 CORRECTS ITSELF: the per-person share loop is ALREADY COMPLETE and needed nothing built - `SidebarShareButton` is on the public page, checks `isAuthenticated` and mints `/s/<token>`, and `/dashboard/impact` shows what each link brought in. An earlier draft said it had 'no door in the UI', which was WRONG; the gap was only that nobody is TOLD, so step 4 is one paragraph in the team panel. ⚠️ Rate limiting: the `collab` tier (5/60s) is matched by a PREDICATE not a prefix, because the campaign id is mid-path and matching `/api/v1/user-campaigns` would put the WITHDRAWAL route in an email bucket. Both lookups pinned by test; the real abuse control is the per-campaign cap of 10, not the IP limit.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -134,8 +134,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7057 pass + 16 skipped, 227 files, as of 2026-10-25)
-npm run test:integration  # Vitest + a throwaway Postgres (149 tests, 16 files)
+npm run test:unit      # Vitest (7161 pass + 16 skipped, 230 files, as of 2026-10-25)
+npm run test:integration  # Vitest + a throwaway Postgres (177 tests, 17 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
@@ -809,6 +809,48 @@ These exist for a reason; changing them has consequences beyond the local file.
   escaped - the `docs/94` §4 hazard. The copy promises no re-review (the
   revision loop was not taken), no turnaround time (`docs/78`) and nothing
   about money being sent back.
+
+- **A campaign collaborator holds CONTENT capabilities and nothing else.**
+  Added 2026-10-25, see `docs/111`. An organiser can invite helpers by email;
+  they may `post_update` and `edit_content` and that is the whole list
+  (`src/lib/collaborators/capabilities.ts`). Check with `canCollaborate`, and
+  evaluate it **after** the ownership check — it issues a query, and the
+  owner's path must not pay for it (`docs/87`, pool `max: 5`).
+
+  ⛔ **`NEVER_DELEGATED` is not documentation.** A collaborator can never
+  withdraw, change the payout account, upload identity documents, delete a
+  campaign, change its status, or invite anybody. Moving an entry between the
+  two lists reopens the decision in `docs/111` §1.
+
+  ⚠️ **Why, traced:** `withdraw/route.ts:146-154` resolves the payout
+  destination with `eq(users.id, session.user.id)` — the **caller's** Connect
+  account — and passes it to `createTransfer` at 405-408, with no later
+  `creatorId` re-check. So *"the credited account belongs to the person owed"*
+  is held up by the ownership comparison eight lines above and nothing else.
+  Delegating ownership pays a family's money to a helper, silently. The
+  call-site test carries a **tripwire on that premise**: if the destination
+  ever stops being read from the caller, it fails so somebody re-reads the
+  decision.
+
+  ⛔ **Two tests, and one is not enough.** The module boundary (what
+  `src/lib/collaborators/` may write) plus the **call sites** (six sealed
+  routes must not consult `canCollaborate`, found by walking the tree). A
+  sealed module is worthless if the withdrawal route calls into it.
+
+  ⚠️ `requireOwner` in `user-campaigns/[id]/route.ts` takes the capability
+  **per call site** — `'edit_content'` for GET and PUT, nothing for DELETE.
+  Baking it into the shared helper would have widened DELETE by accident.
+
+  ⚠️ The invite route **sends email**, so it has its own `collab` rate-limit
+  tier matched by a predicate, not a prefix: the campaign id is mid-path, and
+  matching `/api/v1/user-campaigns` would put the withdrawal route in a
+  five-a-minute email bucket. Both lookups must agree (`docs/85`). The real
+  abuse control is `MAX_LIVE_COLLABORATORS`, not the IP limit.
+
+  ⛔ **`/collaborate/accept` must not accept on load.** Mail clients and link
+  scanners fetch emailed URLs before a person sees them, so a GET that mutates
+  hands the membership to whichever machine opened the message first. The page
+  renders a button.
 
 - **A verification reminder states a consequence, never a countdown.** Added
   2026-10-25, see `docs/110` §7. `cron/verification-reminders` runs daily and

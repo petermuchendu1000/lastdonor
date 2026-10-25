@@ -38,6 +38,7 @@ import {
   verificationReminderEmail,
   verificationConsequenceEmail,
   campaignRefusedEmail,
+  collaboratorInviteEmail,
   verificationDocumentsAdminEmail,
   verificationApprovedCreatorEmail,
   verificationRejectedCreatorEmail,
@@ -999,6 +1000,31 @@ export async function notifyVerificationReminder(p: {
     link: `/dashboard/campaigns/${p.campaignSlug}/verification`,
     email: { to: p.creatorEmail, ...emailContent },
   });
+}
+
+/**
+ * Email an invitation to help run a campaign.
+ *
+ * ⚠️ Email ONLY, with no notification row, and that is not an oversight: the
+ * invitee may have no account at all. `campaign_collaborators.user_id` is
+ * null until they accept, so there is no `userId` to hang a notification on.
+ * `createAndEmail` would need one.
+ *
+ * ⛔ The raw token is in this email and nowhere else - only its SHA-256 is
+ * stored (`src/lib/collaborators/invites.ts`). Do not log `acceptUrl`.
+ */
+export async function notifyCollaboratorInvited(p: {
+  invitedEmail: string;
+  inviterName: string;
+  campaignTitle: string;
+  acceptUrl: string;
+}) {
+  const emailContent = collaboratorInviteEmail({
+    inviterName: p.inviterName || 'A campaign organiser',
+    campaignTitle: p.campaignTitle,
+    acceptUrl: p.acceptUrl,
+  });
+  await sendEmailOnly({ to: p.invitedEmail, ...emailContent });
 }
 
 /**

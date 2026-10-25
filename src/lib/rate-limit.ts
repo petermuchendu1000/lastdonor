@@ -320,6 +320,23 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
         analytics: false,
         prefix: 'rl:lastdonor:sms',
       }),
+      /*
+        Inviting a campaign collaborator SENDS EMAIL from lastdonor.org, so
+        it gets its own tier rather than the `default` 60/60 s bucket that
+        `/api/v1/user-campaigns/*` otherwise falls into. Five a minute is far
+        above honest use - a family invites a handful of people once - and
+        far below useful for anyone trying to spray invitations.
+
+        The real guard is the per-campaign cap in the route, the same
+        division of labour as `docs/85`: an IP limit bounds the spray, the
+        per-subject counter bounds the abuse that gets past it.
+      */
+      collab: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(COLLAB_INVITE_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:collab',
+      }),
       payhero_initiate: new Ratelimit({
         redis,
         limiter: Ratelimit.slidingWindow(PAYHERO_INITIATE_LIMIT.maxRequests, '60 s'),
@@ -421,6 +438,42 @@ export function isSmsSendRequest(pathname: string, method: string): boolean {
 }
 
 /*
+  ── Collaborator invitations (docs/111) ───────────────────────────────────
+
+  The prefix cannot be the whole path: a collaborator route is
+  `/api/v1/user-campaigns/<uuid>/collaborators`, with the id in the MIDDLE,
+  so `startsWith` cannot describe it. Matching on `/api/v1/user-campaigns`
+  alone would put the withdrawal route in an email-sending bucket.
+
+  So this is the `isSmsSendRequest` shape: a fixed prefix for the in-memory
+  table plus a predicate that both lookups consult. ⚠️ Both must agree -
+  `docs/85` records what happens when one of the two is updated and the other
+  is not.
+*/
+
+/** Fixed prefix for the in-memory table; the predicate narrows it. */
+export const COLLAB_PATH_PREFIX = '/api/v1/user-campaigns';
+
+/** Bucket for {@link isCollaboratorInvite}: 5 requests / 60 s / IP. */
+export const COLLAB_INVITE_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
+
+/**
+ * True when this request would actually send an invitation email.
+ *
+ * **POST to a `/collaborators` path only.** Listing the team (GET) and
+ * revoking somebody (DELETE) cost us nothing and must not share a
+ * five-a-minute budget with the send - the `docs/85` finding was a limiter
+ * answering 429 to a person doing five honest things in a row.
+ */
+export function isCollaboratorInvite(pathname: string, method: string): boolean {
+  return (
+    pathname.startsWith(COLLAB_PATH_PREFIX) &&
+    /\/collaborators\/?$/.test(pathname) &&
+    method.toUpperCase() === 'POST'
+  );
+}
+
+/*
   ── M-Pesa collection tiers (docs/92) ─────────────────────────────────────
 
   Three paths under `/api/v1/donations/payhero/` that must NOT inherit the
@@ -493,6 +546,10 @@ export function getLimiterTier(pathname: string, method: string = 'GET'): string
   if (isSessionReadRequest(pathname, method)) return 'session';
   // Before the `/api/v1/users` line below, which would otherwise swallow it.
   if (isSmsSendRequest(pathname, method)) return 'sms';
+  // Before the broad entries below. Nothing currently claims
+  // `/api/v1/user-campaigns`, but a prefix match is first-wins and this must
+  // not start depending on that staying true (docs/85).
+  if (isCollaboratorInvite(pathname, method)) return 'collab';
   if (pathname.startsWith('/api/v1/auth') || pathname.startsWith('/api/auth')) return 'auth';
   if (pathname.startsWith('/api/v1/newsletter')) return 'newsletter';
   /*
@@ -527,6 +584,10 @@ const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
   // Before '/api/v1/users': insertion order decides, and the broader entry
   // would otherwise give a route that sends charged SMS a 30/60 s bucket.
   [SMS_PATH_PREFIX]: SMS_LIMIT,
+  // Guarded by `isCollaboratorInvite` in `getConfig`, so every OTHER
+  // user-campaign route still falls through to the generic default exactly as
+  // it did before this tier existed.
+  [COLLAB_PATH_PREFIX]: COLLAB_INVITE_LIMIT,
   '/api/v1/users': { maxRequests: 30, windowMs: 60_000 },
   '/api/v1/blog': { maxRequests: 60, windowMs: 60_000 },
   '/api/v1/campaigns': { maxRequests: 60, windowMs: 60_000 },
@@ -542,6 +603,9 @@ function getConfig(pathname: string, method: string = 'GET'): RateLimitConfig {
     // The tight SMS bucket is for the verb that actually sends a message;
     // the rest of the path falls through to the `/api/v1/users` entry.
     if (route === SMS_PATH_PREFIX && !isSmsSendRequest(pathname, method)) continue;
+    // Same shape: the email-sending POST gets the tight bucket, and every
+    // other verb and path under /api/v1/user-campaigns falls through.
+    if (route === COLLAB_PATH_PREFIX && !isCollaboratorInvite(pathname, method)) continue;
     return config;
   }
   return { maxRequests: 100, windowMs: 60_000 };
