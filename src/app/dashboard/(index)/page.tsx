@@ -6,7 +6,7 @@ import { donations, campaigns } from '@/db/schema';
 import { eq, desc, sql, and, or } from 'drizzle-orm';
 import { centsToDollars, centsToDollarsWhole } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
-import { VerificationRow } from '@/components/dashboard/VerificationRow';
+import { NextStepRow } from '@/components/dashboard/NextStepRow';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import {
   ExclamationTriangleIcon,
@@ -14,6 +14,8 @@ import {
   CheckBadgeIcon,
 } from '@heroicons/react/24/solid';
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
+import { IdentityReturnNotice } from '@/components/dashboard/IdentityReturnNotice';
 
 export const metadata: Metadata = {
   title: 'Dashboard - LastDonor.org',
@@ -44,6 +46,8 @@ async function getDashboardData(userId: string, userEmail: string) {
         raisedAmount: campaigns.raisedAmount,
         donorCount: campaigns.donorCount,
         verificationStatus: campaigns.verificationStatus,
+        // Needed to name the raise cap in the organiser's own money.
+        currency: campaigns.currency,
         heroImageUrl: campaigns.heroImageUrl,
         updatedAt: campaigns.updatedAt,
       })
@@ -117,6 +121,15 @@ export default async function DashboardPage() {
   return (
     <div className="flex gap-8">
       <div className="min-w-0 flex-1 space-y-8">
+        {/*
+          Didit sends the organiser back to /dashboard?verification=<slug>
+          when the ID check is finished. Nothing read that parameter, so they
+          completed it and landed on an unchanged dashboard. See docs/110.
+        */}
+        <Suspense fallback={null}>
+          <IdentityReturnNotice />
+        </Suspense>
+
         {/* Urgent actions */}
         {hasUrgentActions && (
           <div className="space-y-2">
@@ -234,17 +247,22 @@ export default async function DashboardPage() {
                         </p>
 
                         {/*
-                          Verification, always reachable.
+                          The one thing waiting on this organiser.
 
-                          Before this, the only link to
-                          /dashboard/campaigns/[id]/verification was the
-                          urgent banner above, gated on the campaign being
-                          active AND having at least one donor - neither of
-                          which any campaign currently satisfies. The page
-                          existed, the Didit integration behind it worked,
-                          and no organiser could get to it. See docs/83.
+                          docs/83 put a verification link here, which was the
+                          product's ONLY prompt and covered one step of six.
+                          It now renders the whole journey's next action, from
+                          `organiser-journey.ts`, so this row and
+                          /dashboard/campaigns cannot disagree. See docs/110.
                         */}
-                        <VerificationRow campaignId={c.id} status={c.verificationStatus} />
+                        <NextStepRow
+                          facts={{
+                            campaignId: c.id,
+                            status: c.status,
+                            verificationStatus: c.verificationStatus,
+                            currency: c.currency,
+                          }}
+                        />
 
                         <div className="mt-2">
                           <ProgressBar

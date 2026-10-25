@@ -285,7 +285,8 @@ export function campaignSubmittedForReviewEmail(p: {
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your campaign is in review</h1>
       <p>Thanks, ${esc(p.campaignerName)}. It is not public and cannot take donations until a reviewer approves it.</p>
       <p>We will email you when it goes live.</p>
-      ${ctaButton(`${BASE_URL}/dashboard`, 'Check status')}
+      <p><strong>Next: check your ID.</strong> We do this before we send anyone money. It takes a few minutes.</p>
+      ${ctaButton(`${BASE_URL}/dashboard/campaigns`, 'Check my ID')}
     `,
       'A person reviews every campaign before it goes live.',
     ),
@@ -477,6 +478,9 @@ export function welcomeCampaignerEmail(p: {
       </ol>
       <p style="background: #f0fdf4; padding: 16px; border-radius: 8px; border-left: 4px solid #0F766E; margin: 20px 0;">
         <strong>Why the first gift matters:</strong> a page showing nothing raised asks every visitor to go first. Most people will wait. One gift, even a small one, changes that.
+      </p>
+      <p style="background: #fff7ed; padding: 16px; border-radius: 8px; border-left: 4px solid #EA580C; margin: 20px 0;">
+        <strong>One more thing.</strong> We check who you are before we send anyone money. Until that is done, this campaign can only raise a small amount, and we cannot pay you. It takes a few minutes. Start it from your dashboard.
       </p>
       ${/*
         `?launched=true` is what renders `LaunchSuccessBanner` ("Your campaign

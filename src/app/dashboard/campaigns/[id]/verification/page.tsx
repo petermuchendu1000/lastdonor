@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { campaigns, verificationDocuments, infoRequests } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { CampaignVerificationDashboard } from '@/components/verification/CampaignVerificationDashboard';
+import { JourneyChecklist } from '@/components/dashboard/JourneyChecklist';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -39,8 +40,18 @@ export default async function CampaignVerificationPage({ params }: Props) {
       verificationReviewedAt: campaigns.verificationReviewedAt,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
+      /*
+        ⚠️ Kept for history only (docs/81: Didit replaced Stripe Identity).
+        The screen used to decide "verification in progress" from
+        `stripeVerificationId`, which the Didit path NEVER writes - so the
+        state was permanently false and the status poll never armed. The
+        live columns are the two below. See docs/110.
+      */
       stripeVerificationId: campaigns.stripeVerificationId,
       stripeVerificationUrl: campaigns.stripeVerificationUrl,
+      diditSessionId: campaigns.diditSessionId,
+      diditSessionUrl: campaigns.diditSessionUrl,
+      currency: campaigns.currency,
       creatorId: campaigns.creatorId,
     })
     .from(campaigns)
@@ -104,10 +115,27 @@ export default async function CampaignVerificationPage({ params }: Props) {
   }));
 
   return (
-    <CampaignVerificationDashboard
-      campaign={serializedCampaign}
-      documents={serializedDocuments}
-      infoRequests={serializedInfoRequests}
-    />
+    <>
+      {/*
+        The same ladder as every other organiser screen, so somebody who
+        arrives here from an email knows where this sits in the path and
+        what it unblocks. See docs/110.
+      */}
+      <JourneyChecklist
+        className="mb-6"
+        heading="Where this fits"
+        facts={{
+          campaignId: campaign.id,
+          status: campaign.status,
+          verificationStatus: campaign.verificationStatus,
+          currency: campaign.currency,
+        }}
+      />
+      <CampaignVerificationDashboard
+        campaign={serializedCampaign}
+        documents={serializedDocuments}
+        infoRequests={serializedInfoRequests}
+      />
+    </>
   );
 }

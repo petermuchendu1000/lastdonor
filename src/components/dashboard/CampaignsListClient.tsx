@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
 import { hasPublicPage } from '@/lib/campaign-visibility';
+import { NextStepRow } from '@/components/dashboard/NextStepRow';
+import { campaignStatusLabel } from '@/lib/campaign-labels';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -21,20 +23,9 @@ interface Campaign {
   raisedAmount: number;
   donorCount: number;
   verificationStatus: string;
+  currency: string;
   createdAt: string;
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  active: 'Active',
-  last_donor_zone: 'Last Donor Zone',
-  completed: 'Completed',
-  archived: 'Archived',
-  paused: 'Paused',
-  under_review: 'Under Review',
-  suspended: 'Suspended',
-  cancelled: 'Cancelled',
-};
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   active: 'default',
@@ -99,7 +90,7 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
               onClick={() => setStatusFilter(status)}
               className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${statusFilter === status ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
             >
-              {STATUS_LABELS[status] ?? status} ({count})
+              {campaignStatusLabel(status)} ({count})
             </button>
           ))}
         </div>
@@ -129,7 +120,7 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       </Link>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         <Badge variant={STATUS_VARIANT[c.status] ?? 'secondary'}>
-                          {STATUS_LABELS[c.status] ?? c.status}
+                          {campaignStatusLabel(c.status)}
                         </Badge>
                         <span className="capitalize">{c.category}</span>
                         <span>&middot;</span>
@@ -137,6 +128,22 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                         <span>&middot;</span>
                         <span>{centsToDollars(c.raisedAmount)} / {centsToDollars(c.goalAmount)}</span>
                       </div>
+
+                      {/*
+                        The one thing waiting on this organiser.
+
+                        This list had NOTHING: `VerificationRow` rendered on
+                        /dashboard only, and this is the list the wizard lands
+                        on after submission (docs/109). See docs/110.
+                      */}
+                      <NextStepRow
+                        facts={{
+                          campaignId: c.id,
+                          status: c.status,
+                          verificationStatus: c.verificationStatus,
+                          currency: c.currency,
+                        }}
+                      />
                       <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
                         <div
                           className="h-full rounded-full bg-brand-teal transition-all"

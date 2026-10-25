@@ -30,6 +30,8 @@ export default async function CampaignsPage() {
       raisedAmount: campaigns.raisedAmount,
       donorCount: campaigns.donorCount,
       verificationStatus: campaigns.verificationStatus,
+      // Needed to name the raise cap in the organiser's own money.
+      currency: campaigns.currency,
       createdAt: campaigns.createdAt,
     })
     .from(campaigns)

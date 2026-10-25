@@ -5,6 +5,9 @@ import { db } from '@/db';
 import { campaigns, donations, campaignUpdates, impactUpdates } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { centsToDollars } from '@/lib/utils/currency';
+import { hasPublicPage } from '@/lib/campaign-visibility';
+import { JourneyChecklist } from '@/components/dashboard/JourneyChecklist';
+import { campaignStatusLabel, verificationStatusLabel } from '@/lib/campaign-labels';
 import { formatDate } from '@/lib/utils/dates';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +15,7 @@ import {
   ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import type { Metadata } from 'next';
+
 
 export async function generateMetadata({ params: _params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   return {
@@ -40,6 +44,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       raisedAmount: campaigns.raisedAmount,
       donorCount: campaigns.donorCount,
       verificationStatus: campaigns.verificationStatus,
+      currency: campaigns.currency,
       beneficiaryRelation: campaigns.beneficiaryRelation,
       creatorId: campaigns.creatorId,
       createdAt: campaigns.createdAt,
@@ -109,7 +114,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <h1 className="font-display text-2xl font-bold text-foreground">{campaign.title}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <Badge variant={campaign.status === 'active' || campaign.status === 'last_donor_zone' ? 'default' : 'secondary'}>
-              {campaign.status === 'last_donor_zone' ? 'Last Donor Zone' : campaign.status}
+              {campaignStatusLabel(campaign.status)}
             </Badge>
             <span className="capitalize text-muted-foreground">{campaign.category}</span>
             {campaign.publishedAt && (
@@ -117,14 +122,22 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             )}
           </div>
         </div>
-        <Link
-          href={`/campaigns/${campaign.slug}`}
-          target="_blank"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-        >
-          View public page
-          <ArrowTopRightOnSquareIcon className="h-4 w-4" />
-        </Link>
+        {/*
+          ⛔ Gated. This was the THIRD ungated link to `/campaigns/<slug>`
+          (docs/109 found the wizard redirect and the dashboard "View"
+          button). A campaign in the review queue has no public page, so
+          this handed the organiser a 404 for their own campaign.
+        */}
+        {hasPublicPage(campaign.status) && (
+          <Link
+            href={`/campaigns/${campaign.slug}`}
+            target="_blank"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            View public page
+            <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+          </Link>
+        )}
       </div>
 
       {/* Stats */}
@@ -169,6 +182,22 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </Card>
       </div>
 
+      {/*
+        The whole path to being paid, before the grid of links.
+
+        An organiser had no screen that said what was required of them -
+        see `src/lib/organiser-journey.ts` for the audit and docs/110.
+      */}
+      <JourneyChecklist
+        className="mt-6"
+        facts={{
+          campaignId: id,
+          status: campaign.status,
+          verificationStatus: campaign.verificationStatus,
+          currency: campaign.currency,
+        }}
+      />
+
       {/* Quick Actions */}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {isEditable && (
@@ -196,7 +225,14 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm font-medium transition-colors hover:border-primary hover:bg-muted/40"
         >
           Verification
-          <Badge variant="outline" className="text-xs">{campaign.verificationStatus}</Badge>
+          {/*
+            No raw enum. This used to render `documents_uploaded` at an
+            organiser, which is a database value, not a sentence. The
+            checklist above says what the state means and what it blocks.
+          */}
+          <Badge variant="outline" className="text-xs">
+            {verificationStatusLabel(campaign.verificationStatus)}
+          </Badge>
         </Link>
         <Link
           href={`/dashboard/campaigns/${id}/impact-update`}

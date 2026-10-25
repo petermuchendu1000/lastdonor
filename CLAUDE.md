@@ -122,6 +122,7 @@ transcript or a commit message is lost.
 | `107-ADMIN-REPORTS-500-AND-THE-SQL-DATE-TRAP.md` | **`/admin/reports` answered 500 on EVERY load and nothing in the repo could tell: lint, typecheck, 6,855 unit tests, CI and nine ratchets were all green. A JS `Date` interpolated into a `sql` template is bound as a parameter with NO encoder and throws inside the driver (`The "string" argument must be of type string ... Received an instance of Date`) - a typed `gte()` carries the column's encoder, a `sql` template does not. Same family as the docs/101 unqualified-identifier trap: a `sql` template silently discards what the typed builders carry, and only running it against real Postgres finds it. Fixed with `sql.param(value, column)`; the query moved to `src/lib/report-periods.ts` SO THAT A TEST COULD RUN IT. Two checks, both proven by injection: 6 integration tests (all 6 fail against the defect) and a TYPE-DRIVEN ratchet over all 282 interpolating `sql` templates in `src/`. A falsification sweep found the defect in exactly one page. Also: `/dashboard` had the marketing footer too (amends docs/106 §10a). ⛔ Records the open hole: NO admin page's data query is executed by any test. **§8 (added 2026-10-25, found in a browser)**: `/campaigns/[slug]` threw React #418 on EVERY mobile load of a production build and was clean in `next dev` - `formatRelativeTime` reads `Date.now()` inside an ISR page, so the cached HTML and the client disagree; fixed with `<RelativeTime>`, NOT `suppressHydrationWarning`. And every USD campaign (i.e. all of them) showed a dangling "Goal is" with nothing after it, because the label sat OUTSIDE a component that renders nothing by design.** |
 | `108-TRUST-NETWORKS-ADR.md` | **Institutional vouchers: a hospital, church, school or registered charity confirms a crisis instead of the organiser uploading documents. BUILT, NOT DEPLOYED (no institution exists anywhere). ⛔ The whole safety argument in one line: a vouch grants `identity_verified` and NOTHING ELSE - it lifts the docs/101 raise cap, releases no money, and does NOT publish anything. `fully_verified` was refused because it RELEASES MONEY in the same transaction, so a third party's email would move funds. Note there are TWO queues: the request's words name the VERIFICATION queue, which is bypassed; the docs/78-79 publication review is untouched, because 'every campaign is reviewed by a person' is claimed in ~44 lines across 23 files. The trust root is an admin: there is NO self-serve institution signup, because anyone who can create one can lift the cap. `representative_*` is ATTRIBUTION, not authentication - v1 has no institutional login, on the docs/76/77/81 rule against shipping unexercised paths. Contained by a rolling 30-day budget that COUNTS REVOKED VOUCHES (otherwise revoke-and-retry is unlimited), per-vouch revocation, and suspension that deliberately does NOT cascade. ⚠️ A repo-wide 'who writes fully_verified' test was WRONG and was DELETED: it missed `didit/webhook/route.ts:137`, which does `.set(update)` from a variable - the docs/101 lesson that a grep proves text, not semantics. What survives is structural and proven by injection (7 tests reading `.update()` targets and `.set({})` keys). Donors are TOLD: 'Confirmed by X - we have not seen the organiser's ID ourselves', with a test forbidding the words verified/verification/document. Read §1.1, §3.1 and §8 before touching any of it.** |
 | `109-SUBMIT-REDIRECT-404-ADR.md` | **Finishing the create-campaign wizard sent the organiser to a 404, with no confirmation that anything had been received - reported from production. The redirect was `/campaigns/<slug>?launched=true`, right when campaigns went live instantly; docs/78-79 made the insert `under_review` with `published_at: null`, and the public page serves only active/last_donor_zone/completed/paused/suspended/cancelled. NOTHING FAILED - a redirect stopped being valid because of work in another file (the docs/83 shape). ⚠️ A TEST WAS HOLDING IT IN PLACE: `instant-live-architecture.test.ts` asserted `toContain('?launched=true')` and passed the whole time, while SECTION 5 OF THE SAME FILE already asserted the route does NOT insert `status: 'active'` - the file asserted both halves of a contradiction and nothing compares two assertions to each other. Now redirects to `/dashboard/campaigns?submitted=1` with `SubmittedForReviewNotice`. ⛔ That copy may NOT promise an email on the DECISION (docs/93 deleted exactly that: a refused campaign notifies nobody, still open) and quotes no turnaround time (docs/78). `LaunchSuccessBanner` ('Your campaign is live') was not deleted - `?launched=true` moved to the APPROVAL email, the one moment its words are true. The replacement check DERIVES both ends from source (inserted status vs served statuses) rather than pinning today's answer, and is proven by injection BOTH ways: the production redirect fails 6 tests, and restoring instant-live on both ends makes the rule pass again.** |
+| `110-ORGANISER-JOURNEY-ADR.md` | **The product NEVER asked anybody to verify. `notifyVerificationReminder` has FOUR urgency levels and ZERO callers; no verification cron exists; `/how-it-works`, the wizard, the submission receipt and the "your campaign is live" email all never mention it. The only prompt was one grey line on `/dashboard`. ⛔ THREE DEFECTS: the verification screen decided "in progress" from `stripeVerificationId`, which the Didit path NEVER writes (docs/81), so it was permanently false and the status poll NEVER ARMED - an organiser finished the check and the screen never changed (docs/83 a second time); the Didit return at `/dashboard?verification=<slug>` was read by NOTHING; and the guide was linked from the footer, terms, refund-policy, campaign-rules and transparency but from NEITHER the verification screen nor the dashboard. ⚠️ TWO TIERS nothing named: `identity_verified` lifts the docs/101 cap, `fully_verified` is what the withdrawal route requires - a campaign could raise freely and still be unable to take a penny out. Also SEVEN status-label maps, three organiser-facing ones wrong: `FinancesClient` invented `pending_review`/`rejected` (not statuses) and was MISSING `under_review`; the verification screen showed organisers "Identity Verified (Tier 1)". Now one `organiser-journey.ts` feeding six surfaces, plus `campaign-labels.ts`. ⛔ §7: the four reminder emails CANNOT be wired as they stand - every level says "reached its goal N days ago" and threatens to "send the money back", which is FALSE for a live campaign with zero donations.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -132,7 +133,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6916 pass + 16 skipped, 220 files, as of 2026-10-25)
+npm run test:unit      # Vitest (6977 pass + 16 skipped, 223 files, as of 2026-10-25)
 npm run test:integration  # Vitest + a throwaway Postgres (136 tests, 15 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -764,6 +765,33 @@ These exist for a reason; changing them has consequences beyond the local file.
   status, so an organiser whose campaign was still in the queue got the same
   404 from their own dashboard. The constant is asserted equal to the page's
   own `getCampaign` filter, parsed from source, so the two cannot drift.
+
+- **Everything an organiser is told about getting paid comes from one module.**
+  Added 2026-10-25, see `docs/110`. `src/lib/organiser-journey.ts` computes the
+  ordered path - each step's state, a plain sentence, **what it unblocks**, and
+  the link - and the submitted notice, both dashboard lists, the campaign page
+  and the verification screen all render from it. Use `organiserJourney` for a
+  full ladder and `nextOrganiserAction` for a single row. ⛔ Do not add a
+  seventh partial idea of the journey to a screen; add the step here.
+
+  ⚠️ **"Verified" is two tiers with two different consequences.**
+  `identity_verified` lifts the `docs/101` raise cap; `fully_verified` is what
+  `withdraw/route.ts` requires. A campaign can be past the cap and still unable
+  to pay out. Never label `identity_verified` as "verified" - a test forbids it.
+
+  ⛔ The copy may not promise an email when a campaign is **decided**
+  (`docs/93`, still open) and quotes **no turnaround time** (`docs/78`). Tests
+  assert both against every state.
+
+- **Organiser-facing status words live in `src/lib/campaign-labels.ts`.** Added
+  2026-10-25, see `docs/110` §4. There were seven status maps and three
+  verification maps; three of the organiser ones had drifted - one invented two
+  statuses that do not exist while missing four that do, and another showed
+  "Identity Verified (Tier 1)". ⚠️ A missing key is not a blank: every map falls
+  back to the raw value, so drift reaches the reader as `under_review`. Use
+  `campaignStatusLabel` / `verificationStatusLabel`; the test reads completeness
+  from the database enums rather than retyping the list. ⛔ `src/components/admin/`
+  is deliberately NOT consolidated - two audiences, two vocabularies.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

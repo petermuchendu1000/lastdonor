@@ -27,6 +27,7 @@ import {
   PaperClipIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { verificationStatusLabel } from '@/lib/campaign-labels';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ interface Campaign {
   verificationReviewedAt: string | null;
   stripeVerificationId: string | null;
   stripeVerificationUrl: string | null;
+  diditSessionId: string | null;
+  diditSessionUrl: string | null;
 }
 
 interface VerificationDocument {
@@ -71,18 +74,6 @@ interface Props {
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<string, string> = {
-  unverified: 'Not Started',
-  pending: 'Pending',
-  documents_uploaded: 'Documents Uploaded',
-  submitted_for_review: 'Under Review',
-  identity_verified: 'Identity Verified (Tier 1)',
-  fully_verified: 'Fully Verified',
-  info_requested: 'Additional Info Needed',
-  rejected: 'Needs Review',
-  suspended: 'On Hold',
-};
 
 const STATUS_COLORS: Record<string, string> = {
   unverified: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300',
@@ -123,7 +114,26 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
   const responseFileRef = useRef<HTMLInputElement>(null);
 
   const identityVerified = ['identity_verified', 'fully_verified'].includes(campaign.verificationStatus);
-  const identityPending = !!campaign.stripeVerificationId && !identityVerified;
+  /*
+    ⛔ NOT `stripeVerificationId`.
+
+    [VERIFIED 2026-10-25] Didit replaced Stripe Identity (docs/81) and writes
+    `didit_session_id` / `didit_session_url` plus `verification_status:
+    'pending'`. It never writes the Stripe column - so this read was
+    permanently FALSE, which meant the status poll below never armed. An
+    organiser started verification, finished it in the Didit tab, came back,
+    and this screen looked exactly as it had before. docs/83's lesson a
+    second time: the integration worked, the UI reflecting it pointed at a
+    provider that had been replaced.
+
+    `verification_status === 'pending'` is the authoritative signal because
+    the session route sets it in the same update as the session id; the id
+    is kept in the condition so a row written before that status existed is
+    still recognised.
+  */
+  const identityPending =
+    !identityVerified &&
+    (campaign.verificationStatus === 'pending' || !!campaign.diditSessionId);
   const canUploadDocs = ['unverified', 'pending', 'documents_uploaded', 'info_requested', 'identity_verified'].includes(
     campaign.verificationStatus,
   );
@@ -138,7 +148,7 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
     campaign.verificationStatus === 'documents_uploaded' ||
     campaign.verificationStatus === 'submitted_for_review';
 
-  // ── Auto-poll Stripe Identity for decision when verification is pending ──
+  // ── Poll for the provider's decision while verification is pending ──
   useEffect(() => {
     if (!identityPending) return;
 
@@ -322,7 +332,7 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
           STATUS_COLORS[campaign.verificationStatus] || STATUS_COLORS.unverified
         }`}>
           <ShieldCheckIcon className="mr-1.5 h-4 w-4" />
-          {STATUS_LABELS[campaign.verificationStatus] || campaign.verificationStatus}
+          {verificationStatusLabel(campaign.verificationStatus)}
         </span>
       </div>
 

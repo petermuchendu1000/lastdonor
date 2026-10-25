@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { campaignStatusLabel } from '@/lib/campaign-labels';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -77,16 +78,6 @@ const WD_STATUS: Record<string, { label: string; className: string }> = {
   completed:  { label: 'Completed',  className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' },
   rejected:   { label: 'Rejected',   className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' },
   failed:     { label: 'Failed',     className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' },
-};
-
-const CAMPAIGN_STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  pending_review: 'Pending Review',
-  active: 'Active',
-  last_donor_zone: 'Last Donor Zone',
-  completed: 'Completed',
-  rejected: 'Rejected',
-  suspended: 'Suspended',
 };
 
 const FILTER_OPTIONS = ['all', 'requested', 'approved', 'processing', 'completed', 'rejected', 'failed'] as const;
@@ -338,7 +329,7 @@ export default function FinancesClient({
                     {campaign.title}
                   </Link>
                   <Badge variant="outline" className="shrink-0">
-                    {CAMPAIGN_STATUS_LABELS[campaign.status] ?? campaign.status}
+                    {campaignStatusLabel(campaign.status)}
                   </Badge>
                 </div>
 

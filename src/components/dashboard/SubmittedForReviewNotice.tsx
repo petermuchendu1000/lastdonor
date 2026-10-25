@@ -66,9 +66,19 @@ export function SubmittedForReviewNotice() {
             will email you again with the link to share.
           </p>
           <p className="mt-2 max-w-prose text-sm text-muted-foreground">
-            You can see it below, marked <strong>Under Review</strong>. You can
-            start verifying your ID now, which is needed before any money can
-            be paid out.
+            You can see it below, marked <strong>Under Review</strong>, with
+            everything that still needs doing.
+          </p>
+          {/*
+            ⚠️ This used to say "You can start verifying your ID now" with NO
+            LINK, on the one list that had no verification row - a patch, and
+            the exact complaint that led to docs/110. The next step now comes
+            from `organiser-journey.ts` and is rendered on each campaign row
+            below, with a link.
+          */}
+          <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+            The next thing is to <strong>check your ID</strong>. You can start
+            now, while you wait. We cannot pay out any money until it is done.
           </p>
         </div>
         <button

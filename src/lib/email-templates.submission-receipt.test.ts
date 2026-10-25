@@ -83,8 +83,19 @@ describe('campaign submission receipt — brevity', () => {
       shell footer, against 95 before. The bound is a ratchet, not a
       target: adding a genuinely new fact is fine, restating an existing
       one is what this stops.
+
+      RAISED 60 -> 70 on 2026-10-25, deliberately, per the note in this
+      file's header about relaxing rather than deleting. The receipt now
+      carries a SECOND fact - that the next step is the ID check - because
+      the audit in `docs/110` found the product never asked for it
+      anywhere: not here, not in the wizard, not at approval, and not in
+      any scheduled mail. That is a new fact, which this bound has always
+      permitted; it cost **18 words** and took the render to 61.
+
+      ⛔ The bound is still a ratchet. Do not raise it again to fit copy
+      that restates something already said.
     */
-    expect(words.length).toBeLessThanOrEqual(60);
+    expect(words.length).toBeLessThanOrEqual(70);
   });
 
   it('names the campaign once, in the subject, and not again in the body', () => {
@@ -103,7 +114,9 @@ describe('campaign submission receipt — brevity', () => {
 
   it('still renders the call to action for non-Outlook clients', () => {
     // Guards the helper above as much as the template: see its comment.
-    expect(visible).toContain('Check status');
+    // Label changed from 'Check status' on 2026-10-25: the single action is
+    // now the thing we want them to DO, not a place to look. See docs/110.
+    expect(visible).toContain('Check my ID');
   });
 
   it('offers exactly one action of its own', () => {
@@ -128,7 +141,14 @@ describe('campaign submission receipt — brevity', () => {
       the shell's business, not this template's.
     */
     expect(ownLinks).toHaveLength(1);
-    expect(ownLinks[0]).toMatch(/\/dashboard$/);
+    /*
+      Still exactly ONE action - that is the property worth keeping, and it
+      is why the ID ask replaced the old 'Check status' button rather than
+      sitting beside it. The destination moved from `/dashboard` to
+      `/dashboard/campaigns` on 2026-10-25, where the campaign they just
+      submitted is listed with its next step (docs/110).
+    */
+    expect(ownLinks[0]).toMatch(/\/dashboard\/campaigns$/);
     expect(hrefs.some((h) => h.startsWith('mailto:'))).toBe(false);
   });
 });
