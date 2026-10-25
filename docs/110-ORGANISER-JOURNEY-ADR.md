@@ -276,6 +276,37 @@ true, because a payout needs `fully_verified`.
   become a hundred sequential Resend calls in one request against a pool of
   five (`docs/87`); a campaign deferred today is at the front tomorrow.
 
+### 7.5a ✅ Observed firing in production, 2026-10-25T09:00:05Z
+
+`docs/66`'s rule: a cron is not done until it is seen running. Read from the
+Worker's own observability log (Cloudflare telemetry API, script
+`lastdonor-cron`, version `a3e5031f`):
+
+```
+09:00:04  tick=09:00:03  [cron] dispatching 5: update-phases, ingest-news,
+                                publish-campaigns, screen-documents,
+                                verification-reminders
+09:00:05  tick=09:00:03  [cron] verification-reminders ok 200
+```
+
+⚠️ **The control is the adjacent ticks.** 08:55 and 09:05 each dispatched
+**two** jobs and neither included this one, so `minute === 0 && hour === 9` is
+firing once a day rather than on every `*/5` tick. A log line showing the job
+ran proves it ran; only the neighbours prove it is not running constantly.
+
+**⛔ What it SENT is [UNKNOWN], and the reason is structural.** The Worker
+logs the HTTP status and deliberately does not read the response body - that
+is what keeps it inside Cloudflare's 10 ms CPU ceiling on free (`docs/66`). So
+`ok 200` establishes that the route completed without error and nothing more.
+The counts live in the `cron.verification_reminders` audit row
+(`considered`, `sent`, `emailed`, `levels`), and from this sandbox neither
+path to them is open: direct Postgres egress is blocked, and `fly ssh console`
+production reads were refused by the permission classifier. [INFERRED, from
+the decision rules plus `docs/92`] it most likely sent nothing or close to it,
+because `first_money` requires a real un-refunded donation and this platform
+has recorded two in its history. `/admin/audit-log` answers it in one glance
+for anybody signed in as an admin.
+
 ### 7.6 Measured against the real figure
 
 The cap is read from `realRaisedMinorSql` (`src/db/real-raised.ts`), never

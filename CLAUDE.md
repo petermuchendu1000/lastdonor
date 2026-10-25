@@ -284,7 +284,12 @@ than 404 unauthenticated, then redeploy the Worker. ✅ `refresh-fx-rates`
 was the worked example and is now DEPLOYED AND FIRING: first run
 **2026-10-25T02:00:05Z**, 151 rates stored, verified from the production
 database (`docs/105` §7.7a). **Every job in `CRON_SCHEDULE` is now observed
-firing in production.**
+firing in production**, `verification-reminders` included (first run
+**2026-10-25T09:00:05Z**, `docs/110` §7.5a — and the adjacent `*/5` ticks are
+the control: both dispatched two jobs and neither included it, so the daily
+predicate is not firing on every tick). ⚠️ The Worker logs the HTTP status and
+deliberately never reads the response body, so `ok 200` proves a job RAN and
+says nothing about what it did — that is in its `cron.%` audit row.
 
 **The Cloudflare proxy is ON as of 2026-10-24 (v96), and that ordering
 constraint is now spent.** See `docs/105` §7. The resolver decides per request
