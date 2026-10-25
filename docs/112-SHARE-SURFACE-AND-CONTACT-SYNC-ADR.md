@@ -607,3 +607,103 @@ UI, no unauthenticated API.
   contains, but DM Serif Display has limited coverage and Satori would fall
   back for a script it lacks, where the measured width and the drawn width
   would disagree. No production title is non-Latin today.
+
+---
+
+## 10. The re-scrape script, and a sitemap defect found building it
+
+Added 2026-10-25.
+
+### 10.1 `scripts/facebook-rescrape.ts`
+
+§9.2 recorded that forcing Facebook to re-read the cached cards needs an
+access token nobody in the agent session had. The script now exists so the
+operator supplies the token and the work is one command:
+
+```
+FACEBOOK_ACCESS_TOKEN=... npm run fb:rescrape -- --dry-run
+FACEBOOK_ACCESS_TOKEN=... npm run fb:rescrape
+```
+
+Decisions worth keeping:
+
+- **The token goes in the request BODY**, never the query string, because a
+  token in a URL lands in proxy logs, history and error text. Every printed
+  line passes through `redactToken` first, and a test asserts a token echoed
+  back inside a Graph error message is scrubbed.
+- **`scrape=true` is what makes the call a write.** Without it the same
+  endpoint returns Facebook's CACHED view - the very thing being replaced -
+  and a run would report success having changed nothing. Pinned by a test.
+- **The response body decides the outcome, not the HTTP status.** Graph
+  answers HTTP 400 with a body for both a dead token and a page it could not
+  fetch, and those need different responses from the operator. This is the
+  same shape as PayHero's `success: true` beside `status: FAILED`
+  (`docs/92`), the FX provider's HTTP 200 errors (`docs/102`) and Africa's
+  Talking answering 201 for a failed send (`docs/84`).
+- ⛔ **HTTP 200 with no `id` is NOT a refresh.** Facebook accepted the
+  request and scraped nothing useful. Counting it as success is how a run
+  reports "14 refreshed" having refreshed none.
+- **It verifies rather than assumes.** `og:image` carries
+  `?v=<CARD_VERSION>`, so the version Facebook echoes back is evidence the
+  cache actually turned over. A page that refreshes but still reports an
+  older card is counted as a FAILURE and the script exits non-zero.
+- **The URL list comes from the live listing API**, not the database (so it
+  runs from any machine with only a token) and ⚠️ **not from
+  `/sitemap.xml`**, for the reason in §10.2 - a silently short list would
+  re-scrape 0 of 14 and report success.
+
+**Verified without a real token.** With a deliberately fake one, Graph parsed
+every request and rejected only the credential -
+`[190] Invalid OAuth access token data` on all 14 - which proves `id`,
+`scrape=true` and the body encoding are right end to end. Exit 2 with no
+token, exit 1 on failures, and the token appeared **0 times** in the output.
+18 tests; **9 mutants injected, 9 killed**, including dropping `scrape=true`,
+moving the token to the query string, removing redaction, and reporting an
+empty scrape as a refresh. ⛔ The success branch is covered by unit tests
+against real Graph response shapes but has NOT been exercised against live
+Graph - that needs the token.
+
+### 10.2 ⛔ The sitemap lists no campaign at all after every deploy
+
+Found while deciding where the script should get its URL list.
+
+**[VERIFIED 2026-10-25]** `https://lastdonor.org/sitemap.xml` serves 42 URLs:
+the static pages and all 23 category pages, and **not one
+`/campaigns/<slug>` or `/blog/<slug>`** - while 14 campaigns are `active`
+and the code plainly intends to list them.
+
+The mechanism, traced rather than guessed:
+
+1. `src/app/sitemap.ts:54` sets `revalidate = 3600`, so Next **prerenders the
+   sitemap at build time**.
+2. The Fly build has no `DATABASE_URL`, and `src/db/build-phase.ts` fails
+   soft during `phase-production-build` (deliberately, for hermetic builds -
+   `docs/35` §3a).
+3. So both database-backed sections throw, `sitemapSection` swallows it by
+   design (a short sitemap beats a 500 - `docs/46`), and the **prerendered
+   entry contains static pages only**.
+4. That entry is what every request gets - `x-nextjs-cache: HIT` - until the
+   hour elapses.
+
+Proof it is build-time and not a query fault:
+
+- The same query run against production returns **14 rows, no nulls**.
+- The locally prerendered `.next/server/app/sitemap.xml.body`, from a build
+  that **did** have `DATABASE_URL`, contains the campaign URLs.
+- Both DB-backed sections are empty together, which is the signature of the
+  database being absent rather than of either query being wrong.
+
+Consequence: for up to an hour after every deploy, the only machine-readable
+list of this platform's appeals is empty. The static and category `lastmod`
+dates degrade to the editorial constant at the same time, for the same
+reason.
+
+⚠️ **Not fixed in this commit, and not silently either.** The obvious fix is
+`export const dynamic = 'force-dynamic'`, which costs one query per sitemap
+fetch and deletes the whole class of problem - but `revalidate = 3600` is a
+*documented* decision (`docs/46`, and the comment at `sitemap.ts:48`) taken
+to cap exactly that cost. Overturning a deliberate decision belongs in its
+own change with its own measurement, not as a footnote to a Facebook script.
+
+**UNCHECKED**: that it self-heals an hour after deploy. The mechanism says it
+must, and nothing has yet observed it.
