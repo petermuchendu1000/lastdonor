@@ -370,18 +370,44 @@ and independently from the database, for a `minute % 30 === 0` tick:
 Also confirmed it still has **no HTTP surface**: the `workers.dev` URL wrangler
 prints answers 500, because no `fetch` handler is exported (`docs/66`).
 
-⛔ **One thing is NOT yet verified and cannot be until 02:00 UTC**:
-`refresh-fx-rates` firing. Its `isDue` is `minute === 0 && hour === 2`, and the
-Worker cannot be invoked by hand on purpose. The chain either side of it is
-proven — the Worker authenticates to cron routes (`update-phases ok 200`), the
-route now exists and enforces auth (401), its due logic is unit-tested, and the
-handler was run end to end against the live providers earlier today (151 of 152
-rates stored). Check it with:
+### 7.7a ✅ `refresh-fx-rates` fired — RESOLVED 2026-10-25
 
-```sql
-SELECT event_type, severity, timestamp FROM audit_logs
-WHERE event_type = 'cron.refresh_fx_rates' ORDER BY timestamp DESC LIMIT 1;
+The one thing §7.7 left open. It could not be checked by hand: its `isDue` is
+`minute === 0 && hour === 2` and the Worker exports no `fetch` handler, so the
+only way to settle it was to wait for 02:00 UTC and read production.
+
+**[VERIFIED 2026-10-25T03:24Z, read from the production database]**
+
+```
+event_type=cron.refresh_fx_rates | severity=info | timestamp=2026-10-25 02:00:05.845806+00
 ```
 
-and expect one `site_settings` row under the FX snapshot key. If it has not
-fired by 02:05 UTC, the Worker bundle is the thing to doubt first.
+Exactly **one** run, which is right for a daily job, and the snapshot it wrote:
+
+| | |
+|---|---|
+| key | `fx:usd-rates:v1` |
+| rates stored | **151** |
+| `asOf` | `2026-10-25T00:02:31.000Z` (3.4h old, against `MAX_FX_AGE_HOURS` = 48) |
+| `fetchedAt` | `2026-10-25T02:00:05.824Z` |
+| provider | `open.er-api.com` (the primary; no fallback needed) |
+| base | `USD` |
+
+151 of 152 — the same count the local end-to-end run against the live
+providers produced, so the provider's coverage of `WORLD_CURRENCY_EXPONENTS`
+is stable rather than coincidental. Spot-checked: `USD 1`, `KES 129.836385`,
+`UGX 4113.321463`, `IQD 1517.423635` — both collectable currencies present,
+and two of the zero-decimal/ISO-disputed ones from `docs/103` carried through.
+
+Two things rule out a false positive. `fetchedAt` (02:00:05.824Z) matches the
+audit row's timestamp (02:00:05.845Z) to **21ms**, so the row was written by
+that run and not by anything else. And the control query — every `cron.%` event
+in the last 36 hours — returns six distinct jobs with sane counts
+(`ingest_news` 69, `publish_campaigns` 69, `update_phases` 9, `fetch_news` 6,
+`reconcile` 1, `refresh_fx_rates` 1), so the filter is not silently matching
+nothing.
+
+So the Worker bundle was never the problem, and **every job in `CRON_SCHEDULE`
+is now observed firing in production.** The FX display path (`docs/102`,
+`docs/104`) is live end to end: a snapshot is refreshed daily, it covers 151
+currencies, and the reader accepts all of them.
