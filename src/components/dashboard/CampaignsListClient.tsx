@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { centsToDollars } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/dates';
+import { hasPublicPage } from '@/lib/campaign-visibility';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -152,12 +153,21 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                         >
                           Manage
                         </Link>
-                        <Link
-                          href={`/campaigns/${c.slug}`}
-                          className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                          View
-                        </Link>
+                        {/*
+                          ⛔ Only when there IS a public page. This used to
+                          render for every status, so an organiser whose
+                          campaign was still `under_review` clicked "View" on
+                          their own dashboard and got a 404 - the same page
+                          the wizard used to redirect to (docs/109).
+                        */}
+                        {hasPublicPage(c.status) && (
+                          <Link
+                            href={`/campaigns/${c.slug}`}
+                            className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            View
+                          </Link>
+                        )}
                       </div>
                     </div>
                   </div>

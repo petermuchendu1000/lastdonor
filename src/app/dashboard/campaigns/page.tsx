@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/auth';
@@ -6,6 +7,7 @@ import { campaigns } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { Card, CardContent } from '@/components/ui/card';
 import { CampaignsListClient } from '@/components/dashboard/CampaignsListClient';
+import { SubmittedForReviewNotice } from '@/components/dashboard/SubmittedForReviewNotice';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -55,6 +57,17 @@ export default async function CampaignsPage() {
           + Create Campaign
         </Link>
       </div>
+
+      {/*
+        The landing place after the wizard. Submitting used to redirect to
+        `/campaigns/<slug>?launched=true`, which has 404'd for every organiser
+        since the review gate landed (docs/78, docs/79) - the campaign is
+        `under_review` and the public page does not serve that status. See the
+        component header.
+      */}
+      <Suspense fallback={null}>
+        <SubmittedForReviewNotice />
+      </Suspense>
 
       {serialized.length === 0 ? (
         <Card className="mt-6">

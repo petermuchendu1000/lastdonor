@@ -737,23 +737,51 @@ describe('Congratulations page', () => {
 // 9. FORM REDIRECT
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('ShareYourStoryForm - post-publish redirect', () => {
+describe('ShareYourStoryForm - post-submit redirect', () => {
+  /*
+    ⚠️ THIS BLOCK WAS STALE, AND IT HELD THE DEFECT IN PLACE.
+
+    It used to assert `formSource` contains `?launched=true` - pinning the
+    instant-live redirect to `/campaigns/<slug>` that this whole file is named
+    after. `docs/78` and `docs/79` replaced that architecture: the insert is
+    `under_review` with `published_at: null`, and the public page does not
+    serve that status, so every organiser who finished the wizard landed on a
+    **404**. The test passed throughout, because it read the source text and
+    the source still carried the old redirect.
+
+    Section 5 of this file had already been reconciled (it asserts the route
+    does NOT insert `status: 'active'`). This section had not, so the file
+    asserted both halves of a contradiction. See `docs/109`.
+
+    The real invariant - that the redirect target must be able to render the
+    status the route inserts - is in
+    `src/app/share-your-story/submit-redirect.test.ts`, which derives both
+    ends from source instead of hard-coding either.
+  */
+  /*
+    Comments stripped, because the file now EXPLAINS the old redirect in prose
+    and a raw-text assertion trips on the explanation. A text test that cannot
+    tell code from a comment is the `docs/101` trap in miniature.
+  */
   const formSource = readFileSync(
     resolve(ROOT, 'src/app/share-your-story/ShareYourStoryForm.tsx'),
     'utf-8',
-  );
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
 
-  it('redirects to campaign page after submission', () => {
+  it('redirects to the organiser dashboard, not the public campaign page', () => {
     expect(formSource).toContain('router.push(');
-    expect(formSource).toContain('?launched=true');
+    expect(formSource).toContain('/dashboard/campaigns?submitted=1');
+  });
+
+  it('⛔ does not send the organiser to a page their campaign cannot have yet', () => {
+    expect(formSource).not.toMatch(/router\.push\([^)]*\/campaigns\/\$\{/);
+    expect(formSource).not.toContain('?launched=true');
   });
 
   it('does not redirect to congratulations page', () => {
     expect(formSource).not.toContain('/congratulations');
-  });
-
-  it('does not say "Submitted for Review"', () => {
-    expect(formSource).not.toContain('Submitted for Review');
   });
 });
 

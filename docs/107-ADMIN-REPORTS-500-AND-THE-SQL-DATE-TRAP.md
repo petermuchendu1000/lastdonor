@@ -199,8 +199,12 @@ the mechanism is unchanged, and the reasons it is built this way still hold:
   API there opts every route out of static rendering — measured in `docs/106`,
   the build is 181 dynamic / 32 static / 3 ISR, and all 35 would have gone
   dynamic to hide a footer.
-- ⛔ **The navbar stays ungated.** Neither sidebar has a sign-out, so the
-  navbar is the only way out of either tool.
+- ⛔ **The navbar stays ungated.** The **admin** sidebar has no sign-out, so
+  the navbar is an administrator's only way out of the tool.
+  (**Corrected 2026-10-25:** this first said "neither sidebar has a sign-out".
+  That is wrong - `DashboardShell` does have one, visible at the foot of the
+  organiser sidebar. The conclusion is unchanged, because admin alone settles
+  it, but the reason as written was not true of both.)
 - The predicate is **anchored**. `startsWith('/dashboard')` would also match a
   future `/dashboards` marketing page, exactly as `startsWith('/admin')`
   matches `/administrator`. Both cases are tested.

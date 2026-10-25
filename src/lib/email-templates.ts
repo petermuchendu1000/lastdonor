@@ -478,7 +478,16 @@ export function welcomeCampaignerEmail(p: {
       <p style="background: #f0fdf4; padding: 16px; border-radius: 8px; border-left: 4px solid #0F766E; margin: 20px 0;">
         <strong>Why the first gift matters:</strong> a page showing nothing raised asks every visitor to go first. Most people will wait. One gift, even a small one, changes that.
       </p>
-      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'See and share your page')}
+      ${/*
+        `?launched=true` is what renders `LaunchSuccessBanner` ("Your campaign
+        is live", "Make the first donation", the share buttons). It used to be
+        appended by the submission redirect, where every word of it was FALSE
+        after the review gate landed (docs/78) - a campaign waiting for a
+        person is not live and cannot be donated to. This email fires from the
+        approval route, which is the moment all of it becomes true, so the
+        banner moved here with it. See docs/109.
+      */ ''}
+      ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}?launched=true`, 'See and share your page')}
       <p style="color: #666; font-size: 14px;">Need help? Email <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a>.</p>
     `,
       'People can see it and give to it. Here is what to do first.',

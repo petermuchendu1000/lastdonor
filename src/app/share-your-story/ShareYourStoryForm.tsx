@@ -645,11 +645,23 @@ export function ShareYourStoryForm() {
       clearBlobPreview();
       clearPendingPhoto();
 
-      // Redirect to the live campaign page so the organizer sees exactly
-      // what donors see. The ?launched=true param triggers a success banner
-      // with share buttons and a verification prompt.
-      const slug = (data?.data as Record<string, unknown> | undefined)?.slug;
-      router.push(typeof slug === 'string' ? `/campaigns/${slug}?launched=true` : '/dashboard');
+      /*
+        ⛔ NOT the public campaign page.
+
+        This used to be `/campaigns/<slug>?launched=true`, which was right
+        when campaigns went live instantly. Since docs/78 and docs/79 the
+        insert is `status: 'under_review'` with `published_at: null`, and
+        `getCampaign` serves only active / last_donor_zone / completed /
+        paused / suspended / cancelled - so every organiser who finished this
+        wizard landed on a 404 with no confirmation that anything had been
+        received. Nothing failed; a redirect stopped being valid because of
+        work in another file (the docs/83 shape).
+
+        The dashboard list is where the campaign actually is, under an
+        "Under Review" badge, beside the verification row it now needs.
+        `?submitted=1` renders `SubmittedForReviewNotice` there.
+      */
+      router.push('/dashboard/campaigns?submitted=1');
       return;
     } catch (err) {
       const { toast } = await import('sonner');
