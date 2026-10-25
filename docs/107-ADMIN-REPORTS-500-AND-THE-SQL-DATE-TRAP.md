@@ -308,3 +308,33 @@ word "Goal" appears nowhere.
 **The rule both of these come from:** a component that renders nothing by
 design is invisible until somebody looks at it in a browser, and anything the
 caller renders beside it does not disappear with it.
+
+### 8.3 Every chart in `/admin` drew in the wrong colour
+
+With `/admin/reports` finally loading, the bar chart on it drew **solid
+black**, and the area chart had no fill at all. Both come from one line:
+
+```tsx
+fill="hsl(var(--chart-1))"        // and:  --chart-1: #0F766E;
+```
+
+`hsl(#0F766E)` is not a colour. The browser discards the declaration and falls
+back — to black for a `fill`, and to nothing for a gradient stop.
+
+`hsl(var(--token))` is correct in the shadcn/ui convention this markup was
+copied from, where tokens are bare HSL triplets (`173 80% 26%`). This
+project's tokens are **hex**, and have been since the brand work. The two
+conventions are indistinguishable at the call site, and the wrapper reads like
+care rather than a bug.
+
+Nine occurrences across `FinancialReports.tsx` and `PipelineMonitor.tsx`, all
+fixed to `var(--token)`. `src/app/design-tokens.ratchet.test.ts` now fails the
+build on `hsl(`/`rgb(`/`hsla(`/`rgba(` wrapped around a CSS variable anywhere
+in `src/`, and **checks its own premise first** — that the `--chart-*` tokens
+really are hex — because if the project ever moves to HSL triplets the rule
+inverts. Proven by injection.
+
+Nothing could have caught this earlier: there is no type for a CSS colour
+string, an invalid one throws nothing, and a chart in the wrong colour still
+renders. `/admin/reports` answered 500 on every load, so its black bar had
+never been seen by anyone.

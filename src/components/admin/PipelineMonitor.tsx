@@ -141,8 +141,8 @@ function AICostsTab({
                 <Area
                   type="monotone"
                   dataKey="costUsd"
-                  stroke="hsl(var(--chart-1))"
-                  fill="hsl(var(--chart-1))"
+                  stroke="var(--chart-1)"
+                  fill="var(--chart-1)"
                   fillOpacity={0.15}
                 />
               </AreaChart>
@@ -251,7 +251,7 @@ function SimulationTab({ data }: { data: SimulationQuality }) {
                     name === 'count' ? 'Campaigns' : 'Avg %',
                   ]}
                 />
-                <Bar dataKey="count" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -281,8 +281,8 @@ function SimulationTab({ data }: { data: SimulationQuality }) {
                 <Area
                   type="monotone"
                   dataKey="count"
-                  stroke="hsl(var(--chart-2))"
-                  fill="hsl(var(--chart-2))"
+                  stroke="var(--chart-2)"
+                  fill="var(--chart-2)"
                   fillOpacity={0.15}
                 />
               </AreaChart>

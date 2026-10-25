@@ -131,7 +131,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6913 pass + 16 skipped, 219 files, as of 2026-10-25)
+npm run test:unit      # Vitest (6916 pass + 16 skipped, 220 files, as of 2026-10-25)
 npm run test:integration  # Vitest + a throwaway Postgres (136 tests, 15 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -719,6 +719,17 @@ These exist for a reason; changing them has consequences beyond the local file.
   `LocalAmount` instead. The general rule: a component that renders nothing by
   design is invisible until somebody looks at it in a browser, and anything
   beside it does not disappear with it.
+
+- **A CSS variable in this project holds a complete colour, so it is never
+  wrapped in `hsl()`.** Added 2026-10-25, see `docs/107` §8.3. `--chart-1` is
+  `#0F766E`, so `hsl(var(--chart-1))` is `hsl(#0F766E)` - not a colour. The
+  browser falls back silently: **every chart in `/admin` drew in the wrong
+  colour and the bar chart drew solid black.** The form is correct in the
+  shadcn/ui convention the markup was copied from, where tokens are bare HSL
+  triplets, and is indistinguishable from it at the call site. Write
+  `var(--chart-1)`. `src/app/design-tokens.ratchet.test.ts` fails the build on
+  any `hsl(`/`rgb(` wrapper around a variable, and checks first that the
+  tokens really are hex - if they ever become triplets, the rule inverts.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
