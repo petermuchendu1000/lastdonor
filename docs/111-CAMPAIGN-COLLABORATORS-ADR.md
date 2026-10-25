@@ -279,6 +279,39 @@ The organiser's panel says the same thing before they invite anybody.
 
 ---
 
+## 5b. ✅ The loop, exercised in a browser 2026-10-25
+
+Driven through the real UI against a production build (`next start`, not
+`next dev` - `docs/63`/`64`: our CSP blocks `unsafe-eval`, so in dev no client
+component hydrates and this panel would have been silently inert).
+
+Captured, each state asserted before the shot so it cannot show something
+else: empty -> typed -> sent -> **duplicate refused as a 409** -> **rate
+limiter fires** -> at the cap -> removal frees a slot -> the invitee signs in,
+accepts from the emailed link, lands on `/dashboard/campaigns?joined=1`, and
+the organiser's panel flips to "Helping now". 0 console errors.
+
+⚠️ **The `collab` tier was observed firing for the first time outside a unit
+test**: the sixth invite in a minute answered `POST 429`, and the panel
+surfaced *"Too many requests. Please try again later."* The limiter is the
+thing most likely to be wired to nothing (it lives in middleware, two lookups
+away from this route), so seeing the real status code matters more than the
+unit tests passing.
+
+⚠️ **One screenshot had to be thrown away**, and it is the reason this section
+exists. A first capture of the rate-limited state matched `[role="alert"]`
+page-wide, found an empty element elsewhere, and photographed the button
+mid-flight at "Sending…" with no error at all - a picture that would have been
+filed as proof of a refusal that it did not show. Scoping the selector inside
+the panel and waiting for the request to finish produced the real one. A
+screenshot asserts nothing by itself; **assert the state, then photograph it.**
+
+⛔ Still no automated coverage: this was a one-off harness, deleted
+afterwards. Making it repeatable needs the signed-in E2E fixture `docs/99`
+records as missing - the organiser password here was set ad hoc.
+
+---
+
 ## 5a. ⛔ Still not done
 
 1. **A collaborator cannot REACH a screen to use their capabilities.** The API
