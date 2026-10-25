@@ -12,6 +12,61 @@ const fresh = (asOf = new Date().toISOString()): FxSnapshot => ({
   fetchedAt: new Date().toISOString(),
 });
 
+describe('the label shares the figure\u2019s fate', () => {
+  /*
+    ⚠️ The case this exists for was live on the public campaign page: the
+    caller rendered `<span>Goal is </span>` beside this component, and
+    because a USD campaign read from the United States converts into itself
+    - which tells the reader nothing, so nothing is rendered - every
+    production campaign showed "Goal is" followed by empty space.
+
+    A label passed as a PROP cannot outlive the figure. These two tests are
+    the whole guarantee, and the second is the one that would have caught it.
+  */
+  it('prints the label before the figure when there is one', () => {
+    render(
+      <ApproxMoney
+        label="Goal is"
+        minor={6_492_393}
+        fromCurrency="KES"
+        toCurrency="USD"
+        snapshot={fresh()}
+      />,
+    );
+    expect(document.body.textContent).toMatch(/Goal is\s*about/);
+  });
+
+  it('⛔ prints NOTHING - label included - when the figure cannot be shown', () => {
+    const { container } = render(
+      <ApproxMoney
+        label="Goal is"
+        minor={50_000}
+        fromCurrency="USD"
+        toCurrency="KES"
+        snapshot={null}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(document.body.textContent).not.toMatch(/Goal is/);
+  });
+
+  it('⛔ prints nothing when the rate is too stale to use', () => {
+    const stale = fresh(
+      new Date(Date.now() - (MAX_FX_AGE_HOURS + 1) * 3600_000).toISOString(),
+    );
+    const { container } = render(
+      <ApproxMoney
+        label="Goal is"
+        minor={50_000}
+        fromCurrency="USD"
+        toCurrency="KES"
+        snapshot={stale}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
 describe('ApproxMoney', () => {
   it('shows a KES goal as an approximate USD figure', () => {
     // KES 6,492,393 minor = KES 64,923.93 -> about $500

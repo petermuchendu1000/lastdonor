@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { formatRelativeTime } from '@/lib/utils/dates';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import { cn } from '@/lib/utils';
 import { useMessageWallRegister } from './MessageWallContext';
 import { usePollingList } from '@/hooks/usePollingList';
@@ -113,9 +113,10 @@ export function MessageWall({
                       <span className="text-sm font-medium text-card-foreground">
                         {msg.isAnonymous ? 'Anonymous' : msg.donorName}
                       </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatRelativeTime(msg.createdAt)}
-                      </span>
+                      <RelativeTime
+                        date={msg.createdAt}
+                        className="shrink-0 text-xs text-muted-foreground"
+                      />
                     </div>
 
                     {!msg.isAnonymous && msg.donorLocation && (

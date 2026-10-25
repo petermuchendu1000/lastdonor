@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
-import { formatRelativeTime } from '@/lib/utils/dates';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
@@ -53,12 +53,10 @@ export function CampaignUpdates({ updates, className }: CampaignUpdatesProps) {
                 <h4 className="text-sm font-semibold text-card-foreground">
                   {update.title}
                 </h4>
-                <time
-                  dateTime={update.createdAt}
+                <RelativeTime
+                  date={update.createdAt}
                   className="text-xs text-muted-foreground"
-                >
-                  {formatRelativeTime(update.createdAt)}
-                </time>
+                />
               </div>
 
               <div

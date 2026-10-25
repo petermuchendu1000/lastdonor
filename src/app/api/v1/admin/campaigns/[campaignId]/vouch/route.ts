@@ -14,6 +14,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireRole } from '@/lib/auth';
@@ -119,6 +120,21 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!result.ok) {
       return apiError(result.code, result.message, requestId);
     }
+
+    /*
+      A vouch changes what the public campaign page says - the
+      pending-verification banner goes and `VouchedByBadge` takes its place -
+      and that page is ISR with `revalidate = 60`. Every other admin write
+      that changes it (suspend, resume, edit) already does this; without it
+      the donor-facing banner lags by up to a minute. Found by putting a real
+      browser in front of it after the vouch: the page still read "Pending
+      verification" with `x-nextjs-cache: STALE`.
+
+      ⚠️ This clears the cache of THIS instance only. Above one machine it
+      needs a shared cache handler, which this deployment does not have -
+      see `docs/26` §5. Not introduced here, and not solved here.
+    */
+    revalidatePath(`/campaigns/${result.slug}`);
 
     return NextResponse.json(
       { ok: true, data: { vouchId: result.vouchId, liftedRaiseCap: result.liftedRaiseCap } },

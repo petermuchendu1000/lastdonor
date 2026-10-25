@@ -11,6 +11,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireRole } from '@/lib/auth';
@@ -57,6 +58,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Status comes from the central registry in `src/lib/errors.ts`.
       return apiError(result.code, result.message, requestId);
     }
+
+    // Revoking changes the public page too, in the other direction. See the
+    // note on the vouch route.
+    if (result.slug) revalidatePath(`/campaigns/${result.slug}`);
 
     return NextResponse.json({
       ok: true,

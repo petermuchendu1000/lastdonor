@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Money } from '@/components/ui/Money';
-import { formatRelativeTime } from '@/lib/utils/dates';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import { cn } from '@/lib/utils';
 import { usePollingList } from '@/hooks/usePollingList';
 
@@ -91,7 +91,7 @@ export function DonorFeed({
                     {!donor.isAnonymous && donor.donorLocation && (
                       <span>{donor.donorLocation}</span>
                     )}
-                    <span>{formatRelativeTime(donor.createdAt)}</span>
+                    <RelativeTime date={donor.createdAt} />
                   </div>
 
                   {donor.message && (

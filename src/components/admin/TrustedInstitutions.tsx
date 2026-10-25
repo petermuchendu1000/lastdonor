@@ -97,7 +97,7 @@ export function TrustedInstitutions({ institutions, loaded, total, windowDays }:
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl">
           <h1 className="text-2xl font-bold tracking-tight">Trusted organisations</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -148,7 +148,7 @@ export function TrustedInstitutions({ institutions, loaded, total, windowDays }:
                     <th className="hidden px-4 py-2 sm:table-cell">Registration</th>
                     <th className="px-4 py-2 text-right">Vouches</th>
                     <th className="px-4 py-2">Status</th>
-                    <th className="px-4 py-2 text-right">Actions</th>
+                    <th className="whitespace-nowrap px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -309,7 +309,7 @@ function InstitutionTableRow({
               if (!Number.isInteger(n) || n < 0 || n > 1000) return;
               onPatch(i.id, { monthlyVouchLimit: n });
             }}
-            className="text-xs text-muted-foreground underline underline-offset-2"
+            className="whitespace-nowrap text-xs text-muted-foreground underline underline-offset-2"
           >
             Change limit
           </button>
@@ -318,7 +318,7 @@ function InstitutionTableRow({
               type="button"
               disabled={busy}
               onClick={() => onPatch(i.id, { registrationVerified: true })}
-              className="text-xs text-muted-foreground underline underline-offset-2"
+              className="whitespace-nowrap text-xs text-muted-foreground underline underline-offset-2"
             >
               Mark registration checked
             </button>

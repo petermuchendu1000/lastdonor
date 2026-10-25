@@ -19,6 +19,17 @@
  *
  * Renders NOTHING when the snapshot is missing, stale, or does not cover the
  * pair. See `convertMinor` - staleness is a refusal, not a warning.
+ *
+ * ⚠️ Which is why a LABEL for this figure belongs INSIDE it, as the `label`
+ * prop, and never beside it in the caller's markup. `/campaigns/[slug]` wrote
+ * `<span>Goal is </span><LocalAmount .../>`, and since a USD campaign viewed
+ * from the United States converts into itself - which tells the reader
+ * nothing, so it renders nothing - the public campaign page showed a dangling
+ * "Goal is" followed by empty space. Every production campaign is USD.
+ *
+ * Same family as `docs/104`: a thing that renders nothing by design is
+ * invisible until somebody looks at it in a browser, and anything left
+ * outside it does not disappear with it.
  */
 
 import { formatMoney } from '@/lib/money/format';
@@ -36,6 +47,13 @@ type ApproxMoneyProps = {
   className?: string;
   /** Hide the "rates by..." line when several of these sit together. */
   hideAttribution?: boolean;
+  /**
+   * Text to print before the figure, which disappears WITH it.
+   *
+   * See the header: a label rendered by the caller survives a component that
+   * renders nothing, and leaves a sentence with no end.
+   */
+  label?: string;
 };
 
 export function ApproxMoney({
@@ -45,6 +63,7 @@ export function ApproxMoney({
   snapshot,
   className,
   hideAttribution,
+  label,
 }: ApproxMoneyProps) {
   if (!snapshot) return null;
 
@@ -62,6 +81,7 @@ export function ApproxMoney({
 
   return (
     <span className={cn('text-sm text-muted-foreground', className)}>
+      {label && <span>{label} </span>}
       <span className="tabular-nums">
         about {formatMoney(converted, toCurrency, 'whole')}
       </span>

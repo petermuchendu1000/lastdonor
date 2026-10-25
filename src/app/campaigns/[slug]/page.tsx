@@ -500,9 +500,17 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 never used to decide anything - see the boundary note in
                 `src/lib/money/fx-convert.ts`.
               */}
+              {/*
+                ⚠️ "Goal is" is a PROP, not a sibling span. `LocalAmount`
+                renders nothing whenever converting would tell the reader
+                nothing - a USD campaign read from the United States, or a
+                stale FX snapshot - and a label beside it survived that,
+                leaving "Goal is" followed by empty space on every USD
+                campaign. See the note in `ApproxMoney`.
+              */}
               <p className="mt-2">
-                <span className="text-sm text-muted-foreground">Goal is </span>
                 <LocalAmount
+                  label="Goal is"
                   minor={campaign.goalAmount}
                   fromCurrency={campaign.currency}
                   /*

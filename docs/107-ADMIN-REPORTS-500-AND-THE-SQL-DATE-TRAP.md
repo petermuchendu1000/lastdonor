@@ -227,3 +227,84 @@ That is the hole this doc leaves open, deliberately and visibly. The two
 checks added here close it for `/admin/reports` only. The cheap general fix is
 an admin sign-in fixture for the E2E suite, which would also un-skip the ten
 tests `docs/99` lists.
+
+---
+
+## 8. Two more "invisible unless you look" defects, found in a browser
+
+Both were found while taking screenshots of `docs/108`, both were already in
+production, and neither is visible to lint, typecheck, 6,892 unit tests, 136
+integration tests or `next dev`. They are the same family as the 500 above and
+as `docs/104`, which is why they are recorded here rather than in a doc of
+their own.
+
+### 8.1 `/campaigns/[slug]` threw a hydration error on every mobile load
+
+**[VERIFIED 2026-10-25]** React error **#418** (text content mismatch), in
+exactly one configuration:
+
+| | result |
+|---|---|
+| production build, 390px | **#418** |
+| production build, 1440px | clean |
+| `next dev`, 390px | clean, no warning at all |
+
+The cause is `formatRelativeTime` (`src/lib/utils/dates.ts`), which reads
+`Date.now()` at render time, rendered inside a page that is **ISR with
+`revalidate = 60`**. The HTML is produced at one instant and hydrated at
+another, so the cached markup says "just now" and the client says "5m ago" for
+the same donation. **Dev has no ISR cache**, which is precisely why the error
+is invisible where a developer would look for it, and desktop did not show it
+because the donor feed only renders in the mobile column.
+
+Localised by diffing the SSR HTML against the hydrated DOM **through
+`innerText` in the same engine at the same width** — a first attempt that
+stripped tags with a regex produced pure whitespace noise and nearly sent this
+investigation at the navbar.
+
+Fixed with `src/components/ui/RelativeTime.tsx`, used by `DonorFeed`,
+`MessageWall` and `CampaignUpdates`.
+
+⛔ **Not** `suppressHydrationWarning`, which is React's documented escape hatch
+for timestamps and would have silenced it. It would also have left a cached
+page stating a relative time measured from when the **cache entry** was built —
+"just now" on an appeal nobody has donated to for an hour — until hydration
+corrected it. The figure, not the warning, is the problem. So the server
+renders the **absolute** date, which is true whenever the entry is served, and
+the relative form appears after mount. The first client render matches the
+server exactly, so there is no mismatch to suppress and nothing is hidden.
+
+⚠️ Admin screens were left alone deliberately: `src/app/admin/layout.tsx` makes
+that subtree `force-dynamic`, so the two renders are moments apart and the
+mismatch is unlikely rather than certain.
+
+Its own test caught a defect in the fix: `formatDate` goes through
+`Intl.DateTimeFormat.format`, which throws `RangeError: Invalid time value` on
+an unparseable input, so the first version — which wrapped only
+`toISOString()` — still took the page down. Verified fixed in a production
+build with the ISR entry deliberately 20 seconds stale, which is the exact
+condition that produced the error.
+
+### 8.2 Every USD campaign showed "Goal is" followed by nothing
+
+`/campaigns/[slug]` rendered:
+
+```tsx
+<span className="text-sm text-muted-foreground">Goal is </span>
+<LocalAmount minor={campaign.goalAmount} fromCurrency={campaign.currency} ... />
+```
+
+`LocalAmount` renders nothing whenever converting would tell the reader
+nothing — including **a USD campaign read from the United States**, where the
+detected currency equals the campaign's. Every campaign in production is USD.
+So the public page carried a dangling label and empty space, and `docs/102`'s
+rule that a stale rate renders nothing made it worse rather than better.
+
+The label is now a `label` prop on `ApproxMoney`, so it shares the figure's
+fate and cannot outlive it. Three tests pin it, including the one that would
+have caught this: with no snapshot, the component renders an empty DOM and the
+word "Goal" appears nowhere.
+
+**The rule both of these come from:** a component that renders nothing by
+design is invisible until somebody looks at it in a browser, and anything the
+caller renders beside it does not disappear with it.

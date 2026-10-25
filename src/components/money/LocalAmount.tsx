@@ -46,6 +46,8 @@ type LocalAmountProps = {
   fallbackCurrency: string | null;
   snapshot: FxSnapshot | null;
   className?: string;
+  /** Printed before the figure, and omitted whenever the figure is. */
+  label?: string;
 };
 
 export function LocalAmount({
@@ -54,6 +56,7 @@ export function LocalAmount({
   fallbackCurrency,
   snapshot,
   className,
+  label,
 }: LocalAmountProps) {
   const [detected, setDetected] = useState<DetectedLocale | null>(null);
 
@@ -95,6 +98,7 @@ export function LocalAmount({
       toCurrency={target}
       snapshot={snapshot}
       className={className}
+      label={label}
     />
   );
 }

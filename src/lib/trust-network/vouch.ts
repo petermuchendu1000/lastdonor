@@ -58,6 +58,17 @@ export type VouchResult =
       vouchId: string;
       /** True when this vouch is what verified the campaign. */
       liftedRaiseCap: boolean;
+      /**
+       * The campaign's slug, so the caller can revalidate its public page.
+       *
+       * Returned rather than looked up again by the route: a vouch changes
+       * what `/campaigns/[slug]` says, that page is ISR with
+       * `revalidate = 60`, and every other admin write that changes it
+       * (suspend, resume, edit) already calls `revalidatePath`. Without it
+       * the donor-facing banner lags by up to a minute - measured in a real
+       * browser, which is the only way this class of gap shows up (docs/104).
+       */
+      slug: string;
     }
   | { ok: false; code: RefusalCode | 'NOT_FOUND'; message: string };
 
@@ -78,6 +89,7 @@ export async function recordVouch(input: RecordVouchInput, now: Date = new Date(
     const [campaign] = await tx
       .select({
         id: campaigns.id,
+        slug: campaigns.slug,
         status: campaigns.status,
         verificationStatus: campaigns.verificationStatus,
         verificationSource: campaigns.verificationSource,
@@ -204,7 +216,7 @@ export async function recordVouch(input: RecordVouchInput, now: Date = new Date(
       })}::jsonb`,
     });
 
-    return { ok: true as const, vouchId: vouch.id, liftedRaiseCap: true };
+    return { ok: true as const, vouchId: vouch.id, liftedRaiseCap: true, slug: campaign.slug };
   });
 }
 
@@ -219,6 +231,8 @@ export type RevokeResult =
   | {
       ok: true;
       campaignId: string;
+      /** For `revalidatePath` - see the note on `VouchResult.slug`. */
+      slug: string;
       /** True when the campaign went back under its raise cap. */
       unverified: boolean;
       /** Plain-language account of what happened to the campaign. */
@@ -257,6 +271,7 @@ export async function revokeVouch(input: RevokeVouchInput, now: Date = new Date(
 
     const [campaign] = await tx
       .select({
+        slug: campaigns.slug,
         verificationStatus: campaigns.verificationStatus,
         verificationSource: campaigns.verificationSource,
       })
@@ -320,6 +335,7 @@ export async function revokeVouch(input: RevokeVouchInput, now: Date = new Date(
     return {
       ok: true as const,
       campaignId: vouch.campaignId,
+      slug: campaign?.slug ?? '',
       unverified: outcome.verificationStatus !== null,
       effect: outcome.reason,
     };
