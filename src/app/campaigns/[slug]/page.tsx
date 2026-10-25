@@ -21,6 +21,7 @@ import { CampaignCard } from '@/components/campaign/CampaignCard';
 import { MediaGallery } from '@/components/campaign/MediaGallery';
 import { centsToDollars } from '@/lib/utils/currency';
 import { campaignShareDescription } from '@/lib/campaign-share-copy';
+import { CARD_HEIGHT, CARD_WIDTH } from '@/lib/og-card-metrics';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { CampaignSidebarClient } from './client';
 import { CampaignActivity, CampaignActivitySkeleton } from './CampaignActivity';
@@ -201,8 +202,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       images: [
         {
           url: `/api/v1/og/campaign/${slug}`,
-          width: 1200,
-          height: 630,
+          // Declared because several crawlers size the card from the tags
+          // before they fetch the bytes. The route emits JPEG, not PNG -
+          // see the note in it about file size.
+          width: CARD_WIDTH,
+          height: CARD_HEIGHT,
+          type: 'image/jpeg',
           alt: campaign.title,
         },
       ],

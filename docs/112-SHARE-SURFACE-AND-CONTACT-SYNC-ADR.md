@@ -385,3 +385,115 @@ output changed at all.
   `centsToDollars`; it was left alone rather than widening this change.
 - The HEAD probe adds one request per uncached card render. The card is
   cached 24h (`s-maxage=86400`), so this was accepted without measurement.
+
+
+---
+
+## 8. The optimum measurements, derived from how each platform renders
+
+Added 2026-10-25. The previous section built a card that looked right at full
+size. Putting it in eighteen platform frames showed the real constraint:
+**one image is served to every platform, nothing in it is responsive, and a
+message bubble renders it at a quarter size.**
+
+### 8.1 The measurement
+
+Card width each client gives a preview, from the frames in `§8.4`:
+
+| rendering | width | downscale |
+|---|---|---|
+| iMessage | 290px | **4.14x** |
+| Signal / Messenger / Instagram DM | 300px | 4.00x |
+| Telegram | 318px | 3.77x |
+| WhatsApp | 322px | 3.73x |
+| Slack | 330px | 3.64x |
+| Discord | 340px | 3.53x |
+| Reddit | 376px | 3.19x |
+| Facebook / X / LinkedIn / Threads / Bluesky / Pinterest / Teams | ~400px | 3.00x |
+
+Against the old scale, four of six elements were illegible at 4.14x and the
+**title - the single thing the card exists to carry - rendered at 10.6px**:
+
+| element | card px | @3.00x | @4.14x |
+|---|---|---|---|
+| wordmark | 30 | 10.0 | 7.2 |
+| context | 23 | 7.7 | 5.6 |
+| **title** | **44** | **14.7** | **10.6** |
+| headline | 42 | 14.0 | 10.1 |
+| subline | 24 | 8.0 | 5.8 |
+| trust | 22 | 7.3 | 5.3 |
+
+### 8.2 The rule, and the honest trade inside it
+
+`cardPx = effectivePx x downscale`, in **two tiers**, because one number
+cannot serve both jobs:
+
+- **Primary** (title, amount) is sized against the WORST case, 4.14x, at 12px
+  effective. Title **60px**, amount **52px**.
+- **Secondary** (wordmark, context, goal line, guarantee) is sized against the
+  FEED case, 3.00x, at 10px effective: **30px** each.
+
+⚠️ The second tier is a deliberate trade, not an oversight. Making all six
+legible at 4.14x needs 41px+ apiece and there is no room for six such lines
+on one card. In a message bubble the secondary text is decorative; in a feed
+it reads. **The title and the money always read.**
+
+`src/lib/og-card-metrics.ts` holds the numbers, and
+`og-card-metrics.test.ts` **recomputes** them rather than pinning them - it
+asserts that the old 44px title would FAIL the rule, so the rule is shown to
+bite. A further test forbids a hard-coded `fontSize` in the route, which is
+the `docs/109` shape: one file holding both halves of a contradiction.
+
+### 8.3 ⚠️ The card was also far too heavy, and this one is NOT a verified limit
+
+Production was serving **798KB and 928KB** cards; the new design was still
+379-437KB as PNG.
+
+**[COMMUNITY-OBSERVED, NOT DOCUMENTED - searched 2026-10-25]** Meta documents
+no file-size limit for a WhatsApp link preview; its developer docs state only
+a 300px minimum width and a ratio of 4:1 or less. Numerous third-party guides
+report that an `og:image` over roughly **300KB** makes WhatsApp silently drop
+the preview image - and others give **600KB**. The sources do not agree and
+none is authoritative. ⛔ Do not record this as a fact.
+
+It is treated as a safety target because clearing it costs one `sharp` call.
+`ImageResponse` emits PNG only, so the route now pipes it through `sharp` to
+**JPEG quality 90**. Measured on the same three cards:
+
+| card | PNG | JPEG q90 |
+|---|---|---|
+| medical appeal | 379KB | **76KB** |
+| veteran housing | 437KB | **141KB** |
+| zero state | 41KB | **48KB** |
+
+A quarter of the size, under even the strict reading of the limit. `sharp` is
+in the runtime image and the Dockerfile verifies it loads with libvips, so it
+cannot silently fall back. `og:image:type` now declares `image/jpeg`.
+
+### 8.4 Verified
+
+- 18 platform frames rendered: WhatsApp, iMessage, Telegram, Signal,
+  Messenger, Instagram DM, Facebook, X, LinkedIn, Threads, Bluesky, Reddit,
+  Slack, Discord, Teams, Google, Pinterest, and the no-preview case
+  (TikTok bio, SMS).
+- **8 mutants injected, 8 killed**: title back to 44, headline back to 42,
+  secondary below the feed floor, worst-case downscale set to the feed width,
+  a size outgrowing the title, a hard-coded `fontSize` in the route, output
+  reverting to PNG, and the card ceasing to be 1.91:1.
+- Served bytes confirmed `Content-Type: image/jpeg`, 47-141KB, from a server
+  whose PID and start time were checked (the `§7.6a` mistake).
+- Gate: lint 0 errors, typecheck clean, **unit 7216 passed / 16 skipped,
+  234 files**.
+
+### 8.5 UNCHECKED
+
+- ⚠️ **The rendered widths are from my own platform reconstructions, not from
+  the real clients.** They are the right order of magnitude and the ranking is
+  right, but a 290px iMessage card is an estimate. The rule holds for any
+  width in this range; the exact constant does not.
+- The 300KB threshold is unverified (§8.3) and was not tested in a real
+  WhatsApp chat.
+- Not deployed. Production still serves 798-928KB PNG cards on the old scale,
+  and still 502s for the two SVG-hero campaigns.
+- No submission to Facebook's Sharing Debugger, X's Card Validator or
+  LinkedIn's Post Inspector - all three need a public URL.

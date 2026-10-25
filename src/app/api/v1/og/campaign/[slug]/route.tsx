@@ -1,4 +1,5 @@
 import { ImageResponse } from '@vercel/og';
+import sharp from 'sharp';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
@@ -7,6 +8,13 @@ import { CATEGORY_LABELS } from '@/lib/categories';
 import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 import { loadOgFonts } from '@/lib/og-fonts';
 import { ogCardModel, probeHeroSrc } from '@/lib/og-card-model';
+import {
+  CARD_HEIGHT,
+  CARD_JPEG_QUALITY,
+  CARD_WIDTH,
+  FALLBACK_MARK_PX,
+  OG_TYPE,
+} from '@/lib/og-card-metrics';
 
 export const runtime = 'nodejs';
 
@@ -115,7 +123,7 @@ export async function GET(_request: Request, { params }: Params) {
   const TEAL = '#0F766E';
   const TRACK = '#E2E8F0';
 
-  return new ImageResponse(
+  const png = new ImageResponse(
     (
       <div
         style={{
@@ -159,7 +167,7 @@ export async function GET(_request: Request, { params }: Params) {
                 justifyContent: 'center',
                 backgroundColor: '#0B3B38',
                 color: '#5EEAD4',
-                fontSize: 120,
+                fontSize: FALLBACK_MARK_PX,
                 fontFamily: 'DM Serif Display',
               }}
             >
@@ -182,7 +190,7 @@ export async function GET(_request: Request, { params }: Params) {
             justifyContent: 'center',
             width: '744px',
             height: '100%',
-            padding: '44px 48px',
+            padding: '40px 48px',
           }}
         >
           {/* Brand, context, headline */}
@@ -190,7 +198,7 @@ export async function GET(_request: Request, { params }: Params) {
             <div
               style={{
                 display: 'flex',
-                fontSize: 30,
+                fontSize: OG_TYPE.wordmark,
                 fontFamily: 'DM Serif Display',
                 color: TEAL,
               }}
@@ -201,8 +209,8 @@ export async function GET(_request: Request, { params }: Params) {
             <div
               style={{
                 display: 'flex',
-                marginTop: '18px',
-                fontSize: 23,
+                marginTop: '16px',
+                fontSize: OG_TYPE.context,
                 color: MUTED,
               }}
             >
@@ -212,9 +220,9 @@ export async function GET(_request: Request, { params }: Params) {
             <div
               style={{
                 display: '-webkit-box',
-                marginTop: '12px',
-                fontSize: 44,
-                lineHeight: 1.18,
+                marginTop: '14px',
+                fontSize: OG_TYPE.title,
+                lineHeight: 1.14,
                 fontFamily: 'DM Serif Display',
                 color: INK,
                 overflow: 'hidden',
@@ -232,14 +240,14 @@ export async function GET(_request: Request, { params }: Params) {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              marginTop: '36px',
+              marginTop: '30px',
             }}
           >
             <div
               style={{
                 display: 'flex',
                 alignItems: 'baseline',
-                fontSize: 42,
+                fontSize: OG_TYPE.headline,
                 color: INK,
               }}
             >
@@ -249,8 +257,8 @@ export async function GET(_request: Request, { params }: Params) {
             <div
               style={{
                 display: 'flex',
-                marginTop: '8px',
-                fontSize: 24,
+                marginTop: '10px',
+                fontSize: OG_TYPE.subline,
                 color: MUTED,
               }}
             >
@@ -289,10 +297,10 @@ export async function GET(_request: Request, { params }: Params) {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                marginTop: '28px',
-                paddingTop: '20px',
+                marginTop: '24px',
+                paddingTop: '18px',
                 borderTop: `1px solid ${TRACK}`,
-                fontSize: 22,
+                fontSize: OG_TYPE.trust,
                 color: MUTED,
               }}
             >
@@ -322,7 +330,13 @@ export async function GET(_request: Request, { params }: Params) {
                   paddingLeft: '14px',
                 }}
               >
-                Reviewed by a person before it goes live  ·  lastdonor.org
+                {/*
+                  No domain here. Every platform renders `lastdonor.org`
+                  itself, in its own chrome, and the wordmark is already at
+                  the top of this panel - a third copy pushed the line to
+                  wrap at the larger type size.
+                */}
+                Reviewed by a person before it goes live
               </div>
             </div>
           </div>
@@ -330,12 +344,43 @@ export async function GET(_request: Request, { params }: Params) {
       </div>
     ),
     {
-      width: 1200,
-      height: 630,
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
       fonts,
-      headers: {
-        'Cache-Control': 'public, max-age=86400, s-maxage=86400',
-      },
     },
   );
+
+  /*
+    ── Emitted as JPEG, not PNG ──────────────────────────────────────────
+
+    `ImageResponse` only produces PNG, and a PNG of a photograph is enormous:
+    the heaviest card on the platform measured **437KB**, and the two cards
+    live in production when this was written were **798KB and 928KB**.
+
+    ⚠️ Meta documents NO file-size limit for a WhatsApp link preview. What
+    exists is a widely-repeated third-party report that an `og:image` over
+    roughly 300KB makes WhatsApp silently drop the preview image - and other
+    guides saying 600KB. The sources disagree and none is authoritative, so
+    this is NOT a verified limit. It is treated as a safety target, because
+    the cost of clearing it is one `sharp` call and the cost of being wrong
+    is no picture at all on the channel this platform's links actually
+    travel on (`docs/92`: the live rail is M-Pesa in Kenya).
+
+    Measured: the same 437KB card is 140KB at quality 90. A quarter of the
+    size, under even the strict reading, with the ringing invisible at every
+    size the card is displayed.
+
+    `sharp` is present in the runtime image and the Dockerfile verifies it
+    loads with libvips, so this cannot silently fall back.
+  */
+  const raw = Buffer.from(await png.arrayBuffer());
+  const jpeg = await sharp(raw).jpeg({ quality: CARD_JPEG_QUALITY, mozjpeg: true }).toBuffer();
+
+  return new Response(new Uint8Array(jpeg), {
+    headers: {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': String(jpeg.byteLength),
+      'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+    },
+  });
 }

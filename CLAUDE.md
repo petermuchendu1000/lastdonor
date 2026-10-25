@@ -933,6 +933,22 @@ These exist for a reason; changing them has consequences beyond the local file.
   NETWORK font fetch (`docs/95`), and `WebkitLineClamp` does nothing unless
   `display` is `'-webkit-box'`.
 
+  ⛔ **Type sizes come from `src/lib/og-card-metrics.ts`, never a literal.**
+  Added 2026-10-25, see `docs/112` §8. One image goes to every platform and
+  nothing in it is responsive, so each size must survive the NARROWEST
+  rendering: a message bubble gives a 1200px card **290-322px**, a 3.7-4.1x
+  downscale, against ~400px (3.0x) in a feed. At the old scale the TITLE
+  rendered at **10.6px** and four of six elements were illegible. The rule is
+  `cardPx = effectivePx x downscale`, in two tiers - title and amount against
+  4.14x, everything else against 3.00x - and a test RECOMPUTES it rather than
+  pinning today's numbers.
+
+  ⛔ **The card is emitted as JPEG via `sharp`, not PNG.** `ImageResponse`
+  produces PNG only, and production was serving **798-928KB** cards. ⚠️ The
+  ~300KB WhatsApp ceiling is **community-observed, not documented by Meta**,
+  and sources conflict (300KB vs 600KB) - treat it as a safety target, not a
+  fact. Quality 90 lands the same cards at 47-141KB.
+
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
   shared handler, multi-instance deploys serve stale HTML silently. See
