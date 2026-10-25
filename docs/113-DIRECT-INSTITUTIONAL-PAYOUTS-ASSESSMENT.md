@@ -285,3 +285,29 @@ replacement number, since PayHero's own published table is wrong too
    exercised with real money the way `docs/92` exercised collections.
 3. Only then: the payee record, the designation, and the donor-facing claim
    (§6, §7.3).
+
+### 10.5 Owner decision, 2026-10-25 (second): B2C deferred until the gateways exist
+
+> for now, let's skip the b2c until all gateways are configured (Stripe and
+> the rest)
+
+**No disbursement work is to be built yet** — neither the organiser payout of
+§7.2 nor the institutional payee of §7.3. §10.4's step 1 (ask PayHero whether
+they disburse) stays a useful question to settle, but it no longer gates
+anything, because nothing downstream of it is being built.
+
+⚠️ **What this does NOT change.** The platform's inability to pay anybody is
+not a deferred feature; it is the current state of production, and it is
+worth saying plainly rather than filing: **14 live campaigns can collect
+money and none of them can receive it.** Deferring the work is the owner's
+call and is recorded as such. The constraint is unchanged and will still be
+there when the gateways land.
+
+⛔ **Nothing in §5 is withdrawn by the deferral either.** The licensing
+question survives the pause. When the gateways arrive, routing money to a
+third-party institution still needs an answer to *under what authority*, and
+the deferral has not made that question smaller.
+
+The work actually landed in this pass is the consent record of §10.2, which
+is upstream of every rail and needed regardless of which gateway arrives
+first.
