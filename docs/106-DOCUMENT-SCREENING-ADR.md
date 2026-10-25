@@ -265,6 +265,13 @@ up as an amount the platform holds.
 
 ## 10a. The public footer on admin pages
 
+> **AMENDED 2026-10-25 by `docs/107` §6.** `/dashboard` had exactly the same
+> problem and this pass missed it: it is signed-in, it has its own navigation
+> shell (`DashboardShell`), and it was carrying the same footer.
+> `PRIVATE_PREFIXES` is now `['/admin', '/dashboard']`. Everything below about
+> the mechanism, the rejected `headers()` approach and the ungated navbar is
+> unchanged and still applies.
+
 The screening screen shipped under a newsletter signup and a four-column
 marketing footer taking roughly half its height. That is not this page's
 doing: `src/app/layout.tsx:254,275` renders `<Navbar />` and `<Footer />`

@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { showsPublicFooter } from './public-chrome';
 
-describe('the admin tool has no public footer', () => {
+describe('the signed-in tools have no public footer', () => {
   it('hides it on the admin root and everything beneath it', () => {
     for (const path of [
       '/admin',
@@ -27,13 +27,25 @@ describe('the admin tool has no public footer', () => {
       expect(showsPublicFooter(path), path).toBe(false);
     }
   });
+
+  it('hides it on the organiser dashboard and everything beneath it', () => {
+    for (const path of [
+      '/dashboard',
+      '/dashboard/',
+      '/dashboard/campaigns',
+      '/dashboard/withdrawals',
+      '/dashboard/campaigns/123/verification',
+    ]) {
+      expect(showsPublicFooter(path), path).toBe(false);
+    }
+  });
 });
 
 describe('the rest of the site keeps it', () => {
   it('shows it on every public route', () => {
     for (const path of [
       '/', '/campaigns', '/campaigns/some-slug', '/donate', '/blog',
-      '/about', '/login', '/register', '/dashboard', '/dashboard/campaigns',
+      '/about', '/login', '/register', '/compare', '/how-it-works',
     ]) {
       expect(showsPublicFooter(path), path).toBe(true);
     }
@@ -46,7 +58,10 @@ describe('the rest of the site keeps it', () => {
       from it - including any future marketing page whose slug begins those
       five letters.
     */
-    for (const path of ['/administrator', '/admin-guide', '/administration', '/adminx']) {
+    for (const path of [
+      '/administrator', '/admin-guide', '/administration', '/adminx',
+      '/dashboards', '/dashboard-demo',
+    ]) {
       expect(showsPublicFooter(path), path).toBe(true);
     }
   });
@@ -54,6 +69,7 @@ describe('the rest of the site keeps it', () => {
   it('does not treat a nested "admin" segment as the admin tool', () => {
     expect(showsPublicFooter('/blog/admin')).toBe(true);
     expect(showsPublicFooter('/campaigns/admin-fees')).toBe(true);
+    expect(showsPublicFooter('/blog/dashboard-tips')).toBe(true);
   });
 });
 

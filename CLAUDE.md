@@ -119,6 +119,7 @@ transcript or a commit message is lost.
 | `104-FX-READER-BUG-AND-BROWSER-VERIFICATION.md` | **The FX snapshot WRITER was widened to 152 currencies and the READER was not, so every read discarded 150 rates and country detection could only ever show KES - 98.7% INERT, and silent, because a missing rate renders as nothing by design. ⚠️ Nothing unit-tested could catch it: the store's round-trip used USD and KES only. Found by putting a REAL browser at `Africa/Kampala`. **The invariant: the snapshot reader's accepted set MUST be a superset of the writer's.** `e2e/local-currency-e2e.spec.ts` now verifies detection in Chromium with real `timezoneId`/`locale` (10 tests, desktop + mobile), including the `UTC`+`sw` case asserting NO figure appears - if `maximize()` is reinstated that becomes `TZS 25,000,000`. One assertion had been passing for the WRONG reason (`getByText('about')` also matches the hidden mobile "About" nav link). ⚠️ ITS CLOUDFLARE SECTION IS SUPERSEDED BY docs/105 §7 (the proxy is ON since 2026-10-24, and the `cf`/`2` sequencing it prescribes was UNSAFE). Its prediction that enabling the proxy would cache almost no HTML was CORRECT and is now measured: ten routes, all `cf-cache-status: DYNAMIC`. Three of the four cutover steps are DONE (`ssl=strict`, verified `2026-10-24T12:28:10Z`; a grey `origin.lastdonor.org` to keep a non-proxied path; a WAF skip rule for the four signature-authed webhooks). The fourth is OWNER-ONLY and gated: the staged `CLIENT_IP_SOURCE = "cf"` / `TRUSTED_PROXY_HOPS = "2"` block in `fly.toml` must be uncommented AND DEPLOYED **before** the orange cloud is flipped on the apex and `www` (`send.`/`rsend.` stay grey for Resend). Flipping first with `xff`/`1` makes every visitor through one Cloudflare datacentre share a rate-limit bucket and locks real users out of login; deploying `cf`/`2` first is safe because `cf-connecting-ip` is simply absent until the proxy is on. §**5.1a**: a `POST` probe cannot tell a missing cron route from a denied one - both answer 401 - so use `GET` and always include a fabricated job name as the control. Also removed 3 inert `revalidate` exports (a page reading `searchParams` is dynamic in Next 15 - proven by an exact 10-of-10 correlation against production).** |
 | `105-EDGE-TRUST-AND-CLOUDFLARE-CUTOVER-ADR.md` | **✅ DEPLOYED (v96) AND THE PROXY IS ON (2026-10-24) - read §7 for the verification record, including the two Fly build traps and the proof that a proxied request keys to the VISITOR not the edge (exhaust a bucket directly, then hit the same path through the proxy: a 429 is the only possible answer if `cf-connecting-ip` was trusted AND equals the direct path's peer). The staged Cloudflare cutover (`CLIENT_IP_SOURCE=cf` + `TRUSTED_PROXY_HOPS=2`) was UNSAFE and is replaced. `cf` used to trust `cf-connecting-ip` whenever present, with no evidence the request came through Cloudflare - and `lastdonor.fly.dev` (outside the DNS zone, and the cron Worker's target) plus `origin.lastdonor.org` (grey-cloud on purpose) reach the origin directly FOREVER, so rotating that header mints unlimited rate-limit keys against sign-in, the `sms` tier guarding a six-digit code (docs/85) and PayHero's phone guard (docs/92). ⚠️ **A hop count cannot describe two ingress paths**: via Cloudflare two hops are appended, direct one, and both stay reachable - `2` puts the trusted index on a direct caller's own XFF prefix, `1` keys every proxied visitor by their Cloudflare datacentre and locks real users out of login. `cf` now decides PER REQUEST from the right-most XFF entry (the peer Fly appends, which no caller can choose) and believes `cf-connecting-ip` only when that peer is in Cloudflare's published space (`src/lib/cloudflare-ips.ts`, 15 IPv4 / 7 IPv6 pinned and verified live). `TRUSTED_PROXY_HOPS` is unread in `cf` mode and **stays 1 forever**. Staleness fails SAFE (a new CF range reads as direct, over-counting, never under-counting) and `1.1.1.1` is NOT an edge. ⚠️ The security test written to prevent a bad cutover asserted `cf`->`2` as the SAFE target, so it would have gone green on the unsafe change; its companion covered the forged header only "when CLIENT_IP_SOURCE is unset", which the cutover sets. Read before touching `getClientIp`, `fly.toml`'s client-IP block, or turning the proxy on.** |
 | `106-DOCUMENT-SCREENING-ADR.md` | **AI pre-screening of verification documents. BUILT, NOT DEPLOYED. A document with NOTHING flagged is approved without a person; everything else waits. ⚠️ The safety argument is one boundary, traced not assumed: approving a DOCUMENT writes only `verification_documents`, and every writer of `campaigns.verification_status` was enumerated - no path advances a campaign from document approval, so screening cannot authorise a payout or lift the raise cap. ANYTHING THAT COUPLES THE TWO REOPENS THIS DECISION. There is deliberately NO auto-reject, and a MISSING trusted name is 'cannot judge' never 'no mismatch' - no campaign has a verified name today, so that one confusion would auto-approve every document on the platform. ⚠️ Probed OCR error: `ASHA W. MUTISO` came back `ASHAW. MUTISO`, so names compare with ALL SEPARATORS REMOVED. ⛔ TWO 'exit 0 is not success' traps: a vision failure arrives as HTTP 200 with no `choices` key, and `pdftoppm` exited 0 with empty stderr and 0 bytes on a malformed PDF (also: `pdftoppm -` writes a file called `-` into the CWD - use pdftocairo). Only page 1 of a PDF is read, so a clean multi-page document is downgraded. Model list contains only models RUN against a real document (two of my first three were 403/429-only). `campaigns.didit_verified_name` is new; ⛔ the keys inside Didit's `kyc` are UNVERIFIED because a not-started session returns null - the parse REPORTS the keys it saw so the first real session answers it in the log. Didit's own `poa`/`document_ai_documents` may already do this (owner chose bespoke knowingly). Read before touching `src/lib/screening/`, the screening cron or `/admin/screening`.** |
+| `107-ADMIN-REPORTS-500-AND-THE-SQL-DATE-TRAP.md` | **`/admin/reports` answered 500 on EVERY load and nothing in the repo could tell: lint, typecheck, 6,855 unit tests, CI and nine ratchets were all green. A JS `Date` interpolated into a `sql` template is bound as a parameter with NO encoder and throws inside the driver (`The "string" argument must be of type string ... Received an instance of Date`) - a typed `gte()` carries the column's encoder, a `sql` template does not. Same family as the docs/101 unqualified-identifier trap: a `sql` template silently discards what the typed builders carry, and only running it against real Postgres finds it. Fixed with `sql.param(value, column)`; the query moved to `src/lib/report-periods.ts` SO THAT A TEST COULD RUN IT. Two checks, both proven by injection: 6 integration tests (all 6 fail against the defect) and a TYPE-DRIVEN ratchet over all 282 interpolating `sql` templates in `src/`. A falsification sweep found the defect in exactly one page. Also: `/dashboard` had the marketing footer too (amends docs/106 §10a). ⛔ Records the open hole: NO admin page's data query is executed by any test.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -129,8 +130,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (6852 pass + 16 skipped, 216 files, as of 2026-10-24)
-npm run test:integration  # Vitest + a throwaway Postgres (113 tests, 13 files)
+npm run test:unit      # Vitest (6855 pass + 16 skipped, 215 files, as of 2026-10-25)
+npm run test:integration  # Vitest + a throwaway Postgres (119 tests, 14 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
@@ -597,6 +598,25 @@ These exist for a reason; changing them has consequences beyond the local file.
   a text ratchet and typecheck, and was caught only by running it against a
   real database.
 
+- **A `sql` template must not bind a bare `Date`.** Added 2026-10-25, see
+  `docs/107`. `gte(donations.createdAt, d)` encodes `d` with that column's
+  `mapToDriverValue`; `` sql`${donations.createdAt} >= ${d}` `` cannot - the
+  value becomes a parameter with **no encoder** and postgres-js throws
+  `The "string" argument must be of type string ... Received an instance of
+  Date`. This 500'd **every load of `/admin/reports`** while lint, typecheck,
+  6,855 unit tests and the fan-out ratchet all passed. Use
+  **`sql.param(value, column)`**, or step out of the template and use
+  `gte`/`lte`/`between`. `src/db/sql-template-dates.ratchet.test.ts` asks the
+  TypeScript **checker** for the type of every interpolation in every `sql`
+  template in `src/` and fails the build on a `Date` - a grep cannot do this,
+  because `${since}` is fine as a string and fatal as a Date and the two read
+  identically.
+
+  ⚠️ **No admin page's data query is run by any test** (`docs/107` §7). The
+  integration suite covers API routes, the E2E suite has no signed-in admin
+  fixture, and a unit test cannot reach a server component's database call. An
+  admin screen's query is checked by reading it. If you change one, run it.
+
 - **A hand-rolled `role="radiogroup"` must behave like one.** Added
   2026-10-22, see `docs/100`. Seven groups in this codebase are
   `<div role="radiogroup">` holding `<button role="radio">`, because the
@@ -620,13 +640,15 @@ These exist for a reason; changing them has consequences beyond the local file.
   right, and three of these groups sat on pages passing a full WCAG 2.1 AA
   run.
 
-- **The root layout must not read a dynamic API, and `/admin` has no public
-  footer.** Added 2026-10-24, see `docs/106` §10a. `src/app/layout.tsx` is the
-  only root layout, so everything it renders wraps every route - which put a
-  newsletter signup and a marketing footer on all 24 admin pages. The footer is
-  now gated by `PublicFooterGate` (a client component taking the server-rendered
-  `<Footer />` as children) using `showsPublicFooter` from
-  `src/lib/public-chrome.ts`.
+- **The root layout must not read a dynamic API, and the signed-in tools have
+  no public footer.** Added 2026-10-24, see `docs/106` §10a; extended to
+  `/dashboard` 2026-10-25, see `docs/107` §6. `src/app/layout.tsx` is the only
+  root layout, so everything it renders wraps every route - which put a
+  newsletter signup and a marketing footer on all 24 admin pages and on every
+  organiser dashboard screen, both of which have their own navigation shell.
+  The footer is now gated by `PublicFooterGate` (a client component taking the
+  server-rendered `<Footer />` as children) using `showsPublicFooter` from
+  `src/lib/public-chrome.ts`; `PRIVATE_PREFIXES` is `['/admin', '/dashboard']`.
 
   ⛔ **Do NOT branch on `headers()` in the root layout** to do this. It is the
   obvious fix and a dynamic API there opts EVERY route out of static rendering:
