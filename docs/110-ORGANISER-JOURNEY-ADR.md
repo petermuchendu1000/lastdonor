@@ -468,6 +468,21 @@ src/app/compare/page.tsx
 src/app/how-it-works/page.tsx
 ```
 
+### 10a. ⚠️ It is not only the fee figure: two TRUST BADGES say Stripe
+
+Found 2026-10-25 by looking at screenshots, which is the only way this class
+of thing surfaces:
+
+- the site footer, on **every public page**: **"Secured by Stripe"**
+- the campaign sidebar trust row: **"Stripe secured"**
+
+A fee figure being wrong is a number out of date. A padlock saying a dead
+gateway secures the payment is a **trust claim**, and `CLAUDE.md` is explicit
+that trust copy is a factual assertion rather than microcopy. Whatever is
+decided about the fee table, these two should be decided with it - the live
+rail is PayHero over M-Pesa (`docs/92`), and Stripe answers
+`"status":"error"` on `/api/v1/health`.
+
 Changing two of them would be a patchwork, and the replacement wording is not
 a mechanical substitution: `docs/59` holds the fee ledger and GoFundMe's
 verified published fees, and `docs/92` records that **PayHero's own published
