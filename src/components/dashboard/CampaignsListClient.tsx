@@ -161,6 +161,20 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                           Manage
                         </Link>
                         {/*
+                          `docs/113` §11 screens B1-B4. On EVERY row, in every
+                          state, for the `docs/83` reason: the verification
+                          flow worked and nobody could reach it, because its
+                          only link was gated on a condition that two later
+                          decisions made unsatisfiable. The screen itself
+                          decides what to show.
+                        */}
+                        <Link
+                          href={`/dashboard/campaigns/${c.id}/payout-destination`}
+                          className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          Where the money goes
+                        </Link>
+                        {/*
                           ⛔ Only when there IS a public page. This used to
                           render for every status, so an organiser whose
                           campaign was still `under_review` clicked "View" on

@@ -36,6 +36,14 @@ vi.mock('next/cache', () => ({
 vi.mock('@/db', () => {
   const chain = {
     from: () => chain,
+    /*
+      The lookup LEFT JOINs the payout destination onto the campaign row
+      (`docs/113` §11) so the public page learns it without a second query.
+      The mock models the fluent builder, so it has to carry every method the
+      chain calls - a missing one throws TypeError and the test then fails
+      somewhere unrelated, which is exactly how this was found.
+    */
+    leftJoin: () => chain,
     where: () => chain,
     orderBy: () => chain,
     offset: () => chain,

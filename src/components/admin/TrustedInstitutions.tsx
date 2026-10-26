@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
@@ -296,6 +297,18 @@ function InstitutionTableRow({
               Suspend
             </button>
           )}
+          {/*
+            `docs/113` §11 screen A1. A separate screen because recording a
+            payee is a separate decision from trusting a voucher - and a
+            route nobody can click is a route that does not exist
+            (`docs/83`).
+          */}
+          <Link
+            href={`/admin/institutions/${i.id}/payout-accounts`}
+            className="whitespace-nowrap text-xs text-muted-foreground underline underline-offset-2"
+          >
+            Payment details
+          </Link>
           <button
             type="button"
             disabled={busy}

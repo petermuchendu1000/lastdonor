@@ -4,7 +4,12 @@ import { notFound } from 'next/navigation';
 import { unstable_noStore as noStore } from 'next/cache';
 import { db } from '@/db';
 import { CampaignUnavailableError, lookupCampaign } from '@/lib/campaign-lookup';
-import { campaigns } from '@/db/schema';
+import {
+  campaignPayoutDesignations,
+  campaigns,
+  institutionPayoutAccounts,
+  trustedInstitutions,
+} from '@/db/schema';
 import { publicCampaignSelect } from '@/db/public-select';
 import { eq, and, or } from 'drizzle-orm';
 import Link from 'next/link';
@@ -12,6 +17,8 @@ import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
 import { PendingVerificationBadge, VouchedByBadge } from '@/components/campaigns/TrustBadge';
 import { getVouchDisclosure } from '@/lib/trust-network/public';
+import { PaidToInstitution } from '@/components/payout/PaidToInstitution';
+import { INSTITUTION_KIND_LABELS } from '@/lib/validators/trust-network';
 import { LocalAmount } from '@/components/money/LocalAmount';
 import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import { Suspense } from 'react';
@@ -65,9 +72,43 @@ interface PageProps {
 }
 
 async function getCampaign(slug: string) {
+  /*
+    The destination rides along on the EXISTING lookup as two LEFT JOINs
+    (`docs/113` §11). Not a second query and not a denormalised column on
+    `campaigns`.
+
+    This page's query budget is spent (`docs/87`): the pool is `max: 5` and
+    the fan-out ratchet caps an entry point at three concurrent queries, which
+    is why the vouch read next door is guarded on a column already in hand.
+    There is no such column for a designation - and adding one would be the
+    `docs/89` echo-counter mistake, a copy of the truth that nothing keeps in
+    step. A LEFT JOIN costs no extra round trip and cannot drift.
+
+    LEFT, so a campaign with no destination - every campaign today - is
+    returned unchanged with nulls.
+  */
   const [campaign] = await db
-    .select(publicCampaignSelect)
+    .select({
+      ...publicCampaignSelect,
+      payoutInstitutionName: trustedInstitutions.name,
+      payoutInstitutionKind: trustedInstitutions.kind,
+    })
     .from(campaigns)
+    .leftJoin(
+      campaignPayoutDesignations,
+      and(
+        eq(campaignPayoutDesignations.campaignId, campaigns.id),
+        eq(campaignPayoutDesignations.status, 'active'),
+      ),
+    )
+    .leftJoin(
+      institutionPayoutAccounts,
+      eq(institutionPayoutAccounts.id, campaignPayoutDesignations.payoutAccountId),
+    )
+    .leftJoin(
+      trustedInstitutions,
+      eq(trustedInstitutions.id, institutionPayoutAccounts.institutionId),
+    )
     .where(
       and(
         eq(campaigns.slug, slug),
@@ -511,6 +552,35 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 one is empty unless `verification_source` is a vouch.
               */}
               <VouchedByBadge institutions={vouchedBy} className="mt-3" />
+
+              {/*
+                Where this money goes (`docs/113` §11.3). Rendered from the
+                LEFT JOIN above, so it costs no query, and only when a
+                destination actually exists - which is no campaign today.
+
+                ⛔ The wording is NOT written here. It comes from
+                `institutionalPayoutCopy`, whose test forbids the word
+                "verified" and pins the caveat that the bill number is
+                organiser-typed and unchecked. A sentence written inline at
+                this call site would be swept by nothing - the `docs/110`
+                §9.2 failure, where a rule was asserted on two surfaces while
+                a third said whatever it liked.
+              */}
+              {campaign.payoutInstitutionName && (
+                <PaidToInstitution
+                  className="mt-3"
+                  disclosure={{
+                    institutionName: campaign.payoutInstitutionName,
+                    institutionKindLabel:
+                      INSTITUTION_KIND_LABELS[
+                        campaign.payoutInstitutionKind as keyof typeof INSTITUTION_KIND_LABELS
+                      ] ?? '',
+                    organiserIdentityChecked:
+                      campaign.verificationStatus === 'identity_verified' ||
+                      campaign.verificationStatus === 'fully_verified',
+                  }}
+                />
+              )}
 
               {/*
                 An approximate USD equivalent of the goal, for a campaign

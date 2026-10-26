@@ -389,3 +389,87 @@ the claim, **the words change, not the rail**.
   published table contradicts it, and ten other screens still quote Stripe's
   dead "2.9% + $0.30" (`docs/110` §10). **A fee shown to a donor must be the
   fee charged** — still an owner decision.
+
+---
+
+## 12. The UI, built — 2026-10-26
+
+All nine screens of §11 exist as real pages. ⛔ **Still nothing sends money**:
+`resolvePayoutRail()` returns null and `payout-boundary.test.ts` fails the
+build if that changes.
+
+| Screen | Route |
+|---|---|
+| A1 | `/admin/institutions/[institutionId]/payout-accounts` |
+| B1-B4 | `/dashboard/campaigns/[id]/payout-destination` |
+| C1-C2 | `PaidToInstitution` on `/campaigns/[slug]` |
+| D1 | `/admin/payout-queue` |
+
+Verified by a production build: all six new routes present, `BUILD_EXIT=0`,
+ISR count unchanged at 3.
+
+### 12.1 The destination rides on the EXISTING campaign query
+
+`/campaigns/[slug]` is the hottest public page and its query budget is spent
+(`docs/87`: pool `max: 5`, three concurrent per entry point), which is why the
+vouch read beside it is guarded on a column already in hand.
+
+There is no such column for a destination, and **adding one would be the
+`docs/89` echo-counter mistake** - a denormalised copy of the truth that
+nothing keeps in step. Instead the lookup gained two `LEFT JOIN`s: no extra
+round trip, nothing to drift, and a campaign with no destination (every
+campaign today) comes back unchanged with nulls. The fan-out ratchet is green
+because the query count did not move.
+
+⚠️ This broke `page.lookup.test.tsx`, and the way it broke is the point: the
+test's fluent `db` mock had `from/where/orderBy/offset/limit` and no
+`leftJoin`, so the chain threw `TypeError` and **four tests failed on
+assertions about `notFound()` and metadata** - nowhere near the real cause. A
+hand-rolled chain mock has to carry every method the chain calls.
+
+### 12.2 Native radios, not a hand-rolled radiogroup
+
+`docs/100` found seven `role="radiogroup"`s claiming behaviour none of them
+implemented, and landed on: when the options are a list of labels, use a
+native `<input type="radio">`. The institution picker is such a list, so it
+does. Arrow keys, one tab stop and screen-reader announcement come free and
+cannot rot.
+
+### 12.3 The organiser's door is on EVERY row
+
+`docs/83` is the doc about a working flow nobody could reach: verification's
+only link was gated on `status === 'active' && donorCount > 0`, which two
+later decisions made unsatisfiable. So "Where the money goes" renders on every
+campaign row in every state, and the screen itself decides what to show.
+
+### 12.4 ⛔ The call site may not write its own sentence
+
+`public.test.ts` pins the donor-facing wording, but a rule on a module is
+worthless if a page writes its own copy next door - `docs/110` §9.2 exactly,
+where a promise was asserted on two surfaces and a third said it anyway.
+
+So `PaidToInstitution.test.tsx` also reads `/campaigns/[slug]/page.tsx` **as
+source** and fails if it contains "does not pass through", "goes straight to"
+or "What we checked". Proven by injection: writing that sentence into the
+page fails the suite, and so does removing the component.
+
+### 12.5 What D1 deliberately does NOT show
+
+No Send button, not even a disabled one - the page states why nothing can be
+sent (`docs/88` F9 is the admin screen that was inert and did not say so).
+
+And **no payable amount**. The column shown is labelled "headline raised" and
+is `raised_amount`, which is blended with fabricated seed money (`docs/101`).
+A real payable figure is absent until a rail exists to pay it; inventing one
+would be the first lie on a money screen.
+
+### 12.6 Mutation results
+
+11 injected across the UI work, **11 killed**: the page writing its own
+sentence, the component removed from the page, both halves of the
+checked/not-checked pair blanked, the institution-kind list drifting from the
+enum in both directions, and the rate-date assertion.
+
+⚠️ One mutant was **malformed and reported as such** rather than counted as a
+survivor: blanking `notChecked` via its ternary condition only selected the
+other branch, so nothing was blanked. Re-injected correctly, it died.

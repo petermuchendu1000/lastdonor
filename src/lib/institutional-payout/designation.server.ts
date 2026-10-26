@@ -2,7 +2,11 @@ import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { campaignPayoutDesignations } from '@/db/schema';
+import {
+  campaignPayoutDesignations,
+  institutionPayoutAccounts,
+  trustedInstitutions,
+} from '@/db/schema';
 
 /**
  * Reading a campaign's destination, against the database.
@@ -75,6 +79,53 @@ export async function activeDesignation(
       revokedAt: campaignPayoutDesignations.revokedAt,
     })
     .from(campaignPayoutDesignations)
+    .where(
+      and(
+        eq(campaignPayoutDesignations.campaignId, campaignId),
+        eq(campaignPayoutDesignations.status, 'active'),
+      ),
+    )
+    .orderBy(desc(campaignPayoutDesignations.designatedAt))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/** What a donor-facing surface needs to describe the destination. */
+export interface PublicDesignation {
+  institutionName: string;
+  institutionKind: string;
+}
+
+/**
+ * The destination to show on a public campaign surface, or null.
+ *
+ * ⚠️ ONE query, and it is the only one these surfaces may add. The campaign
+ * page is near the `docs/87` three-concurrent-query cap already, and the pool
+ * is `max: 5` shared by every request on the machine.
+ *
+ * ⚠️ Returns nothing about money, the organiser, or the bill number. The bill
+ * number is organiser-typed and would tell a stranger which account to pay;
+ * nothing public needs it.
+ */
+export async function publicDesignation(
+  client: Selectable,
+  campaignId: string,
+): Promise<PublicDesignation | null> {
+  const [row] = await client
+    .select({
+      institutionName: trustedInstitutions.name,
+      institutionKind: trustedInstitutions.kind,
+    })
+    .from(campaignPayoutDesignations)
+    .innerJoin(
+      institutionPayoutAccounts,
+      eq(institutionPayoutAccounts.id, campaignPayoutDesignations.payoutAccountId),
+    )
+    .innerJoin(
+      trustedInstitutions,
+      eq(trustedInstitutions.id, institutionPayoutAccounts.institutionId),
+    )
     .where(
       and(
         eq(campaignPayoutDesignations.campaignId, campaignId),
