@@ -46,6 +46,13 @@ const SEALED = [
   'src/app/api/v1/user-campaigns/[id]/verification/documents/route.ts',
   'src/app/api/v1/user-campaigns/[id]/verification/status/route.ts',
   'src/app/dashboard/payout-settings/page.tsx',
+  /*
+    Added 2026-10-26 (`docs/113` §11). This route decides where a campaign's
+    money lands, which is exactly what `change_payout_account` in
+    NEVER_DELEGATED means. A collaborator who could set it could point a
+    family's money at an account they control.
+  */
+  'src/app/api/v1/user-campaigns/[id]/payout-designation/route.ts',
 ];
 
 /** Surfaces that are allowed to delegate, and the capability each may use. */

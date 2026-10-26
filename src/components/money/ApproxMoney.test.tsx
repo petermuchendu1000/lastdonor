@@ -83,15 +83,32 @@ describe('ApproxMoney', () => {
   });
 
   it('dates the rate it used', () => {
+    /*
+      ⚠️ The date is DERIVED, never a literal. This test used to pass
+      `'2026-10-24T00:02:31Z'` and assert `/2026-10-24/`, which was true on
+      the day it was written and failed two days later: past
+      MAX_FX_AGE_HOURS (48) staleness is a REFUSAL, `convertMinor` returns
+      null and the component renders NOTHING by design (`docs/102`). So the
+      literal did not merely go stale - it turned a correct refusal into a
+      failing assertion, on a clock, in a suite that is otherwise
+      deterministic.
+
+      Three hours keeps it comfortably inside the window, and the expected
+      string is built with the same `toISOString().slice(0, 10)` the
+      component uses, so there is no timezone gap between them.
+    */
+    const asOf = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const expectedDay = asOf.toISOString().slice(0, 10);
+
     render(
       <ApproxMoney
         minor={50_000}
         fromCurrency="USD"
         toCurrency="KES"
-        snapshot={fresh('2026-10-24T00:02:31Z')}
+        snapshot={fresh(asOf.toISOString())}
       />,
     );
-    expect(document.body.textContent).toMatch(/2026-10-24/);
+    expect(document.body.textContent).toContain(expectedDay);
   });
 
   it('renders the attribution link the licence requires', () => {

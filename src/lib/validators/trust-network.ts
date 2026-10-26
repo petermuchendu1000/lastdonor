@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { COUNTRY_CURRENCY } from '@/lib/geo/country-currency.generated';
+import { isSupportedCurrency } from '@/lib/money/currencies';
 
 /**
  * Input shapes for trusted institutions and their vouches (`docs/108`).
@@ -25,10 +26,20 @@ export const INSTITUTION_KINDS = [
   'school',
   'government',
   'employer',
+  'funeral_home',
   'other',
 ] as const;
 
-/** Human labels for the eight kinds, used by the admin form and by donors. */
+/**
+ * Human labels for the kinds, used by the admin form and shown to donors.
+ *
+ * ⚠️ This list and `institution_kind` in `schema.ts` must agree, and nothing
+ * in the type system makes them. `funeral_home` was added to the database
+ * enum for `docs/113` and this list was not updated, so the admin form could
+ * not offer it at all - a value the database accepted and no screen could
+ * produce. `trust-network.kinds.test.ts` now derives the check from the enum
+ * rather than retyping it (the `docs/110` §4 shape).
+ */
 export const INSTITUTION_KIND_LABELS: Record<(typeof INSTITUTION_KINDS)[number], string> = {
   nonprofit: 'Registered nonprofit or charity',
   faith: 'Church, mosque, temple or other place of worship',
@@ -37,6 +48,7 @@ export const INSTITUTION_KIND_LABELS: Record<(typeof INSTITUTION_KINDS)[number],
   school: 'School',
   government: 'Government office',
   employer: 'Employer',
+  funeral_home: 'Funeral home or mortuary',
   other: 'Other organisation',
 };
 
@@ -150,3 +162,65 @@ export const revokeVouchSchema = z.object({
 export type CreateInstitutionInput = z.infer<typeof createInstitutionSchema>;
 export type UpdateInstitutionInput = z.infer<typeof updateInstitutionSchema>;
 export type RecordVouchInput = z.infer<typeof recordVouchSchema>;
+
+/**
+ * ⛔ WHERE AN INSTITUTION IS PAID (`docs/113` §11, screen A1).
+ *
+ * Separate from `createInstitutionSchema` because recording a payee is a
+ * separate admin decision from trusting a voucher - `docs/108` kept payment
+ * out of `trusted_institutions` precisely so a third party's word could never
+ * move money, and that separation is preserved in the input shapes too.
+ */
+export const PAYOUT_RAILS = ['mpesa_paybill'] as const;
+
+export const PAYOUT_RAIL_LABELS: Record<(typeof PAYOUT_RAILS)[number], string> = {
+  mpesa_paybill: 'M-Pesa paybill',
+};
+
+/**
+ * What the rail's destination has to look like.
+ *
+ * ⚠️ A Kenyan paybill is 5-7 digits. The check is deliberately narrow: this
+ * is the field that sends a grieving family's money somewhere, and an
+ * M-Pesa payment to a wrong-but-valid shortcode is not reversible by us.
+ * A typo that is still 6 digits gets through - nothing can catch that, which
+ * is why `confirmationNotes` must say how a human checked it.
+ */
+const RAIL_IDENTIFIER_SHAPE: Record<(typeof PAYOUT_RAILS)[number], RegExp> = {
+  mpesa_paybill: /^\d{5,7}$/,
+};
+
+export const createPayoutAccountSchema = z
+  .object({
+    currency: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .refine(
+        (v) => isSupportedCurrency(v),
+        'The platform cannot collect in that currency, so it cannot pay out in it either',
+      ),
+    rail: z.enum(PAYOUT_RAILS),
+    accountIdentifier: z.string().trim().min(1, 'Required'),
+    accountReferenceLabel: z
+      .string()
+      .trim()
+      .min(3, 'Say what this institution calls the number, in their words')
+      .max(60),
+    /*
+      Required, and 10 characters is a floor rather than a target. The row it
+      guards is the one that can pay a stranger; an account with no record of
+      how it was checked is a rumour with a shortcode. Mirrors the database
+      CHECK so the message is readable instead of a 500.
+    */
+    confirmationNotes: z
+      .string()
+      .trim()
+      .min(10, 'Say how you confirmed this account belongs to the institution'),
+  })
+  .refine((v) => RAIL_IDENTIFIER_SHAPE[v.rail].test(v.accountIdentifier), {
+    path: ['accountIdentifier'],
+    message: 'An M-Pesa paybill is 5 to 7 digits',
+  });
+
+export type CreatePayoutAccountInput = z.infer<typeof createPayoutAccountSchema>;
