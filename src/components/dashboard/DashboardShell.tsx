@@ -41,7 +41,7 @@ export function DashboardShell({
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          'hidden shrink-0 overflow-hidden border-r border-[#E5E7EB] bg-[#F9FAFB] transition-[width] duration-200 ease-in-out lg:block',
+          'hidden shrink-0 overflow-hidden border-r border-border bg-muted/40 transition-[width] duration-200 ease-in-out lg:block',
           collapsed ? 'w-16' : 'w-60',
         )}
       >
@@ -53,14 +53,24 @@ export function DashboardShell({
       </aside>
 
       {/* Main content area */}
-      <main className="min-w-0 flex-1 bg-[#F9FAFB]">
-        {/* Mobile nav trigger */}
-        <div className="flex items-center gap-3 border-b border-[#E5E7EB] bg-white px-4 py-3 lg:hidden">
+      <main className="min-w-0 flex-1 bg-muted/30">
+        {/*
+          ⚠️ STICKY, SLIM, AND TOKENISED. This was a full-height white bar
+          holding nothing but a second hamburger, stacked directly under the
+          site header - two bars and two hamburgers before any content. With
+          the page heading below it, 335px of an 844px phone (40% of the
+          fold) was chrome before the first campaign appeared, which is the
+          `docs/71` finding repeating on another screen.
+
+          It also used hardcoded hex (#E5E7EB, #F9FAFB) rather than tokens,
+          so it did not follow the theme at all.
+        */}
+        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-background/95 px-4 py-1.5 backdrop-blur lg:hidden">
           <DashboardMobileNav hasCampaigns={hasCampaigns} />
         </div>
 
         {/* Page content */}
-        <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <div className="mx-auto max-w-[1200px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
           {children}
         </div>
       </main>

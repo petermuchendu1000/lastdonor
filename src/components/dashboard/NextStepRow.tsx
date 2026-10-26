@@ -31,7 +31,29 @@ const TONE = {
   waiting: 'text-muted-foreground',
 } as const;
 
-export function NextStepRow({ facts, className }: { facts: JourneyFacts; className?: string }) {
+/**
+ * `compact` drops the CONSEQUENCE sentence, keeping the title and the action.
+ *
+ * ⚠️ Not a shortening for its own sake. On a LIST every row carries the same
+ * sentence - "Until this is done, this campaign can raise up to Ksh 50,000.00,
+ * and we cannot pay you anything" appeared verbatim on every card, so ten
+ * campaigns meant ten copies of one fact. Repetition at that density is read
+ * as wallpaper, which makes the warning LESS likely to land, not more.
+ *
+ * The consequence still renders in full wherever there is one campaign in
+ * view - the detail screen, the campaign page, the verification screen - and
+ * `docs/110`'s rule is untouched: this still renders `nextOrganiserAction`
+ * and invents no copy of its own.
+ */
+export function NextStepRow({
+  facts,
+  className,
+  compact = false,
+}: {
+  facts: JourneyFacts;
+  className?: string;
+  compact?: boolean;
+}) {
   const next = nextOrganiserAction(facts);
 
   if (!next) {
@@ -58,6 +80,36 @@ export function NextStepRow({ facts, className }: { facts: JourneyFacts; classNa
 
   const Icon = next.state === 'attention' ? WarningIcon : ReviewedIcon;
   const tone = TONE[next.state as keyof typeof TONE] ?? 'text-muted-foreground';
+
+  /*
+    ⚠️ COMPACT MAKES THE TITLE THE LINK, rather than printing a title and an
+    action beside it. Those two strings describe the same step in almost the
+    same words - `nextOrganiserAction` returns title "Check your ID" and
+    action "Check my ID" - and rendered side by side they read as a glitch:
+    "Check your ID   Check my ID". One link, which is also a larger tap
+    target than a four-word link floating after a label.
+  */
+  if (compact) {
+    const body = (
+      <>
+        <Icon size="sm" className={cn('shrink-0', tone)} aria-hidden />
+        <span className={cn('font-semibold', tone)}>{next.title}</span>
+      </>
+    );
+    return next.href ? (
+      <Link
+        href={next.href}
+        className={cn(
+          'mt-2 inline-flex items-center gap-1.5 text-xs underline-offset-4 hover:underline',
+          className,
+        )}
+      >
+        {body}
+      </Link>
+    ) : (
+      <p className={cn('mt-2 flex items-center gap-1.5 text-xs', className)}>{body}</p>
+    );
+  }
 
   return (
     <p className={cn('mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs', className)}>

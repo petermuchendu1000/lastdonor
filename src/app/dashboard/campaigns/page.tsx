@@ -7,6 +7,7 @@ import { campaigns } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { Card, CardContent } from '@/components/ui/card';
 import { CampaignsListClient } from '@/components/dashboard/CampaignsListClient';
+import { PlusIcon } from '@/components/ui/icon';
 import { SubmittedForReviewNotice } from '@/components/dashboard/SubmittedForReviewNotice';
 import type { Metadata } from 'next';
 
@@ -45,18 +46,28 @@ export default async function CampaignsPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">My Campaigns</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Manage your fundraising campaigns
-          </p>
-        </div>
+      {/*
+        ── ONE ROW, AND THE SUBTITLE IS GONE ──────────────────────────────────
+        "Manage your fundraising campaigns" under a heading that says "My
+        Campaigns" is a label explaining a label. It cost a line of the fold
+        and told a reader nothing they had not just read.
+
+        The button also wrapped to two lines at 390px ("+ Create" / "Campaign")
+        because a 4-word label sat beside a 2-word heading in a
+        `justify-between`. It is "New" on a phone and "New campaign" from `sm`
+        up, so the row stays one line at every width.
+      */}
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="font-display text-xl font-bold text-foreground sm:text-2xl">
+          My Campaigns
+        </h1>
         <Link
           href="/share-your-story"
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-elevated sm:px-4"
         >
-          + Create Campaign
+          <PlusIcon size="sm" aria-hidden />
+          <span className="sm:hidden">New</span>
+          <span className="hidden sm:inline">New campaign</span>
         </Link>
       </div>
 

@@ -111,65 +111,78 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
               <Card key={c.id}>
                 <CardContent className="py-4">
                   {/*
-                    ── MOBILE FIRST, AND IT WAS NOT ─────────────────────────
-                    This was `flex justify-between` with a `shrink-0` action
-                    column. On a 390px phone that column refused to shrink,
-                    so the title starved into a three-line ribbon and the
-                    meta row stacked one item per line: two buttons took half
-                    the screen. Reported from a real screenshot.
+                    ── HIERARCHY, NOT A PILE ──────────────────────────────────
+                    Every fact used to render at the same weight and the same
+                    muted grey: title, status, category, donors, money and a
+                    repeated paragraph, all competing. A reader scanning for
+                    "how much has this raised" had to read the whole card.
 
-                    Now a single stack. Actions sit at the BOTTOM on their
-                    own full-width wrapping row, where a long label costs the
-                    title nothing.
+                    Now there are three tiers: the TITLE and the MONEY are the
+                    two things somebody came for, the status is a chip beside
+                    the title, and everything else is quiet metadata on one
+                    line. Actions sit at the bottom on their own row - a
+                    `shrink-0` column beside the title is what let two buttons
+                    take half a 390px screen.
                   */}
                   <div className="min-w-0">
                     <div className="flex items-start justify-between gap-3">
                       <Link
                         href={`/dashboard/campaigns/${c.id}`}
-                        className="min-w-0 font-medium text-brand-teal hover:underline"
+                        className="min-w-0 font-semibold leading-snug text-foreground hover:text-brand-teal hover:underline"
                       >
                         {c.title}
                       </Link>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatDate(c.createdAt)}
-                      </span>
-                    </div>
-
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-                      <Badge variant={STATUS_VARIANT[c.status] ?? 'secondary'}>
+                      <Badge
+                        variant={STATUS_VARIANT[c.status] ?? 'secondary'}
+                        className="shrink-0"
+                      >
                         {campaignStatusLabel(c.status)}
                       </Badge>
-                      <span className="capitalize">{c.category}</span>
-                      <span aria-hidden>&middot;</span>
-                      <span>{c.donorCount} donors</span>
-                      {/*
-                        ⛔ The campaign's OWN currency. This read
-                        `centsToDollars(...)`, which hardcodes USD, so a KES
-                        campaign showed "$18,400.00 / $50,000.00" on the
-                        organiser's own dashboard (`docs/92`: every amount is
-                        in the minor units of its row's currency).
-                      */}
                     </div>
 
                     {/*
-                      Its own line, not another item in the wrapping meta row.
-                      As a trailing item it pushed a "&middot;" onto the end of
-                      the line above whenever it wrapped, leaving a separator
-                      dangling with nothing after it.
+                      The figure, at the size of a figure. `raised_amount` is
+                      blended with seed money (`docs/101`), so it is the
+                      campaign's headline total and not a payable one - but it
+                      is what the organiser is looking for.
                     */}
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      <Money minor={c.raisedAmount} currency={c.currency} /> /{' '}
-                      <Money minor={c.goalAmount} currency={c.currency} />
+                    <p className="mt-2 font-display text-lg font-bold tabular-nums text-foreground">
+                      <Money minor={c.raisedAmount} currency={c.currency} />
+                      {/*
+                        ⚠️ `font-sans` explicitly. The figure is `font-display`
+                        (DM Serif Display) and this span inherits it, so the
+                        word "of" rendered in a serif beside sans numerals and
+                        read as a typo. `Money` sets its own face; the word
+                        between does not.
+                      */}
+                      <span className="ml-1.5 font-sans text-sm font-normal text-muted-foreground">
+                        of <Money minor={c.goalAmount} currency={c.currency} />
+                      </span>
+                    </p>
+
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-brand-teal transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      <span className="capitalize">{c.category}</span>
+                      {' · '}
+                      {c.donorCount} donors
+                      {' · '}
+                      {formatDate(c.createdAt)}
                     </p>
 
                     {/*
-                      The one thing waiting on this organiser.
-
-                      This list had NOTHING: `VerificationRow` rendered on
-                      /dashboard only, and this is the list the wizard lands
-                      on after submission (docs/109). See docs/110.
+                      COMPACT on a list. The consequence sentence is identical
+                      on every row, so at ten campaigns it is ten copies of one
+                      fact - read as wallpaper rather than as a warning. It
+                      renders in full on the screens that show one campaign.
                     */}
                     <NextStepRow
+                      compact
                       facts={{
                         campaignId: c.id,
                         status: c.status,
@@ -178,17 +191,10 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       }}
                     />
 
-                    <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-brand-teal transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-1.5">
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
                       <Link
                         href={`/dashboard/campaigns/${c.id}`}
-                        className="rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-foreground/10"
                       >
                         Manage
                       </Link>
@@ -201,7 +207,7 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       */}
                       <Link
                         href={`/dashboard/campaigns/${c.id}/payout-destination`}
-                        className="rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
                         Where the money goes
                       </Link>
@@ -215,7 +221,7 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       {hasPublicPage(c.status) && (
                         <Link
                           href={`/campaigns/${c.slug}`}
-                          className="rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                          className="ml-auto rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           View
                         </Link>
