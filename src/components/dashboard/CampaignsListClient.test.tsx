@@ -41,6 +41,7 @@ const KES = {
   goalAmount: 5_000_000,
   raisedAmount: 1_840_000,
   donorCount: 31,
+  heroImageUrl: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d',
   verificationStatus: 'unverified',
   currency: 'KES',
   createdAt: new Date('2026-10-26T00:00:00Z').toISOString(),

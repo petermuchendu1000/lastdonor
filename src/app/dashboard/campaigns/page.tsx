@@ -7,6 +7,7 @@ import { campaigns } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { Card, CardContent } from '@/components/ui/card';
 import { CampaignsListClient } from '@/components/dashboard/CampaignsListClient';
+import { CampaignStats } from '@/components/dashboard/CampaignStats';
 import { PlusIcon } from '@/components/ui/icon';
 import { SubmittedForReviewNotice } from '@/components/dashboard/SubmittedForReviewNotice';
 import type { Metadata } from 'next';
@@ -30,6 +31,9 @@ export default async function CampaignsPage() {
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
       donorCount: campaigns.donorCount,
+      // A fundraising platform's campaigns ARE photographs. Rendering them as
+      // grey text blocks is the single loudest amateur signal on this screen.
+      heroImageUrl: campaigns.heroImageUrl,
       verificationStatus: campaigns.verificationStatus,
       // Needed to name the raise cap in the organiser's own money.
       currency: campaigns.currency,
@@ -81,6 +85,20 @@ export default async function CampaignsPage() {
       <Suspense fallback={null}>
         <SubmittedForReviewNotice />
       </Suspense>
+
+      {/*
+        The figures, above the list. Somebody with four campaigns had to add
+        them up in their head to answer "how much have I raised".
+
+        ⛔ Per currency, never summed (`docs/92`). Reads from the rows already
+        in hand, so it costs no query - the pool is `max: 5` and `docs/87`
+        caps an entry point at three.
+      */}
+      {serialized.length > 0 && (
+        <div className="mt-5">
+          <CampaignStats campaigns={serialized} />
+        </div>
+      )}
 
       {serialized.length === 0 ? (
         <Card className="mt-6">

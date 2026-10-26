@@ -53,3 +53,45 @@ export function showsPublicFooter(pathname: string | null | undefined): boolean 
 
   return !PRIVATE_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
+
+/**
+ * Route prefixes that do not get the public NAVBAR.
+ *
+ * ⛔ `/dashboard` ONLY, and `/admin` is deliberately absent. The two are not
+ * symmetric, and the asymmetry is a fact about the code rather than a
+ * preference:
+ *
+ *   `DashboardSidebar.tsx` has a Sign out button, and the mobile sheet
+ *   (`DashboardMobileNav`) renders that same sidebar - so an organiser has a
+ *   way out of the product at every breakpoint without the public navbar.
+ *
+ *   `AdminSidebar.tsx` has NO sign-out (checked: no `signOut` in that file),
+ *   so for an administrator the public navbar is still the only way out.
+ *   Hiding it there would strand them, which is the trade `PublicFooterGate`
+ *   refused and this does not reopen.
+ *
+ * ⚠️ If the admin sidebar ever gains a sign-out, `/admin` may join this list -
+ * and `public-chrome.test.ts` reads both sidebars to keep this comment honest.
+ */
+const NAVBAR_PRIVATE_PREFIXES = ['/dashboard'] as const;
+
+/**
+ * Does this path get the public marketing navbar?
+ *
+ * On a phone the dashboard was wearing TWO stacked bars: the site header, and
+ * the dashboard's own nav trigger directly beneath it - two hamburgers before
+ * any content, and 40% of an 844px fold spent on chrome.
+ *
+ * Anchored for the same reason as `showsPublicFooter`, and an unreadable
+ * pathname returns `true` for the same reason: a navbar where it is not wanted
+ * is cosmetic, and a site with no navigation is not.
+ */
+export function showsPublicNavbar(pathname: string | null | undefined): boolean {
+  if (!pathname || !pathname.startsWith('/')) return true;
+
+  const path = pathname.length > 1 && pathname.endsWith('/')
+    ? pathname.slice(0, -1)
+    : pathname;
+
+  return !NAVBAR_PRIVATE_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+}

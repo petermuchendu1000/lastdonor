@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Money } from '@/components/ui/Money';
+import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
 import { formatDate } from '@/lib/utils/dates';
 import { hasPublicPage } from '@/lib/campaign-visibility';
 import { NextStepRow } from '@/components/dashboard/NextStepRow';
@@ -22,6 +23,7 @@ interface Campaign {
   goalAmount: number;
   raisedAmount: number;
   donorCount: number;
+  heroImageUrl: string;
   verificationStatus: string;
   currency: string;
   createdAt: string;
@@ -111,122 +113,142 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
               <Card key={c.id}>
                 <CardContent className="py-4">
                   {/*
-                    ── HIERARCHY, NOT A PILE ──────────────────────────────────
-                    Every fact used to render at the same weight and the same
-                    muted grey: title, status, category, donors, money and a
-                    repeated paragraph, all competing. A reader scanning for
-                    "how much has this raised" had to read the whole card.
+                    ── A CAMPAIGN IS A PHOTOGRAPH, NOT A TEXT BLOCK ───────────
+                    This list rendered every campaign as grey text in a box.
+                    On a FUNDRAISING platform that is the loudest amateur
+                    signal there is: the organiser's own appeal, the thing
+                    they chose a picture for, looked like a database row.
+                    Every reference design leads a campaign row with its
+                    image, and the public `CampaignCard` already does.
 
-                    Now there are three tiers: the TITLE and the MONEY are the
-                    two things somebody came for, the status is a chip beside
-                    the title, and everything else is quiet metadata on one
-                    line. Actions sit at the bottom on their own row - a
-                    `shrink-0` column beside the title is what let two buttons
-                    take half a 390px screen.
+                    112px thumbnail, square, left. Same `CampaignHeroImage`
+                    the public card uses, so broken and missing images fall
+                    back the same way rather than through new code.
                   */}
-                  <div className="min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <Link
-                        href={`/dashboard/campaigns/${c.id}`}
-                        className="min-w-0 font-semibold leading-snug text-foreground hover:text-brand-teal hover:underline"
-                      >
-                        {c.title}
-                      </Link>
-                      <Badge
-                        variant={STATUS_VARIANT[c.status] ?? 'secondary'}
-                        className="shrink-0"
-                      >
-                        {campaignStatusLabel(c.status)}
-                      </Badge>
-                    </div>
+                  <div className="flex gap-3">
+                    <Link
+                      href={`/dashboard/campaigns/${c.id}`}
+                      className="relative aspect-square w-20 shrink-0 overflow-hidden rounded-lg sm:w-24"
+                      tabIndex={-1}
+                      aria-hidden
+                    >
+                      <CampaignHeroImage
+                        src={c.heroImageUrl}
+                        alt=""
+                        category={c.category}
+                        fill
+                        /* The box is 80-96px wide; asking for more downloads
+                           pixels it cannot show. */
+                        sizes="96px"
+                        className="object-cover"
+                      />
+                    </Link>
 
-                    {/*
-                      The figure, at the size of a figure. `raised_amount` is
-                      blended with seed money (`docs/101`), so it is the
-                      campaign's headline total and not a payable one - but it
-                      is what the organiser is looking for.
-                    */}
-                    <p className="mt-2 font-display text-lg font-bold tabular-nums text-foreground">
-                      <Money minor={c.raisedAmount} currency={c.currency} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <Link
+                          href={`/dashboard/campaigns/${c.id}`}
+                          className="min-w-0 font-semibold leading-snug text-foreground hover:text-brand-teal hover:underline"
+                        >
+                          {c.title}
+                        </Link>
+                        <Badge
+                          variant={STATUS_VARIANT[c.status] ?? 'secondary'}
+                          className="shrink-0"
+                        >
+                          {campaignStatusLabel(c.status)}
+                        </Badge>
+                      </div>
+
+                      <p className="mt-1.5 font-display text-lg leading-none font-bold tabular-nums text-foreground">
+                        <Money minor={c.raisedAmount} currency={c.currency} />
+                        {/*
+                          ⚠️ `font-sans` explicitly. The figure is
+                          `font-display` (DM Serif Display) and this span
+                          inherits it, so "of" rendered in a serif beside sans
+                          numerals and read as a typo.
+                        */}
+                        <span className="ml-1.5 font-sans text-sm font-normal text-muted-foreground">
+                          of <Money minor={c.goalAmount} currency={c.currency} />
+                        </span>
+                      </p>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-brand-teal transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        {/*
+                          The percentage in words. A bar alone makes the reader
+                          estimate; every reference states the number beside
+                          it.
+                        */}
+                        <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                          {pct}%
+                        </span>
+                      </div>
+
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        <span className="capitalize">{c.category}</span>
+                        {' · '}
+                        {c.donorCount} donors
+                      </p>
+
                       {/*
-                        ⚠️ `font-sans` explicitly. The figure is `font-display`
-                        (DM Serif Display) and this span inherits it, so the
-                        word "of" rendered in a serif beside sans numerals and
-                        read as a typo. `Money` sets its own face; the word
-                        between does not.
+                        COMPACT on a list. The consequence sentence is
+                        identical on every row, so ten campaigns means ten
+                        copies of one fact - read as wallpaper rather than as a
+                        warning. It renders in full on the screens that show
+                        one campaign.
                       */}
-                      <span className="ml-1.5 font-sans text-sm font-normal text-muted-foreground">
-                        of <Money minor={c.goalAmount} currency={c.currency} />
-                      </span>
-                    </p>
-
-                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-brand-teal transition-all"
-                        style={{ width: `${pct}%` }}
+                      <NextStepRow
+                        compact
+                        facts={{
+                          campaignId: c.id,
+                          status: c.status,
+                          verificationStatus: c.verificationStatus,
+                          currency: c.currency,
+                        }}
                       />
                     </div>
+                  </div>
 
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      <span className="capitalize">{c.category}</span>
-                      {' · '}
-                      {c.donorCount} donors
-                      {' · '}
-                      {formatDate(c.createdAt)}
-                    </p>
-
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                    <Link
+                      href={`/dashboard/campaigns/${c.id}`}
+                      className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-foreground/10"
+                    >
+                      Manage
+                    </Link>
                     {/*
-                      COMPACT on a list. The consequence sentence is identical
-                      on every row, so at ten campaigns it is ten copies of one
-                      fact - read as wallpaper rather than as a warning. It
-                      renders in full on the screens that show one campaign.
+                      `docs/113` §11 screens B1-B4. On EVERY row, in every
+                      state, for the `docs/83` reason: the verification flow
+                      worked and nobody could reach it, because its only link
+                      was gated on a condition two later decisions made
+                      unsatisfiable. The screen itself decides what to show.
                     */}
-                    <NextStepRow
-                      compact
-                      facts={{
-                        campaignId: c.id,
-                        status: c.status,
-                        verificationStatus: c.verificationStatus,
-                        currency: c.currency,
-                      }}
-                    />
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                    <Link
+                      href={`/dashboard/campaigns/${c.id}/payout-destination`}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      Where the money goes
+                    </Link>
+                    {/*
+                      ⛔ Only when there IS a public page. This used to render
+                      for every status, so an organiser whose campaign was
+                      still `under_review` clicked "View" on their own
+                      dashboard and got a 404 (docs/109).
+                    */}
+                    {hasPublicPage(c.status) && (
                       <Link
-                        href={`/dashboard/campaigns/${c.id}`}
-                        className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-foreground/10"
+                        href={`/campaigns/${c.slug}`}
+                        className="ml-auto rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
-                        Manage
+                        View
                       </Link>
-                      {/*
-                        `docs/113` §11 screens B1-B4. On EVERY row, in every
-                        state, for the `docs/83` reason: the verification flow
-                        worked and nobody could reach it, because its only
-                        link was gated on a condition two later decisions made
-                        unsatisfiable. The screen itself decides what to show.
-                      */}
-                      <Link
-                        href={`/dashboard/campaigns/${c.id}/payout-destination`}
-                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        Where the money goes
-                      </Link>
-                      {/*
-                        ⛔ Only when there IS a public page. This used to
-                        render for every status, so an organiser whose
-                        campaign was still `under_review` clicked "View" on
-                        their own dashboard and got a 404 - the same page the
-                        wizard used to redirect to (docs/109).
-                      */}
-                      {hasPublicPage(c.status) && (
-                        <Link
-                          href={`/campaigns/${c.slug}`}
-                          className="ml-auto rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          View
-                        </Link>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

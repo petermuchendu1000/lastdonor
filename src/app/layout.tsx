@@ -133,6 +133,7 @@ import { cn } from '@/lib/utils';
 import { Providers } from '@/components/Providers';
 import { SkipToContent } from '@/components/layout/SkipToContent';
 import { Navbar } from '@/components/layout/Navbar';
+import { PublicNavbarGate } from '@/components/layout/PublicNavbarGate';
 import { Footer } from '@/components/layout/Footer';
 import { PublicFooterGate } from '@/components/layout/PublicFooterGate';
 import { SUPABASE_HOST } from '@/lib/supabase-host';
@@ -252,7 +253,16 @@ export default function RootLayout({
         </noscript>
         <Providers>
           <SkipToContent />
-          <Navbar />
+          {/*
+            Gated on `/dashboard` only. That shell has its own nav AND its own
+            sign-out at every breakpoint, so the site header there was a
+            second bar with a second hamburger stacked above it. `/admin`
+            still gets this - its sidebar has no sign-out
+            (`src/lib/public-chrome.ts`).
+          */}
+          <PublicNavbarGate>
+            <Navbar />
+          </PublicNavbarGate>
           {/*
             `tabIndex={-1}` is what makes the skip link actually skip.
 
