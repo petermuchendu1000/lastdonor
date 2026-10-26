@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, or } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
 import { verifyDonationReturn } from '@/lib/donations/verify-return';
 import type { DonationReturnState } from '@/lib/donations/verify-return';
 import { auth } from '@/lib/auth';
@@ -58,7 +58,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   return {
     title: `Donate to ${campaign.title} | LastDonor.org`,
-    description: `Make a donation to help ${campaign.subjectName}. ${centsToDollars(campaign.raisedAmount)} raised of ${centsToDollars(campaign.goalAmount)} goal.`,
+    /*
+      `formatMoney`, not the USD-hardcoded helper, and not `<Money>`: this is
+      a META DESCRIPTION, so it must be a string. A KES campaign was
+      advertising "$18,400 raised" to every search engine and link preview.
+    */
+    description: `Make a donation to help ${campaign.subjectName}. ${formatMoney(
+      campaign.raisedAmount,
+      campaign.currency,
+      'exact',
+    )} raised of ${formatMoney(campaign.goalAmount, campaign.currency, 'exact')} goal.`,
     robots: { index: false },
   };
 }

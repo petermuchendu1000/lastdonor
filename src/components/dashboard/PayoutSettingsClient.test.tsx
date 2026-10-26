@@ -33,6 +33,9 @@ const campaign = {
   title: 'Help Maria',
   slug: 'help-maria',
   status: 'active',
+  // The campaign's own currency. Required, not defaulted: this component used
+  // to format every figure with a hardcoded `currency: 'USD'` (`docs/92`).
+  currency: 'USD',
   goalAmount: 100_000,
   raisedAmount: 80_000,
   totalReleasedAmount: 50_000,
@@ -40,7 +43,14 @@ const campaign = {
   availableBalance: 50_000,
 };
 
-function props(overrides: Partial<{ status: string; payoutCurrency: string | null; hasAccount: boolean }> = {}) {
+function props(
+  overrides: Partial<{
+    status: string;
+    payoutCurrency: string | null;
+    hasAccount: boolean;
+    campaignCurrency: string;
+  }> = {},
+) {
   return {
     connectStatus: {
       hasAccount: overrides.hasAccount ?? true,
@@ -48,7 +58,7 @@ function props(overrides: Partial<{ status: string; payoutCurrency: string | nul
       onboardedAt: null,
       payoutCurrency: overrides.payoutCurrency ?? 'usd',
     },
-    campaigns: [campaign],
+    campaigns: [{ ...campaign, currency: overrides.campaignCurrency ?? campaign.currency }],
     withdrawals: [],
     connectAvailable: true,
   };
@@ -139,5 +149,38 @@ describe('PayoutSettingsClient currency mismatch', () => {
     render(<PayoutSettingsClient {...props({ payoutCurrency: 'usd' })} />);
     expect(screen.queryByText(/blocked on this account's currency/i)).toBeNull();
     expect(screen.getByRole('button', { name: /^withdraw$/i })).toBeInTheDocument();
+  });
+});
+
+describe('PayoutSettingsClient campaign currency', () => {
+  /*
+    ⛔ THE DEFECT. A local `centsToDollars` with a hardcoded
+    `currency: 'USD'` formatted every figure on this screen - the SIXTH
+    hand-rolled formatter in this codebase, after the five `docs/88` F4/F5
+    removed from admin, on the screen where an organiser connects the account
+    their money lands in. KES has the same exponent as USD, so the DIGITS were
+    right and only the symbol lied, which is exactly why nothing caught it.
+  */
+  it('renders a KES campaign in shillings, not dollars', () => {
+    render(<PayoutSettingsClient {...props({ campaignCurrency: 'KES' })} />);
+
+    /*
+      `raisedAmount: 80_000` is 80,000 MINOR units - KES 800.00, not
+      KES 80,000.00. Getting that wrong in the first draft of this test is
+      the whole reason amounts are never formatted by hand.
+    */
+    const raised = screen.getByText('Ksh 800.00');
+    expect(raised).toBeInTheDocument();
+    expect(raised.textContent).not.toContain('$');
+  });
+
+  it('labels the withdrawal input with the currency being withdrawn', () => {
+    render(<PayoutSettingsClient {...props({ campaignCurrency: 'KES' })} />);
+    expect(screen.getByLabelText(/withdrawal amount in KES/i)).toBeInTheDocument();
+  });
+
+  it('still renders a USD campaign in dollars', () => {
+    render(<PayoutSettingsClient {...props({ campaignCurrency: 'USD' })} />);
+    expect(screen.getByText('$800.00')).toBeInTheDocument();
   });
 });

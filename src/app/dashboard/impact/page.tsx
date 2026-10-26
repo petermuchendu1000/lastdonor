@@ -9,6 +9,7 @@ import { shareUrl } from '@/lib/share-links';
 import {
   getAttributedDonors,
   getImpactByCampaign,
+  impactAmountsByCurrency,
   getImpactSummary,
   getOwnGivingByCampaign,
 } from '@/lib/share-impact';
@@ -39,6 +40,10 @@ export default async function ImpactPage() {
     getOwnGivingByCampaign(userId),
   ]);
 
+  // Derived from rows already fetched, not a fifth query: `/dashboard/impact`
+  // is on the `docs/87` fan-out allowlist at 4 concurrent against a pool of 5.
+  const amountsBrought = impactAmountsByCurrency(byCampaign);
+
   const origin = appBaseUrl();
   const hasLinks = byCampaign.length > 0;
 
@@ -63,7 +68,26 @@ export default async function ImpactPage() {
       */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Raised through you">
-          <Money minor={summary.amountBroughtCents} className="text-2xl font-bold text-foreground" />
+          {/*
+            ⛔ One figure PER CURRENCY. This was a bare
+            `<Money minor={summary.amountBroughtCents} />` over a sum taken
+            across every campaign the person had shared - so two currencies
+            became one number, printed in dollars by `<Money>`'s default
+            (`docs/92`). A sharer with nothing attributed gets nothing here,
+            not a zero in a currency they have never seen.
+          */}
+          {amountsBrought.length === 0 ? (
+            <span className="font-sans text-2xl font-bold tabular-nums text-muted-foreground">-</span>
+          ) : (
+            amountsBrought.map((a) => (
+              <Money
+                key={a.currency}
+                minor={a.totalMinor}
+                currency={a.currency}
+                className="block text-2xl font-bold text-foreground"
+              />
+            ))
+          )}
         </StatTile>
         <StatTile label={summary.donorsBrought === 1 ? 'Donor you brought' : 'Donors you brought'}>
           <span className="font-sans text-2xl font-bold tabular-nums text-foreground">
@@ -114,8 +138,9 @@ export default async function ImpactPage() {
                 url={shareUrl(row.token, origin)}
                 clicks={row.clicks}
                 donorsBrought={row.donorsBrought}
-                amountBroughtCents={row.amountBroughtCents}
-                ownGivingCents={ownGiving.get(row.campaignId) ?? 0}
+                currency={row.currency}
+                amountBroughtMinor={row.amountBroughtMinor}
+                ownGivingMinor={ownGiving.get(row.campaignId) ?? 0}
               />
             ))}
           </ul>
@@ -153,7 +178,8 @@ export default async function ImpactPage() {
                     </Link>
                   </div>
                   <Money
-                    minor={d.amountCents}
+                    minor={d.amountMinor}
+                    currency={d.currency}
                     className="shrink-0 text-sm font-semibold text-foreground"
                   />
                 </div>

@@ -42,6 +42,7 @@ export const GET = withApiHandler(async (_request, { requestId, params }) => {
         donorName: donations.donorName,
         donorLocation: donations.donorLocation,
         amount: donations.amount,
+        currency: donations.currency,
         message: donations.message,
         isAnonymous: donations.isAnonymous,
         createdAt: donations.createdAt,

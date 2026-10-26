@@ -53,6 +53,7 @@ export function CampaignSidebarClient({
       {impactTiers.length > 0 && (
         <ImpactTiers
           tiers={impactTiers}
+          currency={currency}
           onSelectAmount={(cents) => router.push(`${donateHref}?amount=${cents}`)}
         />
       )}

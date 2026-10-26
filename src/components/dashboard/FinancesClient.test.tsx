@@ -32,6 +32,10 @@ const campaign = {
   title: 'Help Maria',
   slug: 'help-maria',
   status: 'active',
+  // The campaign's own currency; every amount below is in ITS minor units.
+  // Required, not defaulted - a local `fmt()` used to print '$' over all of
+  // them whatever currency the campaign held (`docs/92`).
+  currency: 'USD',
   goalAmount: 100_000,
   raisedAmount: 80_000,
   totalReleasedAmount: 50_000,
@@ -156,5 +160,39 @@ describe('FinancesClient withdrawal payload', () => {
     render(<FinancesClient {...defaultProps} />);
     await user.click(screen.getByRole('button', { name: /^withdraw$/i }));
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('FinancesClient currency', () => {
+  /*
+    ⛔ THE DEFECT. Four `campaigns.reduce(…)` calls produced one total each
+    and a local `fmt(cents) => '$' + cents / 100` printed them - a FIFTH
+    hand-rolled formatter, on the screen an organiser uses to take money out.
+    A campaign is single-currency by composite FK (`docs/92`); a PERSON is
+    not, so an organiser with a KES and a USD campaign saw four figures that
+    were the sum of two different kinds of money, under a dollar sign.
+  */
+  const kes = { ...campaign, id: '22222222-2222-2222-2222-222222222222', currency: 'KES', raisedAmount: 1_840_000, availableBalance: 0, totalReleasedAmount: 0, totalWithdrawnAmount: 0 };
+
+  it('renders a KES campaign in shillings, not dollars', () => {
+    render(<FinancesClient {...defaultProps} campaigns={[kes]} />);
+    // 1_840_000 minor units of KES.
+    expect(screen.getAllByText('Ksh 18,400.00').length).toBeGreaterThan(0);
+    expect(screen.queryByText('$18,400.00')).toBeNull();
+  });
+
+  it('⛔ a mixed-currency organiser gets a figure PER CURRENCY, never one sum', () => {
+    render(<FinancesClient {...defaultProps} campaigns={[kes, campaign]} />);
+
+    // Both totals appear; the blended 1_920_000 (18,400.00 + 800.00) does not.
+    expect(screen.getAllByText('Ksh 18,400.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$800.00').length).toBeGreaterThan(0);
+    expect(screen.queryByText('$19,200.00')).toBeNull();
+    expect(screen.queryByText('Ksh 19,200.00')).toBeNull();
+  });
+
+  it('labels the withdraw field with the campaign currency rather than a $', () => {
+    render(<FinancesClient {...defaultProps} campaigns={[{ ...campaign, currency: 'KES', availableBalance: 500_000 }]} />);
+    expect(screen.getAllByText('KES').length).toBeGreaterThan(0);
   });
 });

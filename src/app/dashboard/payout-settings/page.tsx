@@ -32,6 +32,9 @@ async function getPayoutData(userId: string) {
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      // Minor units of THIS row's currency (`docs/92`); the client used to
+      // format every figure below with a hardcoded `currency: 'USD'`.
+      currency: campaigns.currency,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
       totalReleasedAmount: campaigns.totalReleasedAmount,
@@ -46,6 +49,7 @@ async function getPayoutData(userId: string) {
   let recentWithdrawals: Array<{
     id: string;
     campaignId: string;
+    currency: string;
     amount: number;
     status: string;
     stripeTransferId: string | null;
@@ -59,6 +63,10 @@ async function getPayoutData(userId: string) {
       .select({
         id: campaignWithdrawals.id,
         campaignId: campaignWithdrawals.campaignId,
+        // A withdrawal is in the money it came out of. Read from the campaign
+        // through the join rather than inferred, so there is no code path
+        // that can silently settle on dollars.
+        currency: campaigns.currency,
         amount: campaignWithdrawals.amount,
         status: campaignWithdrawals.status,
         stripeTransferId: campaignWithdrawals.stripeTransferId,
@@ -67,6 +75,7 @@ async function getPayoutData(userId: string) {
         processedAt: campaignWithdrawals.processedAt,
       })
       .from(campaignWithdrawals)
+      .innerJoin(campaigns, eq(campaignWithdrawals.campaignId, campaigns.id))
       .where(inArray(campaignWithdrawals.campaignId, campaignIds))
       .orderBy(desc(campaignWithdrawals.requestedAt))
       .limit(50);
@@ -134,6 +143,7 @@ async function getPayoutData(userId: string) {
       title: c.title,
       slug: c.slug,
       status: c.status,
+      currency: c.currency,
       goalAmount: c.goalAmount,
       raisedAmount: c.raisedAmount ?? 0,
       totalReleasedAmount: c.totalReleasedAmount ?? 0,

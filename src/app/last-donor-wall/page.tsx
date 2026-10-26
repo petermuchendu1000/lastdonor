@@ -3,7 +3,7 @@ import { db } from '@/db';
 import { campaigns, users } from '@/db/schema';
 import { eq, desc, sql, and, isNotNull, or } from 'drizzle-orm';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { formatDate } from '@/lib/utils/dates';
 import Link from 'next/link';
 import { seoKeywords } from '@/lib/seo/keywords';
@@ -38,6 +38,9 @@ export default async function LastDonorWallPage() {
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,
       goalAmount: campaigns.goalAmount,
+      // Selected because it is RENDERED: without it the figures below were
+      // formatted as USD whatever currency the row is in (`docs/92`).
+      currency: campaigns.currency,
       completedAt: campaigns.completedAt,
       lastDonorName: sql<string>`COALESCE(${users.name}, ${campaigns.lastDonorName})`.as('last_donor_name'),
     })
@@ -114,7 +117,7 @@ export default async function LastDonorWallPage() {
                     {c.campaignTitle}
                   </Link>
                   <p className="text-sm text-muted-foreground">
-                    Goal: {centsToDollars(c.goalAmount)}
+                    Goal: <Money minor={c.goalAmount} currency={c.currency} precision="exact" />
                     {c.completedAt && (
                       <> · Completed {formatDate(c.completedAt)}</>
                     )}

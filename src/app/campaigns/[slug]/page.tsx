@@ -18,6 +18,7 @@ import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
 import { PendingVerificationBadge, VouchedByBadge } from '@/components/campaigns/TrustBadge';
 import { getVouchDisclosure } from '@/lib/trust-network/public';
 import { PaidToInstitution } from '@/components/payout/PaidToInstitution';
+import { Money } from '@/components/ui/Money';
 import { INSTITUTION_KIND_LABELS } from '@/lib/validators/trust-network';
 import { LocalAmount } from '@/components/money/LocalAmount';
 import { readFxSnapshot } from '@/lib/money/fx-store.server';
@@ -26,7 +27,7 @@ import { ShareButtons } from '@/components/campaign/ShareButtons';
 import { CATEGORY_LABELS } from '@/lib/categories';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 import { MediaGallery } from '@/components/campaign/MediaGallery';
-import { centsToDollars } from '@/lib/utils/currency';
+
 import { campaignShareDescription } from '@/lib/campaign-share-copy';
 import { CARD_HEIGHT, CARD_VERSION, CARD_WIDTH } from '@/lib/og-card-metrics';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
@@ -709,13 +710,18 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               <div className="rounded-xl border border-border bg-card p-6 text-center">
                 <p className="text-sm font-semibold text-foreground">Campaign Complete</p>
                 <p className="mt-1 text-sm text-muted-foreground">This campaign reached its goal. Thank you to all {campaign.donorCount} {campaign.donorCount === 1 ? 'donor' : 'donors'}.</p>
-                <p className="mt-3 font-mono text-lg font-bold text-foreground">{centsToDollars(campaign.raisedAmount)} raised</p>
+                <p className="mt-3 font-mono text-lg font-bold text-foreground">
+                  <Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" /> raised
+                </p>
               </div>
             ) : campaign.status === 'paused' ? (
               <div className="rounded-xl border border-border bg-card p-6">
                 <p className="text-sm font-semibold text-foreground">Campaign Paused</p>
                 <p className="mt-1 text-sm text-muted-foreground">{campaign.pausedReason ?? 'This campaign is not accepting donations right now. Check back soon.'}</p>
-                <p className="mt-3 text-sm text-muted-foreground">{centsToDollars(campaign.raisedAmount)} raised from {campaign.donorCount} {campaign.donorCount === 1 ? 'donor' : 'donors'}</p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  <Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" /> raised from{' '}
+                  {campaign.donorCount} {campaign.donorCount === 1 ? 'donor' : 'donors'}
+                </p>
                 <Link href="/campaigns" className="mt-4 block text-center text-sm text-muted-foreground underline hover:text-foreground">
                   Browse other campaigns
                 </Link>

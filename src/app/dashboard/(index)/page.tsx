@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
-import { eq, desc, sql, and, or } from 'drizzle-orm';
+import { eq, desc, and, or } from 'drizzle-orm';
 import { Money } from '@/components/ui/Money';
 import { donorTotalsByCurrency } from '@/lib/donor-totals.server';
 import { formatDate } from '@/lib/utils/dates';

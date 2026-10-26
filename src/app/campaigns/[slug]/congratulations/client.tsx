@@ -4,18 +4,30 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
 import { CATEGORY_LABELS } from '@/lib/categories';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import type { CampaignCategory } from '@/types';
 
 interface CongratsProps {
   campaign: {
     title: string;
     slug: string;
+    /**
+     * Whether `/campaigns/<slug>` would actually serve this campaign.
+     *
+     * ⛔ `docs/109`: both links below pointed there unconditionally, and the
+     * public page serves only some statuses - so for a campaign still in the
+     * review queue this screen offered an organiser two buttons to a 404.
+     * Computed on the server by `hasPublicPage`, which is asserted equal to
+     * that page's own filter.
+     */
+    hasPublicPage: boolean;
     heroImageUrl: string | null;
     category: string;
     subjectName: string;
     subjectHometown: string | null;
     goalAmount: number;
+    /** The campaign's own currency - never assumed to be USD (`docs/92`). */
+    currency: string;
     raisedAmount: number;
     donorCount: number;
     campaignOrganizer: { name: string; relation: string; city?: string } | null;
@@ -160,12 +172,14 @@ export function CongratulationsClient({ campaign, campaignUrl, creatorName }: Co
       <div className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 sm:px-6">
           <h1 className="text-lg font-semibold text-foreground">Your Campaign Is Live!</h1>
-          <Link
-            href={`/campaigns/${campaign.slug}`}
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            View campaign
-          </Link>
+          {campaign.hasPublicPage && (
+            <Link
+              href={`/campaigns/${campaign.slug}`}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              View campaign
+            </Link>
+          )}
         </div>
       </div>
 
@@ -198,7 +212,7 @@ export function CongratulationsClient({ campaign, campaignUrl, creatorName }: Co
                 {/* Goal display */}
                 <div className="mt-4 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-foreground">
-                    {centsToDollars(campaign.goalAmount)}
+                    <Money minor={campaign.goalAmount} currency={campaign.currency} precision="exact" />
                   </span>
                   <span className="text-sm text-muted-foreground">goal</span>
                 </div>
@@ -248,9 +262,22 @@ export function CongratulationsClient({ campaign, campaignUrl, creatorName }: Co
               <h3 className="text-xl font-bold text-foreground">
                 Reach more donors by sharing
               </h3>
+              {/*
+                ⛔ The second sentence here used to read "On average, each
+                share can inspire $50 in donations." That is a FABRICATED
+                STATISTIC, not a currency bug: this platform has taken two
+                donations in its entire history (KES 50 each, `docs/92`), so
+                there is no average to quote, and it was quoted in dollars on
+                a shilling campaign. CLAUDE.md: *never add a claim the
+                platform cannot substantiate* - the same rule under which
+                `docs/67` removed five invented figures from outgoing mail and
+                `docs/94` another five. Do not replace it with a different
+                number; replace it with a reason, which is all we can honestly
+                offer.
+              */}
               <p className="mt-2 text-sm text-muted-foreground">
-                We recommend sharing your fundraiser as early as possible.
-                On average, each share can inspire $50 in donations.
+                Share it as early as you can. Most people give because someone
+                they know asked them to.
               </p>
 
               {/* Copy link */}
@@ -315,12 +342,14 @@ export function CongratulationsClient({ campaign, campaignUrl, creatorName }: Co
 
         {/* Navigation links */}
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <Link
-            href={`/campaigns/${campaign.slug}`}
-            className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-          >
-            View Your Campaign
-          </Link>
+          {campaign.hasPublicPage && (
+            <Link
+              href={`/campaigns/${campaign.slug}`}
+              className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              View Your Campaign
+            </Link>
+          )}
           <Link
             href="/dashboard"
             className="inline-flex items-center justify-center rounded-full border border-border px-6 py-3 text-sm font-semibold text-foreground hover:bg-accent"

@@ -5,7 +5,7 @@ import { campaigns } from '@/db/schema';
 import { eq, and, desc, isNotNull } from 'drizzle-orm';
 import { CATEGORY_LABELS, CATEGORY_COLORS } from '@/lib/categories';
 import { Badge } from '@/components/ui/badge';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import type { CampaignCategory } from '@/types';
 
 export const revalidate = 300; // 5 minutes
@@ -36,6 +36,9 @@ export default async function CancelledCampaignsPage() {
       cancelledAt: campaigns.cancelledAt,
       raisedAmount: campaigns.raisedAmount,
       goalAmount: campaigns.goalAmount,
+      // Selected because it is RENDERED: without it the figures below were
+      // formatted as USD whatever currency the row is in (`docs/92`).
+      currency: campaigns.currency,
       donorCount: campaigns.donorCount,
     })
     .from(campaigns)
@@ -121,7 +124,9 @@ export default async function CancelledCampaignsPage() {
                   </p>
                 </div>
                 <div className="text-right text-xs text-muted-foreground">
-                  <p className="font-mono font-medium">{centsToDollars(campaign.raisedAmount)} raised</p>
+                  <p className="font-mono font-medium">
+                    <Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" /> raised
+                  </p>
                   <p>{campaign.donorCount} {campaign.donorCount === 1 ? 'donor' : 'donors'}</p>
                 </div>
               </div>

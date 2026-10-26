@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Money } from '@/components/ui/Money';
 import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
-import { formatDate } from '@/lib/utils/dates';
 import { hasPublicPage } from '@/lib/campaign-visibility';
 import { NextStepRow } from '@/components/dashboard/NextStepRow';
 import { campaignStatusLabel } from '@/lib/campaign-labels';

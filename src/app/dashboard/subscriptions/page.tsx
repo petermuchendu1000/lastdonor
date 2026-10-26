@@ -2,7 +2,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { donorCampaignSubscriptions, campaigns, users } from '@/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
 import { SubscriptionsClient } from './client';
 import type { Metadata } from 'next';
 
@@ -40,6 +40,9 @@ export default async function SubscriptionsPage() {
       campaignHeroImageUrl: campaigns.heroImageUrl,
       campaignRaisedAmount: campaigns.raisedAmount,
       campaignGoalAmount: campaigns.goalAmount,
+      // Selected because it is RENDERED; without it both figures below were
+      // formatted as USD whatever currency the campaign is in (`docs/92`).
+      campaignCurrency: campaigns.currency,
     })
     .from(donorCampaignSubscriptions)
     .innerJoin(campaigns, eq(donorCampaignSubscriptions.campaignId, campaigns.id))
@@ -57,8 +60,12 @@ export default async function SubscriptionsPage() {
     campaignTitle: s.campaignTitle,
     campaignStatus: s.campaignStatus,
     campaignHeroImageUrl: s.campaignHeroImageUrl,
-    campaignRaisedFormatted: centsToDollars(s.campaignRaisedAmount),
-    campaignGoalFormatted: centsToDollars(s.campaignGoalAmount),
+    /*
+      `formatMoney`, not `<Money>`: this page serialises STRINGS to its client
+      component, so the figure has to be formatted here.
+    */
+    campaignRaisedFormatted: formatMoney(s.campaignRaisedAmount, s.campaignCurrency, 'exact'),
+    campaignGoalFormatted: formatMoney(s.campaignGoalAmount, s.campaignCurrency, 'exact'),
     subscribedAt: s.createdAt.toISOString(),
   }));
 

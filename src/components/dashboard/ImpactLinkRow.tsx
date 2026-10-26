@@ -11,9 +11,18 @@ interface ImpactLinkRowProps {
   url: string;
   clicks: number;
   donorsBrought: number;
-  amountBroughtCents: number;
+  /**
+   * The campaign's currency.
+   *
+   * ⛔ Required, not defaulted: all three `<Money>` calls below were bare, so
+   * a shilling campaign's figures rendered as dollars (`docs/92`). The
+   * campaign is single-currency by composite FK, so one code covers both the
+   * brought and the given figure on this row.
+   */
+  currency: string;
+  amountBroughtMinor: number;
   /** What this person gave to this campaign themselves. 0 if they did not. */
-  ownGivingCents: number;
+  ownGivingMinor: number;
 }
 
 /**
@@ -32,8 +41,9 @@ export function ImpactLinkRow({
   url,
   clicks,
   donorsBrought,
-  amountBroughtCents,
-  ownGivingCents,
+  currency,
+  amountBroughtMinor,
+  ownGivingMinor,
 }: ImpactLinkRowProps) {
   const [copied, setCopied] = useState(false);
 
@@ -61,7 +71,7 @@ export function ImpactLinkRow({
         <div className="flex shrink-0 items-center gap-4 text-right">
           <div>
             <p className="font-sans text-lg font-bold tabular-nums text-foreground">
-              <Money minor={amountBroughtCents} />
+              <Money minor={amountBroughtMinor} currency={currency} />
             </p>
             <p className="text-[11px] text-muted-foreground">raised through you</p>
           </div>
@@ -115,13 +125,13 @@ export function ImpactLinkRow({
         you brought." Shown only when they gave - for the many sharers who
         have not, a "$0 given" line is a reproach, not information.
       */}
-      {ownGivingCents > 0 && (
+      {ownGivingMinor > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
-          You gave <Money minor={ownGivingCents} className="font-semibold text-foreground" />
-          {amountBroughtCents > 0 ? (
+          You gave <Money minor={ownGivingMinor} currency={currency} className="font-semibold text-foreground" />
+          {amountBroughtMinor > 0 ? (
             <>
               {' and brought in '}
-              <Money minor={amountBroughtCents} className="font-semibold text-foreground" />
+              <Money minor={amountBroughtMinor} currency={currency} className="font-semibold text-foreground" />
               {' more.'}
             </>
           ) : (

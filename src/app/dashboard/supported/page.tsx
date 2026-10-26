@@ -5,7 +5,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
 import { eq, sql, desc, and, or } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { Metadata } from 'next';
@@ -31,6 +31,9 @@ export default async function SupportedCampaignsPage() {
       category: campaigns.category,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
+      // Selected because it is RENDERED: without it the figures below were
+      // formatted as USD whatever currency the row is in (`docs/92`).
+      currency: campaigns.currency,
       donorCount: campaigns.donorCount,
       heroImageUrl: campaigns.heroImageUrl,
       totalDonated: sql<number>`sum(${donations.amount})::int`,
@@ -112,13 +115,24 @@ export default async function SupportedCampaignsPage() {
                       <div className="h-full rounded-full bg-brand-teal" style={{ width: `${pct}%` }} />
                     </div>
                     <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{centsToDollars(c.raisedAmount)} of {centsToDollars(c.goalAmount)}</span>
+                      <span>
+                        <Money minor={c.raisedAmount} currency={c.currency} precision="exact" /> of{' '}
+                        <Money minor={c.goalAmount} currency={c.currency} precision="exact" />
+                      </span>
                       <span>{pct}%</span>
                     </div>
                     <div className="mt-3 flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
                       <div>
                         <p className="text-xs text-muted-foreground">Your contribution</p>
-                        <p className="font-mono text-sm font-semibold text-brand-teal">{centsToDollars(c.totalDonated)}</p>
+                        {/*
+                          What THIS donor gave to THIS campaign, so it is the
+                          campaign's currency by database guarantee:
+                          donations_campaign_currency_fk on
+                          (campaign_id, currency).
+                        */}
+                        <p className="font-mono text-sm font-semibold text-brand-teal">
+                          <Money minor={c.totalDonated} currency={c.currency} precision="exact" />
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">Donations</p>

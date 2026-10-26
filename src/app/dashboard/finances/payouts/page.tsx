@@ -33,6 +33,10 @@ export default async function FundReleasesPage() {
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      // Every amount below is in the MINOR UNITS OF THIS ROW'S currency
+      // (`docs/92`). Without it the client printed a fifth hand-rolled
+      // '$' + cents/100 over whatever currency the campaign is in.
+      currency: campaigns.currency,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
       totalReleasedAmount: campaigns.totalReleasedAmount,
@@ -50,6 +54,10 @@ export default async function FundReleasesPage() {
     campaignId: string;
     campaignTitle: string | null;
     campaignSlug: string | null;
+    // NOT NULL in the schema and reached through an inner join, so there is
+    // deliberately NO fallback: a silently-defaulted currency on a money
+    // figure is the defect, not the safety net.
+    campaignCurrency: string;
     amount: number;
     status: string;
     notes: string | null;
@@ -80,6 +88,7 @@ export default async function FundReleasesPage() {
           campaignId: campaignWithdrawals.campaignId,
           campaignTitle: campaigns.title,
           campaignSlug: campaigns.slug,
+          campaignCurrency: campaigns.currency,
           amount: campaignWithdrawals.amount,
           status: campaignWithdrawals.status,
           notes: campaignWithdrawals.notes,
@@ -107,6 +116,7 @@ export default async function FundReleasesPage() {
       title: c.title ?? 'Untitled Campaign',
       slug: c.slug ?? '',
       status: c.status ?? 'active',
+      currency: c.currency,
       goalAmount: c.goalAmount,
       raisedAmount: c.raisedAmount ?? 0,
       totalReleasedAmount: released,
@@ -121,6 +131,7 @@ export default async function FundReleasesPage() {
     campaignId: r.campaignId,
     campaignTitle: r.campaignTitle ?? 'Unknown',
     campaignSlug: r.campaignSlug ?? '',
+    currency: r.campaignCurrency,
     amount: r.amount,
     status: r.status,
     notes: r.notes,

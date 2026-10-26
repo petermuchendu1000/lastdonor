@@ -107,7 +107,7 @@ async function getHomepageData() {
       // Aggregate platform stats
       db
         .select({
-          totalRaised: sql<number>`COALESCE(SUM(CASE WHEN ${donations.source} = 'real' AND ${donations.refunded} = false THEN ${donations.amount} ELSE 0 END), 0)`,
+
           totalDonors: sql<number>`COALESCE(COUNT(DISTINCT CASE WHEN ${donations.source} = 'real' THEN ${donations.donorEmail} END), 0)`,
         })
         .from(donations),
@@ -143,7 +143,7 @@ async function getHomepageData() {
   return {
     featuredCampaign: featuredCampaigns[0] ?? null,
     activeCampaigns,
-    totalRaised: Number(stats[0]?.totalRaised ?? 0),
+
     totalDonors: Number(stats[0]?.totalDonors ?? 0),
     campaignsCompleted: Number(campaignTotals[0]?.completed ?? 0),
     peopleSupported: Number(campaignTotals[0]?.supported ?? 0),

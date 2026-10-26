@@ -36,6 +36,9 @@ export const GET = withApiHandler(async (request, { params }) => {
       donorName: donations.donorName,
       donorLocation: donations.donorLocation,
       amount: donations.amount,
+      // Minor units of THIS row's currency (`docs/92`). The feed renders it,
+      // and without this every poll replaced shillings with dollars.
+      currency: donations.currency,
       message: donations.message,
       isAnonymous: donations.isAnonymous,
       createdAt: donations.createdAt,

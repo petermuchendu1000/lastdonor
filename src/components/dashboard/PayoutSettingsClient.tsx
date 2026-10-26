@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { Money } from '@/components/ui/Money';
+import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
 // Zod-only module: safe in a client component, unlike @/lib/stripe-connect.
 import { PLATFORM_PAYOUT_CURRENCY, isSupportedPayoutCurrency } from '@/lib/validators/payout';
 import {
@@ -27,6 +29,8 @@ interface CampaignBalance {
   slug: string | null;
   status: string | null;
   goalAmount: number;
+  /** The campaign's own currency; every amount here is in ITS minor units. */
+  currency: string;
   raisedAmount: number;
   totalReleasedAmount: number;
   totalWithdrawnAmount: number;
@@ -36,6 +40,8 @@ interface CampaignBalance {
 interface Withdrawal {
   id: string;
   campaignId: string;
+  /** The currency of the campaign the money came out of. */
+  currency: string;
   amount: number;
   status: string;
   stripeTransferId: string | null;
@@ -53,13 +59,14 @@ interface PayoutSettingsProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function centsToDollars(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-  });
-}
+/*
+  ⛔ A local `centsToDollars` with a hardcoded `currency: 'USD'` used to live
+  here - a SIXTH hand-rolled currency formatter, after the five `docs/88`
+  F4/F5 removed from admin, on the screen where an organiser connects the
+  account their money lands in. Every amount column is an INTEGER in the minor
+  units of ITS OWN ROW'S currency (`docs/92`). Render through `<Money>`; use
+  `formatMoney` where a plain string is needed.
+*/
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -167,12 +174,23 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
 
   const handleWithdraw = useCallback(async (campaignId: string) => {
     const amountStr = withdrawAmounts[campaignId];
-    const dollars = parseFloat(amountStr);
-    if (!amountStr || isNaN(dollars) || dollars <= 0) {
+    const major = parseFloat(amountStr);
+    if (!amountStr || isNaN(major) || major <= 0) {
       toast.error('Enter a valid amount');
       return;
     }
-    const cents = Math.round(dollars * 100);
+    /*
+      ⛔ This was `Math.round(dollars * 100)`. KES and USD share exponent 2,
+      so it was right by coincidence; a zero-decimal currency (UGX, RWF, XOF,
+      XAF - `docs/103`) would have been sent 100x the requested amount.
+      `majorToMinor` reads the currency's own exponent.
+    */
+    const currency = campaigns.find((c) => c.id === campaignId)?.currency;
+    if (!currency) {
+      toast.error('Could not find that campaign');
+      return;
+    }
+    const minor = majorToMinor(major, currency);
 
     // The server requires this key; omitting it 400s every withdrawal.
     const idempotencyKey = withdrawKeys[campaignId] ?? newIdempotencyKey();
@@ -183,14 +201,14 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
       const res = await fetch(`/api/v1/user-campaigns/${campaignId}/withdraw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: cents, idempotencyKey }),
+        body: JSON.stringify({ amount: minor, idempotencyKey }),
       });
       const data = await res.json();
       if (!res.ok) {
         toast.error(data.error?.message ?? 'Withdrawal failed');
         return;
       }
-      toast.success(`Withdrawal of ${centsToDollars(cents)} initiated`);
+      toast.success(`Withdrawal of ${formatMoney(minor, currency, 'exact')} initiated`);
       setWithdrawAmounts((prev) => ({ ...prev, [campaignId]: '' }));
       // Only now is the key spent: a new form-fill gets a new one.
       setWithdrawKeys((prev) => {
@@ -204,7 +222,7 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
     } finally {
       setLoading(null);
     }
-  }, [withdrawAmounts, withdrawKeys, router]);
+  }, [withdrawAmounts, withdrawKeys, router, campaigns]);
 
   const statusInfo = STATUS_CONFIG[connectStatus.status] ?? STATUS_CONFIG.not_started;
   const isVerified = connectStatus.status === 'verified';
@@ -372,13 +390,13 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
                     </h3>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
                       <span>
-                        Raised: <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{centsToDollars(campaign.raisedAmount)}</span>
+                        Raised: <span className="font-mono font-medium text-gray-700 dark:text-gray-300"><Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" /></span>
                       </span>
                       <span>
-                        Released: <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{centsToDollars(campaign.totalReleasedAmount)}</span>
+                        Released: <span className="font-mono font-medium text-gray-700 dark:text-gray-300"><Money minor={campaign.totalReleasedAmount} currency={campaign.currency} precision="exact" /></span>
                       </span>
                       <span>
-                        Withdrawn: <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{centsToDollars(campaign.totalWithdrawnAmount)}</span>
+                        Withdrawn: <span className="font-mono font-medium text-gray-700 dark:text-gray-300"><Money minor={campaign.totalWithdrawnAmount} currency={campaign.currency} precision="exact" /></span>
                       </span>
                     </div>
                   </div>
@@ -392,7 +410,7 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
                           ? 'text-teal-700 dark:text-teal-400'
                           : 'text-gray-400 dark:text-gray-600',
                       )}>
-                        {centsToDollars(campaign.availableBalance)}
+                        <Money minor={campaign.availableBalance} currency={campaign.currency} precision="exact" />
                       </p>
                     </div>
 
@@ -400,11 +418,11 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
-                          min="0.01"
-                          step="0.01"
-                          max={campaign.availableBalance / 100}
-                          placeholder="Amount"
-                          aria-label="Withdrawal amount"
+                          min={minorToMajor(1, campaign.currency)}
+                          step={minorToMajor(1, campaign.currency)}
+                          max={minorToMajor(campaign.availableBalance, campaign.currency)}
+                          placeholder={`Amount (${campaign.currency})`}
+                          aria-label={`Withdrawal amount in ${campaign.currency}`}
                           value={withdrawAmounts[campaign.id] ?? ''}
                           onChange={(e) => setWithdrawAmount(campaign.id, e.target.value)}
                           className="w-28 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-mono focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
@@ -459,7 +477,7 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
                         {campaign?.title ?? 'Unknown'}
                       </td>
                       <td className="py-3 pr-4 text-right font-mono font-medium text-gray-900 dark:text-gray-100">
-                        {centsToDollars(w.amount)}
+                        <Money minor={w.amount} currency={w.currency} precision="exact" />
                       </td>
                       <td className="py-3 pr-4">
                         <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', statusConfig.className)}>

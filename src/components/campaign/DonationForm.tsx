@@ -10,6 +10,8 @@ import Link from 'next/link';
 import { Switch } from '@/components/ui/switch';
 import { ReviewedIcon } from '@/components/ui/icon';
 import { centsToDollars, centsToDollarsWhole, dollarsToCents } from '@/lib/utils/currency';
+import { CURRENCIES } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
 import { cn } from '@/lib/utils';
 import { onRadioGroupKeyDown, rovingTabIndex } from '@/lib/radio-group-keys';
 import { motion } from 'motion/react';
@@ -30,8 +32,30 @@ const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : 
 /** The screens this form can show. */
 export type DonationStep = 'details' | 'payment' | 'pending' | 'declined' | 'success';
 
-const MIN_DONATION_CENTS = 500;
-const MAX_DONATION_CENTS = 10_000_000;
+/*
+  ── WHY THIS FORM IS LEGITIMATELY IN DOLLARS, AND WHAT GUARDS THAT ──────────
+
+  `src/app/campaigns/[slug]/donate/client.tsx:248` picks the form by GATEWAY:
+  `getCurrency(currency).gateway === 'payhero'` renders `MpesaDonationForm`
+  (which reads bounds and symbols from the currency registry), and everything
+  else renders this one. `CURRENCIES` holds exactly two entries - USD on
+  `stripe`, KES on `payhero` (`src/lib/money/currencies.ts`) - so every
+  campaign that reaches THIS form is a dollar campaign, and its preset ladder,
+  impact hints and `$` copy are correct rather than merely unnoticed.
+
+  ⛔ That is true by construction TODAY and silently false the moment a third
+  collectable currency lands on Stripe: a euro campaign would render this
+  dollar ladder with no error anywhere - the shape of defect `docs/112`
+  records ("the only non-USD campaign is archived, so no reader has seen it
+  yet"). `donation-form-usd-premise.test.ts` fails the build at that moment,
+  so the rewrite happens when the currency is added and not after somebody
+  reports euros priced as dollars.
+
+  The bounds are READ from the registry rather than re-declared, so they
+  cannot drift from the validator that enforces them server-side.
+*/
+const MIN_DONATION_CENTS = CURRENCIES.USD.minDonationMinor;
+const MAX_DONATION_CENTS = CURRENCIES.USD.maxDonationMinor;
 
 const SUPPORT_EMAIL = 'support@lastdonor.org';
 
@@ -40,8 +64,8 @@ const donationFormSchema = z.object({
   amount: z
     .number({ invalid_type_error: 'Enter a valid amount' })
     .int()
-    .min(500, 'Minimum donation is $5.00')
-    .max(10_000_000, 'Maximum donation is $100,000'),
+    .min(MIN_DONATION_CENTS, `Minimum donation is ${formatMoney(MIN_DONATION_CENTS, 'USD', 'exact')}`)
+    .max(MAX_DONATION_CENTS, `Maximum donation is ${formatMoney(MAX_DONATION_CENTS, 'USD')}`),
   donorName: z.string().max(100).optional(),
   donorEmail: z.string().email('Enter a valid email'),
   donorLocation: z.string().max(100).optional(),

@@ -8,6 +8,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { campaignStatusLabel } from '@/lib/campaign-labels';
+import { Money } from '@/components/ui/Money';
+import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
+import {
+  financeTotalsByCurrency,
+  type FinanceCurrencyTotals,
+} from '@/lib/dashboard-finance-totals';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -16,6 +22,8 @@ interface Campaign {
   title: string;
   slug: string;
   status: string;
+  /** The campaign's own currency. Every amount below is in ITS minor units. */
+  currency: string;
   goalAmount: number;
   raisedAmount: number;
   totalReleasedAmount: number;
@@ -29,6 +37,8 @@ interface Withdrawal {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  /** The campaign's currency - a withdrawal is in the money it came from. */
+  currency: string;
   amount: number;
   status: string;
   notes: string | null;
@@ -46,8 +56,45 @@ interface FinancesClientProps {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function fmt(cents: number): string {
-  return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/*
+  ⛔ A local `fmt(cents) => '$' + cents / 100` used to live here - a FIFTH
+  hand-rolled currency formatter of the kind `docs/88` F4/F5 removed from
+  admin, on the screen an organiser uses to take their money out. Every amount
+  column is an INTEGER in the minor units of ITS OWN ROW'S currency
+  (`docs/92`), and KES has the same exponent as USD, so the figures were right
+  and the SYMBOL was wrong - a shilling total under a dollar sign.
+
+  Render through `<Money>`; where a plain string is needed (a toast, an action
+  sentence) use `formatMoney`.
+*/
+
+/**
+ * One figure per currency, for a tile that used to hold a single blended sum.
+ *
+ * With one currency - which is every organiser on this platform today - this
+ * renders exactly what the old tile did.
+ */
+function TotalLines({
+  rows,
+  pick,
+  className,
+}: {
+  rows: readonly FinanceCurrencyTotals[];
+  pick: (row: FinanceCurrencyTotals) => number;
+  className?: string;
+}) {
+  if (rows.length === 0) {
+    return <p className={className}>-</p>;
+  }
+  return (
+    <>
+      {rows.map((row) => (
+        <p key={row.currency} className={className}>
+          <Money minor={pick(row)} currency={row.currency} precision="exact" />
+        </p>
+      ))}
+    </>
+  );
 }
 
 function formatDate(iso: string): string {
@@ -108,14 +155,20 @@ export default function FinancesClient({
     setWithdrawKeys((prev) => (prev[campaignId] ? prev : { ...prev, [campaignId]: newIdempotencyKey() }));
   }, []);
 
-  // Computed totals
-  const totalRaised = campaigns.reduce((s, c) => s + c.raisedAmount, 0);
-  const totalAvailable = campaigns.reduce((s, c) => s + c.availableBalance, 0);
-  const totalWithdrawn = campaigns.reduce((s, c) => s + c.totalWithdrawnAmount, 0);
-  const pendingRelease = campaigns.reduce(
-    (s, c) => s + Math.max(0, c.raisedAmount - c.totalReleasedAmount),
-    0,
-  );
+  /*
+    ⛔ These were four `campaigns.reduce(…)` calls producing one number each.
+    A campaign is single-currency by composite FK (`docs/92`); a PERSON is
+    not, so an organiser holding a KES and a USD campaign got four figures
+    that were the sum of two different kinds of money. Grouped by
+    `financeTotalsByCurrency`, which is pure and unit-tested (`docs/107`).
+  */
+  const totals = financeTotalsByCurrency(campaigns);
+  const anyAvailable = totals.some((t) => t.availableMinor > 0);
+  const anyPending = totals.some((t) => t.pendingReleaseMinor > 0);
+  const availableSentence = totals
+    .filter((t) => t.availableMinor > 0)
+    .map((t) => formatMoney(t.availableMinor, t.currency, 'exact'))
+    .join(' and ');
 
   // Build action items
   const actions: Array<{
@@ -129,7 +182,7 @@ export default function FinancesClient({
     if (!hasStripeAccount || stripeConnectStatus === 'not_started') {
       actions.push({
         type: 'stripe_setup',
-        text: `Set up your payout account to withdraw funds${totalAvailable > 0 ? ` (${fmt(totalAvailable)} available now)` : ''}`,
+        text: `Set up your payout account to withdraw funds${anyAvailable ? ` (${availableSentence} available now)` : ''}`,
         href: '/dashboard/payout-settings',
         severity: 'warning',
       });
@@ -157,12 +210,25 @@ export default function FinancesClient({
   const handleWithdraw = useCallback(
     async (campaignId: string) => {
       const amountStr = withdrawAmounts[campaignId];
-      const dollars = parseFloat(amountStr);
-      if (!amountStr || isNaN(dollars) || dollars <= 0) {
+      const major = parseFloat(amountStr);
+      if (!amountStr || isNaN(major) || major <= 0) {
         toast.error('Enter a valid amount');
         return;
       }
-      const cents = Math.round(dollars * 100);
+      /*
+        ⛔ This was `Math.round(dollars * 100)`. KES and USD both have
+        exponent 2 so the arithmetic was right by coincidence; a zero-decimal
+        currency (UGX, RWF, XOF, XAF - `docs/103`) would have been sent 100x
+        the requested amount. `majorToMinor` reads the currency's own
+        exponent. The same hardcoded 100 is the mutation survivor `docs/102`
+        records fixing rather than excusing.
+      */
+      const currency = campaigns.find((c) => c.id === campaignId)?.currency;
+      if (!currency) {
+        toast.error('Could not find that campaign');
+        return;
+      }
+      const minor = majorToMinor(major, currency);
 
       // The server requires this key; omitting it 400s every withdrawal.
       const idempotencyKey = withdrawKeys[campaignId] ?? newIdempotencyKey();
@@ -173,14 +239,14 @@ export default function FinancesClient({
         const res = await fetch(`/api/v1/user-campaigns/${campaignId}/withdraw`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: cents, idempotencyKey }),
+          body: JSON.stringify({ amount: minor, idempotencyKey }),
         });
         const data = await res.json();
         if (!res.ok) {
           toast.error(data.error?.message ?? 'Withdrawal failed');
           return;
         }
-        toast.success(`Withdrawal of ${fmt(cents)} initiated`);
+        toast.success(`Withdrawal of ${formatMoney(minor, currency, 'exact')} initiated`);
         setWithdrawAmounts((prev) => ({ ...prev, [campaignId]: '' }));
         // Only now is the key spent: a new form-fill gets a new one.
         setWithdrawKeys((prev) => {
@@ -195,7 +261,7 @@ export default function FinancesClient({
         setLoading(null);
       }
     },
-    [withdrawAmounts, withdrawKeys, router],
+    [withdrawAmounts, withdrawKeys, router, campaigns],
   );
 
   // ─── Empty state: no campaigns ────────────────────────────────────
@@ -222,23 +288,27 @@ export default function FinancesClient({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs font-medium text-muted-foreground">Total Raised</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-foreground">{fmt(totalRaised)}</p>
+            <TotalLines
+              rows={totals}
+              pick={(t) => t.raisedMinor}
+              className="mt-1 font-mono text-2xl font-bold text-foreground"
+            />
             <p className="mt-0.5 text-xs text-muted-foreground">
               across {campaigns.length} campaign{campaigns.length !== 1 ? 's' : ''}
             </p>
           </CardContent>
         </Card>
 
-        <Card className={totalAvailable > 0 ? 'border-green-200 dark:border-green-900' : ''}>
+        <Card className={anyAvailable ? 'border-green-200 dark:border-green-900' : ''}>
           <CardContent className="p-4">
             <p className="text-xs font-medium text-muted-foreground">Available to Withdraw</p>
-            <p
+            <TotalLines
+              rows={totals}
+              pick={(t) => t.availableMinor}
               className={`mt-1 font-mono text-2xl font-bold ${
-                totalAvailable > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'
+                anyAvailable ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'
               }`}
-            >
-              {fmt(totalAvailable)}
-            </p>
+            />
             <p className="mt-0.5 text-xs text-muted-foreground">released and ready</p>
           </CardContent>
         </Card>
@@ -246,13 +316,13 @@ export default function FinancesClient({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs font-medium text-muted-foreground">Pending Release</p>
-            <p
+            <TotalLines
+              rows={totals}
+              pick={(t) => t.pendingReleaseMinor}
               className={`mt-1 font-mono text-2xl font-bold ${
-                pendingRelease > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+                anyPending ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
               }`}
-            >
-              {fmt(pendingRelease)}
-            </p>
+            />
             <p className="mt-0.5 text-xs text-muted-foreground">awaiting verification</p>
           </CardContent>
         </Card>
@@ -260,7 +330,11 @@ export default function FinancesClient({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs font-medium text-muted-foreground">Total Withdrawn</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-foreground">{fmt(totalWithdrawn)}</p>
+            <TotalLines
+              rows={totals}
+              pick={(t) => t.withdrawnMinor}
+              className="mt-1 font-mono text-2xl font-bold text-foreground"
+            />
             <p className="mt-0.5 text-xs text-muted-foreground">paid to your account</p>
           </CardContent>
         </Card>
@@ -338,13 +412,13 @@ export default function FinancesClient({
                   <div>
                     <p className="text-xs text-muted-foreground">Raised</p>
                     <p className="font-mono text-sm font-semibold text-foreground">
-                      {fmt(campaign.raisedAmount)}
+                      <Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" />
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Released</p>
                     <p className="font-mono text-sm font-semibold text-foreground">
-                      {fmt(campaign.totalReleasedAmount)}
+                      <Money minor={campaign.totalReleasedAmount} currency={campaign.currency} precision="exact" />
                     </p>
                   </div>
                   <div>
@@ -356,18 +430,18 @@ export default function FinancesClient({
                           : 'text-muted-foreground'
                       }`}
                     >
-                      {fmt(campaign.availableBalance)}
+                      <Money minor={campaign.availableBalance} currency={campaign.currency} precision="exact" />
                     </p>
                     {campaign.inFlightAmount > 0 && (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
-                        {fmt(campaign.inFlightAmount)} processing
+                        <Money minor={campaign.inFlightAmount} currency={campaign.currency} precision="exact" /> processing
                       </p>
                     )}
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Withdrawn</p>
                     <p className="font-mono text-sm font-semibold text-foreground">
-                      {fmt(campaign.totalWithdrawnAmount)}
+                      <Money minor={campaign.totalWithdrawnAmount} currency={campaign.currency} precision="exact" />
                     </p>
                   </div>
                 </div>
@@ -392,16 +466,26 @@ export default function FinancesClient({
                 {isVerified && campaign.availableBalance > 0 && (
                   <div className="mt-4 flex flex-col gap-3 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950/20 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                      {fmt(campaign.availableBalance)} available to withdraw
+                      <Money minor={campaign.availableBalance} currency={campaign.currency} precision="exact" /> available to withdraw
                     </p>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-green-700 dark:text-green-400">$</span>
+                      {/*
+                        ⛔ This used to be a literal `$` with min/step of
+                        "0.01" and `max={availableBalance / 100}` - a dollar
+                        field over whatever currency the campaign holds, and a
+                        divide-by-100 that understates a zero-decimal currency
+                        100x (`docs/92`, `docs/103`). The code, the step and
+                        the ceiling now come from the campaign's own currency.
+                      */}
+                      <span className="text-sm text-green-700 dark:text-green-400">
+                        {campaign.currency}
+                      </span>
                       <input
                         type="number"
-                        min="0.01"
-                        step="0.01"
-                        max={campaign.availableBalance / 100}
-                        placeholder="0.00"
+                        min={minorToMajor(1, campaign.currency)}
+                        step={minorToMajor(1, campaign.currency)}
+                        max={minorToMajor(campaign.availableBalance, campaign.currency)}
+                        placeholder={String(minorToMajor(1, campaign.currency))}
                         value={withdrawAmounts[campaign.id] ?? ''}
                         onChange={(e) => setWithdrawAmount(campaign.id, e.target.value)}
                         className="w-24 rounded-md border border-green-300 bg-white px-2 py-1.5 text-sm font-mono focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-green-700 dark:bg-green-950 dark:text-green-100"
@@ -423,7 +507,7 @@ export default function FinancesClient({
                 {!isVerified && campaign.availableBalance > 0 && (
                   <div className="mt-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/20">
                     <p className="text-sm text-amber-800 dark:text-amber-300">
-                      {fmt(campaign.availableBalance)} available. Set up your payout account to
+                      <Money minor={campaign.availableBalance} currency={campaign.currency} precision="exact" /> available. Set up your payout account to
                       withdraw.
                     </p>
                     <Link
@@ -499,7 +583,7 @@ export default function FinancesClient({
                     {w.notes && <p className="text-xs text-muted-foreground italic">{w.notes}</p>}
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="font-mono text-lg font-bold text-foreground">{fmt(w.amount)}</span>
+                    <span className="font-mono text-lg font-bold text-foreground"><Money minor={w.amount} currency={w.currency} precision="exact" /></span>
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${cfg.className}`}
                     >

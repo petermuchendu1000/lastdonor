@@ -27,11 +27,26 @@ import { db } from '@/db';
 import { campaignShareLinks, campaigns, donations } from '@/db/schema';
 
 /** Totals across every campaign this person has shared. */
+/** One currency's worth of attributed donations. */
+export interface ImpactCurrencyAmount {
+  currency: string;
+  /** Minor units OF THAT CURRENCY - never "cents" (`docs/92`). */
+  totalMinor: number;
+}
+
 export interface ImpactSummary {
   /** Donations that arrived through this person's links. */
   donorsBrought: number;
   /** Cents raised through them. Refunded donations are excluded. */
-  amountBroughtCents: number;
+  /*
+    ⛔ There is deliberately NO money field here. It used to be a single
+    `amountBroughtCents` summed across every link the person holds - i.e.
+    across campaigns, i.e. across currencies - and the page printed it in
+    dollars through a bare `<Money>` (`docs/92`: *two currencies are never
+    added together ... report per currency - never sum*). The per-currency
+    figures come from `impactAmountsByCurrency` over the rows this page
+    already fetches.
+  */
   /** Campaigns they hold at least one link for. */
   campaignsShared: number;
   /** Visits across all their links. Visits, not unique visitors. */
@@ -39,19 +54,23 @@ export interface ImpactSummary {
 }
 
 export interface ImpactByCampaign {
+  /** The campaign's own currency; the amount below is in ITS minor units. */
+  currency: string;
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
   token: string;
   clicks: number;
   donorsBrought: number;
-  amountBroughtCents: number;
+  amountBroughtMinor: number;
 }
 
 export interface AttributedDonor {
   /** Already resolved for anonymity: literally 'Anonymous' when hidden. */
   donorName: string;
-  amountCents: number;
+  amountMinor: number;
+  /** The currency this donation was made in. */
+  currency: string;
   createdAt: Date;
   campaignTitle: string;
   campaignSlug: string;
@@ -98,7 +117,6 @@ export async function getImpactSummary(userId: string): Promise<ImpactSummary> {
   const rows = await db
     .select({
       donorsBrought: sql<number>`coalesce(sum(${perLink.donors}), 0)::int`,
-      amountBroughtCents: sql<number>`coalesce(sum(${perLink.cents}), 0)::int`,
       campaignsShared: sql<number>`count(distinct ${campaignShareLinks.campaignId})::int`,
       clicks: sql<number>`coalesce(sum(${campaignShareLinks.clickCount}), 0)::int`,
     })
@@ -106,12 +124,40 @@ export async function getImpactSummary(userId: string): Promise<ImpactSummary> {
     .leftJoin(perLink, eq(perLink.shareLinkId, campaignShareLinks.id))
     .where(eq(campaignShareLinks.userId, userId));
 
-  return rows[0] ?? {
-    donorsBrought: 0,
-    amountBroughtCents: 0,
-    campaignsShared: 0,
-    clicks: 0,
-  };
+  return rows[0] ?? { donorsBrought: 0, campaignsShared: 0, clicks: 0 };
+}
+
+/**
+ * The money a sharer brought in, PER CURRENCY, from the per-campaign rows.
+ *
+ * ── WHY THIS IS NOT A QUERY ─────────────────────────────────────────────────
+ *
+ * The obvious fix for the blended total was a second aggregate grouped by
+ * `donations.currency`. It was written, tested and then REMOVED: the figures
+ * are already in `getImpactByCampaign`'s rows, and `/dashboard/impact` is one
+ * of four files on the `docs/87` fan-out allowlist - at 4 concurrent queries
+ * against a pool of `max: 5`, with the dashboard layout's `auth()` taking one
+ * alongside. That list may only shrink, so paying a query for arithmetic
+ * already in hand is the wrong trade.
+ *
+ * Summing across a sharer's links WITHIN one currency is sound; across
+ * currencies it is not (`docs/92`). A campaign is single-currency by
+ * composite FK, so each row's code is unambiguous, and a sharer may hold
+ * several links on the same campaign - hence a fold rather than a map.
+ *
+ * Pure, so a test runs it (`docs/107`).
+ */
+export function impactAmountsByCurrency(
+  rows: readonly Pick<ImpactByCampaign, 'currency' | 'amountBroughtMinor'>[],
+): ImpactCurrencyAmount[] {
+  const byCurrency = new Map<string, number>();
+  for (const r of rows) {
+    if (r.amountBroughtMinor <= 0) continue;
+    byCurrency.set(r.currency, (byCurrency.get(r.currency) ?? 0) + r.amountBroughtMinor);
+  }
+  return Array.from(byCurrency, ([currency, totalMinor]) => ({ currency, totalMinor })).sort(
+    (a, b) => b.totalMinor - a.totalMinor || a.currency.localeCompare(b.currency),
+  );
 }
 
 export async function getImpactByCampaign(userId: string): Promise<ImpactByCampaign[]> {
@@ -122,8 +168,12 @@ export async function getImpactByCampaign(userId: string): Promise<ImpactByCampa
       campaignSlug: campaigns.slug,
       token: campaignShareLinks.token,
       clicks: campaignShareLinks.clickCount,
+      // A campaign is single-currency by composite FK (`docs/92`), so summing
+      // WITHIN a campaign is sound - but the row must carry the code, or the
+      // renderer falls back to dollars.
+      currency: campaigns.currency,
       donorsBrought: sql<number>`count(${donations.id})::int`,
-      amountBroughtCents: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
+      amountBroughtMinor: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
     })
     .from(campaignShareLinks)
     .innerJoin(campaigns, eq(campaigns.id, campaignShareLinks.campaignId))
@@ -136,6 +186,7 @@ export async function getImpactByCampaign(userId: string): Promise<ImpactByCampa
       campaignShareLinks.campaignId,
       campaigns.title,
       campaigns.slug,
+      campaigns.currency,
       campaignShareLinks.token,
       campaignShareLinks.clickCount,
     )
@@ -190,7 +241,8 @@ export async function getAttributedDonors(
   return db
     .select({
       donorName: sql<string>`case when ${donations.isAnonymous} then 'Anonymous' else ${donations.donorName} end`,
-      amountCents: donations.amount,
+      amountMinor: donations.amount,
+      currency: donations.currency,
       createdAt: donations.createdAt,
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,

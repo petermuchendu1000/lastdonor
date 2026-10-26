@@ -84,6 +84,8 @@ async function getRecentDonors(campaignId: string): Promise<DonorFeedItem[]> {
       donorName: donations.donorName,
       donorLocation: donations.donorLocation,
       amount: donations.amount,
+      // Minor units of THIS row's currency (`docs/92`); the feed renders it.
+      currency: donations.currency,
       message: donations.message,
       isAnonymous: donations.isAnonymous,
       createdAt: donations.createdAt,
@@ -100,6 +102,7 @@ async function getRecentDonors(campaignId: string): Promise<DonorFeedItem[]> {
     donorName: r.isAnonymous ? 'Anonymous' : r.donorName,
     donorLocation: r.isAnonymous ? null : r.donorLocation,
     amount: r.amount,
+    currency: r.currency,
     message: r.message,
     isAnonymous: r.isAnonymous,
     createdAt: r.createdAt.toISOString(),

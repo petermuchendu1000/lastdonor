@@ -12,6 +12,18 @@ export interface DonorFeedItem {
   donorName: string;
   donorLocation: string | null;
   amount: number;
+  /**
+   * The currency the donation was made in.
+   *
+   * ⛔ Required, not defaulted. This feed rendered a bare
+   * `<Money minor={donor.amount} />`, which falls through to `<Money>`'s USD
+   * default, so a KES 2,500.00 gift appeared on the public campaign page as
+   * **$2,500** - the row's own `donations.currency` column exists for exactly
+   * this and was simply never read (`docs/92`). Same shape as the bare
+   * `<Money>` the `CampaignCard` test records, and as `ImpactTiers`, which
+   * had the currency in scope at its call site and did not pass it.
+   */
+  currency: string;
   message: string | null;
   isAnonymous: boolean;
   createdAt: string;
@@ -83,6 +95,7 @@ export function DonorFeed({
                     </span>
                     <Money
                       minor={donor.amount}
+                      currency={donor.currency}
                       className="shrink-0 text-sm font-semibold text-foreground"
                     />
                   </div>

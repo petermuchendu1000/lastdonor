@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { campaigns, donations } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { formatDate } from '@/lib/utils/dates';
 import { PhaseBadge } from '@/components/campaign/PhaseBadge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -36,6 +36,10 @@ export default async function CampaignDonorsPage({ params }: { params: Promise<{
     .select({
       id: campaigns.id,
       title: campaigns.title,
+      // Every donation on this page belongs to THIS campaign, so it is in
+      // this currency by database guarantee: donations_campaign_currency_fk
+      // on (campaign_id, currency).
+      currency: campaigns.currency,
       slug: campaigns.slug,
       creatorId: campaigns.creatorId,
       donorCount: campaigns.donorCount,
@@ -102,7 +106,9 @@ export default async function CampaignDonorsPage({ params }: { params: Promise<{
                       <p className="text-xs text-muted-foreground">{d.donorLocation}</p>
                     )}
                   </TableCell>
-                  <TableCell className="text-right font-mono">{centsToDollars(d.amount)}</TableCell>
+                  <TableCell className="text-right font-mono">
+                    <Money minor={d.amount} currency={campaign.currency} precision="exact" />
+                  </TableCell>
                   <TableCell>
                     <PhaseBadge phase={d.phaseAtTime as DonationPhase} />
                   </TableCell>

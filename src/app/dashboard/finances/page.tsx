@@ -3,7 +3,9 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
 import { eq, desc, and, or } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { donorTotalsByCurrency } from '@/lib/donor-totals.server';
+import { hasPublicPage } from '@/lib/campaign-visibility';
 import { formatDate } from '@/lib/utils/dates';
 import { PhaseBadge } from '@/components/campaign/PhaseBadge';
 import {
@@ -32,6 +34,9 @@ export default async function DonationHistoryPage() {
     .select({
       id: donations.id,
       amount: donations.amount,
+      // Every amount column is in the MINOR UNITS OF ITS OWN ROW'S currency
+      // (`docs/92`); without this the table printed shillings as dollars.
+      currency: donations.currency,
       phaseAtTime: donations.phaseAtTime,
       createdAt: donations.createdAt,
       campaignTitle: campaigns.title,
@@ -49,14 +54,35 @@ export default async function DonationHistoryPage() {
     )
     .orderBy(desc(donations.createdAt));
 
-  const totalDonated = donationList.reduce((sum, d) => sum + d.amount, 0);
+  /*
+    ⛔ This used to be `donationList.reduce((sum, d) => sum + d.amount, 0)`
+    rendered through `centsToDollars`. This page is ONE DONOR across every
+    campaign they have given to, which is precisely the case where a campaign's
+    single-currency guarantee (the composite FK of `docs/92`) does not apply:
+    adding 100 KES to 100 USD yields 200 of nothing, and printing it with a
+    dollar sign states a figure the platform cannot substantiate.
+
+    `donorTotalsByCurrency` carries the identical filter (donor match, real,
+    un-refunded) and is executed against real Postgres by
+    `donor-totals.integration.test.ts` (`docs/107`). Awaited after the list, so
+    this page still issues at most one query at a time (`docs/87`).
+  */
+  const totals = await donorTotalsByCurrency(db, session.user!.id!, userEmail);
 
   return (
     <>
       <div className="flex items-center justify-between">
         <p className="text-[14px] text-[#6B7280]">
-          {donationList.length} donation{donationList.length !== 1 ? 's' : ''} totaling{' '}
-          <span className="font-mono font-semibold text-[#0F766E]">{centsToDollars(totalDonated)}</span>
+          {donationList.length} donation{donationList.length !== 1 ? 's' : ''}
+          {totals.length > 0 ? ' totaling ' : ''}
+          {totals.map((t, i) => (
+            <span key={t.currency}>
+              {i > 0 ? ' and ' : ''}
+              <span className="font-mono font-semibold text-[#0F766E]">
+                <Money minor={t.totalMinor} currency={t.currency} precision="exact" />
+              </span>
+            </span>
+          ))}
         </p>
       </div>
 
@@ -85,15 +111,25 @@ export default async function DonationHistoryPage() {
               {donationList.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell>
-                    <Link
-                      href={`/campaigns/${d.campaignSlug}`}
-                      className="font-medium text-[#0F766E] hover:underline"
-                    >
-                      {d.campaignTitle}
-                    </Link>
+                    {/*
+                      `docs/109`: a campaign the donor gave to can since have
+                      been moved out of the served statuses - `docs/79` did
+                      exactly that to twelve live campaigns - and this link
+                      would then 404 from the donor's own history.
+                    */}
+                    {hasPublicPage(d.campaignStatus) ? (
+                      <Link
+                        href={`/campaigns/${d.campaignSlug}`}
+                        className="font-medium text-[#0F766E] hover:underline"
+                      >
+                        {d.campaignTitle}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-foreground">{d.campaignTitle}</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {centsToDollars(d.amount)}
+                    <Money minor={d.amount} currency={d.currency} precision="exact" />
                   </TableCell>
                   <TableCell>
                     <PhaseBadge phase={d.phaseAtTime as DonationPhase} />

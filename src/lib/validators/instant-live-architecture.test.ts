@@ -723,8 +723,28 @@ describe('Congratulations page', () => {
       expect(clientSource).toContain('/dashboard');
     });
 
-    it('shows campaign goal formatting', () => {
-      expect(clientSource).toContain('centsToDollars');
+    it('renders the goal in the CAMPAIGN’s currency, not hardcoded dollars', () => {
+      /*
+        ⚠️ THIS ASSERTION WAS STALE, AND IT PINNED A DEFECT.
+
+        It used to require `centsToDollars`, which hardcodes USD. Every
+        amount column on this platform is an INTEGER in the minor units of
+        its OWN row's currency (`docs/92`), so on the only campaigns that
+        have ever taken money - two KES donations - this screen told the
+        organiser their shilling goal in dollars. Same shape as the
+        `?launched=true` assertion lower in this file: a test reading source
+        text kept the wrong behaviour green.
+
+        The fixed component renders through `<Money>` and is HANDED the
+        currency by the server component, so the two halves are asserted
+        together: the client must not print a currency of its own choosing.
+      */
+      expect(clientSource).not.toContain('centsToDollars');
+      expect(clientSource).toContain('<Money');
+      expect(clientSource).toContain('currency={campaign.currency}');
+      // The page must actually supply it, or the prop above is `undefined`.
+      expect(pageSource).toContain('currency: campaigns.currency');
+      expect(pageSource).toContain('currency: campaign.currency');
     });
 
     it('shows category label', () => {

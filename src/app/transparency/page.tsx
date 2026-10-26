@@ -4,7 +4,8 @@ import { db } from '@/db';
 import { campaigns, donations } from '@/db/schema';
 import { sql } from 'drizzle-orm';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { platformRaisedByCurrency } from '@/lib/platform-totals.server';
 import { seoKeywords } from '@/lib/seo/keywords';
 
 export const metadata: Metadata = {
@@ -31,13 +32,21 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 async function getTransparencyData() {
+  /*
+    ⛔ `totalRaised` is GONE from this aggregate and is read per currency
+    instead. It summed `donations.amount` across the whole table with no
+    currency grouping and was printed as dollars: on 2026-10-26 this page
+    published "$100.00 Raised So Far" while production held KES 100.00
+    (~US$0.77). See `platform-totals.server.ts`.
+  */
   const [stats] = await db
     .select({
-      totalRaised: sql<number>`COALESCE(SUM(CASE WHEN ${donations.source} = 'real' AND ${donations.refunded} = false THEN ${donations.amount} ELSE 0 END), 0)`,
       totalDonors: sql<number>`COALESCE(COUNT(DISTINCT CASE WHEN ${donations.source} = 'real' THEN ${donations.donorEmail} END), 0)`,
       totalDonations: sql<number>`COALESCE(COUNT(CASE WHEN ${donations.source} = 'real' AND ${donations.refunded} = false THEN 1 END), 0)`,
     })
     .from(donations);
+
+  const raisedByCurrency = await platformRaisedByCurrency(db);
 
   const [campaignStats] = await db
     .select({
@@ -47,7 +56,7 @@ async function getTransparencyData() {
     .from(campaigns);
 
   return {
-    totalRaised: Number(stats?.totalRaised ?? 0),
+    raisedByCurrency,
     totalDonors: Number(stats?.totalDonors ?? 0),
     totalDonations: Number(stats?.totalDonations ?? 0),
     completedCampaigns: Number(campaignStats?.completed ?? 0),
@@ -73,7 +82,19 @@ export default async function TransparencyPage() {
       {/* Platform Stats */}
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: 'Raised So Far', value: centsToDollars(data.totalRaised) },
+          /*
+            One tile per currency actually collected, never one blended
+            figure. With a single currency - the platform's whole history so
+            far - this renders exactly one tile, as before. With none it
+            renders none, because there is no currency to name a zero in.
+          */
+          ...data.raisedByCurrency.map((t) => ({
+            label:
+              data.raisedByCurrency.length > 1
+                ? `Raised So Far (${t.currency})`
+                : 'Raised So Far',
+            value: <Money minor={t.totalMinor} currency={t.currency} precision="exact" />,
+          })),
           { label: 'People Who Gave', value: data.totalDonors.toLocaleString('en-US') },
           { label: 'Campaigns Funded', value: data.completedCampaigns.toString() },
           { label: 'Campaigns Live Now', value: data.activeCampaigns.toString() },
