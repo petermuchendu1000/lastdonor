@@ -801,7 +801,7 @@ export function ShareYourStoryForm() {
               <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              <span>We take 0%. Stripe charges 2.9% + 30c per donation.</span>
+              <span>We take 0%, and nothing is deducted to move the money.</span>
             </li>
             <li className="flex items-start gap-2 text-sm text-foreground">
               <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-teal" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -1831,8 +1831,8 @@ export function ShareYourStoryForm() {
                     Privacy Policy
                   </a>
                   , and confirm that the information you&apos;ve provided is accurate.
-                  LastDonor does not charge a platform fee; payment processing fees
-                  (2.9%&nbsp;+&nbsp;$0.30) apply to each donation.
+                  LastDonor does not charge a platform fee, and no processing fee is
+                  deducted from what your campaign raises.
                 </p>
                 {showBeneficiaryConsent && (
                   <p className="mt-3 text-sm leading-relaxed text-muted-foreground">

@@ -4,6 +4,12 @@ import { db } from '@/db';
 import { donorTotalsForUsers, donorTotalsForEmails } from '@/lib/admin/donation-totals.server';
 import { donations } from '@/db/schema';
 import { eq, gte, and, sql } from 'drizzle-orm';
+import {
+  getCurrency,
+  isSupportedCurrency,
+  normaliseCurrencyCode,
+  SUPPORTED_CURRENCY_CODES,
+} from '@/lib/money/currencies';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import { logError } from '@/lib/errors';
@@ -20,14 +26,17 @@ import { logError } from '@/lib/errors';
  * Predefined segments (via ?segment=...):
  *   all              - every donor (registered + guest)
  *   champions        - donorScore >= 81 (registered only)
- *   major_donors     - totalDonated >= $500 (50000 cents)
+ *   major_donors     - gave >= that currency's `majorDonorMinor`; NEEDS ?currency=
  *   recurring        - has recurring donation in last year
  *   new_donors       - first donation in last 30 days
  *   at_risk          - last donation between 180 and 365 days ago
  *   lapsed           - last donation > 365 days ago
  *
  * Custom filters:
- *   minDonated, maxDonated - lifetime donation range (cents)
+ *   minDonated, maxDonated - lifetime giving range, in the MINOR UNITS of
+ *                            ?currency (which is then required)
+ *   currency               - required by any money filter; one of
+ *                            `SUPPORTED_CURRENCY_CODES`
  *   search                 - name/email search
  *   limit, offset          - pagination
  */
@@ -95,6 +104,84 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(parseInt(params.get('limit') ?? '50', 10) || 50, 200);
   const offset = parseInt(params.get('offset') ?? '0', 10) || 0;
 
+  /*
+    ⛔ MONEY FILTERS ARE PER CURRENCY, AND THE CURRENCY MUST BE NAMED.
+
+    `major_donors` was `"totalDonated" >= 50000` - US$500 as a raw integer,
+    applied to every donor whatever they gave in - and `minDonated`/
+    `maxDonated` multiplied by a hardcoded 100. All three compared against a
+    figure that is `users.total_donated` for a registered donor and
+    `SUM(d.amount)` by email for a guest, and NEITHER carries a currency
+    (`docs/116`). A donor who gave KES 50,000, about US$385, was called a
+    major donor by a United States dollar rule.
+
+    There is no exchange rate in this codebase and `docs/102` forbids one
+    deciding anything but display, so these filters cannot be made
+    currency-agnostic - they can only be made currency-EXPLICIT. An
+    unnamed or uncollectable currency is refused rather than defaulted,
+    because defaulting is precisely what the defect was.
+  */
+  const currencyParam = params.get('currency');
+  const moneyFilterRequested =
+    segment === 'major_donors' || params.has('minDonated') || params.has('maxDonated');
+  let currency: string | null = null;
+
+  if (moneyFilterRequested) {
+    const normalised = normaliseCurrencyCode(currencyParam);
+    if (!isSupportedCurrency(normalised)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message:
+              `A money filter needs a currency. Pass ?currency= one of ` +
+              `${SUPPORTED_CURRENCY_CODES.join(', ')}; amounts in different ` +
+              `currencies cannot be compared.`,
+            field: 'currency',
+            requestId,
+          },
+        } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+    currency = normalised;
+  }
+
+  /**
+   * Lifetime giving IN ONE CURRENCY, as a correlated aggregate over the
+   * donations themselves.
+   *
+   * ⚠️ Not `"totalDonated"`: that column of the CTE is the currency-blind
+   * figure this whole guard exists to stop comparing. Real, un-refunded
+   * donations only.
+   *
+   * ⚠️ Attribution is `user_id` OR `donor_email`, which is what the CTE
+   * itself does - a guest row whose email belongs to a `role='donor'` user is
+   * excluded from the guest branch, so those donations are the registered
+   * donor's. It is therefore WIDER than `donorTotalsForUsers`, which matches
+   * on `user_id` alone; see `docs/116` §2.4 for the divergence that leaves.
+   *
+   * ⛔ `GROUP BY d.currency` IS LOAD-BEARING AND IS NOT TIDINESS. A `HAVING`
+   * with no `GROUP BY` is one group over zero rows, so `COALESCE(SUM, 0)` is
+   * 0 and `<= anything` is TRUE: the first version of this filter matched
+   * every donor who had given NOTHING in the named currency. Probed against
+   * real Postgres (`docs/116` §2.3): `?currency=KES&maxDonated=1` returned a
+   * USD-only donor. With the `GROUP BY` there are no groups when there are no
+   * rows, so EXISTS is false and both comparisons require at least one
+   * donation in that currency.
+   */
+  const givenInCurrency = (compare: 'gte' | 'lte', amountMinor: number) => sql`
+    EXISTS (
+      SELECT 1 FROM donations d
+      WHERE (d.user_id = unified_donors.id OR d.donor_email = unified_donors.email)
+        AND d.source = 'real'
+        AND d.refunded = false
+        AND d.currency = ${currency}
+      GROUP BY d.currency
+      HAVING COALESCE(SUM(d.amount), 0) ${compare === 'gte' ? sql`>=` : sql`<=`} ${amountMinor}
+    )`;
+
   // Build WHERE conditions for the unified CTE
   const conditions: ReturnType<typeof sql>[] = [];
 
@@ -108,7 +195,9 @@ export async function GET(request: NextRequest) {
         conditions.push(sql`"donorScore" >= 81`);
         break;
       case 'major_donors':
-        conditions.push(sql`"totalDonated" >= 50000`);
+        // `currency` is non-null here: `moneyFilterRequested` covers this
+        // segment and refuses above when it is absent or uncollectable.
+        conditions.push(givenInCurrency('gte', getCurrency(currency).majorDonorMinor));
         break;
       case 'new_donors':
         conditions.push(sql`"createdAt" >= ${new Date(now - 30 * 86400000).toISOString()}::timestamptz`);
@@ -156,8 +245,14 @@ export async function GET(request: NextRequest) {
   const minScore = params.get('minScore');
   const maxScore = params.get('maxScore');
 
-  if (minDonated) conditions.push(sql`"totalDonated" >= ${parseInt(minDonated, 10) * 100}`);
-  if (maxDonated) conditions.push(sql`"totalDonated" <= ${parseInt(maxDonated, 10) * 100}`);
+  /*
+    ⚠️ These took MAJOR units and multiplied by a hardcoded 100 - right for a
+    two-decimal currency and 100x wrong for a zero-decimal one (`docs/103`).
+    They now take MINOR units directly, which removes the exponent question
+    entirely, and compare within the named currency.
+  */
+  if (minDonated) conditions.push(givenInCurrency('gte', parseInt(minDonated, 10)));
+  if (maxDonated) conditions.push(givenInCurrency('lte', parseInt(maxDonated, 10)));
   if (minScore) conditions.push(sql`"donorScore" >= ${parseInt(minScore, 10)}`);
   if (maxScore) conditions.push(sql`"donorScore" <= ${parseInt(maxScore, 10)}`);
   if (donorType && ['individual', 'corporate', 'foundation'].includes(donorType)) {
@@ -212,11 +307,9 @@ export async function GET(request: NextRequest) {
     Recomputed per currency for the page of donors actually being shown -
     one query each, both capped by `limit`.
 
-    ⛔ STILL OPEN, reported not fixed: the SEGMENT THRESHOLDS still compare
-    that same blind figure (`major_donors` is `totalDonated >= 50000`), so a
-    donor who gave KES 50,000 (about US$385) is classified by a US dollar
-    rule. Changing what "major donor" means is a product decision, not a
-    rendering one.
+    ✅ The SEGMENT THRESHOLDS no longer read it either, as of 2026-10-26
+    (`docs/116` §2): they go through `givenInCurrency` above, within a
+    currency the caller must name.
   */
   const emails = donors.map((d) => d.email).filter((e): e is string => !!e);
   const ids = donors.map((d) => d.id).filter((i): i is string => !!i);

@@ -568,7 +568,22 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       You&apos;ll be guided through a quick process to scan your ID and take a selfie.
-                      This is handled securely by Stripe.
+                      {/*
+                        ⛔ Said "This is handled securely by Stripe" until
+                        2026-10-26 (`docs/116` §5). The button below calls
+                        `/api/v1/verification/identity/session`, which creates a
+                        DIDIT session (`createDiditSession`); Stripe Identity was
+                        replaced in `docs/81` precisely because it could never
+                        run on the same dead key as `docs/72`. So the one screen
+                        where an organiser hands over their ID named the wrong
+                        company.
+
+                        It now names no company: the provider has changed once
+                        already, and a vendor name here is a claim that goes
+                        stale silently.
+                      */}
+                      Your ID is checked by a specialist identity service, not stored on
+                      our servers.
                     </p>
                     <div className="mt-3">
                       <Button onClick={() => handleStartIdentity()} disabled={startingIdentity}>

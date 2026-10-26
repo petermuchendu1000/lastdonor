@@ -16,12 +16,12 @@ const faqs = [
   {
     question: 'Who takes my card details?',
     answer:
-      'Stripe does. They handle payments for millions of businesses. We never see or keep your full card number.',
+      'Not us. Your card details go straight to the company that processes the payment. We never see or keep your full card number.',
   },
   {
     question: 'How much of my donation reaches the campaign?',
     answer:
-      'We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25.',
+      'We take 0%. The company that moves the money charges a fee to do it, and we receive no part of that fee.',
   },
   {
     question: 'If you take nothing, how do you survive?',
@@ -61,7 +61,7 @@ const faqs = [
   {
     question: 'When does the campaign actually get the money?',
     answer:
-      'After those checks are done. We send it to their bank account through Stripe.',
+      'After those checks are done. We send it to their bank account.',
   },
   {
     question: 'Something is wrong. Who do I tell?',

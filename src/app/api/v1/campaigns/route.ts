@@ -152,6 +152,18 @@ export const POST = withApiHandler(async (request, { requestId, session }) => {
       subjectName: data.subjectName,
       subjectHometown: data.subjectHometown ?? null,
       storyHtml: sanitizedStoryHtml,
+      /*
+        ⛔ The currency a campaign raises in, and the ONLY moment it can be
+        chosen. `donations` carries a composite FK onto
+        `campaigns (id, currency)`, so once any money arrives this column
+        cannot change (`docs/92`) - and the update route's `updateValues`
+        allowlist deliberately omits it.
+
+        It was omitted here entirely until 2026-10-26, so every campaign
+        this route ever created took the `'USD'` column default
+        (`docs/116` §3).
+      */
+      currency: data.currency,
       goalAmount: data.goalAmount,
       impactTiers: data.impactTiers,
       status: data.status,

@@ -20,15 +20,23 @@ import { ChevronDownIcon } from '@heroicons/react/24/outline';
        processing fees apply" is not an answer to "how much of my $50
        arrives" - it is a way of not answering it.
 
-  The 2.9% + $0.30 figure is Stripe's published US rate, already cited
-  in `WhereYourMoneyGoes.tsx` (docs/59). Do not restate it anywhere
-  without checking it is still current.
+  ⛔ CORRECTED 2026-10-26, `docs/116` §5. This answer quoted Stripe's
+  2.9% + $0.30 and told the donor "the campaign receives $48.25" of a $50
+  gift. Stripe cannot take a payment on this platform at all (`docs/72`),
+  that rate has never been charged to anybody here, and nothing anywhere
+  deducts a processing fee from a campaign - `payment-service.ts:236`
+  credits the FULL amount and `withdraw/route.ts:341` subtracts no fee.
+  See `WhereYourMoneyGoes.tsx` for the full trace.
+
+  ⛔ Rule 3 above still holds, and this is the arithmetic: $50 in, $50 to
+  the campaign. Do NOT answer it with a vendor's published rate -
+  `src/app/fee-claims.test.ts` fails the build on one.
 */
 const faqs = [
   {
     question: 'Does LastDonor take a cut of my donation?',
     answer:
-      'No. We take 0%. Stripe handles the card payment and charges 2.9% plus 30 cents. On a $50 donation that is $1.75, so the campaign receives $48.25. None of that fee comes to us.',
+      'No. We take 0%, and nothing is taken out to move the money. On a $50 donation the campaign is credited $50. The company that processes the payment charges us a fee, and we pay it ourselves.',
   },
   {
     question: 'If you take 0%, how do you pay your bills?',
@@ -43,7 +51,7 @@ const faqs = [
   {
     question: 'Where does my money go?',
     answer:
-      'All of it goes to the campaign you picked, minus the Stripe payment fee. We take nothing. The campaign then posts updates so you can see what your money paid for.',
+      'All of it goes to the campaign you picked. We take nothing, and nothing is deducted to move the money. The campaign then posts updates so you can see what your money paid for.',
   },
   {
     question: 'What kinds of campaigns can I support?',

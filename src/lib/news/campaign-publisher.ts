@@ -12,6 +12,7 @@ import {
 import { buildGenerateMessagesPrompt } from '@/lib/ai/prompts/generate-messages';
 import { buildFallbackTitle } from '@/lib/ai/prompts/generate-headline';
 import { callAI } from '@/lib/ai/call-ai';
+import { DEFAULT_CURRENCY } from '@/lib/money/currencies';
 import { generateSlug } from '@/lib/utils/slug';
 import { getCampaignPhase } from '@/lib/utils/phase';
 import { normalizeSubjectName, validateCampaignQuality } from '@/lib/utils/entity-validation';
@@ -370,6 +371,13 @@ export async function publishCampaignFromNewsItem(
     .values({
       title: campaignTitle,
       slug: campaignSlug,
+      /*
+        ⚠️ EXPLICIT, not by omission (`docs/116` §3). This path's goal is
+        computed in USD cents and is not multi-currency; naming the currency
+        makes that assumption visible and stops a future change to
+        `DEFAULT_CURRENCY` silently re-denominating every automated campaign.
+      */
+      currency: DEFAULT_CURRENCY,
       /*
         THE REVIEW GATE, second half. Resolved 2026-10-17, see docs/79.
 

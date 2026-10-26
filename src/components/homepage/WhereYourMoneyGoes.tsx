@@ -24,15 +24,41 @@ import Link from 'next/link';
  *
  * ## What replaced it
  *
- * A ledger with real money in it. "$50.00 in, $1.75 to Stripe, $0.00 to us,
- * $48.25 to the campaign" answers the donor's actual question, which is not
- * "what percentage" but "how much of mine arrives". The $0.00 line is the
- * whole competitive claim and it needs no chart.
+ * A ledger with real money in it, answering the donor's actual question -
+ * not "what percentage" but "how much of mine arrives".
  *
- * 2.9% + $0.30 is Stripe's published US rate and is already stated in
- * `ShareYourStoryForm`; this reuses that existing claim rather than
- * introducing a new one. The figures are computed below, not typed, so the
- * arithmetic cannot drift from the rate.
+ * ⛔ CORRECTED 2026-10-26, `docs/116` §5. It read "$50.00 in, $1.75 to
+ * Stripe, $0.00 to us, $48.25 to the campaign", and all three of those claims
+ * were wrong:
+ *
+ *   1. STRIPE TAKES NOTHING, because Stripe cannot take anything:
+ *      `STRIPE_SECRET_KEY` on Fly is the `sk_test_...0000` placeholder and
+ *      `create-checkout` 500s for every campaign (`docs/72`). Every donation
+ *      this platform has ever collected came over M-Pesa (`docs/92`).
+ *   2. 2.9% + $0.30 has never been charged to anybody here. The only fees
+ *      ever incurred were PayHero's, and they are a FLAT KES 8.9 rather than
+ *      the tiered figure its own published table advertises (`docs/92`) - so
+ *      quoting a vendor's rate card is not evidence either way.
+ *   3. NO FEE IS DEDUCTED FROM A PAYOUT AT ALL. Traced, not assumed:
+ *        - `create-checkout` sets `unit_amount: data.amount` with no
+ *          `application_fee` and no fee line item (already pinned by
+ *          `src/app/fee-claims.test.ts`);
+ *        - `payment-service.ts:236` credits
+ *          `raisedAmount + amount` - the FULL donation;
+ *        - `withdraw/route.ts:341` computes `availableBalance` as
+ *          `totalReleasedAmount - totalWithdrawnAmount - pending`, and
+ *          subtracts no fee;
+ *        - on the live rail the fee is drawn from the platform's own PayHero
+ *          service wallet, which collections drain (`docs/92`).
+ *
+ * So the honest ledger is the stronger one: the campaign is credited the
+ * whole gift, and the processing fee is the platform's cost, not the donor's
+ * and not the campaign's. The rows are kept and the arithmetic corrected -
+ * the section is not redesigned.
+ *
+ * ⚠️ Do NOT reintroduce a vendor's published rate here. `docs/92` showed
+ * PayHero's own table understating by 48%, and `src/app/fee-claims.test.ts`
+ * now fails the build on a processor name or a rate in user-facing copy.
  *
  * ## Why this section inverts
  *
@@ -48,14 +74,17 @@ import Link from 'next/link';
  * wrappers cost on this page.
  */
 
-/** Stripe's published US rate, already claimed in the campaign-creation flow. */
-const STRIPE_PERCENT = 0.029;
-const STRIPE_FIXED_CENTS = 30;
-/** The example gift. Round, typical, and large enough that the fee is legible. */
+/** The example gift. Round and typical. */
 const EXAMPLE_CENTS = 5000;
 
-const processingCents = Math.round(EXAMPLE_CENTS * STRIPE_PERCENT) + STRIPE_FIXED_CENTS;
-const toCampaignCents = EXAMPLE_CENTS - processingCents;
+/*
+  Both deductions are zero, and that is the claim. They are written as
+  subtractions of a computed 0 rather than a literal '$0.00' so the total
+  below cannot drift from the rows above it if one ever stops being zero.
+*/
+const platformFeeCents = 0;
+const processingDeductedCents = 0;
+const toCampaignCents = EXAMPLE_CENTS - platformFeeCents - processingDeductedCents;
 
 const usd = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -71,13 +100,14 @@ interface LedgerRow {
 const ROWS: LedgerRow[] = [
   {
     label: 'Payment processing',
-    note: 'Stripe’s standard rate (2.9% + $0.30). We never receive any part of it.',
-    amount: `− ${usd(processingCents)}`,
+    note: 'The company that moves the money charges us a fee. It is not taken out of your gift.',
+    amount: `− ${usd(processingDeductedCents)}`,
+    emphasis: 'zero',
   },
   {
     label: 'LastDonor platform fee',
     note: 'No platform cut. No tip request added to your donation.',
-    amount: `− ${usd(0)}`,
+    amount: `− ${usd(platformFeeCents)}`,
     emphasis: 'zero',
   },
 ];
@@ -114,8 +144,9 @@ export function WhereYourMoneyGoes() {
               deciding whether to give; it lives on /how-it-works, one tap away.
             */}
             <p className="mt-4 max-w-md text-[17px] leading-relaxed text-white/75">
-              We take nothing from a fundraiser donation. The only deduction is
-              what the card networks charge to move the money.
+              We take nothing from a fundraiser donation, and nothing is
+              deducted to move the money. The whole gift is credited to the
+              campaign.
             </p>
           </div>
 
@@ -177,7 +208,7 @@ export function WhereYourMoneyGoes() {
               6.18:1 and 5.88:1. Do not lower it.
             */}
             <p className="mt-4 text-[12px] leading-snug text-white/65">
-              Processing is deducted by Stripe, not by LastDonor. Recurring
+              We pay the cost of processing out of our own funds. Recurring
               gifts carry no extra platform charge.
             </p>
           </div>

@@ -27,8 +27,8 @@ const trustSignals = [
     icon: ShieldCheckIcon,
     title: '0% platform fees',
     body:
-      'We take 0%. Stripe charges 2.9% plus 30 cents per donation, and we get none of it.',
-    detail: 'Stripe-secured payments',
+      'We take 0%, and nothing is deducted to move the money. The whole gift is credited to the campaign.',
+    detail: 'Card details never reach us',
   },
 ];
 

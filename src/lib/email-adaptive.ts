@@ -797,7 +797,7 @@ export function verificationEscalationEmail(p: {
               <div style="background: #0F766E; color: white; border-radius: 50%; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; margin-right: 12px; flex-shrink: 0;">1</div>
               <div>
                 <p style="margin: 0; font-weight: 600;">Verify your identity (2 minutes)</p>
-                <p style="margin: 4px 0 0; color: #666;">Upload your photo ID and take a quick selfie. Stripe handles this securely.</p>
+                <p style="margin: 4px 0 0; color: #666;">Upload your photo ID and take a quick selfie. A specialist identity service checks it.</p>
               </div>
             </div>
             <div style="display: flex; margin-bottom: 16px;">
@@ -811,7 +811,7 @@ export function verificationEscalationEmail(p: {
               <div style="background: #0F766E; color: white; border-radius: 50%; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; margin-right: 12px; flex-shrink: 0;">3</div>
               <div>
                 <p style="margin: 0; font-weight: 600;">Connect your bank account (3 minutes)</p>
-                <p style="margin: 4px 0 0; color: #666;">Set up your payout account through Stripe so we know where to send the funds.</p>
+                <p style="margin: 4px 0 0; color: #666;">Set up your payout account so we know where to send the money.</p>
               </div>
             </div>
           </div>

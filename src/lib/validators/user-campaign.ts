@@ -1,4 +1,7 @@
 import { z } from 'zod';
+
+import { DEFAULT_CURRENCY, SUPPORTED_CURRENCY_CODES } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
 import { validateImageUrl, validateYouTubeUrl } from './url-allowlist';
 
 export const CATEGORIES = [
@@ -52,7 +55,7 @@ export type BeneficiaryRelation = (typeof BENEFICIARY_RELATIONS)[number];
  *
  * After full verification, the entire raised amount is released as a lump sum.
  */
-export const createUserCampaignSchema = z.object({
+const createUserCampaignBase = z.object({
   // ── Step 1: Who Needs Help ─────────────────────────────────────────────
   subjectName: z.string().trim()
     .min(2, 'Name must be at least 2 characters')
@@ -79,10 +82,33 @@ export const createUserCampaignSchema = z.object({
     .max(10000, 'Story must be under 10,000 characters'),
 
   // ── Step 3: Goal & Fund Usage ──────────────────────────────────────────
-  goalAmount: z.number()
-    .int('Goal must be a whole number of cents')
-    .min(100, 'Minimum goal is $1')
-    .max(100_000_000_000, 'Maximum goal is $1,000,000,000'),
+  /**
+   * The currency this campaign raises in, fixed at creation.
+   *
+   * ⛔ Added 2026-10-26, `docs/116` §3. NOTHING in this codebase could set
+   * it: all four `insert(campaigns)` sites omitted the column, so every
+   * campaign ever created took the `'USD'` default - on a platform whose only
+   * working rail is M-Pesa and whose only real donations have been in
+   * shillings (`docs/92`).
+   *
+   * Restricted to currencies the platform can COLLECT, not merely knows
+   * (`docs/103`), because `donations` carries a composite FK onto
+   * `campaigns (id, currency)` and a campaign nothing can settle is
+   * unfundable.
+   */
+  currency: z
+    .enum(SUPPORTED_CURRENCY_CODES as unknown as [string, ...string[]])
+    .default(DEFAULT_CURRENCY),
+  /**
+   * Minor units of `currency` - NOT cents (`docs/92`).
+   *
+   * ⚠️ The bounds are a SANITY range, not a policy, which is why they are
+   * not in `CURRENCIES` beside the admin route's: a whole number above the
+   * gateway's own floor and below a billion. Only the MESSAGE was wrong, and
+   * it is now rendered in the campaign's own currency by the refinement
+   * below.
+   */
+  goalAmount: z.number().int('Goal must be a whole number'),
   // Fund usage plan is optional at creation time. Organizers are prompted
   // to add one once their campaign starts receiving funding.
   fundUsagePlan: z.string().trim()
@@ -108,6 +134,34 @@ export const createUserCampaignSchema = z.object({
   // The fields are kept for backwards compatibility but always sent as true.
   agreedToTerms: z.literal(true, { errorMap: () => ({ message: 'You must agree to the Terms of Service' }) }),
   confirmedTruthful: z.literal(true, { errorMap: () => ({ message: 'You must confirm the information is truthful' }) }),
+});
+
+/**
+ * The wizard's sanity range, in minor units of whatever currency.
+ *
+ * ⚠️ These are the SAME INTEGERS the schema already enforced, deliberately.
+ * The obvious improvement - a floor of `minDonationMinor`, since a goal below
+ * one donation cannot be reached by one - would reject a US$1 to US$4.99 goal
+ * that is accepted today, and changing what an organiser may ask for is a
+ * product call, not a currency fix. Recorded in `docs/116` §3.3, not taken.
+ */
+const MIN_WIZARD_GOAL_MINOR = 100;
+const MAX_WIZARD_GOAL_MINOR = 100_000_000_000;
+
+export const createUserCampaignSchema = createUserCampaignBase.superRefine((data, ctx) => {
+  if (data.goalAmount < MIN_WIZARD_GOAL_MINOR) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['goalAmount'],
+      message: `Minimum goal is ${formatMoney(MIN_WIZARD_GOAL_MINOR, data.currency, 'whole')}`,
+    });
+  } else if (data.goalAmount > MAX_WIZARD_GOAL_MINOR) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['goalAmount'],
+      message: `Maximum goal is ${formatMoney(MAX_WIZARD_GOAL_MINOR, data.currency, 'whole')}`,
+    });
+  }
 });
 
 export const updateUserCampaignSchema = z.object({

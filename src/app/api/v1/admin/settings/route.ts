@@ -54,9 +54,6 @@ function validateSettingValue(key: SettingKey, value: unknown): string | null {
       if (key === 'campaign.auto_publish_threshold' && (value < 0 || value > 100)) {
         return `${key}: must be between 0 and 100`;
       }
-      if (key === 'donation.min_amount' || key === 'donation.max_amount') {
-        if (value > 100_000_000) return `${key}: exceeds maximum allowed ($1,000,000)`;
-      }
       if (key === 'campaign.max_impact_tiers' && value > 50) {
         return `${key}: exceeds maximum of 50`;
       }
@@ -171,26 +168,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(error, { status: 400 });
   }
 
-  // Cross-field validation: min < max
-  const minAmount = body['donation.min_amount'] as number | undefined;
-  const maxAmount = body['donation.max_amount'] as number | undefined;
-  if (minAmount !== undefined && maxAmount !== undefined && minAmount >= maxAmount) {
-    const error: ApiError = {
-      ok: false,
-      error: { code: 'VALIDATION_ERROR', message: 'donation.min_amount must be less than donation.max_amount', requestId },
-    };
-    return NextResponse.json(error, { status: 400 });
-  }
-
-  const minGoal = body['campaign.min_goal'] as number | undefined;
-  const maxGoal = body['campaign.max_goal'] as number | undefined;
-  if (minGoal !== undefined && maxGoal !== undefined && minGoal >= maxGoal) {
-    const error: ApiError = {
-      ok: false,
-      error: { code: 'VALIDATION_ERROR', message: 'campaign.min_goal must be less than campaign.max_goal', requestId },
-    };
-    return NextResponse.json(error, { status: 400 });
-  }
+  /*
+    The donation and campaign-goal min<max cross-checks lived here. Both
+    pairs of settings were removed because no money path read them
+    (`docs/116`); the real bounds are per currency in `CURRENCIES`, and the
+    validator that enforces them is `createCampaignSchema`.
+  */
 
   // Validate each value against its type constraints
   const errors: string[] = [];

@@ -133,7 +133,7 @@ export function injectCta(html: string, causeCategory: string): string {
 
   const topCta = `\n<aside class="blog-cta" role="complementary" aria-label="Start your campaign">
 <p class="blog-cta-heading"><strong>Need Help With a ${capitalize(categoryLabel)} Cause?</strong></p>
-<p>LastDonor.org charges 0% platform fees. Standard Stripe processing fees apply.</p>
+<p>LastDonor.org charges 0% platform fees, and nothing is deducted from a donation to process it.</p>
 <p><a href="/share-your-story" class="blog-cta-button">Start a Campaign</a></p>
 </aside>\n`;
 

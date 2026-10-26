@@ -95,7 +95,7 @@ export default async function DonatePage() {
     {
       question: 'Does LastDonor charge a platform fee on donations?',
       answer:
-        'We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
+        'We take 0%. The company that moves the money charges a fee to do it, and we receive no part of that fee. We pay our own bills from separate donations and grants.',
     },
     {
       question: 'Can I cancel a monthly general fund donation?',

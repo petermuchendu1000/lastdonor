@@ -68,7 +68,7 @@ const faqs = [
   {
     question: 'What does LastDonor charge?',
     answer:
-      'Nothing. We take 0% of what you raise. Stripe handles the card payment and charges 2.9% plus 30 cents per donation. On a $50 donation that is $1.75, so you receive $48.25. We pay our own bills from separate donations and grants.',
+      'Nothing. We take 0% of what you raise. The company that moves the money charges a fee to do it, and we receive no part of that fee. We pay our own bills from separate donations and grants.',
   },
   {
     question: 'What makes a fundraiser easier to review?',

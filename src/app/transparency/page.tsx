@@ -117,8 +117,9 @@ export default async function TransparencyPage() {
           Fee Disclosure
         </h2>
         <p className="mt-2 text-muted-foreground">
-          LastDonor charges 0% platform fees on fundraisers. Standard Stripe
-          processing fees apply.
+          LastDonor charges 0% platform fees on fundraisers, and no processing
+          fee is deducted from a donation. The campaign is credited the whole
+          gift.
         </p>
         <div className="mt-6 space-y-4">
           <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
@@ -134,10 +135,17 @@ export default async function TransparencyPage() {
             <div>
               <p className="font-semibold text-foreground">Payment Processing</p>
               <p className="text-sm text-muted-foreground">
-                Stripe charges its standard card processing fee. LastDonor does not receive this fee.
+                The payment company charges us a fee to move the money. It is not deducted from the donation.
               </p>
             </div>
-            <span className="font-mono text-2xl font-bold text-brand-amber">Stripe</span>
+            {/*
+              ⛔ Was the single word "Stripe" (`docs/116` §5), as the VALUE of
+              the fee row on the transparency page - on a platform where
+              Stripe has never moved a cent and every donation arrived over
+              M-Pesa (`docs/72`, `docs/92`). The row's value should answer the
+              question the row asks, which is how much comes out of the gift.
+            */}
+            <span className="font-mono text-2xl font-bold text-brand-amber">0%</span>
           </div>
           <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
             <div>

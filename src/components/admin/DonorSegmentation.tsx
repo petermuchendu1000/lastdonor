@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/select';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import { DonorScoreBadge } from '@/components/admin/DonorScoreBadge';
-import { formatMoney } from '@/lib/money/format';
+import { formatMoney, majorToMinor } from '@/lib/money/format';
+import { CURRENCIES, SUPPORTED_CURRENCY_CODES } from '@/lib/money/currencies';
 import type { CurrencyTotal } from '@/lib/admin/donation-totals.server';
 import { formatDate } from '@/lib/utils/dates';
 
@@ -50,14 +51,46 @@ interface SegmentCard {
   description: string;
 }
 
-const SEGMENTS: SegmentCard[] = [
+/**
+ * `major_donors`, `minDonated` and `maxDonated` are MONEY filters, and the API
+ * refuses them without a currency (`docs/116` §2).
+ *
+ * ⛔ This list is not just documentation. It is what decides whether the
+ * selected currency is appended to a request, so a new money segment that is
+ * missing from it gets a 400 and a dash where its count should be.
+ */
+const MONEY_SEGMENTS = new Set(['major_donors']);
+
+/**
+ * The segments themselves, module-level and STABLE.
+ *
+ * ⚠️ The keys must not be rebuilt per render: the counts effect iterates
+ * them, and a fresh array each render makes it a dependency that changes every
+ * time - which is either an infinite fetch loop or a lint rule suppressed to
+ * hide one. Only the `major_donors` DESCRIPTION varies by currency, and that
+ * is computed at render.
+ */
+const SEGMENT_DEFS: Array<{ key: string; label: string; description?: string }> = [
   { key: 'champions', label: 'Champions', description: 'Score 81+' },
-  { key: 'major_donors', label: 'Major Donors', description: '$500+ lifetime' },
+  { key: 'major_donors', label: 'Major Donors' },
   { key: 'recurring', label: 'Recurring', description: 'Active recurring donors' },
   { key: 'new_donors', label: 'New Donors', description: 'Joined < 30 days' },
   { key: 'at_risk', label: 'At Risk', description: '6-12 months inactive' },
   { key: 'lapsed', label: 'Lapsed', description: '12+ months inactive' },
 ];
+
+/** The currency-dependent descriptions, applied at render. */
+function segmentsFor(currency: string): SegmentCard[] {
+  return SEGMENT_DEFS.map((seg) => ({
+    key: seg.key,
+    label: seg.label,
+    description:
+      seg.description
+      // ⚠️ Was the literal '$500+ lifetime' on a platform whose only money
+      // has ever arrived in shillings (`docs/92`).
+      ?? `${formatMoney(CURRENCIES[currency].majorDonorMinor, currency, 'whole')}+ lifetime`,
+  }));
+}
 
 const PAGE_SIZE = 25;
 
@@ -69,6 +102,18 @@ export function DonorSegmentation() {
   const [offset, setOffset] = useState(0);
 
   // Custom filter state
+  /**
+   * The currency every money filter on this screen is expressed in.
+   *
+   * ⛔ Not a silent default: it is a visible control, and the amount inputs
+   * and the Major Donors threshold are both labelled with it. There is no
+   * exchange rate available to this screen and `docs/102` forbids one deciding
+   * anything but display, so a cross-currency donor list is not a thing this
+   * screen can honestly show - it shows one currency at a time and says which.
+   */
+  const [currency, setCurrency] = useState<string>(SUPPORTED_CURRENCY_CODES[0]);
+  const SEGMENTS = segmentsFor(currency);
+
   const [customMode, setCustomMode] = useState(false);
   const [minScore, setMinScore] = useState('');
   const [maxScore, setMaxScore] = useState('');
@@ -84,9 +129,11 @@ export function DonorSegmentation() {
     async function loadCounts() {
       const counts: Record<string, number> = {};
       await Promise.all(
-        SEGMENTS.map(async (seg) => {
+        SEGMENT_DEFS.map(async (seg) => {
           try {
-            const res = await fetch(`/api/v1/admin/donors/segments?segment=${seg.key}&limit=1`, { signal: controller.signal });
+            const q = new URLSearchParams({ segment: seg.key, limit: '1' });
+            if (MONEY_SEGMENTS.has(seg.key)) q.set('currency', currency);
+            const res = await fetch(`/api/v1/admin/donors/segments?${q}`, { signal: controller.signal });
             const json = await res.json();
             if (json.ok) counts[seg.key] = json.data.total;
           } catch { /* ignore */ }
@@ -96,7 +143,9 @@ export function DonorSegmentation() {
     }
     loadCounts();
     return () => controller.abort();
-  }, []);
+    // Re-counted on a currency change: the Major Donors tile is a different
+    // question in each currency.
+  }, [currency]);
 
   const fetchSegment = useCallback(async (params: URLSearchParams) => {
     setLoading(true);
@@ -114,6 +163,7 @@ export function DonorSegmentation() {
     setActiveSegment(segmentKey);
     setOffset(0);
     const params = new URLSearchParams({ segment: segmentKey, limit: String(PAGE_SIZE), offset: '0' });
+    if (MONEY_SEGMENTS.has(segmentKey)) params.set('currency', currency);
     fetchSegment(params);
   }
 
@@ -129,8 +179,15 @@ export function DonorSegmentation() {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(pageOffset) });
     if (minScore) params.set('minScore', minScore);
     if (maxScore) params.set('maxScore', maxScore);
-    if (minDonated) params.set('minDonated', String(Math.round(Number(minDonated) * 100)));
-    if (maxDonated) params.set('maxDonated', String(Math.round(Number(maxDonated) * 100)));
+    /*
+      ⚠️ These multiplied by a hardcoded 100. `majorToMinor` reads the
+      selected currency's own exponent instead, which is the 100x bug waiting
+      for UGX, RWF, XOF or XAF (`docs/103`). The API now takes minor units, so
+      the conversion happens once, here, where the human typed a major figure.
+    */
+    if (minDonated || maxDonated) params.set('currency', currency);
+    if (minDonated) params.set('minDonated', String(majorToMinor(Number(minDonated), currency)));
+    if (maxDonated) params.set('maxDonated', String(majorToMinor(Number(maxDonated), currency)));
     if (donorType !== 'all') params.set('donorType', donorType);
     if (tag) params.set('tag', tag);
     if (search) params.set('search', search);
@@ -147,6 +204,7 @@ export function DonorSegmentation() {
         limit: String(PAGE_SIZE),
         offset: String(newOffset),
       });
+      if (MONEY_SEGMENTS.has(activeSegment)) params.set('currency', currency);
       fetchSegment(params);
     }
   }
@@ -201,6 +259,23 @@ export function DonorSegmentation() {
               />
             </div>
             <div>
+              <Label htmlFor="segment-currency">Currency</Label>
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger id="segment-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SUPPORTED_CURRENCY_CODES.map((code) => (
+                    <SelectItem key={code} value={code}>{code}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Amounts below, and the Major Donors tile, are compared in this
+                currency only. Giving in another currency is not converted.
+              </p>
+            </div>
+            <div>
               <Label>Donor Type</Label>
               <Select value={donorType} onValueChange={setDonorType}>
                 <SelectTrigger>
@@ -247,7 +322,7 @@ export function DonorSegmentation() {
               </div>
             </div>
             <div>
-              <Label>Min Donated ($)</Label>
+              <Label>Min donated ({currency})</Label>
               <Input
                 type="number"
                 min={0}
@@ -258,7 +333,7 @@ export function DonorSegmentation() {
               />
             </div>
             <div>
-              <Label>Max Donated ($)</Label>
+              <Label>Max donated ({currency})</Label>
               <Input
                 type="number"
                 min={0}

@@ -93,6 +93,48 @@ export interface CurrencyDefinition {
    */
   readonly unverifiedCapMinor: number;
   /**
+   * Lifetime giving at or above which the admin donor list calls somebody a
+   * "major donor", in minor units.
+   *
+   * ⛔ Added 2026-10-26. `/api/v1/admin/donors/segments` filtered that segment
+   * with a bare `"totalDonated" >= 50000` - US$500 expressed as a raw integer
+   * and applied to every donor whatever they gave in, so somebody who gave
+   * KES 50,000 (about US$385) was classified by a United States dollar rule.
+   *
+   * ⚠️ Per currency and NOT converted, for the same reason as
+   * `unverifiedCapMinor`: there is no FX in this codebase and `docs/102`
+   * forbids a rate deciding anything but display. The USD figure is the one
+   * that was already in the route, unchanged. The KES figure is a POLICY
+   * NUMBER on the same scale the owner already chose for the pre-verification
+   * cap in `docs/101` (US$500 ↔ KES 50,000) - it is one line to change, and
+   * it decides nothing but which rows an admin list shows.
+   */
+  readonly majorDonorMinor: number;
+  /**
+   * The goal range the ADMIN create route accepts, in minor units.
+   *
+   * ⛔ Added 2026-10-26. `createCampaignSchema` carried
+   * `.min(100_000, 'Minimum goal is $1,000').max(10_000_000, 'Maximum goal is
+   * $100,000')` - two integers and two dollar signs, applied to a campaign in
+   * whatever currency. There was no way to create a campaign in KES at all
+   * (`docs/116` §3), so the bug was latent; the moment the currency became
+   * settable it would have validated a shilling goal against a dollar range
+   * and said so in dollars.
+   *
+   * ⚠️ The USD pair is byte-for-byte what the validator already enforced.
+   * The KES pair is a POLICY NUMBER on the ×100 scale the owner chose in
+   * `docs/101` for `unverifiedCapMinor` (US$500 ↔ KES 50,000) - NOT a
+   * conversion, since this codebase has no rate for accounting (`docs/102`),
+   * and one line to change.
+   *
+   * ⚠️ The ORGANISER wizard's bounds are deliberately NOT here. They are
+   * 100 to 100_000_000_000, which is a sanity range rather than a policy -
+   * see `createUserCampaignSchema`, where only the MESSAGE needed a currency.
+   */
+  readonly minGoalMinor: number;
+  /** @see minGoalMinor */
+  readonly maxGoalMinor: number;
+  /**
    * Which gateway takes money in this currency. Used to pick the rail and to
    * refuse a donation the platform cannot actually collect.
    */
@@ -122,6 +164,11 @@ export const CURRENCIES: Readonly<Record<string, CurrencyDefinition>> = Object.f
     maxDonationMinor: 10_000_000,
     // US$500.00. The figure the owner named when specifying the tiered model.
     unverifiedCapMinor: 50_000,
+    // US$500.00 - exactly the threshold the segments route already used.
+    majorDonorMinor: 50_000,
+    // US$1,000.00 and US$100,000.00 - exactly `createCampaignSchema`'s bounds.
+    minGoalMinor: 100_000,
+    maxGoalMinor: 10_000_000,
     gateway: 'stripe' as const,
   }),
 
@@ -177,6 +224,17 @@ export const CURRENCIES: Readonly<Record<string, CurrencyDefinition>> = Object.f
       cap is reachable only across several donations - never by one.
     */
     unverifiedCapMinor: 5_000_000,
+    // KES 50,000.00, the same scale as the cap above. A policy number.
+    majorDonorMinor: 5_000_000,
+    /*
+      KES 100,000.00 to KES 10,000,000.00. Policy numbers on the same ×100
+      scale as `unverifiedCapMinor` above, and the owner's to revisit. Note
+      the floor is 2x the pre-verification cap, so a KES campaign cannot
+      reach its own minimum goal before somebody has checked the organiser's
+      ID - which is the intended order of events, not an accident.
+    */
+    minGoalMinor: 10_000_000,
+    maxGoalMinor: 1_000_000_000,
     gateway: 'payhero' as const,
   }),
 });

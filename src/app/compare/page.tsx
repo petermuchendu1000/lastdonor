@@ -12,7 +12,7 @@ const faqs = [
   {
     question: 'Does LastDonor charge a platform fee?',
     answer:
-      'No. We take 0%. Stripe charges 2.9% plus 30 cents to process the payment. On a $50 donation that is $1.75, so the campaign gets $48.25. We pay our own bills from separate donations and grants.',
+      'No. We take 0%. The company that moves the money charges a fee to do it, and we receive no part of that fee. We pay our own bills from separate donations and grants.',
   },
   {
     question: 'Does LastDonor guarantee fundraising results?',
@@ -113,7 +113,7 @@ export default function ComparePage() {
         <div className="mt-10 grid gap-4 sm:grid-cols-3">
           {[
             ['LastDonor platform fee', '0%'],
-            ['Payment processing', 'Standard Stripe fees'],
+            ['Deducted from a donation', 'Nothing'],
             ['Campaign review', 'Before publication'],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl border border-border bg-card p-5">
@@ -146,8 +146,8 @@ export default function ComparePage() {
                 </tr>
                 <tr>
                   <td className="px-4 py-4 font-medium text-foreground">Payment processing</td>
-                  <td className="px-4 py-4 text-muted-foreground">The card processing fee and who keeps it.</td>
-                  <td className="px-4 py-4 text-foreground">Stripe charges 2.9% + 30c per donation. We get none of it.</td>
+                  <td className="px-4 py-4 text-muted-foreground">The payment processing fee and who keeps it.</td>
+                  <td className="px-4 py-4 text-foreground">The payment company charges a fee. We get none of it.</td>
                 </tr>
                 <tr>
                   <td className="px-4 py-4 font-medium text-foreground">Campaign review</td>
@@ -177,7 +177,7 @@ export default function ComparePage() {
           </h2>
           <ul className="mt-6 space-y-3 text-muted-foreground">
             <li>You want a reviewed medical, emergency, memorial, family, veteran, or disaster relief fundraiser.</li>
-            <li>You want 0% platform fees on fundraisers from LastDonor, with only standard Stripe processing fees applying.</li>
+            <li>You want 0% platform fees on fundraisers from LastDonor, with nothing deducted from a donation to process it.</li>
             <li>You want campaign pages that show progress and updates instead of only a donation button.</li>
             <li>You want donor-facing language that is careful about tax status, refunds, and fee disclosure.</li>
           </ul>

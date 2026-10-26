@@ -46,7 +46,7 @@ export default function FundReleasePolicyPage() {
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
             <li>Stripe processes donations and handles card, wallet, subscription, and settlement mechanics.</li>
             <li>LastDonor records donation details needed for donor support, campaign progress, fraud prevention, and compliance.</li>
-            <li>LastDonor charges 0% platform fees on fundraisers. Stripe processing fees may apply.</li>
+            <li>LastDonor charges 0% platform fees on fundraisers, and no processing fee is deducted from a donation or from a payout.</li>
           </ul>
         </section>
 

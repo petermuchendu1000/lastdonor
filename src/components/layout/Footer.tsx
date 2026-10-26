@@ -185,13 +185,27 @@ export function Footer() {
                   See docs/70.
                 */}
                 <CreditCardIcon size="sm" />
-                Secured by Stripe
+                Card details never reach us
               </span>
               {/*
                 "SSL Protected" was removed: every site has been HTTPS for
                 years, so it signals nothing and spends a line saying so.
-                "Secured by Stripe" stays, because who holds the card
-                details is a real question a donor has.
+
+                ⛔ "Secured by Stripe" was removed 2026-10-26, `docs/116` §5.
+                Who holds the card details IS a real question a donor has, so
+                the line stays - but it now names the property instead of a
+                vendor. Stripe cannot take a payment on this platform
+                (`docs/72`) and every donation ever collected came over
+                M-Pesa (`docs/92`), so a Stripe badge on every page of the
+                site was a security claim about a company not in the request
+                path.
+
+                What replaced it is traced, not assumed: the card rail uses
+                `ui_mode: 'embedded'` Stripe Checkout
+                (`create-checkout/route.ts:239`), whose fields are in the
+                processor's own iframe, and the M-Pesa rail takes a phone
+                number and an STK push - the PIN is entered on the handset.
+                Neither puts a card number on our servers.
               */}
             </div>
           </div>

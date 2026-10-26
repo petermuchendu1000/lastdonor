@@ -48,7 +48,7 @@ export default function RefundPolicyPage() {
             <li>Donations are charged in U.S. dollars.</li>
             <li>The minimum donation is $5.00 and the maximum is $100,000.00 per transaction.</li>
             <li>Stripe securely processes payment details. LastDonor does not store full card numbers.</li>
-            <li>LastDonor charges 0% platform fees on fundraisers. Stripe processing fees may apply.</li>
+            <li>LastDonor charges 0% platform fees on fundraisers, and no processing fee is deducted from a donation.</li>
             <li>Donor names and donation amounts may appear publicly unless the donor selects anonymous.</li>
           </ul>
         </section>

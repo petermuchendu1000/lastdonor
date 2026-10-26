@@ -142,7 +142,13 @@ export function SidebarDonationSummary({
       <ul className="grid grid-cols-3 gap-2 text-[10.5px] font-medium text-muted-foreground">
         <li className="flex flex-col items-center gap-1 text-center">
           <LockClosedIcon className="h-4 w-4" aria-hidden="true" />
-          <span>Stripe secured</span>
+          {/*
+            ⛔ Was "Stripe secured" (`docs/116` §5): a security claim naming a
+            processor that cannot take a payment here (`docs/72`), on a
+            platform whose every donation arrived over M-Pesa (`docs/92`).
+            Names the property, not a vendor - see `Footer.tsx` for the trace.
+          */}
+          <span>Card-safe checkout</span>
         </li>
         <li className="flex flex-col items-center gap-1 text-center">
           <HeartIcon className="h-4 w-4" aria-hidden="true" />

@@ -21,14 +21,29 @@ export type SettingCategory = (typeof SETTING_CATEGORIES)[number];
 // ─── Typed defaults ─────────────────────────────────────────────────────────
 
 export interface SettingsMap {
-  // Donation
-  'donation.min_amount': number;
-  'donation.max_amount': number;
-  'donation.preset_amounts': number[];
+  /*
+    ⛔ REMOVED 2026-10-26: five money settings that nothing read.
 
+    `donation.min_amount`, `donation.max_amount`, `donation.preset_amounts`,
+    `campaign.min_goal` and `campaign.max_goal` were stored, displayed and
+    validated against each other, and [VERIFIED by enumerating every
+    `getSetting()` call - all use literal keys - and every `getAllSettings()`
+    consumer] read by NO money path. The real bounds are per currency in
+    `CURRENCIES` (`docs/98`), which is where they have to be: one
+    platform-wide integer cannot express a floor for both USD and KES
+    (500 minor units is US$5.00 or KES 5.00, and `docs/98` records the
+    database CHECK being dropped for exactly this reason).
+
+    They were also the only `inputType: 'cents'` settings, and being
+    currency-less they rendered with a dollar sign they had no claim to
+    (`docs/115` §7.4).
+
+    ⚠️ No production row is deleted. `settings.server.ts:54` keeps
+    `if (row.key in SETTING_DEFAULTS)`, so a stored row for a removed key is
+    simply ignored, and `updateSettings` filters the same way. Restoring
+    these keys would pick any existing row back up.
+  */
   // Campaign
-  'campaign.min_goal': number;
-  'campaign.max_goal': number;
   'campaign.max_impact_tiers': number;
   'campaign.auto_publish_threshold': number;
   'campaign.max_auto_publish': number;
@@ -80,14 +95,6 @@ export interface SettingsMap {
 export type SettingKey = keyof SettingsMap;
 
 export const SETTING_DEFAULTS: SettingsMap = {
-  // Donation (values in cents)
-  'donation.min_amount': 500,
-  'donation.max_amount': 10_000_000,
-  'donation.preset_amounts': [2500, 5000, 10000, 25000],
-
-  // Campaign (values in cents)
-  'campaign.min_goal': 100_000,
-  'campaign.max_goal': 10_000_000,
   'campaign.max_impact_tiers': 10,
   'campaign.auto_publish_threshold': 70,
   'campaign.max_auto_publish': 5,
@@ -138,12 +145,6 @@ export const SETTING_DEFAULTS: SettingsMap = {
 
 /** Metadata for rendering setting labels in the UI */
 export const SETTING_META: Record<SettingKey, { label: string; description: string; category: SettingCategory; inputType: 'number' | 'text' | 'boolean' | 'json' | 'cents' }> = {
-  'donation.min_amount': { label: 'Minimum Donation', description: 'Minimum donation amount in cents', category: 'donation', inputType: 'cents' },
-  'donation.max_amount': { label: 'Maximum Donation', description: 'Maximum donation amount in cents', category: 'donation', inputType: 'cents' },
-  'donation.preset_amounts': { label: 'Preset Amounts', description: 'Suggested donation amounts in cents (comma-separated)', category: 'donation', inputType: 'json' },
-
-  'campaign.min_goal': { label: 'Minimum Goal', description: 'Minimum campaign goal in cents', category: 'campaign', inputType: 'cents' },
-  'campaign.max_goal': { label: 'Maximum Goal', description: 'Maximum campaign goal in cents', category: 'campaign', inputType: 'cents' },
   'campaign.max_impact_tiers': { label: 'Max Impact Tiers', description: 'Maximum impact tiers per campaign', category: 'campaign', inputType: 'number' },
   'campaign.auto_publish_threshold': { label: 'Auto-Publish Threshold', description: 'Minimum relevance score (0–100) to auto-publish campaigns', category: 'campaign', inputType: 'number' },
   'campaign.max_auto_publish': { label: 'Max Auto-Publish', description: 'Maximum campaigns auto-published per cron run', category: 'campaign', inputType: 'number' },

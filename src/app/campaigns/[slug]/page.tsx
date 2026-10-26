@@ -474,7 +474,14 @@ export default async function CampaignDetailPage({ params }: PageProps) {
       description: campaignDescription,
     },
     description:
-      `Donate to help ${campaign.subjectName}. LastDonor charges 0% platform fees; standard Stripe processing fees apply.`,
+      /*
+        ⛔ Said "standard Stripe processing fees apply" until 2026-10-26
+        (`docs/116` §5). This is a META DESCRIPTION, so search engines
+        republish it - and it named a processor that cannot take a payment
+        here while asserting a deduction that no code performs
+        (`payment-service.ts:236` credits the full amount).
+      */
+      `Donate to help ${campaign.subjectName}. LastDonor charges 0% platform fees and deducts nothing from your donation.`,
   };
 
   return (

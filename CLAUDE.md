@@ -129,6 +129,7 @@ transcript or a commit message is lost.
 | `113-DIRECT-INSTITUTIONAL-PAYOUTS-ASSESSMENT.md` | **⛔ NOT BUILT, owner decision, and one part is a LEGAL question. Paying a hospital/funeral home directly instead of the organiser. The finding that reframes it: [VERIFIED] money has NEVER left this platform - `campaign_withdrawals` 0 rows, 0 users with a Connect account, 0 campaigns verified enough to withdraw, and the only out-rail is Stripe, which answers `status: error` (docs/72). The live rail's client is COLLECTIONS ONLY (`initiateStkPush`, `getTransactionStatus`, `getWalletBalance`) and whether PayHero can disburse at all is [UNKNOWN] - my unauthenticated probe was NON-DISCRIMINATING (the known-good `initiate-stk-push` returns 404 on GET too, because only POST is routed) and I did not POST to guessed payout endpoints on a wallet shared with BETWOIN LTD. ⚠️ 'Medical billing networks' are not integrable anywhere, but KENYA ALREADY HAS THE PRIMITIVE - a hospital paybill with an account-number field - so the feature is far more tractable on the rail that works than the one that does not. ⛔ Becoming an intermediary that settles third-party debts is CBK/money-transmitter territory. `trusted_institutions` deliberately holds NO payment column (docs/108 refused `fully_verified` because it releases money), so adding payee details reopens that decision. Recommends verified receipts published on the campaign instead: most of the donor trust, no licence, no destination that can be wrong. |
 | `114-CURRENCY-RENDERING-SWEEP-ADR.md` | **Every user-facing money figure now names its own currency. `/transparency` published `$100.00` while production held KES 100.00 (~US$0.77) - a ~130x overstatement, from a whole-table `SUM(donations.amount)` rendered by `centsToDollars`. 23 surfaces fixed and verified in a REAL BROWSER on a KES-only fixture (18 routes, 0 dollar figures); four per-currency modules, two more hand-rolled formatters removed (six total, after docs/88 F4/F5), and three bare `<Money>` defaults made REQUIRED props - `DonorFeed` printed a KES 2,500 gift as `$2,500` on the public campaign page. ⚠️ `Math.round(dollars * 100)` in BOTH withdraw handlers: right by coincidence, 100x wrong for a zero-decimal currency. `DonationForm` is legitimately USD (gateway-routed) and is now TRIPWIRED by `donation-form-usd-premise.test.ts`. Also: a fabricated statistic removed, 135 lines of dead code with a currency bug deleted, and one surviving mutation recorded. ⚠️ its admin count (20 components / 46 sites) is CORRECTED by docs/115 to 17 files / 44 sites, and they are now DONE; ⛔ [VERIFIED] **32** user-facing files name Stripe as the processor - not the 10 docs/110 §10 counts - including the footer on every page, on a platform whose only money arrived over M-Pesa.** |
 | `115-ADMIN-CURRENCY-AND-TWO-LIVE-DEFECTS.md` | **The admin currency sweep (17 files, 44 direct sites + 10 via local wrappers, verified in a browser across 14 admin routes: 0 dollar figures) and TWO LIVE defects found taking its inventory. (1) `/campaigns` "Load more" rendered EVERY appended card in dollars - the listing API never selected `currency` and `CampaignGrid` parses it with an unchecked `as CampaignData[]` cast; reproduced in a browser, 0/12 dollars before the click and 5/5 after. (2) The campaign-update digest emailed every subscribed donor `$18400.00 of $50000.00 raised` for a KES campaign; `formatCents` now REQUIRES a currency so the compiler enumerated all 28 sites. ⚠️ My first reading of (2) was WRONG and is recorded: receipts are NOT affected - `notifyAdaptiveDonationReceipt` has zero callers and the live PayHero path sends no mail at all. ⛔ `users.total_donated` is a currency-BLIND integer and cannot be rendered in any currency - recomputed per currency from `donations`. Ten admin aggregates now group by currency via `src/lib/admin/donation-totals.server.ts` (13 integration tests). The admin ratchet now checks the PROPERTY (every `<Money>` has a currency) not the symptom, and immediately caught NINE misses in my own sweep. ⛔ Five findings reported not fixed, incl. donor-segment thresholds comparing a currency-blind figure and `fund-pool/allocate` not checking that source and target share a currency (reporting-only: no fund-pool path credits a campaign).** |
+| `116-FIVE-FINDINGS-AND-AN-UNGATED-THIRD-PATH.md` | **Closes the five findings docs/115 §7 reported, and found a SIXTH taking the inventory for one of them: ⛔ A THIRD CAMPAIGN-CREATION PATH PUBLISHED WITHOUT REVIEW. `news-pipeline.ts:688` inserted `status: 'active'` with `publishedAt: new Date()` - a machine-generated campaign about a NAMED REAL PERSON, public with nobody having read it - and it is NOT dead code: `CRON_SCHEDULE` runs both `ingest-news` and `fetch-news`, each calls `runNewsPipeline`, and no feature flag sits between the cron and the insert. ⚠️ `publisher-review-gate.test.ts` passed throughout because it NAMED TWO FILES and searched them for the literal `.insert(campaigns)`; this site spells it `.insert(schema.campaigns)` in a file it never opened - the docs/108 lesson again, and the claim 'every campaign is reviewed by a person' is asserted in ~44 lines across 23 files. It also sliced a FIXED 2,600 chars, so adding one comment made it fail with the gate intact. Now DISCOVERS every campaign insert from disk, both spellings, brace-matched - and its first version found SIX inserts because the comment EXPLAINING the fix quotes the forbidden string, so comments are stripped first. Also: campaign currency was UNSETTABLE (all four inserts omitted the column, so every campaign ever created was USD by default on a platform collecting only shillings) - ⛔ now settable by API but STILL NOT REACHABLE FROM ANY SCREEN (docs/83 shape, recorded not half-fixed); donor-segment money thresholds compared a currency-blind `total_donated` against a US dollar rule, now per currency with a REFUSAL when no currency is named, and ⚠️ a `HAVING` with no `GROUP BY` is one group over zero rows, so `maxDonated` matched every donor who had given NOTHING in that currency (probed against real Postgres); 13 sites quoted Stripe's 2.9% + $0.30 on a platform where Stripe cannot take a payment, the rate has never been charged, and ⛔ NO CODE DEDUCTS A PROCESSING FEE AT ALL (`unit_amount: data.amount` with no `application_fee`, `raisedAmount + amount`, `released - withdrawn - pending`) - removed with no substitute number, guarded by `fee-claims.test.ts` (8 -> 14 tests), and the stale test asserting the old claim was replaced not satisfied; the verification screen said 'handled securely by Stripe' while the button calls DIDIT (docs/81); fund-pool allocations could cross a currency boundary; five money settings removed that NOTHING read. Read §4 before touching campaign creation and §5.3 for the three areas reported not changed.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -139,8 +140,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7161 pass + 16 skipped, 230 files, as of 2026-10-25)
-npm run test:integration  # Vitest + a throwaway Postgres (177 tests, 17 files)
+npm run test:unit      # Vitest (7508 pass + 16 skipped, 250 files, as of 2026-10-26)
+npm run test:integration  # Vitest + a throwaway Postgres (237 tests, 25 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
@@ -983,6 +984,80 @@ These exist for a reason; changing them has consequences beyond the local file.
   the screen and the route so the two cannot drift (`docs/109`). ⚠️ Bump
   `TERMS_VERSION` in the same commit that edits `/terms` - nothing enforces
   it, and a stale value attests to the wrong document.
+
+- **Every path that creates a campaign is gated, and the gate test DISCOVERS
+  its own inputs.** Added 2026-10-26, see `docs/116` §4. A campaign may not be
+  inserted `active` with a `publishedAt` by anything except the admin create
+  route `/api/v1/campaigns`, where an administrator choosing 'active' IS the
+  human review. There were THREE non-admin creation paths and `docs/78`/`docs/79`
+  knew about two: `runNewsPipeline` (`src/lib/news/news-pipeline.ts`, reached by
+  the `ingest-news` and `fetch-news` crons) published machine-generated
+  campaigns about named real people with nobody reading them.
+
+  ⛔ **It escaped the gate test because the test named two files by hand** and
+  searched them for the literal `.insert(campaigns)` - this site spells it
+  `.insert(schema.campaigns)`. `src/lib/news/publisher-review-gate.test.ts` now
+  walks `src/`, matches both spellings and brace-matches the `.values({…})`
+  object. **Do not replace that discovery with a file list**, and do not slice
+  a fixed number of characters after the insert: the version that took 2,600
+  failed when a comment pushed `status: 'under_review'` past the window.
+
+  ⚠️ **Strip comments before any such sweep.** The comment explaining why an
+  insert is no longer `active` necessarily quotes `status: 'active'`, so a
+  raw-source match reports the fix as the defect - and the first discovery
+  found six inserts in four files, two of them prose.
+
+- **A campaign's currency is chosen at the insert and never written again.**
+  Added 2026-10-26, see `docs/116` §3. All four `insert(campaigns)` sites used
+  to omit the column, so every campaign ever created took the `'USD'` default
+  on a platform collecting only shillings. Both create schemas now carry
+  `currency`, restricted to **collectable** currencies (`SUPPORTED_CURRENCY_CODES`,
+  not the 152 of `WORLD_CURRENCY_EXPONENTS` - `docs/103`) and defaulting to
+  `DEFAULT_CURRENCY`.
+
+  ⛔ `updateCampaignSchema` is `createCampaignBase.partial()`, so it ACCEPTS
+  `currency`. What stops a write is that `PUT /api/v1/campaigns/[slug]` builds
+  `updateValues` field by field and `currency` is not in the list. **Never
+  replace that with `...data`** - `src/lib/validators/campaign-currency-immutable.test.ts`
+  fails on a spread and sweeps every `.update(campaigns).set({…})` in `src/`.
+
+  Goal bounds are per currency (`minGoalMinor`/`maxGoalMinor`) and their
+  messages render through `formatMoney`, so a shilling goal is never reported in
+  dollars. ⚠️ The KES figures are POLICY NUMBERS on the `docs/101` ×100 scale,
+  like `unverifiedCapMinor`, not conversions.
+
+- **No user-facing surface quotes a processing rate, and only server, admin and
+  policy surfaces may name the processor.** Added 2026-10-26, see `docs/116` §5.
+  Thirteen sites said "Stripe charges 2.9% plus 30 cents" and several did the
+  arithmetic down to "the campaign receives $48.25". Stripe cannot take a
+  payment here (`docs/72`), that rate has never been charged to anybody
+  (`docs/92`: PayHero's real fee is a flat KES 8.9 against a published KES 6),
+  and ⛔ **nothing deducts a processing fee at all** - `create-checkout` sets
+  `unit_amount: data.amount` with no `application_fee`, `payment-service.ts`
+  credits `raisedAmount + amount`, and `withdraw/route.ts` computes
+  `released - withdrawn - pending`.
+
+  ⛔ **Do not substitute another number.** `src/app/fee-claims.test.ts` fails
+  the build on a percent-plus-fixed rate, on "30 cents", and on a processor
+  name outside a documented allowlist - and asserts positively that the 0%
+  disclosure still exists, so the rule cannot be satisfied by deleting the fee
+  section. The allowlist covers server code, admin screens and the privacy,
+  terms and refund-policy pages, where naming a sub-processor is a COMPLIANCE
+  DISCLOSURE rather than a claim.
+
+- **An admin money filter names its currency or is refused.** Added 2026-10-26,
+  see `docs/116` §2. `GET /api/v1/admin/donors/segments` compared
+  `"totalDonated" >= 50000` - US$500 as a bare integer against a column with no
+  currency at all - so a KES 50,000 donor was classified by a dollar rule. The
+  threshold is now `CURRENCIES[code].majorDonorMinor` and `minDonated`/
+  `maxDonated` take MINOR UNITS, with a 400 when no supported currency is
+  passed. Defaulting is what the defect was.
+
+  ⚠️ **A `HAVING` with no `GROUP BY` is one group even over zero rows**, so
+  `COALESCE(SUM(amount), 0) <= X` is TRUE for a donor who has given nothing in
+  that currency. Proven against real Postgres: `?currency=KES&maxDonated=1`
+  returned a USD-only donor. `GROUP BY d.currency` in `givenInCurrency` is
+  load-bearing.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

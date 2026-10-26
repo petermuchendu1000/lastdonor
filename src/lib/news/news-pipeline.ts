@@ -35,6 +35,7 @@ import { cleanStoryHtml, validateStory } from '@/lib/ai/prompts/story-validation
 import type { StoryPattern } from '@/lib/ai/prompts/story-structures';
 import { getWordRange, scoreContextRichness } from '@/lib/ai/prompts/story-structures';
 import type { CampaignCategory } from '@/types';
+import { DEFAULT_CURRENCY } from '@/lib/money/currencies';
 import { getSetting } from '@/lib/settings.server';
 import {
   DEFAULT_CAMPAIGN_DAILY_LIMIT,
@@ -689,7 +690,37 @@ export async function runNewsPipeline(
         .values({
           title: campaignTitle,
           slug,
-          status: 'active',
+          /*
+            THE REVIEW GATE, THIRD PATH. Resolved 2026-10-26, see
+            `docs/116` §4.
+
+            This inserted `status: 'active'` with `publishedAt: new Date()`,
+            so a machine-generated campaign about a NAMED REAL PERSON went
+            public with nobody having read it - the exact defect `docs/78`
+            and `docs/79` were written to close, on a third creation path
+            that neither of them knew about.
+
+            ⚠️ It is not dead code: `CRON_SCHEDULE` runs both `ingest-news`
+            and `fetch-news`, and each calls `runNewsPipeline`, whose body
+            this is. There is no feature flag between the cron entry point
+            and this insert - `simulation.enabled` is never read here.
+
+            ⚠️ WHY NOTHING CAUGHT IT: `publisher-review-gate.test.ts` read
+            exactly TWO source files by literal path, and searched them for
+            the literal `.insert(campaigns)`. This site spells it
+            `.insert(schema.campaigns)` in a file the test never opened. The
+            test now DISCOVERS every campaign insert in `src/` from disk,
+            so a fourth path cannot be missed the same way.
+          */
+          status: 'under_review',
+          /*
+            ⚠️ EXPLICIT, not by omission (`docs/116` §3). This path's goal is
+            computed in USD cents and is not multi-currency; naming the
+            currency makes that assumption visible and stops a future change
+            to `DEFAULT_CURRENCY` silently re-denominating every automated
+            campaign.
+          */
+          currency: DEFAULT_CURRENCY,
           heroImageUrl,
           storyHtml,
           goalAmount: goalAmountCents,
@@ -706,7 +737,9 @@ export async function runNewsPipeline(
             paused: false,
             fundAllocation: (await getSetting('simulation.fund_allocation_default') as 'pool' | 'located_beneficiary') ?? 'pool',
           },
-          publishedAt: new Date(),
+          // Null until an admin approves it; the approval route stamps it,
+          // keyed on it being null (`docs/78`).
+          publishedAt: null,
         })
         .returning({ id: schema.campaigns.id });
 

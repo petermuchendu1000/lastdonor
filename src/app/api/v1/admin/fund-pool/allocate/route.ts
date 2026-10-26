@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     // Validate target campaign exists and is NOT simulated
     const [targetCampaign] = await db
-      .select({ id: campaigns.id, simulationFlag: campaigns.simulationFlag, title: campaigns.title })
+      .select({ id: campaigns.id, simulationFlag: campaigns.simulationFlag, title: campaigns.title, currency: campaigns.currency })
       .from(campaigns)
       .where(eq(campaigns.id, targetCampaignId))
       .limit(1);
@@ -56,9 +56,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate all allocation IDs exist and are pending
+    /*
+      `fund_pool_allocations` has NO currency column of its own: an
+      allocation's `amount` is in the currency of the campaign the money came
+      from, so the source campaign is joined to get it (`docs/92`).
+    */
     const allocations = await db
-      .select({ id: fundPoolAllocations.id, status: fundPoolAllocations.status })
+      .select({
+        id: fundPoolAllocations.id,
+        status: fundPoolAllocations.status,
+        sourceCurrency: campaigns.currency,
+      })
       .from(fundPoolAllocations)
+      .innerJoin(campaigns, eq(fundPoolAllocations.sourceCampaignId, campaigns.id))
       .where(inArray(fundPoolAllocations.id, allocationIds));
 
     if (allocations.length !== allocationIds.length) {
@@ -72,6 +82,44 @@ export async function POST(request: NextRequest) {
     if (nonPending.length > 0) {
       return NextResponse.json(
         { ok: false, error: { code: 'VALIDATION_ERROR', message: `${nonPending.length} allocation(s) are not in pending status`, requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
+
+    /*
+      ⛔ REFUSE A CROSS-CURRENCY ALLOCATION.
+
+      Nothing stopped an admin moving an allocation that originated on a KES
+      campaign onto a USD one. `amount` carries no currency, so the figure
+      would simply be re-read as the target's currency - KES 5,000 becoming
+      US$50 on a screen, a ~130x misstatement of the same shape as the
+      `/transparency` defect (`docs/114` §1).
+
+      ⚠️ Severity, traced before claiming it: allocations are inserted only
+      behind `campaign.simulationFlag` (`payment-service.ts:335`), and
+      `fund-pool/disburse` flips a status and writes an audit row WITHOUT
+      crediting any campaign. So this is a reporting defect today. It becomes
+      a payment one the moment disbursement credits a balance, which is
+      exactly why the guard goes in before that happens.
+
+      A 400 and not `assertSameCurrency` (which throws, and would be a 500):
+      an admin choosing the wrong campaign in a picker is a user error, and
+      this route already answers 400 for the simulated-target case.
+    */
+    const mismatched = allocations.filter((a) => a.sourceCurrency !== targetCampaign.currency);
+    if (mismatched.length > 0) {
+      const found = [...new Set(mismatched.map((a) => a.sourceCurrency))].sort().join(', ');
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message:
+              `${mismatched.length} allocation(s) are in ${found}, but the target campaign is in ` +
+              `${targetCampaign.currency}. Funds cannot be allocated across currencies.`,
+            requestId,
+          },
+        } satisfies ApiError,
         { status: 400 },
       );
     }
@@ -103,6 +151,7 @@ export async function POST(request: NextRequest) {
           allocationIds,
           targetCampaignId,
           targetCampaignTitle: targetCampaign.title,
+          currency: targetCampaign.currency,
           count: allocationIds.length,
           notes,
         },

@@ -169,8 +169,8 @@ export default function AboutPage() {
             operations separately through general fund donations, grants,
             sponsorships, and operating support. That support helps pay for
             campaign review, verification work, donor support, hosting, payment
-            operations, and impact updates. Standard Stripe processing fees are
-            separate.
+            operations, and impact updates. The cost of processing payments is
+            paid out of that support, not deducted from donations.
           </p>
 
           <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Who we help</h2>

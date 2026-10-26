@@ -164,6 +164,14 @@ export async function POST(request: NextRequest) {
           subjectHometown: data.subjectHometown,
           storyHtml,
           fundUsagePlan: data.fundUsagePlan ?? null,
+          /*
+            ⛔ Fixed at creation and immutable once money arrives - the
+            composite FK from `donations` onto `campaigns (id, currency)`
+            enforces it (`docs/92`). Omitted entirely until 2026-10-26, so
+            every campaign an organiser ever submitted was USD by default
+            on a platform collecting shillings (`docs/116` §3).
+          */
+          currency: data.currency,
           goalAmount: data.goalAmount,
           campaignOrganizer: organizer,
           /*

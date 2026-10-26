@@ -85,10 +85,36 @@ describe('the running total', () => {
     expect(amountFor('Your donation')).toBe('$0.00');
   });
 
-  it('names Stripe’s cut as coming out of the payout, not the card', () => {
+  /*
+    ⛔ REPLACED 2026-10-26, `docs/116` §5. This test asserted
+    `/2\.9% \+ \$0\.30/` and "comes out of the payout, not your card", so it
+    was HOLDING THE DEFECT IN PLACE - the same shape as
+    `instant-live-architecture.test.ts` in `docs/109`.
+
+    All three parts of that claim were false and each is checkable:
+      1. Stripe cannot take a payment here - `STRIPE_SECRET_KEY` on Fly is the
+         placeholder (`docs/72`) - and every donation ever collected came over
+         M-Pesa (`docs/92`).
+      2. 2.9% + $0.30 has never been charged to anybody on this platform.
+      3. Nothing deducts a processing fee from a payout at all:
+         `create-checkout` adds no `application_fee`, `payment-service.ts`
+         credits `raisedAmount + amount`, and `withdraw/route.ts` computes
+         `released - withdrawn - pending`.
+
+    What is pinned now is the property the file header asks for - a fee line
+    that cannot silently stop saying $0.00 - plus the absence of any rate.
+  */
+  it('states that the processing fee is not taken out of the donation', () => {
     render(<DonationForm {...props} />);
-    expect(ledger().textContent).toMatch(/2\.9% \+ \$0\.30/);
-    expect(ledger().textContent).toMatch(/comes out of the payout, not your\s+card/);
+    expect(ledger().textContent).toMatch(/fee is paid by us, not taken out of your\s+donation/);
+  });
+
+  it('⛔ quotes no processing rate, and names no processor', () => {
+    render(<DonationForm {...props} />);
+    const text = ledger().textContent ?? '';
+    expect(text).not.toMatch(/\d(?:\.\d+)?\s*%/);
+    expect(text).not.toMatch(/\bStripe\b/);
+    expect(text).not.toMatch(/30\s*(?:cents|c)\b/);
   });
 });
 
