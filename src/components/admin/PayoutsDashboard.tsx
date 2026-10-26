@@ -4,7 +4,8 @@ import { useState, useMemo, useCallback, Fragment } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Money } from '@/components/ui/Money';
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
+import { financeTotalsByCurrency } from '@/lib/dashboard-finance-totals';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -36,6 +37,8 @@ interface CampaignItem {
   status: string;
   verificationStatus: string;
   goalAmount: number;
+  /** The campaign's own currency; its amounts are in THAT currency's units. */
+  currency: string;
   raisedAmount: number;
   totalReleasedAmount: number;
   totalWithdrawnAmount: number;
@@ -143,17 +146,35 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
     setPage(1);
   }, []);
 
-  const totals = useMemo(() => {
-    let totalRaised = 0;
-    let totalReleased = 0;
-    let totalWithdrawn = 0;
-    for (const c of campaigns) {
-      totalRaised += c.raisedAmount;
-      totalReleased += c.totalReleasedAmount;
-      totalWithdrawn += c.totalWithdrawnAmount;
-    }
-    return { totalRaised, totalReleased, totalWithdrawn };
-  }, [campaigns]);
+  /*
+    ⛔ Three accumulators used to add `raisedAmount`, `totalReleasedAmount`
+    and `totalWithdrawnAmount` ACROSS CAMPAIGNS and print each with
+    `centsToDollars`. A campaign is single-currency by composite FK; a list of
+    them is not (`docs/92`), so on a platform running KES and USD these were
+    shillings added to dollars under a dollar sign - the same defect the
+    organiser's own payout screen had.
+
+    `financeTotalsByCurrency` is the grouper that screen uses, so both agree.
+    `availableBalance` is not shown here, so it is passed as 0.
+  */
+  const totals = useMemo(
+    () =>
+      financeTotalsByCurrency(
+        campaigns.map((c) => ({
+          currency: c.currency,
+          raisedAmount: c.raisedAmount,
+          totalReleasedAmount: c.totalReleasedAmount,
+          totalWithdrawnAmount: c.totalWithdrawnAmount,
+          availableBalance: 0,
+        })),
+      ),
+    [campaigns],
+  );
+
+  const perCurrency = (pick: (t: (typeof totals)[number]) => number) =>
+    totals.length === 0
+      ? '-'
+      : totals.map((t) => formatMoney(pick(t), t.currency, 'exact')).join(' · ');
 
   return (
     <div className="space-y-4">
@@ -161,17 +182,17 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile
           label="Total Raised"
-          value={centsToDollars(totals.totalRaised)}
+          value={perCurrency((t) => t.raisedMinor)}
           className="bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300"
         />
         <StatTile
           label="Total Released"
-          value={centsToDollars(totals.totalReleased)}
+          value={perCurrency((t) => t.releasedMinor)}
           className="bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300"
         />
         <StatTile
           label="Total Withdrawn"
-          value={centsToDollars(totals.totalWithdrawn)}
+          value={perCurrency((t) => t.withdrawnMinor)}
           className="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300"
         />
         <StatTile
@@ -271,17 +292,17 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
                       </td>
                       <td className="px-4 py-3 text-right hidden sm:table-cell">
                         <span className="font-mono font-medium">
-                          {<Money minor={campaign.raisedAmount} precision="exact" />}
+                          {<Money currency={campaign.currency} minor={campaign.raisedAmount} precision="exact" />}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right hidden md:table-cell">
                         <span className="font-mono font-medium text-green-700 dark:text-green-400">
-                          {<Money minor={campaign.totalReleasedAmount} precision="exact" />}
+                          {<Money currency={campaign.currency} minor={campaign.totalReleasedAmount} precision="exact" />}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right hidden md:table-cell">
                         <span className="font-mono font-medium text-blue-700 dark:text-blue-400">
-                          {<Money minor={campaign.totalWithdrawnAmount} precision="exact" />}
+                          {<Money currency={campaign.currency} minor={campaign.totalWithdrawnAmount} precision="exact" />}
                         </span>
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell">
@@ -307,31 +328,31 @@ export function PayoutsDashboard({ initialCampaigns, stats }: PayoutsDashboardPr
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Goal</dt>
                                   <dd className="font-mono font-medium">
-                                    {<Money minor={campaign.goalAmount} precision="exact" />}
+                                    {<Money currency={campaign.currency} minor={campaign.goalAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Raised</dt>
                                   <dd className="font-mono font-medium">
-                                    {<Money minor={campaign.raisedAmount} precision="exact" />}
+                                    {<Money currency={campaign.currency} minor={campaign.raisedAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Released</dt>
                                   <dd className="font-mono font-medium text-green-700 dark:text-green-400">
-                                    {<Money minor={campaign.totalReleasedAmount} precision="exact" />}
+                                    {<Money currency={campaign.currency} minor={campaign.totalReleasedAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Withdrawn</dt>
                                   <dd className="font-mono font-medium text-blue-700 dark:text-blue-400">
-                                    {<Money minor={campaign.totalWithdrawnAmount} precision="exact" />}
+                                    {<Money currency={campaign.currency} minor={campaign.totalWithdrawnAmount} precision="exact" />}
                                   </dd>
                                 </div>
                                 <div>
                                   <dt className="text-muted-foreground text-xs">Available</dt>
                                   <dd className="font-mono font-medium">
-                                    {<Money minor={available} precision="exact" />}
+                                    {<Money currency={campaign.currency} minor={available} precision="exact" />}
                                   </dd>
                                 </div>
                               </div>

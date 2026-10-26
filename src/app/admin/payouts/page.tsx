@@ -33,6 +33,7 @@ export default async function AdminFundReleasesPage() {
         verificationStatus: campaigns.verificationStatus,
         goalAmount: campaigns.goalAmount,
         raisedAmount: campaigns.raisedAmount,
+        currency: campaigns.currency,
         totalReleasedAmount: campaigns.totalReleasedAmount,
         totalWithdrawnAmount: campaigns.totalWithdrawnAmount,
         creatorId: campaigns.creatorId,

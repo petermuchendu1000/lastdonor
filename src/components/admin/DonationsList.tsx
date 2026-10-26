@@ -18,7 +18,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { formatMoney } from '@/lib/money/format';
+import type { CurrencyTotal } from '@/lib/admin/donation-totals.server';
 import { formatDate } from '@/lib/utils/dates';
 import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
@@ -35,6 +37,8 @@ import {
 
 interface DonationRow {
   id: string;
+  /** The donation's own currency (`docs/92`). */
+  currency: string;
   amount: number;
   donorName: string;
   donorEmail: string;
@@ -49,9 +53,17 @@ interface DonationRow {
 }
 
 interface DonationsListProps {
+  /**
+   * What has been donated, PER CURRENCY.
+   *
+   * ⛔ Was a single `stats.totalAmount` - `SUM(donations.amount)` over the
+   * whole table with no currency grouping - printed through `centsToDollars`.
+   * Shillings added to dollars under a dollar sign (`docs/92`).
+   */
+  totalsByCurrency: CurrencyTotal[];
   initialDonations: DonationRow[];
   stats: {
-    totalAmount: number;
+
     totalCount: number;
     realCount: number;
     seedCount: number;
@@ -70,7 +82,7 @@ const STAT_KEYS = ['all', 'real', 'seed', 'refunded'] as const;
 
 /* ─── Component ─── */
 
-export function DonationsList({ initialDonations, stats, campaignOptions }: DonationsListProps) {
+export function DonationsList({ initialDonations, stats, totalsByCurrency, campaignOptions }: DonationsListProps) {
   const [donations, setDonations] = useState(initialDonations);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
@@ -151,7 +163,7 @@ export function DonationsList({ initialDonations, stats, campaignOptions }: Dona
         setDonations((prev) =>
           prev.map((d) => (d.id === refundTarget.id ? { ...d, refunded: true } : d)),
         );
-        toast.success(`Refund processed for ${centsToDollars(refundTarget.amount)}`);
+        toast.success(`Refund processed for ${formatMoney(refundTarget.amount, refundTarget.currency, 'exact')}`);
         setRefundTarget(null);
       } else {
         const body = await res.json().catch(() => null);
@@ -187,7 +199,9 @@ export function DonationsList({ initialDonations, stats, campaignOptions }: Dona
             (key === 'refunded' && refundedFilter === 'refunded');
 
           const value = key === 'all'
-            ? centsToDollars(stats.totalAmount)
+            ? (totalsByCurrency.length === 0
+                ? '-'
+                : totalsByCurrency.map((t) => formatMoney(t.totalMinor, t.currency, 'exact')).join(' · '))
             : key === 'real'
               ? stats.realCount
               : key === 'seed'
@@ -333,7 +347,7 @@ export function DonationsList({ initialDonations, stats, campaignOptions }: Dona
                     {d.campaignTitle}
                   </td>
                   <td className="px-3 py-3 text-right font-mono tabular-nums">
-                    {centsToDollars(d.amount)}
+                    <Money minor={d.amount} currency={d.currency} precision="exact" />
                   </td>
                   <td className="hidden px-3 py-3 md:table-cell">
                     <Badge variant={d.source === 'real' ? 'default' : 'outline'} className="text-xs">
@@ -421,7 +435,7 @@ export function DonationsList({ initialDonations, stats, campaignOptions }: Dona
           <DialogHeader>
             <DialogTitle>Confirm Refund</DialogTitle>
             <DialogDescription>
-              This will refund the {centsToDollars(refundTarget?.amount ?? 0)} donation by {refundTarget?.donorName ?? ''} via Stripe and adjust the campaign totals. This action cannot be undone.
+              This will refund the {refundTarget ? formatMoney(refundTarget.amount, refundTarget.currency, 'exact') : ''} donation by {refundTarget?.donorName ?? ''} via Stripe and adjust the campaign totals. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -33,6 +33,9 @@ export default async function AdminCampaignsPage() {
       source: campaigns.source,
       verificationStatus: campaigns.verificationStatus,
       creatorId: campaigns.creatorId,
+      // The row's own currency; without it these screens printed every
+      // campaign's money as dollars (`docs/92`).
+      currency: campaigns.currency,
       raisedAmount: campaigns.raisedAmount,
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,
@@ -87,6 +90,7 @@ export default async function AdminCampaignsPage() {
     verificationStatus: c.verificationStatus,
     source: c.source ?? 'editorial',
     creatorName: c.creatorId ? (creatorMap.get(c.creatorId) ?? null) : null,
+    currency: c.currency,
     raisedAmount: c.raisedAmount,
     goalAmount: c.goalAmount,
     donorCount: c.donorCount,

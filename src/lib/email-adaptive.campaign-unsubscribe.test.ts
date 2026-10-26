@@ -67,6 +67,7 @@ const digest = () =>
     updateTitle: 'Week two',
     updateExcerpt: 'Here is what happened.',
     progressPercent: 62,
+    currency: 'KES',
     raisedCents: 620_00,
     goalCents: 1000_00,
   });
@@ -175,6 +176,7 @@ describe.each(TEMPLATES)('%s footer', (_name, build) => {
             updateTitle: 'Week two',
             updateExcerpt: 'Here is what happened.',
             progressPercent: 62,
+            currency: 'KES',
             raisedCents: 620_00,
             goalCents: 1000_00,
           });

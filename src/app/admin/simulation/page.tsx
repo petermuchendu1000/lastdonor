@@ -56,6 +56,7 @@ export default async function SimulationPage() {
         slug: campaigns.slug,
         status: campaigns.status,
         category: campaigns.category,
+        currency: campaigns.currency,
         goalAmount: campaigns.goalAmount,
         simulationFlag: campaigns.simulationFlag,
         simulationConfig: campaigns.simulationConfig,
@@ -66,21 +67,28 @@ export default async function SimulationPage() {
     db
       .select({
         source: donations.source,
+        // ⛔ Grouped by currency too: this total added shillings to dollars
+        // and the panel printed it with a dollar sign (`docs/92`).
+        currency: donations.currency,
         count: sql<number>`count(*)::int`,
         total: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
       })
       .from(donations)
-      .groupBy(donations.source),
+      .groupBy(donations.source, donations.currency),
   ]);
 
   const [fundPoolStats, [realCount], [lastCron]] = await Promise.all([
     db
       .select({
         status: fundPoolAllocations.status,
+        // No currency column on the allocation: it belongs to the SOURCE
+        // campaign (docs/92).
+        currency: campaigns.currency,
         total: sql<number>`coalesce(sum(${fundPoolAllocations.amount}), 0)::int`,
       })
       .from(fundPoolAllocations)
-      .groupBy(fundPoolAllocations.status),
+      .innerJoin(campaigns, eq(fundPoolAllocations.sourceCampaignId, campaigns.id))
+      .groupBy(fundPoolAllocations.status, campaigns.currency),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(campaigns)
@@ -154,6 +162,7 @@ export default async function SimulationPage() {
       status: c.status,
       category: c.category,
       progress: goal > 0 ? Math.round((raised / goal) * 100) : 0,
+      currency: c.currency,
       raisedAmount: raised,
       goalAmount: goal,
       realDonationCount: dons.real.count,
@@ -167,11 +176,20 @@ export default async function SimulationPage() {
   });
 
   // Build summary stats
-  const seedDon = donationStats.find((d) => d.source === 'seed');
-  const realDon = donationStats.find((d) => d.source === 'real');
-  const fpPending = fundPoolStats.find((f) => f.status === 'pending');
-  const fpAllocated = fundPoolStats.find((f) => f.status === 'allocated');
-  const fpDisbursed = fundPoolStats.find((f) => f.status === 'disbursed');
+  /*
+    ⛔ One row per (source, currency) now, so these are LISTS. `find` would
+    have silently picked whichever currency came back first (`docs/92`).
+  */
+  const seedTotals = donationStats.filter((d) => d.source === 'seed')
+    .map((d) => ({ currency: d.currency, totalMinor: d.total }));
+  const realTotals = donationStats.filter((d) => d.source === 'real')
+    .map((d) => ({ currency: d.currency, totalMinor: d.total }));
+  const seedCount = donationStats.filter((d) => d.source === 'seed').reduce((n, d) => n + d.count, 0);
+  const realCount2 = donationStats.filter((d) => d.source === 'real').reduce((n, d) => n + d.count, 0);
+  // One row per (status, currency); `find` would pick an arbitrary one.
+  const fpByStatus = (status: string) =>
+    fundPoolStats.filter((f) => f.status === status)
+      .map((f) => ({ currency: f.currency, totalMinor: f.total }));
 
   const simulationSettings = {
     enabled: settings['simulation.enabled'] as boolean,
@@ -195,12 +213,12 @@ export default async function SimulationPage() {
   const analytics = {
     simulatedCount: campaignRows.filter((c) => c.status === 'active').length,
     realCampaigns: realCount.count,
-    seedDonations: { count: seedDon?.count ?? 0, total: seedDon?.total ?? 0 },
-    realDonations: { count: realDon?.count ?? 0, total: realDon?.total ?? 0 },
+    seedDonations: { count: seedCount, totals: seedTotals },
+    realDonations: { count: realCount2, totals: realTotals },
     fundPool: {
-      pending: fpPending?.total ?? 0,
-      allocated: fpAllocated?.total ?? 0,
-      disbursed: fpDisbursed?.total ?? 0,
+      pending: fpByStatus('pending'),
+      allocated: fpByStatus('allocated'),
+      disbursed: fpByStatus('disbursed'),
     },
   };
 

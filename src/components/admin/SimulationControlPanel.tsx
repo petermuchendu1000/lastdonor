@@ -1,6 +1,7 @@
 'use client';
 
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
+import { Money } from '@/components/ui/Money';
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -43,6 +44,8 @@ interface CampaignRow {
   status: string;
   category: string;
   progress: number;
+  /** The campaign's own currency. */
+  currency: string;
   raisedAmount: number;
   goalAmount: number;
   realDonationCount: number;
@@ -54,12 +57,17 @@ interface CampaignRow {
   createdAt: string;
 }
 
+interface CurrencyAmount {
+  currency: string;
+  totalMinor: number;
+}
+
 interface Analytics {
   simulatedCount: number;
   realCampaigns: number;
-  seedDonations: { count: number; total: number };
-  realDonations: { count: number; total: number };
-  fundPool: { pending: number; allocated: number; disbursed: number };
+  seedDonations: { count: number; totals: CurrencyAmount[] };
+  realDonations: { count: number; totals: CurrencyAmount[] };
+  fundPool: { pending: CurrencyAmount[]; allocated: CurrencyAmount[]; disbursed: CurrencyAmount[] };
 }
 
 interface Props {
@@ -71,9 +79,16 @@ interface Props {
 
 /* ---------- helpers ---------- */
 
-function formatCents(cents: number): string {
-  // docs/88 F4: delegate, so there is one currency renderer.
-  return centsToDollars(cents);
+/**
+ * One figure per currency, or a dash.
+ *
+ * ⛔ These totals used to be a single number through `centsToDollars`, which
+ * hardcodes USD, over `SUM(donations.amount)` with no currency in the GROUP
+ * BY - shillings added to dollars under a dollar sign (`docs/92`).
+ */
+function perCurrency(totals: CurrencyAmount[]): string {
+  if (totals.length === 0) return '-';
+  return totals.map((t) => formatMoney(t.totalMinor, t.currency, 'exact')).join(' · ');
 }
 
 function pct(n: number): string {
@@ -440,12 +455,12 @@ export function SimulationControlPanel({ initialSettings, campaigns: initialCamp
         </div>
         <div className="rounded-lg border px-4 py-3">
           <p className="text-xs text-muted-foreground">Seed Donations</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCents(analytics.seedDonations.total)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{perCurrency(analytics.seedDonations.totals)}</p>
           <p className="text-xs text-muted-foreground">{analytics.seedDonations.count} donations</p>
         </div>
         <div className="rounded-lg border px-4 py-3">
           <p className="text-xs text-muted-foreground">Real Donations</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCents(analytics.realDonations.total)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{perCurrency(analytics.realDonations.totals)}</p>
           <p className="text-xs text-muted-foreground">{analytics.realDonations.count} donations</p>
         </div>
       </div>
@@ -462,15 +477,15 @@ export function SimulationControlPanel({ initialSettings, campaigns: initialCamp
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <p className="text-xs text-muted-foreground">Pending</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{formatCents(analytics.fundPool.pending)}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{perCurrency(analytics.fundPool.pending)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Allocated</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{formatCents(analytics.fundPool.allocated)}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{perCurrency(analytics.fundPool.allocated)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Disbursed</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{formatCents(analytics.fundPool.disbursed)}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{perCurrency(analytics.fundPool.disbursed)}</p>
             </div>
           </div>
           <div className="mt-3 text-center">
@@ -529,11 +544,11 @@ export function SimulationControlPanel({ initialSettings, campaigns: initialCamp
                           <span className="tabular-nums">{c.progress}%</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">{formatCents(c.raisedAmount)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums"><Money minor={c.raisedAmount} currency={c.currency} precision="exact" /></td>
                       <td className="hidden px-4 py-3 text-right tabular-nums md:table-cell">
                         {c.realDonationCount} / {c.seedDonationCount}
                       </td>
-                      <td className="hidden px-4 py-3 text-right tabular-nums lg:table-cell">{formatCents(c.fundPoolPending)}</td>
+                      <td className="hidden px-4 py-3 text-right tabular-nums lg:table-cell"><Money minor={c.fundPoolPending} currency={c.currency} precision="exact" /></td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Button

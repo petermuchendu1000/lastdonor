@@ -43,6 +43,9 @@ export async function GET(request: NextRequest) {
           id: refundBatches.id,
           campaignId: refundBatches.campaignId,
           campaignTitle: campaigns.title,
+          // A batch belongs to ONE campaign, so its total is single-currency
+          // - but the code still has to be carried (`docs/92`).
+          currency: campaigns.currency,
           campaignSlug: campaigns.slug,
           reason: refundBatches.reason,
           totalDonations: refundBatches.totalDonations,

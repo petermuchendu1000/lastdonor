@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
 import { db } from '@/db';
+import { donorTotalsForUsers, donorTotalsForEmails } from '@/lib/admin/donation-totals.server';
 import { donations } from '@/db/schema';
 import { eq, gte, and, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
@@ -199,6 +200,28 @@ export async function GET(request: NextRequest) {
     LIMIT ${limit} OFFSET ${offset}`,
   );
 
+  /*
+    ⛔ `totalDonated` above is CURRENCY-BLIND and is no longer sent to the
+    screen. For a registered donor it is `users.total_donated`, a single
+    integer that `payment-service.ts:307` increments with every donation's
+    raw amount whatever rail it came over; for a guest it is
+    `SUM(d.amount)` grouped by email alone. Either way a donor who gave in
+    two currencies gets a number in neither, and the table printed it with a
+    dollar sign (`docs/92`).
+
+    Recomputed per currency for the page of donors actually being shown -
+    one query each, both capped by `limit`.
+
+    ⛔ STILL OPEN, reported not fixed: the SEGMENT THRESHOLDS still compare
+    that same blind figure (`major_donors` is `totalDonated >= 50000`), so a
+    donor who gave KES 50,000 (about US$385) is classified by a US dollar
+    rule. Changing what "major donor" means is a product decision, not a
+    rendering one.
+  */
+  const emails = donors.map((d) => d.email).filter((e): e is string => !!e);
+  const ids = donors.map((d) => d.id).filter((i): i is string => !!i);
+  const [byUser, byEmail] = [await donorTotalsForUsers(db, ids), await donorTotalsForEmails(db, emails)];
+
   return NextResponse.json({
     ok: true,
     data: {
@@ -207,7 +230,7 @@ export async function GET(request: NextRequest) {
         name: d.name,
         email: d.email,
         donorType: d.donorType,
-        totalDonated: d.totalDonated,
+        totalsByCurrency: (d.id ? byUser.get(d.id) : undefined) ?? byEmail.get(d.email ?? '') ?? [],
         donorScore: d.donorScore,
         lastDonationAt: d.lastDonationAt ? new Date(d.lastDonationAt).toISOString() : null,
         createdAt: new Date(d.createdAt).toISOString(),

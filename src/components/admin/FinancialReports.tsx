@@ -2,7 +2,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { formatMoney } from '@/lib/money/format';
 import Link from 'next/link';
 import {
   ResponsiveContainer,
@@ -48,6 +49,16 @@ interface CategoryRow {
 }
 
 interface FinancialReportsProps {
+  /**
+   * The currency EVERY figure in this report is in.
+   *
+   * ⛔ Required, not defaulted. This whole screen used `centsToDollars`, which
+   * hardcodes USD, over `SUM(donations.amount)` aggregates that had no
+   * currency in their GROUP BY - shillings added to dollars under a dollar
+   * sign (`docs/92`). The page now renders one of these per currency and this
+   * prop says which, so no figure inside can be ambiguous.
+   */
+  currency: string;
   monthlyRevenue: MonthlyPoint[];
   ytd: Totals;
   mtd: Totals;
@@ -70,6 +81,7 @@ function formatCategoryName(cat: string): string {
 }
 
 export function FinancialReports({
+  currency,
   monthlyRevenue,
   ytd,
   mtd,
@@ -90,19 +102,19 @@ export function FinancialReports({
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-lg border px-4 py-3">
-          <p className="text-2xl font-semibold tabular-nums">{centsToDollars(allTime.total)}</p>
+          <p className="text-2xl font-semibold tabular-nums"><Money minor={allTime.total} currency={currency} precision="exact" /></p>
           <p className="text-xs text-muted-foreground">All-time · {allTime.count} donations</p>
         </div>
         <div className="rounded-lg border px-4 py-3">
-          <p className="text-2xl font-semibold tabular-nums">{centsToDollars(ytd.total)}</p>
-          <p className="text-xs text-muted-foreground">YTD · avg {centsToDollars(ytd.avgDonation)}</p>
+          <p className="text-2xl font-semibold tabular-nums"><Money minor={ytd.total} currency={currency} precision="exact" /></p>
+          <p className="text-xs text-muted-foreground">YTD · avg <Money minor={ytd.avgDonation} currency={currency} precision="exact" /></p>
         </div>
         <div className="rounded-lg border px-4 py-3">
-          <p className="text-2xl font-semibold tabular-nums">{centsToDollars(mtd.total)}</p>
+          <p className="text-2xl font-semibold tabular-nums"><Money minor={mtd.total} currency={currency} precision="exact" /></p>
           <p className="text-xs text-muted-foreground">This month · {mtd.count} donations</p>
         </div>
         <div className="rounded-lg border px-4 py-3">
-          <p className="text-2xl font-semibold tabular-nums">{centsToDollars(refunds.total)}</p>
+          <p className="text-2xl font-semibold tabular-nums"><Money minor={refunds.total} currency={currency} precision="exact" /></p>
           <p className="text-xs text-muted-foreground">Refunds · {refunds.count} refunded</p>
         </div>
       </div>
@@ -140,13 +152,13 @@ export function FinancialReports({
                   <YAxis
                     tick={{ fontSize: 11 }}
                     className="fill-muted-foreground"
-                    tickFormatter={(v: number) => `$${v}`}
+                    tickFormatter={(v: number) => formatMoney(v, currency, 'whole')}
                   />
                   <Tooltip
                     formatter={(value, name) => {
                       // Chart series are in dollars (divided at the mapping above), so scale back to cents for the one renderer.
-                      if (name === 'revenue') return [centsToDollars(Math.round(Number(value) * 100)), 'Revenue'];
-                      if (name === 'avg') return [centsToDollars(Math.round(Number(value) * 100)), 'Avg Donation'];
+                      if (name === 'revenue') return [formatMoney(Math.round(Number(value) * 100), currency, 'exact'), 'Revenue'];
+                      if (name === 'avg') return [formatMoney(Math.round(Number(value) * 100), currency, 'exact'), 'Avg Donation'];
                       return [value, name];
                     }}
                     contentStyle={{
@@ -198,10 +210,10 @@ export function FinancialReports({
                     <YAxis
                       tick={{ fontSize: 11 }}
                       className="fill-muted-foreground"
-                      tickFormatter={(v: number) => `$${v}`}
+                      tickFormatter={(v: number) => formatMoney(v, currency, 'whole')}
                     />
                     <Tooltip
-                      formatter={(value) => [centsToDollars(Math.round(Number(value) * 100)), 'Revenue']}
+                      formatter={(value) => [formatMoney(Math.round(Number(value) * 100), currency, 'exact'), 'Revenue']}
                       contentStyle={{
                         borderRadius: '8px',
                         border: '1px solid var(--border)',
@@ -237,11 +249,11 @@ export function FinancialReports({
                   {categoryRevenue.map((c) => (
                     <tr key={c.category} className="hover:bg-muted/30">
                       <td className="px-4 py-2.5 font-medium">{formatCategoryName(c.category)}</td>
-                      <td className="px-4 py-2.5 text-right font-mono tabular-nums">{centsToDollars(c.total)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono tabular-nums"><Money minor={c.total} currency={currency} precision="exact" /></td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{c.count}</td>
                       <td className="hidden px-4 py-2.5 text-right tabular-nums sm:table-cell">{c.campaigns}</td>
                       <td className="hidden px-4 py-2.5 text-right font-mono tabular-nums sm:table-cell">
-                        {c.count > 0 ? centsToDollars(Math.round(c.total / c.count)) : '$0.00'}
+                        {c.count > 0 ? formatMoney(Math.round(c.total / c.count), currency, 'exact') : formatMoney(0, currency, 'exact')}
                       </td>
                     </tr>
                   ))}
@@ -276,9 +288,9 @@ export function FinancialReports({
                 {[...monthlyRevenue].reverse().map((m) => (
                   <tr key={m.month} className="hover:bg-muted/30">
                     <td className="px-4 py-2.5 font-medium">{m.month}</td>
-                    <td className="px-4 py-2.5 text-right font-mono tabular-nums">{centsToDollars(m.total)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono tabular-nums"><Money minor={m.total} currency={currency} precision="exact" /></td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{m.count}</td>
-                    <td className="px-4 py-2.5 text-right font-mono tabular-nums">{centsToDollars(m.avgDonation)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono tabular-nums"><Money minor={m.avgDonation} currency={currency} precision="exact" /></td>
                   </tr>
                 ))}
                 {monthlyRevenue.length === 0 && (
@@ -324,8 +336,8 @@ export function FinancialReports({
                       <td className="px-4 py-2.5">
                         <Badge variant={STATUS_VARIANT[c.status] ?? 'secondary'}>{c.status.replace(/_/g, ' ')}</Badge>
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono tabular-nums">{centsToDollars(c.raisedAmount)}</td>
-                      <td className="hidden px-4 py-2.5 text-right font-mono tabular-nums md:table-cell">{centsToDollars(c.goalAmount)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono tabular-nums"><Money minor={c.raisedAmount} currency={currency} precision="exact" /></td>
+                      <td className="hidden px-4 py-2.5 text-right font-mono tabular-nums md:table-cell"><Money minor={c.goalAmount} currency={currency} precision="exact" /></td>
                       <td className="hidden px-4 py-2.5 text-right md:table-cell">
                         <Badge variant={pct >= 90 ? 'destructive' : 'secondary'}>{pct}%</Badge>
                       </td>

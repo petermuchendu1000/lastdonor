@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { donations, campaigns, newsletterSubscribers, users } from '@/db/schema';
 import { eq, sql, gte, and, inArray } from 'drizzle-orm';
 import { AdminDashboard } from '@/components/admin/AdminDashboard';
+import { donationTotalsByCurrency } from '@/lib/admin/donation-totals.server';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -18,33 +19,15 @@ async function getDashboardStats() {
   const startOfDay = startOfReportingDay(now);
   const startOfMonth = startOfReportingMonth(now);
 
-  const [todayDonations] = await db
-    .select({
-      count: sql<number>`count(*)::int`,
-      total: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
-    })
-    .from(donations)
-    .where(
-      and(
-        gte(donations.createdAt, startOfDay),
-        eq(donations.source, 'real'),
-        eq(donations.refunded, false),
-      ),
-    );
-
-  const [monthDonations] = await db
-    .select({
-      count: sql<number>`count(*)::int`,
-      total: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
-    })
-    .from(donations)
-    .where(
-      and(
-        gte(donations.createdAt, startOfMonth),
-        eq(donations.source, 'real'),
-        eq(donations.refunded, false),
-      ),
-    );
+  /*
+    ⛔ These were two `SUM(donations.amount)` across the WHOLE platform with no
+    currency in the GROUP BY, rendered through `centsToDollars`. On a platform
+    collecting KES and USD that added shillings to dollars and printed the
+    result with a dollar sign (`docs/92`). Per currency now, through a module
+    so that a test can execute it (`docs/107` §7).
+  */
+  const todayTotals = await donationTotalsByCurrency(db, { since: startOfDay });
+  const monthTotals = await donationTotalsByCurrency(db, { since: startOfMonth });
 
   const [todaySubs] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -81,6 +64,7 @@ async function getDashboardStats() {
       id: campaigns.id,
       title: campaigns.title,
       slug: campaigns.slug,
+      currency: campaigns.currency,
       raisedAmount: campaigns.raisedAmount,
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,
@@ -94,6 +78,7 @@ async function getDashboardStats() {
       id: donations.id,
       donorName: donations.donorName,
       amount: donations.amount,
+      currency: donations.currency,
       isAnonymous: donations.isAnonymous,
       createdAt: donations.createdAt,
       campaignTitle: campaigns.title,
@@ -130,6 +115,7 @@ async function getDashboardStats() {
       title: campaigns.title,
       slug: campaigns.slug,
       category: campaigns.category,
+      currency: campaigns.currency,
       goalAmount: campaigns.goalAmount,
       creatorId: campaigns.creatorId,
       source: campaigns.source,
@@ -159,6 +145,7 @@ async function getDashboardStats() {
     title: c.title,
     slug: c.slug,
     category: c.category,
+    currency: c.currency,
     goalAmount: c.goalAmount,
     /*
       Every automated draft has a null `creatorId`, so this column read
@@ -175,13 +162,13 @@ async function getDashboardStats() {
 
   return {
     today: {
-      donationCount: todayDonations.count,
-      donationTotal: todayDonations.total,
+      donationCount: todayTotals.reduce((n, t) => n + t.donationCount, 0),
+      donationTotals: todayTotals,
       newSubscribers: todaySubs.count,
     },
     month: {
-      donationCount: monthDonations.count,
-      donationTotal: monthDonations.total,
+      donationCount: monthTotals.reduce((n, t) => n + t.donationCount, 0),
+      donationTotals: monthTotals,
       newSubscribers: monthSubs.count,
       campaignsLaunched: monthLaunched.count,
       campaignsCompleted: monthCompleted.count,

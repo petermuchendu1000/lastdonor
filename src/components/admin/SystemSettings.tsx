@@ -544,8 +544,29 @@ function SettingRow({
   );
 }
 
-function formatCents(cents: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+/**
+ * A settings threshold, shown in MINOR UNITS with no currency symbol.
+ *
+ * ⛔ This was `Intl.NumberFormat('en-US', { style: 'currency', currency:
+ * 'USD' }).format(cents / 100)` - a hard dollar sign on a figure that has no
+ * currency at all.
+ *
+ * [VERIFIED 2026-10-26] The four `inputType: 'cents'` settings are
+ * `donation.min_amount`, `donation.max_amount`, `campaign.min_goal` and
+ * `campaign.max_goal`, and their ONLY readers are in
+ * `api/v1/admin/settings/route.ts`, which checks that min is below max. No
+ * money path reads them: the real per-currency bounds are
+ * `CURRENCIES[code].minDonationMinor` / `maxDonationMinor` (`docs/98`). So
+ * the figure is a bare platform-wide threshold, and printing it as dollars
+ * claimed a currency it does not have.
+ *
+ * ⚠️ The ratchet's exemption for this file covers its `CentsInput` - an
+ * editable field must hold a bare numeric string - which is correct, and
+ * which is why that input is untouched. It did NOT cover this read-only
+ * display, and that gap is what let the dollar sign survive `docs/88` F4.
+ */
+function formatSettingMinor(minor: number): string {
+  return `${minor.toLocaleString('en-US')} (minor units)`;
 }
 
 function DisplayValue({ value, inputType }: { value: unknown; inputType: string }) {
@@ -557,14 +578,14 @@ function DisplayValue({ value, inputType }: { value: unknown; inputType: string 
     );
   }
   if (inputType === 'cents') {
-    return <span className="font-mono text-sm">{formatCents(value as number)}</span>;
+    return <span className="font-mono text-sm">{formatSettingMinor(value as number)}</span>;
   }
   if (inputType === 'json') {
     if (Array.isArray(value)) {
       // If all items are numbers that look like cent amounts (>= 100), display as dollars
       const allCents = value.every((v) => typeof v === 'number' && v >= 100);
       const display = allCents
-        ? value.map((v: number) => formatCents(v)).join(', ')
+        ? value.map((v: number) => formatSettingMinor(v)).join(', ')
         : value.join(', ');
       return <span className="font-mono text-sm">{display}</span>;
     }

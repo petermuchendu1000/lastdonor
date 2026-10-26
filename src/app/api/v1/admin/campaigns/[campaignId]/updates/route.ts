@@ -90,7 +90,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Verify campaign exists
     const [campaign] = await db
-      .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount })
+      .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, currency: campaigns.currency, raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
       .limit(1);
@@ -136,6 +136,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       updateTitle: title.trim(),
       updateExcerpt: excerpt,
       progressPercent,
+      // Without this every subscribed donor of a KES campaign was emailed
+      // "$18400.00 of $50000.00 raised" (`docs/92`).
+      currency: campaign.currency,
       raisedCents: campaign.raisedAmount,
       goalCents: campaign.goalAmount,
     }).catch((err) => console.error('[admin-campaign-update] notify error:', err));

@@ -32,6 +32,7 @@
 
 import { campaignUnsubscribeMechanism } from '@/lib/unsubscribe-tokens';
 import { renderEmail, emailButton } from './email-shell';
+import { formatMoney } from '@/lib/money/format';
 
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://lastdonor.org';
 
@@ -105,8 +106,31 @@ function ctaButton(href: string, label: string, color: string = '#0F766E'): stri
   return emailButton(href, label, color as `#${string}`);
 }
 
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+/**
+ * Render an amount in the currency it was actually given in.
+ *
+ * ── THE DEFECT THIS FIXES, reproduced by rendering the real template ────────
+ *
+ * This was `` `$${(cents / 100).toFixed(2)}` `` - a hard dollar sign and a
+ * divide by 100 - used at 28 sites across nine templates. The one with a live
+ * caller is the campaign update digest: an organiser posts an update,
+ * `notifyCampaignUpdateDigest` mails EVERY SUBSCRIBED DONOR, and for a
+ * shilling campaign they were told
+ *
+ *     $18400.00 of $50000.00 raised (37%)
+ *
+ * when the campaign had raised KES 18,400.00 of KES 50,000.00. Three things
+ * wrong in one line: the symbol, the missing thousands separator, and a
+ * divide by 100 that understates a zero-decimal currency 100x (`docs/103`).
+ *
+ * ⛔ `currency` is REQUIRED, with no default. That is the point: a default is
+ * what let 28 call sites inherit dollars without anyone choosing it, and
+ * making it required is what forced every one of them to be resolved rather
+ * than found later by a donor. Delegates to `formatMoney`, the one renderer
+ * (`docs/88` F4, `docs/92`).
+ */
+function formatCents(minor: number, currency: string): string {
+  return formatMoney(minor, currency, 'exact');
 }
 
 function calloutBox(text: string, borderColor: string = '#0F766E', bgColor: string = '#f0fdf4'): string {
@@ -147,6 +171,8 @@ export interface DonorContext {
 
 /** Behavioral context about a campaign creator. */
 export interface CreatorContext {
+  /** The campaign's own currency; every amount here is in ITS minor units. */
+  currency: string;
   creatorName: string;
   creatorEmail: string;
   creatorId: string;
@@ -169,6 +195,8 @@ export interface CreatorContext {
 }
 
 export interface AbandonedDonationContext {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorName: string;
   donorEmail: string;
   campaignTitle: string;
@@ -198,6 +226,8 @@ export interface AbandonedDonationContext {
 // - Phase-aware: if campaign is in last_donor_zone, celebrate urgency
 
 export function adaptiveDonationReceiptEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   campaignTitle: string;
   campaignSlug: string;
   amount: number;
@@ -242,19 +272,19 @@ export function adaptiveDonationReceiptEmail(p: {
   if (isFirstTime) {
     openingParagraph = `
       <p>Hi ${name},</p>
-      <p>You just did something meaningful. Your donation of <strong>${formatCents(p.amount)}</strong> to <strong>${campaignTitle}</strong> is already making a difference.</p>
+      <p>You just did something meaningful. Your donation of <strong>${formatCents(p.amount, p.currency)}</strong> to <strong>${campaignTitle}</strong> is already making a difference.</p>
       <p>You're now one of <strong>${p.donorCount}</strong> people who've stepped up for this cause. That says something about who you are.</p>
     `;
   } else if (isRepeat) {
     openingParagraph = `
       <p>Hi ${name},</p>
-      <p>You're back, and that matters more than you know. Your <strong>${formatCents(p.amount)}</strong> donation to <strong>${campaignTitle}</strong> brings your total giving on LastDonor to <strong>${formatCents(p.donorContext.totalDonatedCents)}</strong> across <strong>${p.donorContext.campaignsSupported}</strong> campaign${p.donorContext.campaignsSupported === 1 ? '' : 's'}.</p>
+      <p>You're back, and that matters more than you know. Your <strong>${formatCents(p.amount, p.currency)}</strong> donation to <strong>${campaignTitle}</strong> is your <strong>${p.donorContext.campaignsSupported}</strong>${p.donorContext.campaignsSupported === 1 ? 'st' : 'th'} campaign on LastDonor.</p>
       <p>Repeat donors are the backbone of every successful campaign. Thank you for being one of them.</p>
     `;
   } else {
     openingParagraph = `
       <p>Hi ${name},</p>
-      <p>Thank you for your <strong>${formatCents(p.amount)}</strong> donation to <strong>${campaignTitle}</strong>.</p>
+      <p>Thank you for your <strong>${formatCents(p.amount, p.currency)}</strong> donation to <strong>${campaignTitle}</strong>.</p>
     `;
   }
 
@@ -262,7 +292,7 @@ export function adaptiveDonationReceiptEmail(p: {
   let highValueSection = '';
   if (isHighValue) {
     highValueSection = calloutBox(
-      `<strong>Your donation of ${formatCents(p.amount)} puts you among the top supporters of this campaign.</strong> We take extra care to keep major donors informed with detailed progress updates.`
+      `<strong>Your donation of ${formatCents(p.amount, p.currency)} puts you among the top supporters of this campaign.</strong> We take extra care to keep major donors informed with detailed progress updates.`
     );
   }
 
@@ -308,7 +338,7 @@ export function adaptiveDonationReceiptEmail(p: {
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
         <tr>
           <td style="padding: 12px 16px; color: #666;">Amount</td>
-          <td style="padding: 12px 16px; font-weight: bold; text-align: right; font-family: 'DM Mono', monospace;">${formatCents(p.amount)}</td>
+          <td style="padding: 12px 16px; font-weight: bold; text-align: right; font-family: 'DM Mono', monospace;">${formatCents(p.amount, p.currency)}</td>
         </tr>
         <tr>
           <td style="padding: 12px 16px; color: #666;">Campaign</td>
@@ -338,7 +368,7 @@ export function adaptiveDonationReceiptEmail(p: {
 
 export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
   const progressPercent = p.progressPercent;
-  const amountHint = p.intendedAmountCents ? ` of ${formatCents(p.intendedAmountCents)}` : '';
+  const amountHint = p.intendedAmountCents ? ` of ${formatCents(p.intendedAmountCents, p.currency)}` : '';
   const donorName = esc(p.donorName);
   const campaignTitle = esc(p.campaignTitle);
 
@@ -363,7 +393,7 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Here's Where Things Stand</h1>
           <p>Hi ${donorName},</p>
-          <p>Since you last visited, <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(p.raisedCents)}</strong> from <strong>${p.donorCount}</strong> donor${p.donorCount === 1 ? '' : 's'}.</p>
+          <p>Since you last visited, <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(p.raisedCents, p.currency)}</strong> from <strong>${p.donorCount}</strong> donor${p.donorCount === 1 ? '' : 's'}.</p>
           <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="background: #e5e7eb; border-radius: 4px; height: 12px; overflow: hidden;">
               <div style="background: #0F766E; height: 100%; width: ${Math.min(progressPercent, 100)}%; border-radius: 4px;"></div>
@@ -404,12 +434,19 @@ export function abandonedDonationRecoveryEmail(p: AbandonedDonationContext) {
 // - Individual refund: no alarm, just confirmation
 
 export function adaptiveRefundEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorContext: DonorContext;
   amount: number;
   campaignTitle: string;
   campaignSlug: string;
   refundReason: 'campaign_cancelled' | 'donor_requested' | 'admin_initiated' | 'dispute';
-  similarCampaigns?: Array<{ title: string; slug: string; raised: number; goal: number }>;
+  /*
+    ⚠️ `currency` is PER ITEM, not inherited from the refunded campaign:
+    these are OTHER campaigns and may be in another currency entirely
+    (`docs/92` - a campaign is single-currency, a LIST of them is not).
+  */
+  similarCampaigns?: Array<{ title: string; slug: string; raised: number; goal: number; currency: string }>;
 }) {
   const isRepeat = p.donorContext.totalDonationCount > 1;
   const name = esc(p.donorContext.donorName);
@@ -430,19 +467,19 @@ export function adaptiveRefundEmail(p: {
   if (p.refundReason === 'campaign_cancelled') {
     openingSection = `
       <p>Hi ${name},</p>
-      <p>We have stopped the campaign <strong>"${campaignTitle}"</strong>. We are sending back all of your <strong>${formatCents(p.amount)}</strong>.</p>
+      <p>We have stopped the campaign <strong>"${campaignTitle}"</strong>. We are sending back all of your <strong>${formatCents(p.amount, p.currency)}</strong>.</p>
       <p>We know that's not the outcome you hoped for when you gave. We're sorry about that.</p>
     `;
   } else if (isRepeat) {
     openingSection = `
       <p>Hi ${name},</p>
-      <p>Your refund of <strong>${formatCents(p.amount)}</strong> from <strong>"${campaignTitle}"</strong> has been processed. It will appear on your statement within 5 to 10 business days.</p>
+      <p>Your refund of <strong>${formatCents(p.amount, p.currency)}</strong> from <strong>"${campaignTitle}"</strong> has been processed. It will appear on your statement within 5 to 10 business days.</p>
       <p>We appreciate your history of giving on LastDonor${p.donorContext.campaignsSupported > 1 ? ` across ${p.donorContext.campaignsSupported} campaigns` : ''}. We hope to see you again when the right cause comes along.</p>
     `;
   } else {
     openingSection = `
       <p>Hi ${name},</p>
-      <p>Your refund of <strong>${formatCents(p.amount)}</strong> from <strong>"${campaignTitle}"</strong> has been processed. The refund will appear on your statement within 5 to 10 business days.</p>
+      <p>Your refund of <strong>${formatCents(p.amount, p.currency)}</strong> from <strong>"${campaignTitle}"</strong> has been processed. The refund will appear on your statement within 5 to 10 business days.</p>
       <p>Your generosity was real, and we want you to know that every donation on our platform is protected. Refunds are always available when a campaign doesn't work out.</p>
     `;
   }
@@ -452,7 +489,7 @@ export function adaptiveRefundEmail(p: {
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
       <tr>
         <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Amount Refunded</td>
-        <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount)}</td>
+        <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount, p.currency)}</td>
       </tr>
       <tr>
         <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Campaign</td>
@@ -471,7 +508,7 @@ export function adaptiveRefundEmail(p: {
     const campaignCards = p.similarCampaigns.map(c => `
       <div style="border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
         <p style="font-weight: 600; margin: 0 0 4px;">${esc(c.title)}</p>
-        <p style="color: #666; margin: 0 0 8px; font-size: 14px;">${formatCents(c.raised)} raised of ${formatCents(c.goal)}</p>
+        <p style="color: #666; margin: 0 0 8px; font-size: 14px;">${formatCents(c.raised, c.currency)} raised of ${formatCents(c.goal, c.currency)}</p>
         <a href="${BASE_URL}/campaigns/${c.slug}" style="color: #0F766E; font-weight: 600; font-size: 14px; text-decoration: none;">View campaign</a>
       </div>
     `).join('');
@@ -542,7 +579,7 @@ export function creatorMotivationEmail(p: {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Campaign Has Momentum</h1>
           <p>Hi ${creatorName},</p>
-          <p>Your campaign <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(c.raisedCents)}</strong> from <strong>${c.donorCount}</strong> donor${c.donorCount === 1 ? '' : 's'} so far. That's real progress.</p>
+          <p>Your campaign <strong>"${campaignTitle}"</strong> has raised <strong>${formatCents(c.raisedCents, c.currency)}</strong> from <strong>${c.donorCount}</strong> donor${c.donorCount === 1 ? '' : 's'} so far. That's real progress.</p>
           <p>People who gave money like to hear from you. Even a few lines help. Tell them where things stand. They are then far more likely to share your page.</p>
           ${calloutBox(
             `<strong>Quick tip:</strong> Your donors have no way of knowing what their money did unless you tell them. Five minutes and one photo is the difference between a receipt and a reason to give again.`
@@ -606,7 +643,7 @@ export function creatorMotivationEmail(p: {
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">${milestone} Supporters and Counting</h1>
           <p>Hi ${creatorName},</p>
           <p>Something worth celebrating: <strong>${milestone} people</strong> have now donated to your campaign <strong>"${campaignTitle}."</strong> That's not just a number. That's ${milestone} people who read your story and decided to help.</p>
-          <p>You've raised <strong>${formatCents(c.raisedCents)}</strong> so far, which is <strong>${progressPercent}%</strong> of your goal.</p>
+          <p>You've raised <strong>${formatCents(c.raisedCents, c.currency)}</strong> so far, which is <strong>${progressPercent}%</strong> of your goal.</p>
           ${calloutBox(`<strong>Celebrate this milestone!</strong> Share it on social media or send a thank-you update to your donors. People love being part of a growing community.`)}
           ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Thank the people who gave')}
         `),
@@ -619,13 +656,13 @@ export function creatorMotivationEmail(p: {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You're Halfway There!</h1>
           <p>Hi ${creatorName},</p>
-          <p>Your campaign <strong>"${campaignTitle}"</strong> just crossed the 50% mark. You've raised <strong>${formatCents(c.raisedCents)}</strong> from <strong>${c.donorCount}</strong> supporter${c.donorCount === 1 ? '' : 's'}.</p>
+          <p>Your campaign <strong>"${campaignTitle}"</strong> just crossed the 50% mark. You've raised <strong>${formatCents(c.raisedCents, c.currency)}</strong> from <strong>${c.donorCount}</strong> supporter${c.donorCount === 1 ? '' : 's'}.</p>
           <p>This is a big step. The hardest part is usually the start, and you are past it.</p>
           <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <div style="background: #e5e7eb; border-radius: 4px; height: 16px; overflow: hidden;">
               <div style="background: #0F766E; height: 100%; width: ${progressPercent}%; border-radius: 4px;"></div>
             </div>
-            <p style="margin: 8px 0 0; color: #0F766E; font-weight: 600;">${formatCents(c.raisedCents)} of ${formatCents(c.goalCents)} raised</p>
+            <p style="margin: 8px 0 0; color: #0F766E; font-weight: 600;">${formatCents(c.raisedCents, c.currency)} of ${formatCents(c.goalCents, c.currency)} raised</p>
           </div>
           <p style="font-weight: 600;">What to do next:</p>
           <ol style="line-height: 2; color: #333;">
@@ -668,7 +705,7 @@ export function creatorMotivationEmail(p: {
           <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
             <tr>
               <td style="padding: 12px 16px; color: #666;">Total Raised</td>
-              <td style="padding: 12px 16px; font-weight: 600; text-align: right; font-family: 'DM Mono', monospace;">${formatCents(c.raisedCents)}</td>
+              <td style="padding: 12px 16px; font-weight: 600; text-align: right; font-family: 'DM Mono', monospace;">${formatCents(c.raisedCents, c.currency)}</td>
             </tr>
             <tr>
               <td style="padding: 12px 16px; color: #666;">Total Donors</td>
@@ -713,6 +750,8 @@ export type VerificationStage =
   | 'final_with_support';   // Day 21: direct support offer, last chance
 
 export function verificationEscalationEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   creatorName: string;
   campaignTitle: string;
   campaignSlug: string;
@@ -732,7 +771,7 @@ export function verificationEscalationEmail(p: {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You Did It!</h1>
           <p>Hi ${creatorName},</p>
-          <p>Stop and take this in. <strong>${p.donorCount}</strong> people gave <strong>${formatCents(p.goalAmount)}</strong> to <strong>"${campaignTitle}."</strong></p>
+          <p>Stop and take this in. <strong>${p.donorCount}</strong> people gave <strong>${formatCents(p.goalAmount, p.currency)}</strong> to <strong>"${campaignTitle}."</strong></p>
           <p>Before we send you the money, we check a few things. This keeps you safe, and it keeps the people who gave safe too.</p>
           <p style="font-weight: 600;">Here's what you'll need:</p>
           <ol style="line-height: 2; color: #333;">
@@ -752,7 +791,7 @@ export function verificationEscalationEmail(p: {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Three Steps to Your Funds</h1>
           <p>Hi ${creatorName},</p>
-          <p>Your campaign <strong>"${campaignTitle}"</strong> raised <strong>${formatCents(p.goalAmount)}</strong>. Here's exactly how to access those funds:</p>
+          <p>Your campaign <strong>"${campaignTitle}"</strong> raised <strong>${formatCents(p.goalAmount, p.currency)}</strong>. Here's exactly how to access those funds:</p>
           <div style="margin: 20px 0;">
             <div style="display: flex; margin-bottom: 16px;">
               <div style="background: #0F766E; color: white; border-radius: 50%; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; margin-right: 12px; flex-shrink: 0;">1</div>
@@ -790,7 +829,7 @@ export function verificationEscalationEmail(p: {
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donors Are Watching</h1>
           <p>Hi ${creatorName},</p>
           <p><strong>${p.donorCount}</strong> people donated to <strong>"${campaignTitle}"</strong> because they trust you. Completing verification shows them their trust was well placed.</p>
-          <p>We have not had your papers yet. We need them before we can send you your <strong>${formatCents(p.goalAmount)}</strong>.</p>
+          <p>We have not had your papers yet. We need them before we can send you your <strong>${formatCents(p.goalAmount, p.currency)}</strong>.</p>
           ${calloutBox(
             `You have <strong>${p.daysRemaining} days remaining</strong> to complete verification. After that, we may need to return funds to donors.`,
             '#D97706',
@@ -810,7 +849,7 @@ export function verificationEscalationEmail(p: {
           <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Time Is Running Short</h1>
           <p>Hi ${creatorName},</p>
           <p>We understand that life can get overwhelming, especially when you're going through a difficult time. But we need to let you know that your verification deadline for <strong>"${campaignTitle}"</strong> is approaching.</p>
-          <p style="color: #EA580C; font-weight: 600;">You have ${p.daysRemaining} days to complete verification before we may need to begin returning the ${formatCents(p.goalAmount)} in donations back to donors.</p>
+          <p style="color: #EA580C; font-weight: 600;">You have ${p.daysRemaining} days to complete verification before we may need to begin returning the ${formatCents(p.goalAmount, p.currency)} in donations back to donors.</p>
           <p>We don't want that to happen, and we know you don't either. If anything is standing in the way, we're here to help:</p>
           <ul style="line-height: 2; color: #333;">
             <li>Can't find your ID? We can work with alternative documents.</li>
@@ -825,12 +864,12 @@ export function verificationEscalationEmail(p: {
 
     case 'final_with_support': {
       return {
-        subject: `Last chance: ${p.daysRemaining} days to verify and receive ${formatCents(p.goalAmount)}`,
+        subject: `Last chance: ${p.daysRemaining} days to verify and receive ${formatCents(p.goalAmount, p.currency)}`,
         html: wrap(`
           <h1 style="color: #DC2626; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Final Notice</h1>
           <p>Hi ${creatorName},</p>
           <p>This is our last reminder about <strong>"${campaignTitle}."</strong></p>
-          <p>You have <strong>${p.daysRemaining} days</strong> left. After that we start sending the <strong>${formatCents(p.goalAmount)}</strong> back to the <strong>${p.donorCount}</strong> people who gave it.</p>
+          <p>You have <strong>${p.daysRemaining} days</strong> left. After that we start sending the <strong>${formatCents(p.goalAmount, p.currency)}</strong> back to the <strong>${p.donorCount}</strong> people who gave it.</p>
           <p>We have written to you a few times. We want you to get this money. If something is making this hard, tell us. We can usually help.</p>
           ${calloutBox(
             `<strong>Need help now?</strong> Email <a href="mailto:verify@lastdonor.org" style="color: #DC2626;">verify@lastdonor.org</a>. Put the word URGENT in the subject line.`,
@@ -857,6 +896,8 @@ export function verificationEscalationEmail(p: {
 export type ReengagementStage = 'light_touch' | 'impact_reminder' | 'farewell';
 
 export function donorReengagementEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorName: string;
   donorEmail: string;
   stage: ReengagementStage;
@@ -897,7 +938,7 @@ export function donorReengagementEmail(p: {
         html: wrap(`
           <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Impact on LastDonor</h1>
           <p>Hi ${donorName},</p>
-          <p>We wanted to take a moment to recognize what you've done. Since joining LastDonor, you've donated <strong>${formatCents(p.totalDonatedCents)}</strong> across <strong>${p.campaignsSupported}</strong> campaign${p.campaignsSupported === 1 ? '' : 's'}. That's real money that went to real people.</p>
+          <p>We wanted to take a moment to recognize what you've done. Since joining LastDonor, you've given to <strong>${p.campaignsSupported}</strong> campaign${p.campaignsSupported === 1 ? '' : 's'}. That's real money that went to real people.</p>
           <p>There are always new campaigns that could use someone like you. No pressure, just an open door whenever you're ready.</p>
           ${p.featuredCampaigns.length > 0
             ? `
@@ -942,6 +983,8 @@ export function donorReengagementEmail(p: {
 // - No upsell: never ask a high-value donor for more immediately
 
 export function highValueDonorThankYouEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorName: string;
   amount: number;
   campaignTitle: string;
@@ -958,9 +1001,9 @@ export function highValueDonorThankYouEmail(p: {
     subject: `A personal thank you from LastDonor, ${p.donorName}`,
     html: wrap(`
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Thank You, ${donorName}</h1>
-      <p>Your donation of <strong>${formatCents(p.amount)}</strong> to <strong>"${campaignTitle}"</strong> is remarkable. We don't say that lightly.</p>
+      <p>Your donation of <strong>${formatCents(p.amount, p.currency)}</strong> to <strong>"${campaignTitle}"</strong> is remarkable. We don't say that lightly.</p>
       ${isRepeat
-        ? `<p>You've now donated <strong>${formatCents(p.donorContext.totalDonatedCents)}</strong> across <strong>${p.donorContext.campaignsSupported}</strong> campaigns on LastDonor. You're among the people who make this platform possible.</p>`
+        ? `<p>You've now given to <strong>${p.donorContext.campaignsSupported}</strong> campaigns on LastDonor. You're among the people who make this platform possible.</p>`
         : `<p>A gift this size makes a real difference. It moves this campaign much closer to its goal.</p>`
       }
       ${calloutBox(
@@ -981,6 +1024,8 @@ export function highValueDonorThankYouEmail(p: {
 // - Invite participation (share, follow, not just give)
 
 export function postDonationImpactEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorName: string;
   campaignTitle: string;
   campaignSlug: string;
@@ -998,7 +1043,7 @@ export function postDonationImpactEmail(p: {
     html: wrap(`
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your Donation at Work</h1>
       <p>Hi ${donorName},</p>
-      <p>A week ago, you donated <strong>${formatCents(p.donationAmount)}</strong> to <strong>"${campaignTitle}."</strong> We wanted to show you what's happened since.</p>
+      <p>A week ago, you donated <strong>${formatCents(p.donationAmount, p.currency)}</strong> to <strong>"${campaignTitle}."</strong> We wanted to show you what's happened since.</p>
       <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; margin: 20px 0;">
         <div style="background: #e5e7eb; border-radius: 4px; height: 12px; overflow: hidden;">
           <div style="background: #0F766E; height: 100%; width: ${Math.min(p.currentProgressPercent, 100)}%; border-radius: 4px;"></div>
@@ -1061,6 +1106,8 @@ export function creatorThankYouUpdateEmail(p: {
 // a new update so they stay connected.
 
 export function campaignUpdateDigestEmail(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorName: string;
   donorEmail: string;
   campaignTitle: string;
@@ -1090,7 +1137,7 @@ export function campaignUpdateDigestEmail(p: {
         <div style="background: #e5e7eb; border-radius: 4px; height: 12px; overflow: hidden;">
           <div style="background: #0F766E; height: 100%; width: ${Math.min(p.progressPercent, 100)}%; border-radius: 4px;"></div>
         </div>
-        <p style="margin: 8px 0 0; color: #666; font-size: 14px;">${formatCents(p.raisedCents)} of ${formatCents(p.goalCents)} raised (${p.progressPercent}%)</p>
+        <p style="margin: 8px 0 0; color: #666; font-size: 14px;">${formatCents(p.raisedCents, p.currency)} of ${formatCents(p.goalCents, p.currency)} raised (${p.progressPercent}%)</p>
       </div>
       ${ctaButton(`${BASE_URL}/campaigns/${p.campaignSlug}`, 'Read Full Update')}
       ${campaignUnsubscribeFooter({ campaignId: p.campaignId, campaignSlug: p.campaignSlug, donorEmail: p.donorEmail })}

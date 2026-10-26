@@ -7,7 +7,9 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { formatMoney } from '@/lib/money/format';
+import type { CurrencyTotal } from '@/lib/admin/donation-totals.server';
 import { formatDate, formatRelativeTime } from '@/lib/utils/dates';
 import { PhaseBadge } from '@/components/campaign/PhaseBadge';
 import {
@@ -36,7 +38,13 @@ interface UserData {
   role: 'donor' | 'editor' | 'admin';
   location: string | null;
   avatarUrl: string | null;
-  totalDonated: number;
+  /**
+   * What this person has given, PER CURRENCY, recomputed from `donations`.
+   *
+   * ⛔ Was `users.total_donated`: one integer, no currency dimension, printed
+   * with a dollar sign (`docs/92`).
+   */
+  donationTotals: CurrencyTotal[];
   campaignsSupported: number;
   lastDonorCount: number;
   badges: unknown;
@@ -52,6 +60,8 @@ interface UserData {
 
 interface DonationRow {
   id: string;
+  /** The donation's own currency. */
+  currency: string;
   amount: number;
   donorName: string;
   isAnonymous: boolean;
@@ -195,7 +205,13 @@ export function UserDetail({ user, donations, auditEntries, currentUserId }: Use
         <div className="rounded-lg border px-4 py-3">
           <p className="text-xs text-muted-foreground">Total Donated</p>
           <p className="font-mono text-2xl font-semibold tabular-nums">
-            {centsToDollars(user.totalDonated)}
+            {user.donationTotals.length === 0
+              ? '-'
+              : user.donationTotals.map((t) => (
+                  <span key={t.currency} className="block">
+                    {formatMoney(t.totalMinor, t.currency, 'exact')}
+                  </span>
+                ))}
           </p>
         </div>
         <div className="rounded-lg border px-4 py-3">
@@ -424,7 +440,7 @@ export function UserDetail({ user, donations, auditEntries, currentUserId }: Use
                       </Link>
                     </td>
                     <td className="px-4 py-2 text-right font-mono tabular-nums">
-                      {centsToDollars(d.amount)}
+                      <Money minor={d.amount} currency={d.currency} precision="exact" />
                     </td>
                     <td className="hidden px-4 py-2 sm:table-cell">
                       <PhaseBadge phase={d.phaseAtTime as DonationPhase} />

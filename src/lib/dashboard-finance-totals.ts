@@ -35,6 +35,8 @@ export interface FinanceCurrencyTotals {
   currency: string;
   raisedMinor: number;
   availableMinor: number;
+  /** Released to the organiser so far, in this currency. */
+  releasedMinor: number;
   withdrawnMinor: number;
   /** Raised but not yet released to the organiser, floored at zero per row. */
   pendingReleaseMinor: number;
@@ -66,6 +68,7 @@ export function financeTotalsByCurrency(
         currency: c.currency,
         raisedMinor: 0,
         availableMinor: 0,
+        releasedMinor: 0,
         withdrawnMinor: 0,
         pendingReleaseMinor: 0,
         campaignCount: 0,
@@ -74,6 +77,7 @@ export function financeTotalsByCurrency(
     }
     row.raisedMinor += c.raisedAmount;
     row.availableMinor += c.availableBalance;
+    row.releasedMinor += c.totalReleasedAmount;
     row.withdrawnMinor += c.totalWithdrawnAmount;
     row.pendingReleaseMinor += Math.max(0, c.raisedAmount - c.totalReleasedAmount);
     row.campaignCount += 1;

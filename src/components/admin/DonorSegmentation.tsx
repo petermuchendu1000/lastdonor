@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/select';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import { DonorScoreBadge } from '@/components/admin/DonorScoreBadge';
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
+import type { CurrencyTotal } from '@/lib/admin/donation-totals.server';
 import { formatDate } from '@/lib/utils/dates';
 
 interface SegmentDonor {
@@ -23,7 +24,14 @@ interface SegmentDonor {
   name: string | null;
   email: string;
   donorType: string;
-  totalDonated: number;
+  /**
+   * What this donor has given, PER CURRENCY.
+   *
+   * ⛔ Was a currency-blind `totalDonated` (`users.total_donated` for
+   * registered donors, `SUM(d.amount)` by email for guests) printed with a
+   * dollar sign (`docs/92`).
+   */
+  totalsByCurrency: CurrencyTotal[];
   lastDonationAt: string | null;
   donorScore: number;
   tags: string[];
@@ -318,7 +326,7 @@ export function DonorSegmentation() {
                         <td className="px-4 py-2.5">
                           <DonorScoreBadge score={donor.donorScore} size="sm" />
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono tabular-nums">{centsToDollars(donor.totalDonated)}</td>
+                        <td className="px-4 py-2.5 text-right font-mono tabular-nums">{donor.totalsByCurrency.length === 0 ? '-' : donor.totalsByCurrency.map((t) => formatMoney(t.totalMinor, t.currency, 'exact')).join(' · ')}</td>
                         <td className="hidden px-4 py-2.5 text-muted-foreground md:table-cell">
                           {donor.lastDonationAt ? formatDate(donor.lastDonationAt) : 'Never'}
                         </td>

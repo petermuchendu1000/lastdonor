@@ -2,17 +2,19 @@
 
 import { Badge } from '@/components/ui/badge';
 import { reportingTimezoneLabel } from '@/lib/reporting-timezone';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { formatMoney } from '@/lib/money/format';
+import type { CurrencyTotal } from '@/lib/admin/donation-totals.server';
 import { formatRelativeTime } from '@/lib/utils/dates';
 import { CATEGORY_LABELS } from '@/lib/categories';
 import Link from 'next/link';
 import type { CampaignCategory } from '@/types';
 
 interface DashboardStats {
-  today: { donationCount: number; donationTotal: number; newSubscribers: number };
+  today: { donationCount: number; donationTotals: CurrencyTotal[]; newSubscribers: number };
   month: {
     donationCount: number;
-    donationTotal: number;
+    donationTotals: CurrencyTotal[];
     newSubscribers: number;
     campaignsLaunched: number;
     campaignsCompleted: number;
@@ -20,6 +22,8 @@ interface DashboardStats {
   activeCampaigns: {
     id: string;
     title: string;
+    /** The row's own currency; its amounts are in THAT currency's minor units. */
+    currency: string;
     slug: string;
     raisedAmount: number;
     goalAmount: number;
@@ -29,6 +33,8 @@ interface DashboardStats {
     id: string;
     title: string;
     slug: string;
+    /** The row's own currency; its amounts are in THAT currency's minor units. */
+    currency: string;
     category: string;
     goalAmount: number;
     creatorName: string;
@@ -36,6 +42,8 @@ interface DashboardStats {
   }[];
   recentDonations: {
     id: string;
+    /** The row's own currency; its amounts are in THAT currency's minor units. */
+    currency: string;
     donorName: string;
     amount: number;
     campaignTitle: string;
@@ -66,12 +74,12 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
         <StatTile
           value={stats.today.donationCount}
           label="Today's donations"
-          detail={centsToDollars(stats.today.donationTotal)}
+          detail={currencyDetail(stats.today.donationTotals)}
         />
         <StatTile
           value={stats.month.donationCount}
           label="This month"
-          detail={centsToDollars(stats.month.donationTotal)}
+          detail={currencyDetail(stats.month.donationTotals)}
         />
         <StatTile
           value={stats.today.newSubscribers}
@@ -141,7 +149,7 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-muted-foreground">
-                        {centsToDollars(c.goalAmount)}
+                        <Money minor={c.goalAmount} currency={c.currency} precision="exact" />
                       </td>
                       <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">
                         {formatRelativeTime(c.createdAt)}
@@ -197,9 +205,9 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
                             {c.title}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-right font-mono">{centsToDollars(c.raisedAmount)}</td>
+                        <td className="px-4 py-3 text-right font-mono"><Money minor={c.raisedAmount} currency={c.currency} precision="exact" /></td>
                         <td className="hidden px-4 py-3 text-right font-mono text-muted-foreground sm:table-cell">
-                          {centsToDollars(c.goalAmount)}
+                          <Money minor={c.goalAmount} currency={c.currency} precision="exact" />
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="ml-auto flex items-center justify-end gap-2">
@@ -256,7 +264,7 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
                           {d.campaignTitle}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono">{centsToDollars(d.amount)}</td>
+                      <td className="px-4 py-3 text-right font-mono"><Money minor={d.amount} currency={d.currency} precision="exact" /></td>
                       <td className="px-4 py-3 text-right text-xs text-muted-foreground">{formatRelativeTime(d.createdAt)}</td>
                     </tr>
                   ))}
@@ -271,6 +279,19 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
 }
 
 /* CDS Stat Tile - layered container with productive type */
+/**
+ * One tile, one line per currency.
+ *
+ * ⛔ These tiles used to show a single `centsToDollars(...)` over a
+ * platform-wide `SUM(donations.amount)` - shillings added to dollars and
+ * printed with a dollar sign (`docs/92`). A dash when nothing has been
+ * raised, rather than a zero in a currency nobody has given in.
+ */
+function currencyDetail(totals: CurrencyTotal[]): string {
+  if (totals.length === 0) return '-';
+  return totals.map((t) => formatMoney(t.totalMinor, t.currency, 'exact')).join(' · ');
+}
+
 function StatTile({ value, label, detail }: { value: number; label: string; detail: string }) {
   return (
     <div className="rounded-lg border border-border bg-background px-4 py-4">

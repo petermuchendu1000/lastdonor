@@ -47,6 +47,9 @@ export default async function AdminVerificationPage() {
         verificationNotes: campaigns.verificationNotes,
         verificationReviewedAt: campaigns.verificationReviewedAt,
         stripeVerificationId: campaigns.stripeVerificationId,
+        // The row's own currency; without it these screens printed every
+        // campaign's money as dollars (`docs/92`).
+        currency: campaigns.currency,
         goalAmount: campaigns.goalAmount,
         raisedAmount: campaigns.raisedAmount,
         totalReleasedAmount: campaigns.totalReleasedAmount,

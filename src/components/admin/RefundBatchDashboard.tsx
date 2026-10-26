@@ -1,6 +1,6 @@
 'use client';
 
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { useState, useEffect, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,8 @@ interface RefundBatchItem {
   id: string;
   campaignId: string;
   campaignTitle: string | null;
+  /** The campaign's currency; the batch total is in ITS minor units. */
+  currency: string | null;
   campaignSlug: string | null;
   reason: string;
   totalDonations: number;
@@ -77,13 +79,11 @@ const RECORD_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructi
 };
 
 /*
-  docs/88 F4/F5: one currency renderer. This local helper produced
-  `$1234.50` with no thousands separator; `centsToDollars` uses
-  Intl currency formatting, which is what every other screen uses.
+  docs/88 F4/F5 removed a local `$1234.50` formatter here in favour of the
+  shared renderer. That renderer hardcoded USD, so the figures were still
+  wrong for a shilling campaign; everything on this screen now goes through
+  `<Money>` with the batch's own campaign currency (`docs/92`).
 */
-function formatCents(cents: number): string {
-  return centsToDollars(cents);
-}
 
 export function RefundBatchDashboard() {
   const [items, setItems] = useState<RefundBatchItem[]>([]);
@@ -254,7 +254,7 @@ export function RefundBatchDashboard() {
                     <div className="flex items-center gap-6 text-right">
                       <div>
                         <p className="text-sm text-muted-foreground">Amount</p>
-                        <p className="font-mono font-semibold">{formatCents(batch.totalAmount)}</p>
+                        <p className="font-mono font-semibold"><Money minor={batch.totalAmount} currency={batch.currency ?? 'USD'} precision="exact" /></p>
                       </div>
                       <div>
                         <p className="text-sm text-muted-foreground">Donors</p>
@@ -323,7 +323,7 @@ export function RefundBatchDashboard() {
                               <tr key={record.id}>
                                 <td className="py-2">{record.donorName ?? 'Unknown'}</td>
                                 <td className="hidden py-2 text-muted-foreground sm:table-cell">{record.donorEmail ?? '-'}</td>
-                                <td className="py-2 text-right tabular-nums">{formatCents(record.amount)}</td>
+                                <td className="py-2 text-right tabular-nums"><Money minor={record.amount} currency={batch.currency ?? 'USD'} precision="exact" /></td>
                                 <td className="hidden py-2 font-mono text-xs text-muted-foreground md:table-cell">
                                   {record.stripeRefundId ? record.stripeRefundId.slice(0, 16) + '…' : '-'}
                                 </td>

@@ -1,10 +1,14 @@
 import { redirect } from 'next/navigation';
 import { startOfReportingMonthsAgo, reportingTimezoneLabel } from '@/lib/reporting-timezone';
 import { getReportPeriods } from '@/lib/report-periods';
+import {
+  donationTotalsByMonthAndCurrency,
+  donationTotalsByCategoryAndCurrency,
+} from '@/lib/admin/donation-totals.server';
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
-import { donations, campaigns } from '@/db/schema';
-import { eq, sql, gte, and, desc } from 'drizzle-orm';
+import { campaigns } from '@/db/schema';
+import { desc } from 'drizzle-orm';
 import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 
@@ -27,7 +31,6 @@ export default async function AdminReportsPage() {
   // docs/88 F15.
   const twelveMonthsAgo = startOfReportingMonthsAgo(11, now);
 
-  const realNonRefunded = and(eq(donations.source, 'real'), eq(donations.refunded, false));
 
   /*
     docs/87 amendment 5. This was SEVEN queries in one `Promise.all`
@@ -39,18 +42,13 @@ export default async function AdminReportsPage() {
     load; see `src/lib/report-periods.ts`.
   */
   const [monthlyRevenue, periods, topCampaigns] = await Promise.all([
-    // Monthly revenue (12 months)
-    db
-      .select({
-        month: sql<string>`to_char(date_trunc('month', ${donations.createdAt}), 'YYYY-MM')`,
-        total: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
-        count: sql<number>`count(*)::int`,
-        avgDonation: sql<number>`coalesce(avg(${donations.amount}), 0)::int`,
-      })
-      .from(donations)
-      .where(and(gte(donations.createdAt, twelveMonthsAgo), realNonRefunded))
-      .groupBy(sql`date_trunc('month', ${donations.createdAt})`)
-      .orderBy(sql`date_trunc('month', ${donations.createdAt})`),
+    /*
+      ⛔ Was `SUM(donations.amount)` grouped by month ALONE, so a month with
+      KES and USD donations plotted one point that was the two added together
+      (`docs/92`). Split by currency, through a module so a test can run it
+      (`docs/107` §7). Still one query.
+    */
+    donationTotalsByMonthAndCurrency(db, { since: twelveMonthsAgo }),
     getReportPeriods(now),
     // Top campaigns
     db
@@ -59,6 +57,7 @@ export default async function AdminReportsPage() {
         title: campaigns.title,
         slug: campaigns.slug,
         status: campaigns.status,
+        currency: campaigns.currency,
         raisedAmount: campaigns.raisedAmount,
         goalAmount: campaigns.goalAmount,
         donorCount: campaigns.donorCount,
@@ -71,18 +70,7 @@ export default async function AdminReportsPage() {
 
   // Runs after the batch: nothing depends on it, and three concurrent
   // queries plus the layout's auth() is already the pool's capacity.
-  const categoryRevenue = await db
-    .select({
-      category: campaigns.category,
-      total: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
-      count: sql<number>`count(${donations.id})::int`,
-      campaigns: sql<number>`count(distinct ${campaigns.id})::int`,
-    })
-    .from(donations)
-    .innerJoin(campaigns, eq(donations.campaignId, campaigns.id))
-    .where(realNonRefunded)
-    .groupBy(campaigns.category)
-    .orderBy(sql`sum(${donations.amount}) desc`);
+  const categoryRevenue = await donationTotalsByCategoryAndCurrency(db);
 
 
   return (
@@ -94,15 +82,46 @@ export default async function AdminReportsPage() {
           counted in {reportingTimezoneLabel()}.
         </p>
       </div>
-      <FinancialReports
-        monthlyRevenue={monthlyRevenue}
-        ytd={periods.ytd}
-        mtd={periods.mtd}
-        allTime={periods.allTime}
-        topCampaigns={topCampaigns}
-        categoryRevenue={categoryRevenue}
-        refunds={periods.refunds}
-      />
+      {periods.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No real donations have been recorded yet.
+        </p>
+      ) : (
+        /*
+          ⛔ ONE SECTION PER CURRENCY, not one blended report. A campaign is
+          single-currency by composite FK; the PLATFORM is not, and every
+          figure on this page used to be a sum across both rails printed with
+          a dollar sign (`docs/92`). With a single currency this renders
+          exactly what it did before.
+        */
+        periods.map((p) => (
+          <FinancialReports
+            key={p.currency}
+            currency={p.currency}
+            monthlyRevenue={monthlyRevenue
+              .filter((m) => m.currency === p.currency)
+              .map((m) => ({
+                month: m.month.slice(0, 7),
+                total: m.totalMinor,
+                count: m.donationCount,
+                avgDonation: m.donationCount > 0 ? Math.round(m.totalMinor / m.donationCount) : 0,
+              }))}
+            ytd={p.ytd}
+            mtd={p.mtd}
+            allTime={p.allTime}
+            topCampaigns={topCampaigns.filter((c) => c.currency === p.currency)}
+            categoryRevenue={categoryRevenue
+              .filter((c) => c.currency === p.currency)
+              .map((c) => ({
+                category: c.category,
+                total: c.totalMinor,
+                count: c.donationCount,
+                campaigns: 0,
+              }))}
+            refunds={p.refunds}
+          />
+        ))
+      )}
     </>
   );
 }

@@ -45,10 +45,30 @@ function code(src: string): string {
   parsing on the next keystroke. Formatting for READING and formatting
   for EDITING are not the same job.
 */
-const DOLLAR_DENOMINATED = new Set(['PipelineMonitor.tsx', 'SystemSettings.tsx']);
+const DOLLAR_DENOMINATED = new Set(['PipelineMonitor.tsx']);
+
+/*
+  ⚠️ `SystemSettings.tsx` WAS on that list and is not any more.
+
+  Its exemption read: "its `CentsInput` is an editable field, and a form
+  input must hold a bare numeric string". That is true, and that input is
+  still untouched. But the same file also had a READ-ONLY `DisplayValue`
+  using `Intl.NumberFormat('en-US', { currency: 'USD' })`, which the
+  exemption never justified - a file-level allowlist entry covered a second
+  code path nobody had looked at. Exempt the narrowest thing you can.
+*/
+
+/*
+  `SystemSettings` keeps ONE narrow exemption: its `CentsInput` divides by
+  100 to put a bare numeric string in an editable field, which is the
+  original, correct reason. It is NOT exempt from the currency rules below -
+  that is the half of the old file-level exemption that let a hardcoded
+  `currency: 'USD'` survive in the same file's read-only `DisplayValue`.
+*/
+const HAND_DIVIDES_FOR_AN_INPUT = new Set(['SystemSettings.tsx']);
 
 describe('one currency renderer across the admin (F4/F5)', () => {
-  it.each(files.filter((f) => !DOLLAR_DENOMINATED.has(f)))(
+  it.each(files.filter((f) => !DOLLAR_DENOMINATED.has(f) && !HAND_DIVIDES_FOR_AN_INPUT.has(f)))(
     '%s does not divide cents by 100 by hand',
     (file) => {
       const src = code(readFileSync(join(ADMIN, file), 'utf8'));
@@ -93,5 +113,52 @@ describe('no server-local period boundaries (F15)', () => {
   it('the dashboard tells the reader which zone the periods are in', () => {
     const src = readFileSync(join(ADMIN, 'AdminDashboard.tsx'), 'utf8');
     expect(src).toContain('reportingTimezoneLabel');
+  });
+});
+
+/*
+  ─────────────────────────────────────────────────────────────────────────
+  Added 2026-10-26. `docs/88` F4/F5 made the admin use ONE renderer. That
+  renderer was `centsToDollars`, which hardcodes USD - so the screens became
+  consistent and stayed wrong. On a platform collecting KES and USD, every
+  admin money figure carried a dollar sign whatever currency the row held,
+  and ten aggregates summed across currencies before printing.
+
+  The rule is now: an amount is rendered in the currency of the row it came
+  from. `Money` and `formatMoney` both take one; `centsToDollars` cannot.
+  ─────────────────────────────────────────────────────────────────────────
+*/
+describe('admin money is rendered in its own currency (docs/92)', () => {
+  it.each(files.filter((f) => !DOLLAR_DENOMINATED.has(f)))(
+    '%s does not use the USD-only renderer',
+    (file) => {
+      const src = code(readFileSync(join(ADMIN, file), 'utf8'));
+      expect(src).not.toMatch(/\bcentsToDollars\w*\s*\(/);
+    },
+  );
+
+  it.each(files.filter((f) => !DOLLAR_DENOMINATED.has(f)))(
+    '%s does not hardcode a currency in an Intl formatter',
+    (file) => {
+      const src = code(readFileSync(join(ADMIN, file), 'utf8'));
+      expect(src).not.toMatch(/currency:\s*['"][A-Z]{3}['"]/);
+    },
+  );
+
+  it('every <Money> in the admin is given a currency', () => {
+    /*
+      `Money`'s `currency` prop DEFAULTS to USD, so a bare `<Money minor={x} />`
+      is a dollar sign nobody chose - the defect `DonorFeed` and `ImpactTiers`
+      had on the public site. A default is what turns "nobody passed it" into
+      "somebody chose dollars".
+    */
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = code(readFileSync(join(ADMIN, file), 'utf8'));
+      for (const tag of src.match(/<Money\b[^>]*>/g) ?? []) {
+        if (!/\bcurrency=/.test(tag)) offenders.push(`${file}: ${tag.slice(0, 70)}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

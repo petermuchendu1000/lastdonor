@@ -28,7 +28,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { formatDate, formatRelativeTime } from '@/lib/utils/dates';
 import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
@@ -58,6 +58,8 @@ interface VerificationItem {
   verificationNotes: string | null;
   verificationReviewedAt: string | null;
   stripeVerificationId: string | null;
+  /** The campaign's own currency; its amounts are in THAT currency's minor units (`docs/92`). */
+  currency: string;
   goalAmount: number;
   raisedAmount: number;
   creatorId: string | null;
@@ -462,7 +464,7 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
                       </div>
                     </td>
                     <td className="hidden px-4 py-2.5 text-right font-mono text-muted-foreground md:table-cell">
-                      {centsToDollars(item.goalAmount)}
+                      <Money minor={item.goalAmount} currency={item.currency} precision="exact" />
                     </td>
                     <td className="hidden px-4 py-2.5 text-right md:table-cell">
                       <span className="rounded bg-muted px-1.5 py-0.5 text-xs tabular-nums">{item.documentCount}</span>

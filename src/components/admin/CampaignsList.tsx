@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { CampaignStatusBadge } from '@/components/campaigns/CampaignStatusBadge';
 import { VerificationBadge } from '@/components/campaigns/TrustBadge';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { formatDate } from '@/lib/utils/dates';
 import { ListCount } from '@/components/admin/ListCount';
 import { Textarea } from '@/components/ui/textarea';
@@ -46,6 +46,8 @@ interface Campaign {
   verificationStatus: string;
   source: string;
   creatorName: string | null;
+  /** The campaign's own currency; its amounts are in THAT currency's minor units (`docs/92`). */
+  currency: string;
   raisedAmount: number;
   goalAmount: number;
   donorCount: number;
@@ -343,7 +345,7 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums">
-                        {centsToDollars(c.raisedAmount)}
+                        <Money minor={c.raisedAmount} currency={c.currency} precision="exact" />
                       </td>
                       <td className="hidden px-4 py-3 text-right tabular-nums text-muted-foreground md:table-cell">{c.donorCount}</td>
                       <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">

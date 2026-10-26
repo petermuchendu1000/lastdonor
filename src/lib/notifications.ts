@@ -1335,6 +1335,8 @@ export async function buildDonorContext(p: {
  * amount tier, and campaign phase.
  */
 export async function notifyAdaptiveDonationReceipt(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorEmail: string;
   donorName: string;
   amount: number;
@@ -1353,6 +1355,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
   });
 
   const emailContent = adaptiveDonationReceiptEmail({
+      currency: p.currency,
     campaignTitle: p.campaignTitle,
     campaignSlug: p.campaignSlug,
     amount: p.amount,
@@ -1366,6 +1369,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
   const tier = getDonorAmountTier(p.amount);
   if (tier === 'major' || tier === 'large') {
     const hvEmail = highValueDonorThankYouEmail({
+      currency: p.currency,
       donorName: donorContext.donorName,
       amount: p.amount,
       campaignTitle: p.campaignTitle,
@@ -1442,6 +1446,8 @@ export async function notifyAbandonedDonation(p: AbandonedDonationContext) {
  * Send an adaptive refund email based on donor history and refund context.
  */
 export async function notifyAdaptiveRefund(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorEmail: string;
   donorName: string;
   amount: number;
@@ -1449,7 +1455,11 @@ export async function notifyAdaptiveRefund(p: {
   campaignTitle: string;
   campaignSlug: string;
   refundReason: 'campaign_cancelled' | 'donor_requested' | 'admin_initiated' | 'dispute';
-  similarCampaigns?: Array<{ title: string; slug: string; raised: number; goal: number }>;
+  /*
+    `currency` is PER ITEM: these are OTHER campaigns and may be in a
+    different currency from the one being refunded (`docs/92`).
+  */
+  similarCampaigns?: Array<{ title: string; slug: string; raised: number; goal: number; currency: string }>;
 }) {
   const donorContext = await buildDonorContext({
     donorEmail: p.donorEmail,
@@ -1458,6 +1468,7 @@ export async function notifyAdaptiveRefund(p: {
   });
 
   const emailContent = adaptiveRefundEmail({
+      currency: p.currency,
     donorContext,
     amount: p.amount,
     campaignTitle: p.campaignTitle,
@@ -1485,6 +1496,8 @@ export async function notifyAdaptiveRefund(p: {
  * Called by a scheduled job that monitors creator engagement.
  */
 export async function notifyCreatorMotivation(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   context: CreatorContext;
   emailType: CreatorEmailType;
   donorMilestone?: number;
@@ -1513,6 +1526,8 @@ export async function notifyCreatorMotivation(p: {
  * Send a verification escalation email with stage-appropriate messaging.
  */
 export async function notifyVerificationEscalation(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   creatorId: string;
   creatorEmail: string;
   creatorName: string;
@@ -1525,6 +1540,7 @@ export async function notifyVerificationEscalation(p: {
   daysRemaining: number;
 }) {
   const emailContent = verificationEscalationEmail({
+      currency: p.currency,
     creatorName: p.creatorName || 'Campaigner',
     campaignTitle: p.campaignTitle,
     campaignSlug: p.campaignSlug,
@@ -1550,6 +1566,8 @@ export async function notifyVerificationEscalation(p: {
  * Called by a scheduled job that detects donor inactivity.
  */
 export async function notifyDonorReengagement(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   userId: string;
   donorEmail: string;
   donorName: string;
@@ -1560,6 +1578,7 @@ export async function notifyDonorReengagement(p: {
   featuredCampaigns: Array<{ title: string; slug: string; progressPercent: number; category: string }>;
 }) {
   const emailContent = donorReengagementEmail({
+      currency: p.currency,
     donorName: p.donorName || 'Friend',
     donorEmail: p.donorEmail,
     stage: p.stage,
@@ -1586,6 +1605,8 @@ export async function notifyDonorReengagement(p: {
  * Shows the donor what their donation is accomplishing.
  */
 export async function notifyPostDonationImpact(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   donorEmail: string;
   donorName: string;
   campaignTitle: string;
@@ -1603,6 +1624,7 @@ export async function notifyPostDonationImpact(p: {
     .limit(1);
 
   const emailContent = postDonationImpactEmail({
+      currency: p.currency,
     donorName: p.donorName,
     campaignTitle: p.campaignTitle,
     campaignSlug: p.campaignSlug,
@@ -1631,6 +1653,8 @@ export async function notifyPostDonationImpact(p: {
  * Send a campaign update digest to a subscribed donor.
  */
 export async function notifyCampaignUpdateDigest(p: {
+  /** The campaign's own currency; every amount here is in ITS minor units (`docs/92`). */
+  currency: string;
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
@@ -1648,6 +1672,7 @@ export async function notifyCampaignUpdateDigest(p: {
   for (const sub of subscribers) {
     const name = nameMap.get(sub.donorEmail) ?? 'Donor';
     const emailContent = campaignUpdateDigestEmail({
+      currency: p.currency,
       donorName: name,
       donorEmail: sub.donorEmail,
       campaignTitle: p.campaignTitle,

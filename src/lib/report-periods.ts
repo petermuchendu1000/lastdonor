@@ -59,6 +59,15 @@ export interface PeriodTotals {
 }
 
 export interface ReportPeriods {
+  /**
+   * The currency these figures are in.
+   *
+   * ⛔ Added 2026-10-26. Every figure here was a `SUM(donations.amount)` with
+   * NO currency grouping, rendered through `centsToDollars`. On a platform
+   * collecting KES and USD that is shillings added to dollars under a dollar
+   * sign (`docs/92`). `getReportPeriods` now returns ONE ROW PER CURRENCY.
+   */
+  currency: string;
   ytd: PeriodTotals;
   mtd: PeriodTotals;
   allTime: PeriodTotals;
@@ -73,7 +82,7 @@ export interface ReportPeriods {
  * as revenue (`docs/33`, `docs/41`). Period boundaries come from
  * `REPORTING_TIMEZONE`, not the server's zone (`docs/88` F15).
  */
-export async function getReportPeriods(now: Date = new Date()): Promise<ReportPeriods> {
+export async function getReportPeriods(now: Date = new Date()): Promise<ReportPeriods[]> {
   const startOfMonth = startOfReportingMonth(now);
   const startOfYear = startOfReportingYear(now);
 
@@ -87,8 +96,16 @@ export async function getReportPeriods(now: Date = new Date()): Promise<ReportPe
 
   const real = sql`${donations.source} = 'real' AND ${donations.refunded} = false`;
 
-  const [row] = await db
+  /*
+    ⚠️ STILL ONE QUERY. `docs/87`: this page runs three concurrent queries
+    against a pool of five with the admin layout's `auth()` alongside, and
+    `getReportPeriods` exists because it used to be four of them. Adding
+    `GROUP BY ${donations.currency}` turns one row into N without adding a
+    round trip, so the fan-out budget is unchanged.
+  */
+  const rows = await db
     .select({
+      currency: donations.currency,
       ytdTotal: sql<number>`coalesce(sum(${donations.amount}) FILTER (WHERE ${donations.createdAt} >= ${yearStart} AND ${real}), 0)::int`,
       ytdCount: sql<number>`count(*) FILTER (WHERE ${donations.createdAt} >= ${yearStart} AND ${real})::int`,
       ytdAvg: sql<number>`coalesce(avg(${donations.amount}) FILTER (WHERE ${donations.createdAt} >= ${yearStart} AND ${real}), 0)::int`,
@@ -101,12 +118,15 @@ export async function getReportPeriods(now: Date = new Date()): Promise<ReportPe
       refundTotal: sql<number>`coalesce(sum(${donations.amount}) FILTER (WHERE ${donations.source} = 'real' AND ${donations.refunded} = true), 0)::int`,
       refundCount: sql<number>`count(*) FILTER (WHERE ${donations.source} = 'real' AND ${donations.refunded} = true)::int`,
     })
-    .from(donations);
+    .from(donations)
+    .groupBy(donations.currency)
+    .orderBy(sql`3 desc`);
 
-  return {
+  return rows.map((row) => ({
+    currency: row.currency,
     ytd: { total: row.ytdTotal, count: row.ytdCount, avgDonation: row.ytdAvg },
     mtd: { total: row.mtdTotal, count: row.mtdCount, avgDonation: row.mtdAvg },
     allTime: { total: row.allTotal, count: row.allCount, avgDonation: row.allAvg },
     refunds: { total: row.refundTotal, count: row.refundCount },
-  };
+  }));
 }

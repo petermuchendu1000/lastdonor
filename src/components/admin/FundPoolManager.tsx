@@ -1,6 +1,7 @@
 'use client';
 
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
+import { Money } from '@/components/ui/Money';
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -22,6 +23,8 @@ interface Allocation {
   sourceCampaignTitle: string;
   sourceCampaignSlug: string;
   targetCampaignId: string | null;
+  /** The source campaign's currency; the amount is in ITS minor units. */
+  currency: string;
   amount: number;
   status: string;
   notes: string | null;
@@ -30,10 +33,21 @@ interface Allocation {
   createdAt: string;
 }
 
+interface CurrencyAmount {
+  currency: string;
+  totalMinor: number;
+}
+
+/**
+ * ⛔ `totals` is a LIST, not one number. `fund_pool_allocations` has no
+ * currency column - an allocation's amount belongs to its source campaign -
+ * so these three figures used to add shillings to dollars and print the
+ * result with a dollar sign (`docs/92`).
+ */
 interface Summary {
-  pending: { count: number; total: number };
-  allocated: { count: number; total: number };
-  disbursed: { count: number; total: number };
+  pending: { count: number; totals: CurrencyAmount[] };
+  allocated: { count: number; totals: CurrencyAmount[] };
+  disbursed: { count: number; totals: CurrencyAmount[] };
 }
 
 interface TargetCampaign {
@@ -47,9 +61,10 @@ interface Props {
   targetCampaigns: TargetCampaign[];
 }
 
-function formatCents(cents: number): string {
-  // docs/88 F4: delegate, so there is one currency renderer.
-  return centsToDollars(cents);
+/** One line per currency, or a dash when there is nothing to show. */
+function perCurrency(totals: CurrencyAmount[]): string {
+  if (totals.length === 0) return '-';
+  return totals.map((t) => formatMoney(t.totalMinor, t.currency, 'exact')).join(' · ');
 }
 
 /* ---------- component ---------- */
@@ -140,7 +155,7 @@ export function FundPoolManager({ allocations: initialAllocations, summary, targ
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error?.code === 'VALIDATION_ERROR' ? (body.error?.message ?? 'Failed to disburse') : 'Failed to disburse');
-      toast.success(`${body.data.disbursed} allocations disbursed (${formatCents(body.data.totalDisbursed)})`);
+      toast.success(`${body.data.disbursed} allocations disbursed`);
       setDisburseOpen(false);
       setSelected(new Set());
       setDisburseNotes('');
@@ -181,17 +196,17 @@ export function FundPoolManager({ allocations: initialAllocations, summary, targ
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border px-4 py-3">
           <p className="text-xs text-muted-foreground">Pending</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCents(summary.pending.total)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{perCurrency(summary.pending.totals)}</p>
           <p className="text-xs text-muted-foreground">{summary.pending.count} allocations</p>
         </div>
         <div className="rounded-lg border px-4 py-3">
           <p className="text-xs text-muted-foreground">Allocated</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCents(summary.allocated.total)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{perCurrency(summary.allocated.totals)}</p>
           <p className="text-xs text-muted-foreground">{summary.allocated.count} allocations</p>
         </div>
         <div className="rounded-lg border px-4 py-3">
           <p className="text-xs text-muted-foreground">Disbursed</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatCents(summary.disbursed.total)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{perCurrency(summary.disbursed.totals)}</p>
           <p className="text-xs text-muted-foreground">{summary.disbursed.count} allocations</p>
         </div>
       </div>
@@ -290,7 +305,7 @@ export function FundPoolManager({ allocations: initialAllocations, summary, targ
                       <td className="py-3 px-4">
                         <span className="font-medium">{a.sourceCampaignTitle}</span>
                       </td>
-                      <td className="py-3 px-4 text-right tabular-nums">{formatCents(a.amount)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums"><Money minor={a.amount} currency={a.currency} precision="exact" /></td>
                       <td className="py-3 px-4">
                         <Badge variant={statusColor(a.status)}>{a.status}</Badge>
                       </td>

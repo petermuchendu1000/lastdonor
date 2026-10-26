@@ -55,6 +55,7 @@ describe('financeTotalsByCurrency', () => {
       currency: 'KES',
       raisedMinor: 150_000,
       availableMinor: 40_000,
+      releasedMinor: 90_000,
       withdrawnMinor: 50_000,
       // 60_000 from the first campaign, 0 from the second.
       pendingReleaseMinor: 60_000,

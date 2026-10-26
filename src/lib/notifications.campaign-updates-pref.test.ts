@@ -91,6 +91,7 @@ const DIGEST = {
   updateTitle: 'Surgery scheduled',
   updateExcerpt: 'Good news this week.',
   progressPercent: 42,
+  currency: 'KES',
   raisedCents: 4200,
   goalCents: 10000,
 };

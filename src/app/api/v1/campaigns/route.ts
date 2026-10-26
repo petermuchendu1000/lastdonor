@@ -83,6 +83,23 @@ export const GET = withApiHandler(async (request, { requestId: _requestId }) => 
       campaignOrganizer: campaigns.campaignOrganizer,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
+      /*
+        ⛔ WITHOUT THIS, "Load more" ON /campaigns RENDERS IN DOLLARS.
+
+        `CampaignGrid` requires `currency` on every item (its `CampaignData`
+        says so) and appends the rows this route returns. It parses them with
+        `json.data as CampaignData[]` - an UNCHECKED CAST - so the compiler
+        believed the shape and `currency` arrived `undefined`, falling through
+        to `<Money>`'s USD default.
+
+        Reproduced in a browser on an all-KES fixture: the 12 server-rendered
+        cards read `Ksh 18,400`, and the 5 appended by one click of "Load
+        more" read `$12,350`. Same campaigns, same rows, different currency.
+        `campaigns-listing-shape.test.ts` now derives the required keys from
+        `CampaignGrid.tsx` and fails if this select misses any of them, so
+        the NEXT field to go missing is caught too (`docs/92`, `docs/104`).
+      */
+      currency: campaigns.currency,
       donorCount: campaigns.donorCount,
       publishedAt: campaigns.publishedAt,
     })

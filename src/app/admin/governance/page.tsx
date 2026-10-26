@@ -21,6 +21,9 @@ export default async function AdminGovernancePage() {
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      // The row's own currency; without it these screens printed every
+      // campaign's money as dollars (`docs/92`).
+      currency: campaigns.currency,
       raisedAmount: campaigns.raisedAmount,
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,

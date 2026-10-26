@@ -25,6 +25,9 @@ export default async function FundPoolPage() {
         sourceCampaignId: fundPoolAllocations.sourceCampaignId,
         sourceCampaignTitle: campaigns.title,
         sourceCampaignSlug: campaigns.slug,
+        // `fund_pool_allocations` has NO currency column: the amount is in
+        // the SOURCE campaign's currency (`docs/92`).
+        currency: campaigns.currency,
         targetCampaignId: fundPoolAllocations.targetCampaignId,
         amount: fundPoolAllocations.amount,
         status: fundPoolAllocations.status,
@@ -40,11 +43,15 @@ export default async function FundPoolPage() {
     db
       .select({
         status: fundPoolAllocations.status,
+        // ⛔ Grouped by the SOURCE campaign's currency too: without it these
+        // three totals added shillings to dollars (`docs/92`).
+        currency: campaigns.currency,
         count: sql<number>`count(*)::int`,
         total: sql<number>`coalesce(sum(${fundPoolAllocations.amount}), 0)::int`,
       })
       .from(fundPoolAllocations)
-      .groupBy(fundPoolAllocations.status),
+      .innerJoin(campaigns, eq(fundPoolAllocations.sourceCampaignId, campaigns.id))
+      .groupBy(fundPoolAllocations.status, campaigns.currency),
     // Campaigns that can receive allocations (real, active)
     db
       .select({ id: campaigns.id, title: campaigns.title })
@@ -53,13 +60,14 @@ export default async function FundPoolPage() {
   ]);
 
   const summary = {
-    pending: { count: 0, total: 0 },
-    allocated: { count: 0, total: 0 },
-    disbursed: { count: 0, total: 0 },
+    pending: { count: 0, totals: [] as { currency: string; totalMinor: number }[] },
+    allocated: { count: 0, totals: [] as { currency: string; totalMinor: number }[] },
+    disbursed: { count: 0, totals: [] as { currency: string; totalMinor: number }[] },
   };
   for (const r of summaryRows) {
     if (r.status === 'pending' || r.status === 'allocated' || r.status === 'disbursed') {
-      summary[r.status] = { count: r.count, total: r.total };
+      summary[r.status].count += r.count;
+      summary[r.status].totals.push({ currency: r.currency, totalMinor: r.total });
     }
   }
 
@@ -68,6 +76,7 @@ export default async function FundPoolPage() {
     donationId: a.donationId,
     sourceCampaignId: a.sourceCampaignId,
     sourceCampaignTitle: a.sourceCampaignTitle ?? 'Unknown',
+    currency: a.currency ?? 'USD',
     sourceCampaignSlug: a.sourceCampaignSlug ?? '',
     targetCampaignId: a.targetCampaignId,
     amount: a.amount,

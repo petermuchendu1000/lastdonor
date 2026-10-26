@@ -1,6 +1,6 @@
 'use client';
 
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
 import { Badge } from '@/components/ui/badge';
 import { ChartBarIcon } from '@heroicons/react/24/outline';
 
@@ -13,13 +13,20 @@ interface CampaignGroup {
   total: number;
 }
 
+interface CurrencyAmount {
+  currency: string;
+  totalMinor: number;
+}
+
 interface DonationGroup {
   count: number;
-  total: number;
+  totals: CurrencyAmount[];
 }
 
 interface Category {
   category: string;
+  /** The currency of the campaigns in this category row. */
+  currency: string;
   simulated: number;
   real: number;
   seedDonations: number;
@@ -30,13 +37,20 @@ interface Props {
   campaigns: { simulated: CampaignGroup; real: CampaignGroup };
   donations: { seed: DonationGroup; real: DonationGroup };
   ratio: number;
-  fundPool: { pending: number; allocated: number; disbursed: number };
+  fundPool: { pending: CurrencyAmount[]; allocated: CurrencyAmount[]; disbursed: CurrencyAmount[] };
   categories: Category[];
 }
 
-function formatCents(cents: number): string {
-  // docs/88 F4: delegate, so there is one currency renderer.
-  return centsToDollars(cents);
+/**
+ * One figure per currency, or a dash.
+ *
+ * ⛔ These totals used to be a single number through `centsToDollars`, which
+ * hardcodes USD, over `SUM(donations.amount)` with no currency in the GROUP
+ * BY - shillings added to dollars under a dollar sign (`docs/92`).
+ */
+function perCurrency(totals: CurrencyAmount[]): string {
+  if (totals.length === 0) return '-';
+  return totals.map((t) => formatMoney(t.totalMinor, t.currency, 'exact')).join(' · ');
 }
 
 /* ---------- component ---------- */
@@ -121,7 +135,7 @@ export function SimulationAnalytics({ campaigns, donations, ratio, fundPool, cat
             </h3>
           </div>
           <div className="p-4">
-            <p className="text-2xl font-semibold tabular-nums">{formatCents(donations.seed.total)}</p>
+            <p className="text-2xl font-semibold tabular-nums">{perCurrency(donations.seed.totals)}</p>
             <p className="text-xs text-muted-foreground">{donations.seed.count} donations</p>
           </div>
         </div>
@@ -133,7 +147,7 @@ export function SimulationAnalytics({ campaigns, donations, ratio, fundPool, cat
             </h3>
           </div>
           <div className="p-4">
-            <p className="text-2xl font-semibold tabular-nums">{formatCents(donations.real.total)}</p>
+            <p className="text-2xl font-semibold tabular-nums">{perCurrency(donations.real.totals)}</p>
             <p className="text-xs text-muted-foreground">{donations.real.count} donations</p>
           </div>
         </div>
@@ -147,15 +161,15 @@ export function SimulationAnalytics({ campaigns, donations, ratio, fundPool, cat
         <div className="p-4">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
-              <p className="text-xl font-semibold tabular-nums">{formatCents(fundPool.pending)}</p>
+              <p className="text-xl font-semibold tabular-nums">{perCurrency(fundPool.pending)}</p>
               <p className="text-xs text-muted-foreground">Pending</p>
             </div>
             <div>
-              <p className="text-xl font-semibold tabular-nums">{formatCents(fundPool.allocated)}</p>
+              <p className="text-xl font-semibold tabular-nums">{perCurrency(fundPool.allocated)}</p>
               <p className="text-xs text-muted-foreground">Allocated</p>
             </div>
             <div>
-              <p className="text-xl font-semibold tabular-nums">{formatCents(fundPool.disbursed)}</p>
+              <p className="text-xl font-semibold tabular-nums">{perCurrency(fundPool.disbursed)}</p>
               <p className="text-xs text-muted-foreground">Disbursed</p>
             </div>
           </div>
@@ -191,8 +205,8 @@ export function SimulationAnalytics({ campaigns, donations, ratio, fundPool, cat
                       <td className="py-3 pr-4 font-medium capitalize">{cat.category}</td>
                       <td className="py-3 pr-4 text-right">{cat.simulated}</td>
                       <td className="py-3 pr-4 text-right">{cat.real}</td>
-                      <td className="py-3 pr-4 text-right">{formatCents(cat.seedDonations)}</td>
-                      <td className="py-3 text-right">{formatCents(cat.realDonations)}</td>
+                      <td className="py-3 pr-4 text-right">{formatMoney(cat.seedDonations, cat.currency, 'exact')}</td>
+                      <td className="py-3 text-right">{formatMoney(cat.realDonations, cat.currency, 'exact')}</td>
                     </tr>
                   ))}
                 </tbody>

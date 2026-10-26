@@ -77,7 +77,12 @@ person has never touched.
 
 ---
 
-## 4. The six hand-rolled currency formatters
+## 4. The hand-rolled currency formatters
+
+⚠️ **CORRECTED by `docs/115` §0: "six" undercounts.** `centsToDollars` is the
+shared helper; on top of it there were FIVE local `formatCents` wrappers
+(`email-adaptive`, `email-templates`, `SystemSettings`, `SimulationAnalytics`,
+`FundPoolManager`), two of which hardcoded USD outright.
 
 `docs/88` F4/F5 removed five from admin and established that `Money` /
 `formatMoney` are the only renderers. Two more had grown since, both on
@@ -216,7 +221,13 @@ Four things that tripped the harness itself, each worth knowing:
 
 ## 9. ⛔ What is NOT fixed
 
-**9.1 Twenty admin components, 46 call sites.** Worst first:
+**9.1 Admin components.** ⚠️ **CORRECTED by `docs/115` §0: this said "twenty
+admin components, 46 call sites" and the real figure is SEVENTEEN files and
+44 `centsToDollars` call sites** (the 20/46 counted `lib/utils/currency.ts`
+and `DonationForm.tsx` in the file list and summed wrongly), plus 10 more
+sites reached through local `formatCents` wrappers that a `centsToDollars`
+count does not see. ✅ **All of them are now done — see `docs/115`.** Worst
+first, as they stood:
 `FinancialReports` (14), `AdminDashboard` (6), `DonationsList` (4),
 `CampaignDetail` (4), `PayoutsDashboard` (3), then fourteen files with one or
 two each. Each needs the same per-site judgement made here — some are

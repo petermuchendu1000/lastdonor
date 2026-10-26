@@ -39,6 +39,7 @@ export default async function AdminCampaignDetailPage({
       donorEmail: donations.donorEmail,
       donorLocation: donations.donorLocation,
       amount: donations.amount,
+      currency: donations.currency,
       message: donations.message,
       isAnonymous: donations.isAnonymous,
       phaseAtTime: donations.phaseAtTime,

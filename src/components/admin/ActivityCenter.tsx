@@ -1,6 +1,6 @@
 'use client';
 
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -78,7 +78,16 @@ function getEventDescription(entry: ActivityEntry | AlertEntry): string {
   const details = entry.details;
   switch (entry.eventType) {
     case 'donation.recorded':
-      return `${centsToDollars(Number(details.amount) || 0)} donation received`;
+      /*
+        `payment-service.ts:320` writes `currency` into this audit detail
+        alongside `amount`, so the figure can be stated correctly. It used to
+        go through `centsToDollars`, which hardcodes USD (`docs/92`). A row
+        written before that field existed has no currency, and is shown
+        without a symbol rather than with the wrong one.
+      */
+      return typeof details.currency === 'string'
+        ? `${formatMoney(Number(details.amount) || 0, details.currency, 'exact')} donation received`
+        : `Donation received`;
     case 'donation.failed':
       return `Donation payment failed`;
     case 'donation.refunded':

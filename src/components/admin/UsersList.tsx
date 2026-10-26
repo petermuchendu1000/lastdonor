@@ -24,7 +24,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { centsToDollars } from '@/lib/utils/currency';
+import { formatMoney } from '@/lib/money/format';
+import type { CurrencyTotal } from '@/lib/admin/donation-totals.server';
 import { formatDate } from '@/lib/utils/dates';
 import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
@@ -45,7 +46,15 @@ interface UserRow {
   name: string | null;
   email: string;
   role: 'donor' | 'editor' | 'admin';
-  totalDonated: number;
+  /**
+   * What this person has given, PER CURRENCY.
+   *
+   * ⛔ Was `users.total_donated`, a single integer with no currency dimension
+   * (`payment-service.ts:307` adds every donation's raw amount to it whatever
+   * rail it came over). For a donor across two currencies it is a number in
+   * neither, and this column printed it with a dollar sign (`docs/92`).
+   */
+  donationTotals: CurrencyTotal[];
   campaignsSupported: number;
   lastDonorCount: number;
   createdAt: string;
@@ -159,7 +168,16 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
       switch (sortField) {
         case 'name': cmp = (a.name ?? '').localeCompare(b.name ?? ''); break;
         case 'role': cmp = a.role.localeCompare(b.role); break;
-        case 'totalDonated': cmp = a.totalDonated - b.totalDonated; break;
+        /*
+          ⛔ Sorted by the NUMBER of donations, not the amount. Amounts in
+          different currencies are not orderable without an exchange rate,
+          and `docs/102` forbids a rate deciding anything but display - so
+          this column orders by the one figure that is comparable.
+        */
+        case 'totalDonated':
+          cmp = a.donationTotals.reduce((n, t) => n + t.donationCount, 0)
+              - b.donationTotals.reduce((n, t) => n + t.donationCount, 0);
+          break;
         case 'campaignsSupported': cmp = a.campaignsSupported - b.campaignsSupported; break;
         case 'createdAt': cmp = a.createdAt.localeCompare(b.createdAt); break;
       }
@@ -329,7 +347,13 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
                     </Badge>
                   </td>
                   <td className="hidden px-3 py-3 text-right font-mono tabular-nums md:table-cell">
-                    {centsToDollars(u.totalDonated)}
+                    {u.donationTotals.length === 0
+                      ? '-'
+                      : u.donationTotals.map((t) => (
+                          <span key={t.currency} className="block">
+                            {formatMoney(t.totalMinor, t.currency, 'exact')}
+                          </span>
+                        ))}
                   </td>
                   <td className="hidden px-3 py-3 text-right tabular-nums md:table-cell">{u.campaignsSupported}</td>
                   <td className="hidden px-3 py-3 text-right tabular-nums lg:table-cell">{u.lastDonorCount}</td>
@@ -461,7 +485,8 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
             <DialogTitle>Delete User</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete {deleteTarget?.name ?? deleteTarget?.email}?{' '}
-              {(deleteTarget?.totalDonated ?? 0) > 0
+              {/* "has any donation history" - a count, so no currency is involved. */}
+              {(deleteTarget?.donationTotals.length ?? 0) > 0
                 ? 'This user has donation history and their account will be anonymized to preserve financial records.'
                 : 'This action cannot be undone.'}
             </DialogDescription>

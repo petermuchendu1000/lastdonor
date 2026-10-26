@@ -48,6 +48,9 @@ export async function GET(request: NextRequest) {
         sourceCampaignId: fundPoolAllocations.sourceCampaignId,
         sourceCampaignTitle: campaigns.title,
         sourceCampaignSlug: campaigns.slug,
+        // The allocation's amount is in the SOURCE campaign's currency:
+        // `fund_pool_allocations` has no currency column of its own.
+        currency: campaigns.currency,
         targetCampaignId: fundPoolAllocations.targetCampaignId,
         amount: fundPoolAllocations.amount,
         status: fundPoolAllocations.status,
@@ -66,9 +69,27 @@ export async function GET(request: NextRequest) {
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit);
 
-    // Summary counts
-    const [summary] = await db
+    /*
+      Summary, PER CURRENCY.
+
+      ⛔ The three money sums had no currency in their GROUP BY, and
+      `fund_pool_allocations` has no currency column at all - an allocation's
+      amount belongs to its SOURCE campaign, which is why this joins
+      `campaigns` (`docs/92`).
+
+      ⚠️ Scope, traced before claiming severity: allocations are inserted ONLY
+      behind `campaign.simulationFlag` (`payment-service.ts:335`), and
+      disbursing one flips a status and writes an audit row without crediting
+      any campaign (`fund-pool/disburse/route.ts`). So this was always a
+      reporting defect and never a payment one.
+
+      ⛔ STILL OPEN, reported not fixed: `fund-pool/allocate` sets
+      `targetCampaignId` with no check that the target campaign shares the
+      source campaign's currency.
+    */
+    const summaryRows = await db
       .select({
+        currency: campaigns.currency,
         total: sql<number>`count(*)::int`,
         pending: sql<number>`count(*) filter (where ${fundPoolAllocations.status} = 'pending')::int`,
         allocated: sql<number>`count(*) filter (where ${fundPoolAllocations.status} = 'allocated')::int`,
@@ -77,7 +98,22 @@ export async function GET(request: NextRequest) {
         totalAllocated: sql<number>`coalesce(sum(${fundPoolAllocations.amount}) filter (where ${fundPoolAllocations.status} = 'allocated'), 0)::int`,
         totalDisbursed: sql<number>`coalesce(sum(${fundPoolAllocations.amount}) filter (where ${fundPoolAllocations.status} = 'disbursed'), 0)::int`,
       })
-      .from(fundPoolAllocations);
+      .from(fundPoolAllocations)
+      .innerJoin(campaigns, eq(fundPoolAllocations.sourceCampaignId, campaigns.id))
+      .groupBy(campaigns.currency);
+
+    const summary = {
+      total: summaryRows.reduce((n, r) => n + r.total, 0),
+      pending: summaryRows.reduce((n, r) => n + r.pending, 0),
+      allocated: summaryRows.reduce((n, r) => n + r.allocated, 0),
+      disbursed: summaryRows.reduce((n, r) => n + r.disbursed, 0),
+      byCurrency: summaryRows.map((r) => ({
+        currency: r.currency,
+        pendingMinor: r.totalPending,
+        allocatedMinor: r.totalAllocated,
+        disbursedMinor: r.totalDisbursed,
+      })),
+    };
 
     return NextResponse.json({
       ok: true,

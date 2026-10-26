@@ -4,6 +4,7 @@ import { db } from '@/db';
 import { users, donations, campaigns, auditLogs } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { UserDetail } from '@/components/admin/UserDetail';
+import { donorTotalsByCurrency } from '@/lib/donor-totals.server';
 import { refreshDonorScore } from '@/lib/donor-scoring.server';
 import type { Metadata } from 'next';
 
@@ -64,6 +65,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
     .select({
       id: donations.id,
       amount: donations.amount,
+      currency: donations.currency,
       donorName: donations.donorName,
       isAnonymous: donations.isAnonymous,
       campaignTitle: campaigns.title,
@@ -77,6 +79,13 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
     .where(eq(donations.userId, id))
     .orderBy(desc(donations.createdAt))
     .limit(20);
+
+  /*
+    ⛔ `users.total_donated` is not rendered: one integer, no currency
+    dimension (`docs/92`). Recomputed from `donations` by the module that
+    the user-facing dashboard already uses, so both screens agree.
+  */
+  const donationTotals = await donorTotalsByCurrency(db, user.id, user.email ?? '');
 
   const recentAudit = await db
     .select({
@@ -97,6 +106,7 @@ export default async function AdminUserDetailPage({ params }: PageProps) {
     <UserDetail
       user={{
         ...user,
+        donationTotals,
         donorScore: freshScore,
         createdAt: user.createdAt.toISOString(),
         lastDonationAt: user.lastDonationAt?.toISOString() ?? null,

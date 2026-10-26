@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { CampaignStatusBadge } from '@/components/campaigns/CampaignStatusBadge';
 import { VerificationBadge, FundReleaseIndicator } from '@/components/campaigns/TrustBadge';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { formatDate } from '@/lib/utils/dates';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import {
@@ -42,6 +42,8 @@ interface CampaignData {
   subjectHometown: string | null;
   storyHtml: string;
   goalAmount: number;
+  /** The campaign's own currency; its amounts are in THAT currency's minor units (`docs/92`). */
+  currency: string;
   raisedAmount: number;
   donorCount: number;
   location: string | null;
@@ -66,6 +68,8 @@ interface Donation {
   donorName: string;
   donorEmail: string;
   donorLocation: string | null;
+  /** The donation's own currency. */
+  currency: string;
   amount: number;
   message: string | null;
   isAnonymous: boolean;
@@ -326,11 +330,11 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="rounded-lg border border-border bg-background px-4 py-4">
           <p className="text-xs font-medium text-muted-foreground">Raised</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums leading-none">{centsToDollars(campaign.raisedAmount)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums leading-none"><Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" /></p>
         </div>
         <div className="rounded-lg border border-border bg-background px-4 py-4">
           <p className="text-xs font-medium text-muted-foreground">Goal</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums leading-none">{centsToDollars(campaign.goalAmount)}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums leading-none"><Money minor={campaign.goalAmount} currency={campaign.currency} precision="exact" /></p>
         </div>
         <div className="rounded-lg border border-border bg-background px-4 py-4">
           <p className="text-xs font-medium text-muted-foreground">Donors</p>
@@ -360,7 +364,7 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
                 <p className="text-xs font-medium text-muted-foreground">
                   {PHASE_LABELS[p.phase] ?? p.phase}
                 </p>
-                <p className="mt-1 text-lg font-semibold tabular-nums leading-none">{centsToDollars(p.total)}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums leading-none"><Money minor={p.total} currency={campaign.currency} precision="exact" /></p>
                 <p className="mt-1.5 text-xs text-muted-foreground/70">{p.count} donations</p>
               </div>
             ))}
@@ -400,7 +404,7 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums">
-                    {centsToDollars(d.amount)}
+                    <Money minor={d.amount} currency={d.currency} precision="exact" />
                     {d.refunded && (
                       <Badge variant="destructive" className="ml-1 text-[10px]">
                         Refunded

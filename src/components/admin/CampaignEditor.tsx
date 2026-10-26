@@ -8,7 +8,7 @@ import { createCampaignSchema } from '@/lib/validators/campaign';
 import type { CreateCampaignInput } from '@/lib/validators/campaign';
 import { generateSlug } from '@/lib/utils/slug';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -55,6 +55,16 @@ const CATEGORIES = [
 interface CampaignEditorProps {
   mode: 'create' | 'edit';
   campaignId?: string;
+  /**
+   * The campaign's currency, for DISPLAY only.
+   *
+   * ⚠️ `CreateCampaignInput` carries no currency, so this editor cannot SET
+   * one and every campaign created here takes the database default (USD).
+   * Editing an existing KES campaign still showed its goal with a dollar
+   * sign, which this fixes; being unable to choose a currency on creation is
+   * recorded as open.
+   */
+  currency?: string;
   defaultValues?: Partial<CreateCampaignInput>;
 }
 
@@ -89,7 +99,7 @@ function FormSection({ title, children }: { title: string; children: React.React
   );
 }
 
-export function CampaignEditor({ mode, campaignId, defaultValues }: CampaignEditorProps) {
+export function CampaignEditor({ mode, campaignId, currency = 'USD', defaultValues }: CampaignEditorProps) {
   const router = useRouter();
   const [previewHtml, setPreviewHtml] = useState('');
 
@@ -275,7 +285,7 @@ export function CampaignEditor({ mode, campaignId, defaultValues }: CampaignEdit
               <FieldHint>
                 Minimum $1,000 · Maximum $100,000
                 {goalAmountCents > 0 && (
-                  <> · Currently set to <strong className="text-foreground">{centsToDollars(goalAmountCents)}</strong></>
+                  <> · Currently set to <strong className="text-foreground"><Money minor={goalAmountCents} currency={currency} precision="exact" /></strong></>
                 )}
               </FieldHint>
               {/* Hidden field syncs the actual cents value */}
