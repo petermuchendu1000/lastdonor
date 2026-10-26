@@ -149,6 +149,26 @@ describe('donationTotalsByCategoryAndCurrency', () => {
     expect(rows.some((r) => r.totalMinor === 506_000)).toBe(false);
   });
 
+  it('⛔ counts the DISTINCT campaigns behind each row', async () => {
+    /*
+      A regression I introduced and a screenshot caught: rewiring this query
+      I dropped `count(distinct campaigns.id)` and hardcoded 0, so
+      /admin/reports reported "Campaigns: 0" for every category while the
+      revenue beside it was right. A figure that is always zero looks like an
+      empty platform, not like a bug.
+    */
+    const creator = await seedUser({ email: `c3-${Math.random()}@test.invalid` });
+    const kes2 = await seedCampaign({ creatorId: creator.id, currency: 'KES', slug: `kes3-${Date.now()}`, category: 'medical' });
+    await seedDonation({ campaignId: kes.id, currency: 'KES', amount: 1_000 });
+    await seedDonation({ campaignId: kes.id, currency: 'KES', amount: 2_000 });
+    await seedDonation({ campaignId: kes2.id, currency: 'KES', amount: 3_000 });
+
+    const [row] = await donationTotalsByCategoryAndCurrency(db);
+    expect(row.donationCount).toBe(3);
+    // Three donations, but only TWO campaigns.
+    expect(row.campaignCount).toBe(2);
+  });
+
   it('joins campaigns, so a donation with no campaign cannot appear', async () => {
     // The inner join is what makes the category meaningful; without it the
     // category column would be null and the row silently mis-attributed.

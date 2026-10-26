@@ -53,6 +53,8 @@ export interface MonthlyCurrencyTotal extends CurrencyTotal {
 
 export interface CategoryCurrencyTotal extends CurrencyTotal {
   category: string;
+  /** Distinct campaigns behind this (category, currency) row. */
+  campaignCount: number;
 }
 
 type Selectable = Pick<typeof db, 'select'>;
@@ -132,6 +134,9 @@ export async function donationTotalsByCategoryAndCurrency(
       currency: donations.currency,
       totalMinor: sql<number>`coalesce(sum(${donations.amount}), 0)::int`,
       donationCount: sql<number>`count(*)::int`,
+      // Kept from the query this replaced: the screen shows it as
+      // "Campaigns", and dropping it reported 0 for every category.
+      campaignCount: sql<number>`count(distinct ${campaigns.id})::int`,
     })
     .from(donations)
     .innerJoin(campaigns, eq(donations.campaignId, campaigns.id))
@@ -144,6 +149,7 @@ export async function donationTotalsByCategoryAndCurrency(
     currency: r.currency,
     totalMinor: Number(r.totalMinor),
     donationCount: Number(r.donationCount),
+    campaignCount: Number(r.campaignCount),
   }));
 }
 

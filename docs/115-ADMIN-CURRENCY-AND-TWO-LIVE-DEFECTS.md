@@ -217,6 +217,14 @@ justified. The exemption is now narrowed to the divide-by-100 rule alone.
 - ⚠️ **No backticks inside a `sql\`` template.** A markdown-style
   `` `docs/92` `` in a SQL comment terminates the JS template literal. It
   fails as `TS1005 ',' expected`, which does not point at the comment.
+- ⚠️ **A screenshot caught a regression no test did.** Rewiring
+  `/admin/reports`' category query I dropped `count(distinct campaigns.id)`
+  and hardcoded `campaigns: 0`, so the table reported "Campaigns: 0" for
+  every category while the revenue beside it was right. Typecheck, 7,485
+  unit tests and the admin sweep (which counts currency symbols, not
+  values) all passed. **A figure that is always zero reads as an empty
+  platform, not as a bug** - which is why the sweep could not see it. Fixed,
+  and now covered by an integration test proven by mutation.
 - ⚠️ **`formatMoney` emits a NON-BREAKING space** (U+00A0). Asserting
   `'Ksh 18,400.00'` with an ordinary space against raw HTML fails;
   `testing-library` normalises whitespace, which is why component assertions
@@ -262,12 +270,12 @@ justified. The exemption is now narrowed to the divide-by-100 rule alone.
 | `npm run lint` | clean (1 pre-existing warning in an untouched test file) |
 | `npm run typecheck` | clean |
 | `npm run test:unit` | **7,485 passed / 16 skipped / 0 failed**, 249 files |
-| `npm run test:integration` | **211 passed / 0 failed**, 21 files, fresh database |
-| admin browser sweep | 14 routes, **0 dollar figures** |
+| `npm run test:integration` | **212 passed / 0 failed**, 21 files, fresh database |
+| admin browser sweep | 14 routes, **0 dollar figures** (three screens were empty on the first pass and were seeded until they rendered money) |
 | `/campaigns` load-more | 12 + 5 cards, **0 dollars** (was 5 of 5) |
 
 **Mutations run and killed:** 2 on the listing-shape check, 3 on the email
-currency fix, 4 on the admin aggregates module, 3 on the admin ratchet's new
+currency fix, 5 on the admin aggregates module, 3 on the admin ratchet's new
 rules. None survived.
 
 ---

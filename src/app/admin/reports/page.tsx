@@ -116,7 +116,7 @@ export default async function AdminReportsPage() {
                 category: c.category,
                 total: c.totalMinor,
                 count: c.donationCount,
-                campaigns: 0,
+                campaigns: c.campaignCount,
               }))}
             refunds={p.refunds}
           />
