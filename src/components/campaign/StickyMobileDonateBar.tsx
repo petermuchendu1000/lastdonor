@@ -2,12 +2,26 @@
 
 import Link from 'next/link';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
-import { centsToDollarsWhole } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { cn } from '@/lib/utils';
 
 interface StickyMobileDonateBarProps {
   raisedAmount: number;
   goalAmount: number;
+  /**
+   * The campaign's own currency.
+   *
+   * ⛔ Required, not defaulted. This bar used `centsToDollarsWhole`, which
+   * hardcodes USD, while every amount column is in the MINOR UNITS OF ITS
+   * ROW'S CURRENCY (`docs/92`). On a KES campaign it printed "$31,600 to go"
+   * directly beneath a badge correctly reading "Ksh 50,000.00".
+   *
+   * `docs/112` recorded this class of defect as latent because the only
+   * non-USD campaign was archived and unservable. KES is the only rail that
+   * actually collects money (`docs/92`), so it was never going to stay
+   * latent.
+   */
+  currency: string;
   donateHref: string;
   className?: string;
 }
@@ -15,6 +29,7 @@ interface StickyMobileDonateBarProps {
 export function StickyMobileDonateBar({
   raisedAmount,
   goalAmount,
+  currency,
   donateHref,
   className,
 }: StickyMobileDonateBarProps) {
@@ -50,7 +65,7 @@ export function StickyMobileDonateBar({
             <p className="text-xs">
               <span className="font-semibold text-foreground">Be the first to donate</span>
               <span className="ml-1.5 font-sans tabular-nums text-muted-foreground">
-                {centsToDollarsWhole(goalAmount)} goal
+                <Money minor={goalAmount} currency={currency} /> goal
               </span>
             </p>
           ) : (
@@ -67,7 +82,7 @@ export function StickyMobileDonateBar({
                   <>
                     <span aria-hidden="true" className="text-border">·</span>
                     <span className="font-semibold text-muted-foreground">
-                      {centsToDollarsWhole(remaining)} to go
+                      <Money minor={remaining} currency={currency} /> to go
                     </span>
                   </>
                 )}

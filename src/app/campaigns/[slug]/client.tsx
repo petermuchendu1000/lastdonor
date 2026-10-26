@@ -15,6 +15,8 @@ import type { ImpactTier } from '@/types';
 interface CampaignSidebarClientProps {
   campaignSlug: string;
   raisedAmount: number;
+  /** The campaign's own currency - never assumed to be USD (`docs/92`). */
+  currency: string;
   goalAmount: number;
   donorCount: number;
   impactTiers: ImpactTier[];
@@ -25,6 +27,7 @@ interface CampaignSidebarClientProps {
 export function CampaignSidebarClient({
   campaignSlug,
   raisedAmount,
+  currency,
   goalAmount,
   donorCount,
   impactTiers,
@@ -39,6 +42,7 @@ export function CampaignSidebarClient({
       <SidebarDonationSummary
         raisedAmount={raisedAmount}
         goalAmount={goalAmount}
+        currency={currency}
         donorCount={donorCount}
         donateHref={donateHref}
         shareUrl={shareUrl}
@@ -56,6 +60,7 @@ export function CampaignSidebarClient({
       <StickyMobileDonateBar
         raisedAmount={raisedAmount}
         goalAmount={goalAmount}
+        currency={currency}
         donateHref={donateHref}
       />
     </>

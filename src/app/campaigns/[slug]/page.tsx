@@ -159,6 +159,7 @@ async function getRelatedCampaigns(category: CampaignCategory, _currentId: strin
       category: campaigns.category,
       raisedAmount: campaigns.raisedAmount,
       goalAmount: campaigns.goalAmount,
+      currency: campaigns.currency,
       donorCount: campaigns.donorCount,
       location: campaigns.location,
     })
@@ -698,6 +699,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 campaignSlug={campaign.slug}
                 raisedAmount={campaign.raisedAmount}
                 goalAmount={campaign.goalAmount}
+                currency={campaign.currency}
                 donorCount={campaign.donorCount}
                 impactTiers={impactTiers}
                 shareUrl={canonicalUrl}
@@ -762,6 +764,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                   category={rc.category}
                   location={rc.location || rc.subjectHometown}
                   raisedAmount={rc.raisedAmount}
+                  currency={rc.currency}
                   goalAmount={rc.goalAmount}
                   donorCount={rc.donorCount}
                 />

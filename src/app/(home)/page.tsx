@@ -64,6 +64,7 @@ async function getHomepageData() {
           campaignOrganizer: sql<string | undefined>`${campaigns.campaignOrganizer}::text`,
           category: campaigns.category,
           raisedAmount: campaigns.raisedAmount,
+          currency: campaigns.currency,
           goalAmount: campaigns.goalAmount,
         })
         .from(campaigns)
@@ -88,6 +89,7 @@ async function getHomepageData() {
           location: campaigns.location,
           subjectHometown: campaigns.subjectHometown,
           raisedAmount: campaigns.raisedAmount,
+          currency: campaigns.currency,
           goalAmount: campaigns.goalAmount,
           donorCount: campaigns.donorCount,
           verificationStatus: campaigns.verificationStatus,
@@ -254,6 +256,7 @@ export default async function Home() {
                     category={c.category}
                     location={c.location || c.subjectHometown || undefined}
                     raisedAmount={c.raisedAmount}
+                currency={c.currency}
                     goalAmount={c.goalAmount}
                     donorCount={c.donorCount}
                   />

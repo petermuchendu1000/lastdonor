@@ -473,3 +473,73 @@ enum in both directions, and the rate-date assertion.
 ⚠️ One mutant was **malformed and reported as such** rather than counted as a
 survivor: blanking `notChecked` via its ternary condition only selected the
 other branch, so nothing was blanked. Re-injected correctly, it died.
+
+---
+
+## 13. Three defects the screenshots found — 2026-10-26
+
+The nine screens of §12 were driven in Chromium against a production build and
+a seeded Postgres: a real organiser logged in, walked the wizard, and the
+designation was written. Three defects surfaced that **every test missed**,
+and all three are the `docs/107` §8 shape - invisible until somebody looks.
+
+`scripts/seed-payout-journey.ts` reproduces the fixture. ⛔ It refuses any
+non-local database.
+
+### 13.1 ⛔ Designating did not revalidate the public page
+
+`POST .../payout-designation` wrote the row, returned 201, and the donor page
+showed **nothing**. `/campaigns/[slug]` is ISR (`revalidate = 60`), so the
+cached HTML kept serving with no disclosure - and that disclosure is the
+entire point of the feature.
+
+The sibling campaign-edit route calls `revalidatePath` at `:201` for exactly
+this reason. The designation route did not. Both POST and DELETE now do.
+
+⚠️ Nothing could have caught this but a browser: the API returned 201, the row
+was correct, and the component was correct.
+
+### 13.2 ⛔ A KES campaign showed DOLLARS, on the only rail that takes money
+
+The sticky bar printed **"$31,600 to go"** directly beneath a badge correctly
+reading "Ksh 50,000.00". The cause was `centsToDollarsWhole`, which hardcodes
+USD - and, worse, `<Money minor={...} />` **without a currency prop**, because
+`Money` itself defaults to USD. A call site that looks right renders the wrong
+symbol.
+
+`docs/112` recorded this as LATENT, reasoning that the only non-USD campaign
+was archived and unservable. That was true and was never going to stay true:
+KES over M-Pesa is the only rail that has ever collected money (`docs/92`).
+
+Fixed across `StickyMobileDonateBar`, `SidebarDonationSummary`, `CampaignCard`
+and `CampaignGrid`; `currency` is now **required, never defaulted**, which is
+what made the compiler enumerate all eight call sites and the five queries
+that had to start selecting it. Verified in the rendered DOM: **zero dollar
+signs, four correct shilling figures.**
+
+⚠️ The preset donation ladder is NOT fixed and is not a display bug: those
+are USD-denominated amounts (500 = $5.00), and rendering them as "Ksh 5" would
+be wrong differently - about four US cents, below the KES 50 floor. A
+per-currency ladder is an owner decision (`docs/72`).
+
+### 13.3 The primary button clipped its own label at phone width
+
+"I understand - send it to Kenyatta National Hospital" rendered as
+"…understand - send it to Kenyatta National Hospita…". `buttonVariants` sets
+`whitespace-nowrap` and the label carries an institution name of unbounded
+length. Now wraps.
+
+### 13.4 Two false alarms, recorded because the method matters
+
+- **A grep of the page HTML "found" `$1`, `$2`, `$22`, `$26` remaining.**
+  Those are RSC flight-payload markers in `self.__next_f.push`, not money.
+  `docs/106` says exactly this: verifying needs the rendered DOM, not
+  `page.content()`. Re-checked against `document.body.innerText`: clean.
+- **"The donor badge did not render."** The screenshot script had picked the
+  campaign with `.first()` on a newest-first list and walked the OTHER
+  campaign - which is `under_review` and so has no public page at all. The
+  feature was correct; the harness was aimed at the wrong row.
+
+⚠️ And a third, in a test of mine: a rule forbidding `centsToDollars` in a
+file matched **its own doc comment** explaining the defect - the `docs/112`
+icon-ratchet trap. Comments are stripped before matching now.

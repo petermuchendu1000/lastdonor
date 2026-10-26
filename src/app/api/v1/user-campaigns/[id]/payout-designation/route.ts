@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq, isNull } from 'drizzle-orm';
 
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const [campaign] = await db
       .select({
         id: campaigns.id,
+        slug: campaigns.slug,
         creatorId: campaigns.creatorId,
         status: campaigns.status,
         currency: campaigns.currency,
@@ -171,6 +173,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     });
 
+    /*
+      ⛔ The public page is ISR (`revalidate = 60` in
+      `src/app/campaigns/[slug]/page.tsx`), so without this the cached HTML
+      keeps serving with NO destination disclosure - and that disclosure is
+      the entire point of the feature. The sibling campaign-edit route does
+      the same thing at :201 for the same reason.
+
+      Found by putting a real browser on it: the designation was written, the
+      API returned 201, and the donor page showed nothing. `docs/107` §8 is
+      the doc about exactly this - a correct component that renders nothing
+      is invisible until somebody looks.
+    */
+    revalidatePath(`/campaigns/${campaign.slug}`);
+    revalidatePath('/campaigns');
+
     return NextResponse.json(
       { ok: true, data: { id: created!.id, institutionName: account.institutionName } },
       { status: 201 },
@@ -197,7 +214,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { id: campaignId } = await params;
 
     const [campaign] = await db
-      .select({ creatorId: campaigns.creatorId })
+      .select({ creatorId: campaigns.creatorId, slug: campaigns.slug })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
       .limit(1);
@@ -241,6 +258,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       severity: 'warning',
       details: { designationId: revoked.id },
     });
+
+    // Removing the destination changes the public page too (see POST).
+    revalidatePath(`/campaigns/${campaign.slug}`);
+    revalidatePath('/campaigns');
 
     return NextResponse.json({ ok: true, data: { id: revoked.id } });
   } catch (error) {

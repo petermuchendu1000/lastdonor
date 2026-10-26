@@ -157,6 +157,7 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
       campaignOrganizer: campaigns.campaignOrganizer,
       category: campaigns.category,
       raisedAmount: campaigns.raisedAmount,
+      currency: campaigns.currency,
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,
       location: campaigns.location,

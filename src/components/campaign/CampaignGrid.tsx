@@ -14,6 +14,8 @@ interface CampaignData {
   campaignOrganizer: unknown;
   category: CampaignCategory;
   raisedAmount: number;
+  /** The campaign's own currency (`docs/92`); never assumed to be USD. */
+  currency: string;
   goalAmount: number;
   donorCount: number;
   location: string | null;
@@ -113,6 +115,7 @@ export function CampaignGrid({
             category={campaign.category}
             location={campaign.location || campaign.subjectHometown}
             raisedAmount={campaign.raisedAmount}
+            currency={campaign.currency}
             goalAmount={campaign.goalAmount}
             donorCount={campaign.donorCount}
           />

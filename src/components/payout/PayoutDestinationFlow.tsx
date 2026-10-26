@@ -350,7 +350,19 @@ export function PayoutDestinationFlow({
         {error && <Problem>{error}</Problem>}
 
         <div className="mt-6 flex flex-col gap-3">
-          <Button onClick={submit} disabled={busy}>
+          {/*
+            ⚠️ `h-auto whitespace-normal py-3`: the shared button style sets
+            `whitespace-nowrap`, and this label carries an institution name
+            of unbounded length. At 390px "Kenyatta National Hospital" made
+            the primary action CLIP ON BOTH SIDES and read
+            "understand - send it to Kenyatta National Hospita". Found by
+            screenshotting the real flow on a phone viewport.
+          */}
+          <Button
+            onClick={submit}
+            disabled={busy}
+            className="h-auto whitespace-normal py-3 leading-snug"
+          >
             {busy ? 'Saving…' : `I understand - send it to ${account.institutionName}`}
           </Button>
           <Button variant="outline" onClick={() => setStep('reference')} disabled={busy}>

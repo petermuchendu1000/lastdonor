@@ -25,7 +25,8 @@ const defaultProps = {
   title: 'Help the Johnson Family Rebuild',
   heroImageUrl: 'https://example.com/hero.webp',
   subjectName: 'The Johnson Family',
-  raisedAmount: 125000, // $1,250.00
+  raisedAmount: 125000,
+  currency: 'USD', // $1,250.00
   goalAmount: 500000,   // $5,000.00
 };
 
@@ -58,7 +59,12 @@ describe('CampaignCard', () => {
 
   it('displays goal amount and shows funded percentage', () => {
     render(<CampaignCard {...defaultProps} />);
-    expect(screen.getByText(/of \$5,000/)).toBeInTheDocument();
+    /*
+      textContent, not getByText: the figure now renders through `<Money>`,
+      which wraps it in a span, so "of $5,000" is split across two elements.
+      The VALUE is unchanged - only the element boundary moved.
+    */
+    expect(document.body.textContent).toMatch(/of \$5,000/);
     expect(screen.getByRole('progressbar', { name: /25% funded/ })).toBeInTheDocument();
   });
 
@@ -81,7 +87,7 @@ describe('CampaignCard', () => {
     render(<CampaignCard {...defaultProps} raisedAmount={0} />);
     expect(screen.getByText('Be the first to donate')).toBeInTheDocument();
     expect(screen.queryByText(/\$0/)).not.toBeInTheDocument();
-    expect(screen.getByText(/\$5,000 goal/)).toBeInTheDocument();
+    expect(document.body.textContent).toMatch(/\$5,000 goal/);
   });
 
   it('draws no progress bar when there is no progress to draw', () => {
@@ -111,5 +117,57 @@ describe('CampaignCard', () => {
       />,
     );
     expect(screen.getByText('for Marcus Delgado')).toBeInTheDocument();
+  });
+});
+
+/**
+ * ⛔ A card must render the campaign's OWN currency.
+ *
+ * The card used `centsToDollarsWhole` and a bare `<Money minor={...} />`,
+ * and `<Money>` defaults to USD - so a call site that looked correct printed
+ * a dollar sign on a shilling campaign. `docs/112` recorded this class as
+ * latent because the only non-USD campaign was archived; KES over M-Pesa is
+ * the only rail that has ever collected money (`docs/92`), so it was never
+ * going to stay latent. Found by rendering a seeded KES campaign in a
+ * browser.
+ */
+describe('CampaignCard currency', () => {
+  it('⛔ prints no dollar sign on a KES campaign', () => {
+    render(
+      <CampaignCard
+        slug="kes"
+        title="Treatment for Baby Amani"
+        heroImageUrl="/x.jpg"
+        subjectName="Amani"
+        raisedAmount={1_840_000}
+        goalAmount={5_000_000}
+        currency="KES"
+      />,
+    );
+    /*
+      ⚠️ Whitespace is normalised first. `Intl.NumberFormat` puts a
+      NON-BREAKING space (U+00A0) between "Ksh" and the digits, so a regex
+      written with an ordinary space cannot match text that is visually
+      identical.
+    */
+    const text = (document.body.textContent ?? '').replace(/\u00a0/g, ' ');
+    expect(text).not.toContain('$');
+    expect(text).toMatch(/Ksh 18,400/);
+    expect(text).toMatch(/Ksh 50,000/);
+  });
+
+  it('still renders USD, so the fix did not swap one hardcode for another', () => {
+    render(
+      <CampaignCard
+        slug="usd"
+        title="T"
+        heroImageUrl="/x.jpg"
+        subjectName="N"
+        raisedAmount={250_000}
+        goalAmount={500_000}
+        currency="USD"
+      />,
+    );
+    expect(document.body.textContent).toMatch(/\$2,500/);
   });
 });

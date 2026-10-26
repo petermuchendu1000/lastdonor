@@ -76,6 +76,7 @@ export default async function CategoryPage({ params }: PageProps) {
       location: campaigns.location,
       subjectHometown: campaigns.subjectHometown,
       raisedAmount: campaigns.raisedAmount,
+      currency: campaigns.currency,
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,
     })
@@ -161,6 +162,7 @@ export default async function CategoryPage({ params }: PageProps) {
               title={campaign.title}
               heroImageUrl={campaign.heroImageUrl}
               subjectName={campaign.subjectName}
+              currency={campaign.currency}
               category={campaign.category}
               location={campaign.location || campaign.subjectHometown}
               raisedAmount={campaign.raisedAmount}

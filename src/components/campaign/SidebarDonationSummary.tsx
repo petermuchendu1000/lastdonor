@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { SidebarShareButton } from '@/components/campaign/SidebarShareButton';
 import { Money } from '@/components/ui/Money';
-import { centsToDollarsWhole } from '@/lib/utils/currency';
+
 import { cn } from '@/lib/utils';
 import {
   LockClosedIcon,
@@ -15,6 +15,15 @@ import {
 interface SidebarDonationSummaryProps {
   raisedAmount: number;
   goalAmount: number;
+  /**
+   * The campaign's own currency.
+   *
+   * ⛔ Required, never defaulted. `<Money>` itself defaults to USD, so a call
+   * site that LOOKS correct renders a dollar sign on a shilling campaign -
+   * which is exactly what this file did. Every amount column is in the minor
+   * units of its row's currency (`docs/92`).
+   */
+  currency: string;
   donorCount: number;
   donateHref: string;
   shareUrl: string;
@@ -27,6 +36,7 @@ interface SidebarDonationSummaryProps {
 export function SidebarDonationSummary({
   raisedAmount,
   goalAmount,
+  currency,
   donorCount,
   donateHref,
   shareUrl,
@@ -64,13 +74,16 @@ export function SidebarDonationSummary({
           <div className="flex items-baseline gap-2">
             <Money
               minor={raisedAmount}
+              currency={currency}
               className="text-3xl font-bold text-card-foreground"
             />
             <span className="text-sm text-muted-foreground">raised</span>
           </div>
           <p className="mt-0.5 font-sans text-xs tabular-nums text-muted-foreground">
             <span className="font-semibold text-foreground">{percent}%</span>
-            {` of ${centsToDollarsWhole(goalAmount)} goal`}
+            {' of '}
+            <Money minor={goalAmount} currency={currency} />
+            {' goal'}
           </p>
         </div>
       )}
@@ -83,7 +96,7 @@ export function SidebarDonationSummary({
         <div className="space-y-2">
           <p className="font-sans text-sm tabular-nums text-muted-foreground">
             <span className="font-semibold text-foreground">
-              {centsToDollarsWhole(goalAmount)}
+              <Money minor={goalAmount} currency={currency} />
             </span>
             {' goal'}
           </p>

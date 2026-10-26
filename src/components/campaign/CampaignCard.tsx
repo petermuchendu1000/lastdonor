@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
 import { Money } from '@/components/ui/Money';
-import { centsToDollarsWhole } from '@/lib/utils/currency';
+
 
 interface CampaignCardProps {
   slug: string;
@@ -14,6 +14,14 @@ interface CampaignCardProps {
   category?: string;
   location?: string | null;
   raisedAmount: number;
+  /**
+   * The campaign's own currency.
+   *
+   * ⛔ Required, never defaulted. `<Money>` defaults to USD, so a call site
+   * that looks right renders a dollar sign on a shilling campaign (`docs/92`:
+   * every amount is in the minor units of its row's currency).
+   */
+  currency: string;
   goalAmount: number;
   donorCount?: number;
 }
@@ -26,6 +34,7 @@ export function CampaignCard({
   category,
   location,
   raisedAmount,
+  currency,
   goalAmount,
   donorCount,
 }: CampaignCardProps) {
@@ -144,7 +153,7 @@ export function CampaignCard({
                   docs/47's order.
                 */}
                 <span className="font-sans text-sm font-semibold tabular-nums text-foreground">
-                  {centsToDollarsWhole(goalAmount)} goal
+                  <Money minor={goalAmount} currency={currency} /> goal
                 </span>
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">
                   Be the first to donate
@@ -153,11 +162,11 @@ export function CampaignCard({
             ) : (
               <div className="flex items-baseline justify-between">
                 <span className="text-lg font-bold text-foreground number-highlight">
-                  <Money minor={raisedAmount} />{' '}
+                  <Money minor={raisedAmount} currency={currency} />{' '}
                   <span className="text-sm font-medium text-muted-foreground">raised</span>
                 </span>
                 <span className="font-sans text-xs font-medium tabular-nums text-muted-foreground">
-                  of {centsToDollarsWhole(goalAmount)}
+                  of <Money minor={goalAmount} currency={currency} />
                 </span>
               </div>
             )}
