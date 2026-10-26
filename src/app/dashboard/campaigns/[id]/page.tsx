@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { campaigns, donations, campaignUpdates, impactUpdates } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
-import { centsToDollars } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
 import { hasPublicPage } from '@/lib/campaign-visibility';
 import { JourneyChecklist } from '@/components/dashboard/JourneyChecklist';
 import { CampaignTeamPanel } from '@/components/collaborators/CampaignTeamPanel';
@@ -148,8 +148,18 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             <CardTitle className="text-sm font-medium text-muted-foreground">Raised</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="font-mono text-2xl font-bold text-brand-teal">{centsToDollars(campaign.raisedAmount)}</p>
-            <p className="text-xs text-muted-foreground">of {centsToDollars(campaign.goalAmount)} goal</p>
+            {/*
+              The campaign's OWN currency, selected at the query above. This
+              rendered through a USD-hardcoded helper, so a KES campaign showed
+              "$18,400.00 of $50,000.00 goal" on its organiser's own screen -
+              beside a raise-cap line correctly reading "Ksh 50,000.00".
+            */}
+            <p className="font-mono text-2xl font-bold text-brand-teal">
+              <Money minor={campaign.raisedAmount} currency={campaign.currency} precision="exact" />
+            </p>
+            <p className="text-xs text-muted-foreground">
+              of <Money minor={campaign.goalAmount} currency={campaign.currency} precision="exact" /> goal
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -177,7 +187,17 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </CardHeader>
           <CardContent>
             <p className="font-mono text-2xl font-bold text-foreground">
-              {centsToDollars(campaign.totalReleasedAmount ?? 0)}
+              {/*
+                `total_released_amount` is "an integer in THIS currency's minor
+                unit" per the column's own documentation in `schema.ts` - not
+                platform USD - so it takes the campaign's currency like the
+                figures above.
+              */}
+              <Money
+                minor={campaign.totalReleasedAmount ?? 0}
+                currency={campaign.currency}
+                precision="exact"
+              />
             </p>
           </CardContent>
         </Card>
@@ -286,7 +306,15 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
                       )}
                     </div>
                     <div className="text-right">
-                      <p className="font-mono text-sm font-semibold text-foreground">{centsToDollars(d.amount)}</p>
+                      {/*
+                        A donation ON THIS CAMPAIGN, so it is in the campaign's
+                        currency by database guarantee:
+                        `donations_campaign_currency_fk FOREIGN KEY
+                        (campaign_id, currency) REFERENCES campaigns(id, currency)`.
+                      */}
+                      <p className="font-mono text-sm font-semibold text-foreground">
+                        <Money minor={d.amount} currency={campaign.currency} precision="exact" />
+                      </p>
                       <p className="text-xs text-muted-foreground">{formatDate(d.createdAt)}</p>
                     </div>
                   </CardContent>

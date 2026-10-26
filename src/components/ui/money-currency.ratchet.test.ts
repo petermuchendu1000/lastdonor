@@ -55,7 +55,20 @@ function moneyCallSites(): { file: string; tag: string }[] {
 
   const sites: { file: string; tag: string }[] = [];
   for (const file of files) {
-    const source = readFileSync(file, 'utf8');
+    /*
+      ⚠️ COMMENTS ARE STRIPPED FIRST. This read raw source, so a doc comment
+      explaining the rule - "`<Money>` defaults to USD, so a call site that
+      looks right renders a dollar sign on a shilling campaign" - was counted
+      as a call site that omits a currency. Three such comments were written
+      while FIXING real omissions, so the ratchet reported 19 when the true
+      number had fallen to 16: it blocked the very change that improved it.
+
+      Same trap as the `docs/112` icon ratchet, where naming the svg tag in a
+      comment tripped the rule about svg tags.
+    */
+    const source = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
     // Non-greedy up to the first `>`, which is enough: `Money` takes only
     // scalar props, so no nested `>` can appear inside the tag.
     for (const match of source.matchAll(/<Money\b[^>]*?\/?>/g)) {
@@ -76,22 +89,23 @@ describe('Money currency ratchet', () => {
     const omissions = moneyCallSites().filter((s) => !/\bcurrency=/.test(s.tag));
 
     /*
-      18 as of 2026-10-21, all of them pre-dating the KES rail:
+      16 as of 2026-10-26, all of them pre-dating the KES rail:
 
         src/components/admin/PayoutsDashboard.tsx        8
         src/components/dashboard/ImpactLinkRow.tsx       3
         src/app/dashboard/impact/page.tsx                2
         src/components/admin/GovernancePanel.tsx         1
-        src/components/campaign/CampaignCard.tsx         1
         src/components/campaign/DonorFeed.tsx            1
         src/components/campaign/ImpactTiers.tsx          1
-        src/components/campaign/SidebarDonationSummary.tsx  1
+
+      Was 18. `CampaignCard` and `SidebarDonationSummary` were each given
+      their row's currency, which is why it fell.
 
       Lower this number as each one is given its row's currency. Never raise
       it: a new `<Money>` without a currency is a new place a shilling can be
       printed as a dollar.
     */
-    expect(omissions.length).toBeLessThanOrEqual(18);
+    expect(omissions.length).toBeLessThanOrEqual(16);
   });
 
   it('every call site passes an amount in minor units, never a `cents` prop', () => {

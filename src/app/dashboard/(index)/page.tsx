@@ -4,7 +4,8 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
 import { eq, desc, sql, and, or } from 'drizzle-orm';
-import { centsToDollars, centsToDollarsWhole } from '@/lib/utils/currency';
+import { Money } from '@/components/ui/Money';
+import { donorTotalsByCurrency } from '@/lib/donor-totals.server';
 import { formatDate } from '@/lib/utils/dates';
 import { NextStepRow } from '@/components/dashboard/NextStepRow';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
@@ -28,13 +29,17 @@ async function getDashboardData(userId: string, userEmail: string) {
 
   // Run independent queries in parallel
   const [donationStatsResult, myCampaigns, recentDonations] = await Promise.all([
-    db
-      .select({
-        totalDonated: sql<number>`COALESCE(SUM(${donations.amount}), 0)::int`,
-        totalCount: sql<number>`count(${donations.id})::int`,
-      })
-      .from(donations)
-      .where(realDonationFilter),
+    /*
+      ⛔ PER CURRENCY, never one sum. This was
+      `COALESCE(SUM(donations.amount), 0)` filtered by DONOR with no currency
+      grouping, rendered through a USD-hardcoded helper - and the tile's own
+      subtitle said "Across all campaigns", which is exactly the case where
+      adding the amounts is meaningless (`docs/92`: two currencies are never
+      added together).
+
+      Still ONE query, so the page's fan-out is unchanged (`docs/87`).
+    */
+    donorTotalsByCurrency(db, userId, userEmail),
 
     db
       .select({
@@ -59,6 +64,9 @@ async function getDashboardData(userId: string, userEmail: string) {
       .select({
         id: donations.id,
         amount: donations.amount,
+        // Fetched because it is RENDERED. Without it the row was formatted as
+        // USD whatever currency the donation was actually made in.
+        currency: donations.currency,
         createdAt: donations.createdAt,
         campaignTitle: campaigns.title,
         campaignSlug: campaigns.slug,
@@ -70,7 +78,7 @@ async function getDashboardData(userId: string, userEmail: string) {
       .limit(3),
   ]);
 
-  const donationStats = donationStatsResult[0];
+  const donorTotals = donationStatsResult;
 
   /*
     The URGENT banner: verification you are being chased for, because money
@@ -93,8 +101,8 @@ async function getDashboardData(userId: string, userEmail: string) {
   );
 
   return {
-    totalDonated: donationStats?.totalDonated ?? 0,
-    totalDonations: donationStats?.totalCount ?? 0,
+    donorTotals,
+    totalDonations: donorTotals.reduce((n, t) => n + t.donationCount, 0),
     myCampaigns,
     recentDonations,
     needsVerification,
@@ -105,7 +113,7 @@ export default async function DashboardPage() {
   const session = (await auth())!;
 
   const {
-    totalDonated,
+    donorTotals,
     totalDonations,
     myCampaigns,
     recentDonations,
@@ -162,11 +170,22 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <StatCard
-            label="Total Donated"
-            value={centsToDollars(totalDonated)}
-            sub="Across all campaigns"
-          />
+          {/*
+            One tile per currency the donor actually gave in. Somebody who has
+            only ever given in one currency - every donor on this platform
+            today - sees exactly one tile, as before.
+
+            ⚠️ A donor who has given in NONE sees no tile rather than a zero
+            in an arbitrary currency, because there is no currency to name.
+          */}
+          {donorTotals.map((t) => (
+            <StatCard
+              key={t.currency}
+              label={donorTotals.length > 1 ? `Total donated (${t.currency})` : 'Total donated'}
+              value={<Money minor={t.totalMinor} currency={t.currency} precision="exact" />}
+              sub="Across all campaigns"
+            />
+          ))}
           <StatCard
             label="Active Campaigns"
             value={activeCampaigns.length.toString()}
@@ -241,9 +260,9 @@ export default async function DashboardPage() {
 
                         <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                           <span className="font-mono font-semibold text-foreground">
-                            {centsToDollarsWhole(c.raisedAmount)}
+                            <Money minor={c.raisedAmount} currency={c.currency} />
                           </span>{' '}
-                          raised of {centsToDollarsWhole(c.goalAmount)}
+                          raised of <Money minor={c.goalAmount} currency={c.currency} />
                         </p>
 
                         {/*
@@ -357,7 +376,7 @@ export default async function DashboardPage() {
                         {formatDate(d.createdAt)}
                       </span>
                       <span className="font-mono text-sm font-bold tabular-nums text-foreground">
-                        {centsToDollars(d.amount)}
+                        <Money minor={d.amount} currency={d.currency} precision="exact" />
                       </span>
                     </div>
                   </div>
@@ -395,7 +414,13 @@ function StatCard({
   sub,
 }: {
   label: string;
-  value: string;
+  /*
+    ReactNode, not string: a money figure renders through `<Money>` so it
+    carries its own currency. A `string` parameter forces the caller to
+    pre-format, and the only ergonomic way to do that was the USD-hardcoded
+    helper this change removed.
+  */
+  value: React.ReactNode;
   sub: string;
 }) {
   return (
