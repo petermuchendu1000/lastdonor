@@ -543,3 +543,51 @@ length. Now wraps.
 ⚠️ And a third, in a test of mine: a rule forbidding `centsToDollars` in a
 file matched **its own doc comment** explaining the defect - the `docs/112`
 icon-ratchet trap. Comments are stripped before matching now.
+
+---
+
+## 14. The dashboard row, and a correction to §13.2
+
+### 14.1 ⚠️ CORRECTION: "zero dollar signs" was scoped to ONE page
+
+§13.2 reports a verified result - zero dollar signs in the rendered DOM - and
+that measurement was real. **The sentence around it was broader than the
+evidence.** What was measured was `/campaigns/[slug]`. The organiser's own
+dashboard still printed **"$18,400.00 / $50,000.00"** for the same KES
+campaign, reported from a screenshot immediately afterwards.
+
+⛔ **34 files still call `centsToDollars` / `centsToDollarsWhole`**, which
+hardcode USD. A sweep of the repository lists them; the ones fixed so far are
+the public campaign page, the campaign cards and grid, the sidebar, the sticky
+bar and now the organiser list. The rest are the donate form, the OG card, the
+transparency and wall pages, the remaining dashboard screens and ~18 admin
+components.
+
+This is recorded as OPEN rather than quietly finished. The lesson is the
+narrower one: **a measurement's scope is part of its result**, and a claim
+that drops the scope is a different claim.
+
+⚠️ The preset donation ladder in `DonationForm` is NOT part of this: those are
+USD-denominated amounts (500 = $5.00), and showing them as "Ksh 5" would be
+wrong differently - about four US cents, under the KES 50 floor. A
+per-currency ladder is an owner decision (`docs/72`).
+
+### 14.2 Two buttons took half the screen
+
+The row was `flex justify-between` with a `shrink-0` column holding the
+actions. At 390px that column refused to shrink, so the title starved into a
+three-line ribbon and every meta item wrapped onto its own line - a card about
+850px tall for two buttons and four facts.
+
+⚠️ **Adding "Where the money goes" is what tipped it**, and the layout was
+already fragile: the longer the action labels get, the narrower the title is
+allowed to be. That is the defect, not the label.
+
+Now one stack - title and date, meta, money, next step, progress, then the
+actions on their own full-width wrapping row at the bottom, where a long label
+costs the title nothing. A trailing separator that dangled when the money
+wrapped is gone too.
+
+`CampaignsListClient.test.tsx` pins both halves and is proven by injection:
+reverting the USD helper fails 3, restoring the `shrink-0` column fails 1, and
+removing the payout link fails 1.
