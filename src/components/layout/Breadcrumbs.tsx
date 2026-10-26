@@ -49,7 +49,18 @@ export function Breadcrumbs() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
-        <ol className="flex items-center gap-1">
+        {/*
+          ⚠️ `flex-wrap` and `min-w-0`. This was a no-wrap flex, and crumb
+          labels come from page titles, so the trail's width is unbounded.
+          Measured at 390px: `/admin/campaigns/[id]/updates/new` pushed the
+          page to 437px and the verification screen to 446px - a phone that
+          scrolls sideways on an admin tool and on an organiser's own
+          verification page.
+
+          Rendered through `src/app/admin/layout.tsx`, so this is every admin
+          screen, not two.
+        */}
+        <ol className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
           <li>
             <Link
               href="/"
@@ -63,7 +74,10 @@ export function Breadcrumbs() {
             <li key={crumb.href} className="flex items-center gap-1">
               <ChevronRightIcon className="h-3 w-3" />
               {crumb.isLast ? (
-                <span className="font-medium text-foreground" aria-current="page">
+                <span
+                  className="min-w-0 truncate font-medium text-foreground"
+                  aria-current="page"
+                >
                   {crumb.label}
                 </span>
               ) : (
