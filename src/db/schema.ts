@@ -173,6 +173,11 @@ export const institutionKindEnum = pgEnum('institution_kind', [
   'school',
   'government',
   'employer',
+  // Added 2026-10-25 (`docs/113` §11). The feature names funeral homes
+  // explicitly, and `other` is not good enough: the kind is shown to donors
+  // beside the name, so a funeral home reading "Other" tells a grieving
+  // family nothing they can check.
+  'funeral_home',
   'other',
 ]);
 
@@ -180,6 +185,35 @@ export const institutionStatusEnum = pgEnum('institution_status', [
   'active',
   'suspended',
 ]);
+
+/**
+ * How an institution is paid (`docs/113` §11).
+ *
+ * ⚠️ ONE value, and that is deliberate. `docs/81`/`docs/76`/`docs/77` all say
+ * the same thing: do not ship a provider path nobody has exercised. Kenya
+ * already has this primitive - a hospital publishes a paybill with an
+ * account-number field, and "pay Hospital X, account Y" is how Kenyans settle
+ * hospital bills today (`docs/113` §4). A `bank_transfer` or `card` value
+ * gets added when a rail that can do it has been probed, not before.
+ */
+export const payoutRailEnum = pgEnum('payout_rail', ['mpesa_paybill']);
+
+/**
+ * Whether a payout account may still be used.
+ *
+ * `retired` rather than deleted: a designation points at it, and a paid
+ * campaign must still be able to say where its money went.
+ */
+export const payoutAccountStatusEnum = pgEnum('payout_account_status', ['active', 'retired']);
+
+/**
+ * The life of a campaign's destination.
+ *
+ * `revoked` rather than deleted for the same reason, and because the partial
+ * unique index keys on `active` - a revoked row must be able to sit beside
+ * the new one.
+ */
+export const designationStatusEnum = pgEnum('designation_status', ['active', 'revoked']);
 
 /**
  * How a campaign came to be verified.
@@ -1491,6 +1525,182 @@ export const institutionVouches = pgTable(
     ),
   ],
 );
+
+/**
+ * ⛔ WHERE AN INSTITUTION IS PAID. Added 2026-10-25, see `docs/113` §11.
+ *
+ * ── WHY THIS IS NOT A COLUMN ON `trusted_institutions` ──────────────────────
+ *
+ * `docs/108` deliberately gave that table NO payment column, because a vouch
+ * is a third party's word and a third party's word must never move money. Its
+ * boundary test (`vouch-boundary.test.ts`) makes a structural claim about what
+ * that directory may write, and that claim is only meaningful while the table
+ * it guards has nothing payable in it.
+ *
+ * So payment details live here instead, and being a trusted VOUCHER and being
+ * a payable DESTINATION stay two separate admin decisions. An institution can
+ * be one without the other, which is the common case: a church that can
+ * confirm a funeral is not thereby somewhere to send money.
+ *
+ * ⚠️ `confirmed_by` / `confirmation_notes` are NOT NULL on purpose. This row
+ * is the one that can send a grieving family's money to a stranger, and
+ * M-Pesa reversals are manual, slow and not guaranteed. An account with no
+ * named author and no account of how it was checked is not a record, it is a
+ * rumour with a shortcode.
+ */
+export const institutionPayoutAccounts = pgTable(
+  'institution_payout_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /*
+      Named explicitly: drizzle's derived name
+      `institution_payout_accounts_institution_id_trusted_institutions_id_fk`
+      is 69 characters, and Postgres TRUNCATES an identifier past 63 with only
+      a NOTICE. Truncation keeps the PREFIX, so two long names that differ at
+      the end collide into one - a silent failure at migration time.
+    */
+    institutionId: uuid('institution_id').notNull(),
+    /**
+     * ISO 4217, and it must be a currency the platform can actually COLLECT
+     * (`docs/103`: known is not collectable). The composite FK on the
+     * designation table makes a campaign in another currency unstorable
+     * against this account.
+     */
+    currency: text('currency').notNull(),
+    rail: payoutRailEnum('rail').notNull(),
+    /**
+     * The destination on that rail. For `mpesa_paybill` this is the shortcode.
+     * NOT the account/bill number - that is per campaign and the organiser
+     * types it (`campaign_payout_designations.account_reference`).
+     */
+    accountIdentifier: text('account_identifier').notNull(),
+    /**
+     * What this institution calls the per-payer reference, in ITS words -
+     * "patient file number", "invoice number", "admission number".
+     *
+     * Shown to the organiser verbatim on screen B3. A generic "account
+     * number" is how somebody types the wrong one.
+     */
+    accountReferenceLabel: text('account_reference_label').notNull(),
+    status: payoutAccountStatusEnum('status').notNull().default('active'),
+    confirmedBy: uuid('confirmed_by')
+      .notNull()
+      .references(() => users.id),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }).notNull().defaultNow(),
+    /** How they checked it. Free text, read by the next admin, never a donor. */
+    confirmationNotes: text('confirmation_notes').notNull(),
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
+    retiredReason: text('retired_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'institution_payout_accounts_institution_fk',
+      columns: [table.institutionId],
+      foreignColumns: [trustedInstitutions.id],
+    }).onDelete('cascade'),
+    index('idx_institution_payout_accounts_institution').on(table.institutionId),
+    index('idx_institution_payout_accounts_status').on(table.status),
+    check('institution_payout_accounts_currency_iso4217', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check(
+      'institution_payout_accounts_identifier_nonblank',
+      sql`length(btrim(${table.accountIdentifier})) > 0`,
+    ),
+    check(
+      'institution_payout_accounts_notes_substantive',
+      sql`length(btrim(${table.confirmationNotes})) >= 10`,
+    ),
+    /*
+      The target half of the designation's composite FK. Postgres requires a
+      unique constraint on exactly the referenced columns - same mechanism as
+      `campaigns_id_currency_key` (`docs/92`).
+    */
+    unique('institution_payout_accounts_id_currency_key').on(table.id, table.currency),
+  ],
+);
+
+/**
+ * ⛔ A CAMPAIGN'S MONEY GOES HERE INSTEAD OF TO THE ORGANISER.
+ *
+ * One active row per campaign. Creating it REMOVES a capability (the
+ * organiser can no longer withdraw) and grants nothing - see
+ * `src/lib/institutional-payout/decide.ts`.
+ *
+ * ⚠️ `account_reference` is typed by the ORGANISER and **nothing can check
+ * it**. The paybill above was confirmed by an admin; this is the bill number
+ * at that institution. A right paybill with a wrong reference pays a
+ * stranger's bill at the right hospital (`docs/113` §11.1 #3).
+ *
+ * ⚠️ The composite FKs are the `docs/92` pattern doing a second job here:
+ * `(campaign_id, currency)` fixes the campaign's currency as always, and
+ * `(payout_account_id, currency)` makes it **impossible to store** a
+ * designation whose destination settles in a different currency from the
+ * ledger being sent. That is a database guarantee, not a validation.
+ */
+export const campaignPayoutDesignations = pgTable(
+  'campaign_payout_designations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /* Named explicitly for the same 63-character reason as above. */
+    payoutAccountId: uuid('payout_account_id').notNull(),
+    /** Denormalised so both composite FKs can key on it. */
+    currency: text('currency').notNull(),
+    /** The bill/file number AT the institution. Organiser-typed, unverifiable. */
+    accountReference: text('account_reference').notNull(),
+    status: designationStatusEnum('status').notNull().default('active'),
+    designatedBy: uuid('designated_by')
+      .notNull()
+      .references(() => users.id),
+    designatedAt: timestamp('designated_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Set the first time money actually reaches the institution. After this
+     * the destination is fixed: we cannot pull the first payment back, so a
+     * change would mean the money went two places while the page claimed one.
+     */
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokedBy: uuid('revoked_by').references(() => users.id),
+    revokedReason: text('revoked_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'campaign_payout_designations_account_fk',
+      columns: [table.payoutAccountId],
+      foreignColumns: [institutionPayoutAccounts.id],
+    }),
+    index('idx_campaign_payout_designations_account').on(table.payoutAccountId),
+    check(
+      'campaign_payout_designations_reference_nonblank',
+      sql`length(btrim(${table.accountReference})) > 0`,
+    ),
+    /*
+      ⛔ At most ONE active designation per campaign, enforced by the database
+      rather than by a read-then-write that two requests can interleave. A
+      second destination on one campaign means the donor-facing sentence names
+      the wrong one.
+    */
+    uniqueIndex('idx_campaign_payout_designations_one_active')
+      .on(table.campaignId)
+      .where(sql`${table.status} = 'active'`),
+    foreignKey({
+      name: 'campaign_payout_designations_campaign_currency_fk',
+      columns: [table.campaignId, table.currency],
+      foreignColumns: [campaigns.id, campaigns.currency],
+    }),
+    foreignKey({
+      name: 'campaign_payout_designations_account_currency_fk',
+      columns: [table.payoutAccountId, table.currency],
+      foreignColumns: [institutionPayoutAccounts.id, institutionPayoutAccounts.currency],
+    }),
+  ],
+);
+
 
 // ─── Campaign collaborators ─────────────────────────────────────────────────
 

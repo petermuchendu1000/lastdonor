@@ -63,6 +63,8 @@ interface World {
   user: Row;
   withdrawals: Row[];
   refundBatches: Row[];
+  /** Active institutional designations (`docs/113` §11). Empty by default. */
+  designations: Row[];
   lockHeld: boolean;
   lockWaiters: (() => void)[];
   sawForUpdate: boolean;
@@ -80,6 +82,11 @@ function resolver(op: Op): unknown[] {
 
     case 'select:users':
       return [{ ...world.user }];
+
+    case 'select:campaign_payout_designations':
+      return world.designations
+        .filter((d) => d.campaignId === CAMPAIGN_ID && d.status === 'active')
+        .map((d) => ({ status: d.status, revokedAt: d.revokedAt ?? null }));
 
     case 'select:refund_batches':
       return world.refundBatches
@@ -210,6 +217,7 @@ beforeEach(() => {
     },
     withdrawals: [],
     refundBatches: [],
+    designations: [],
     lockHeld: false,
     lockWaiters: [],
     sawForUpdate: false,
@@ -562,5 +570,66 @@ describe('POST /api/v1/user-campaigns/[id]/withdraw - campaign currency', () => 
 
     expect(res.status).toBe(201);
     expect(createTransfer).toHaveBeenCalled();
+  });
+});
+
+/**
+ * ⛔ The invariant the donor-facing claim rests on (`docs/113` §11.3).
+ *
+ * The campaign page tells donors *"It does not pass through the family's own
+ * account."* The destination in this handler is the CALLER's Connect account,
+ * so without the designation guard an organiser could collect on that promise
+ * and then withdraw the money to themselves.
+ *
+ * The assertion that matters is `createTransfer` NOT being called. A 409 with
+ * a transfer already in flight would be a passing test and a paid-out family's
+ * money.
+ */
+describe('a campaign designated to an institution', () => {
+  it('⛔ refuses the organiser and sends NO transfer', async () => {
+    world.designations = [
+      { campaignId: CAMPAIGN_ID, status: 'active', revokedAt: null },
+    ];
+
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000d1'), params);
+
+    expect(res.status).toBe(409);
+    expect(createTransfer).not.toHaveBeenCalled();
+    expect(world.withdrawals).toHaveLength(0);
+  });
+
+  it('names the institution rather than blaming verification', async () => {
+    // The organiser IS fully verified here. A "complete verification" message
+    // would send them round a loop that cannot fix anything.
+    world.designations = [{ campaignId: CAMPAIGN_ID, status: 'active', revokedAt: null }];
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000d2'), params);
+    const body = (await res.json()) as { error: { message: string } };
+
+    expect(body.error.message).toMatch(/institution you chose/i);
+    expect(body.error.message).not.toMatch(/verif/i);
+  });
+
+  it('pays the organiser normally once the designation is revoked', async () => {
+    world.designations = [
+      { campaignId: CAMPAIGN_ID, status: 'revoked', revokedAt: new Date() },
+    ];
+
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000d3'), params);
+
+    expect(res.status).toBe(201);
+    expect(createTransfer).toHaveBeenCalledTimes(1);
+  });
+
+  it('⛔ is inert for a campaign with no designation at all', async () => {
+    /*
+      Every campaign in production today. If this regressed, the feature would
+      have broken withdrawal for the whole platform - and the platform has
+      never paid anybody, so nobody would have noticed until the first payout.
+    */
+    expect(world.designations).toHaveLength(0);
+    const res = await POST(request(10_000, '00000000-0000-4000-8000-0000000000d4'), params);
+
+    expect(res.status).toBe(201);
+    expect(createTransfer).toHaveBeenCalledTimes(1);
   });
 });

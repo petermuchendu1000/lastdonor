@@ -9,6 +9,8 @@ import {
   isSupportedPayoutCurrency,
 } from '@/lib/validators/payout';
 import { createTransfer } from '@/lib/stripe-connect';
+import { organiserWithdrawalBlockedBy } from '@/lib/institutional-payout/decide';
+import { activeDesignation } from '@/lib/institutional-payout/designation.server';
 import { randomUUID } from 'crypto';
 import type { ApiResponse, ApiError } from '@/types/api';
 
@@ -273,6 +275,28 @@ export async function POST(
       return { ok: false as const, reason: 'not_verified' as const };
     }
 
+    /*
+      ⛔ THE INVARIANT THE DONOR-FACING CLAIM RESTS ON. See `docs/113` §11.
+
+      When a campaign is designated to an institution, its page tells donors
+      *"It does not pass through the family's own account."* The destination
+      in this handler is the CALLER's Connect account (resolved above with
+      `eq(users.id, session.user.id)`), so without this check an organiser
+      could designate a hospital, collect on that promise, and then withdraw
+      the money to themselves - making a published claim false in the one
+      direction that costs a family their money.
+
+      Read UNDER THE LOCK, with the campaign row, for the same reason the
+      status re-read is: a designation created while a withdrawal is in
+      flight must win the race. It is a sequential query inside the existing
+      transaction, so the `docs/87` three-concurrent-query cap is untouched.
+    */
+    const designation = await activeDesignation(tx, campaignId);
+
+    if (organiserWithdrawalBlockedBy(designation)) {
+      return { ok: false as const, reason: 'designated_to_institution' as const };
+    }
+
     // An in-progress refund batch means donors are being paid back from the
     // same pot. Paying the creator concurrently pays the money out twice.
     const [openRefund] = await tx
@@ -372,6 +396,21 @@ export async function POST(
           error: {
             code: 'CONFLICT',
             message: 'This campaign is not fully verified, so withdrawals are on hold. Complete verification to withdraw.',
+            requestId,
+          },
+        } satisfies ApiError,
+        { status: 409 },
+      );
+    }
+
+    if (reservation.reason === 'designated_to_institution') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'CONFLICT',
+            message:
+              'This campaign pays the institution you chose, not your own account. Donors were told their money does not pass through your account. Contact support@lastdonor.org if this is wrong.',
             requestId,
           },
         } satisfies ApiError,

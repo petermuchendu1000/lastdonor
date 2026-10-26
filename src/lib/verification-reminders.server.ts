@@ -221,8 +221,29 @@ export async function recordReminderSent(p: {
   row: DueReminderRow;
   emailed: boolean;
   notificationCreated: boolean;
+  /**
+   * When the reminder went out. Defaults to the database's clock, which is
+   * what the cron wants.
+   *
+   * ⚠️ It is a parameter because the 24-hour floor is measured FROM this row,
+   * and a test that cannot set it is measuring against wall-clock time. The
+   * integration test did exactly that and so passed only before 10:00 UTC
+   * and failed for the rest of every day. Same reason `consentRecord` takes
+   * `now` (`docs/113` §10.2): a rule a test cannot pin is a rule nobody has
+   * checked at the boundary that matters.
+   */
+  at?: Date;
 }): Promise<void> {
   await db.insert(auditLogs).values({
+    /*
+      ⚠️ Written as a direct property, NEVER as `...(p.at ? {...} : {})`. A
+      SPREAD bypasses TypeScript's excess-property check, so a misspelled or
+      wrong column name in a spread compiles clean and silently writes
+      nothing. That is how the first attempt at this fix set `createdAt` - a
+      column `audit_logs` does not have - with typecheck green and the bug
+      unchanged. The column is `timestamp`.
+    */
+    timestamp: p.at ?? new Date(),
     eventType: REMINDER_AUDIT_EVENT,
     targetType: 'campaign',
     targetId: p.row.campaignId,

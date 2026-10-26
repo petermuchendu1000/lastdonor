@@ -160,6 +160,7 @@ describe('the send-once ledger, exercised rather than read', () => {
       row: first.due[0],
       emailed: true,
       notificationCreated: true,
+      at: NOW,
     });
 
     const again = await selectDueReminders(NOW);
@@ -172,7 +173,7 @@ describe('the send-once ledger, exercised rather than read', () => {
     await donate(campaign.id, 2_500);
 
     const first = await selectDueReminders(NOW);
-    await recordReminderSent({ row: first.due[0], emailed: true, notificationCreated: true });
+    await recordReminderSent({ row: first.due[0], emailed: true, notificationCreated: true, at: NOW });
 
     // The campaign jumps to its cap in the same afternoon.
     await donate(campaign.id, CAP_USD);
@@ -194,7 +195,7 @@ describe('the send-once ledger, exercised rather than read', () => {
     const { campaign } = await liveCampaign();
     await donate(campaign.id, 2_500);
     const out = await selectDueReminders(NOW);
-    await recordReminderSent({ row: out.due[0], emailed: false, notificationCreated: true });
+    await recordReminderSent({ row: out.due[0], emailed: false, notificationCreated: true, at: NOW });
 
     const rows = await db
       .select({ details: schema.auditLogs.details, targetId: schema.auditLogs.targetId })
