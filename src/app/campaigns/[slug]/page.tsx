@@ -120,6 +120,11 @@ async function getCampaign(slug: string) {
           eq(campaigns.status, 'paused'),
           eq(campaigns.status, 'suspended'),
           eq(campaigns.status, 'cancelled'),
+          // `archived` = closed. Served with a notice rather than 404'd,
+          // because its donors get an email saying we hold a record of their
+          // donation (`docs/118` §9). This list is asserted equal to
+          // PUBLICLY_VIEWABLE_STATUSES, parsed from source.
+          eq(campaigns.status, 'archived'),
         ),
       ),
     )
@@ -655,6 +660,27 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               </div>
             )}
 
+            {/*
+              `archived` = closed. This page used to 404 for it, so a donor
+              who had just been emailed "This campaign has closed - we have a
+              record of every donation, including yours" followed the link and
+              was told the appeal did not exist (`docs/118` §9).
+
+              ⛔ The words match `campaignArchivedEmail` deliberately - the
+              email is what the reader has in front of them. It says "closed",
+              so this says closed, and neither invents a reason the platform
+              has not recorded.
+            */}
+            {campaign.status === 'archived' && (
+              <div className="rounded-lg border border-border bg-card p-5">
+                <p className="text-sm font-semibold text-foreground">This campaign has closed</p>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  It can no longer take donations. We have a record of every
+                  donation that was made.
+                </p>
+              </div>
+            )}
+
             {/* Campaign story */}
             <div
               className="prose prose-neutral max-w-none dark:prose-invert prose-headings:font-display prose-a:text-primary"
@@ -748,6 +774,17 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 {(campaign.raisedAmount > 0) && (
                   <p className="mt-2 text-xs text-muted-foreground">Donors have been notified and refunds processed where applicable.</p>
                 )}
+                <Link href="/campaigns" className="mt-4 block text-center text-sm text-muted-foreground underline hover:text-foreground">
+                  Browse active campaigns
+                </Link>
+              </div>
+            ) : campaign.status === 'archived' ? (
+              <div className="rounded-xl border border-border bg-card p-6">
+                <p className="text-sm font-semibold text-foreground">Campaign Closed</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This campaign can no longer take donations. We have a record
+                  of every donation that was made.
+                </p>
                 <Link href="/campaigns" className="mt-4 block text-center text-sm text-muted-foreground underline hover:text-foreground">
                   Browse active campaigns
                 </Link>

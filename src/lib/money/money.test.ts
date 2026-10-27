@@ -9,7 +9,7 @@ import {
   minorPerMajor,
   normaliseCurrencyCode,
 } from '@/lib/money/currencies';
-import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
+import { currencySymbol, formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
 
 describe('currency registry', () => {
   it('enables exactly the currencies the platform can collect', () => {
@@ -230,6 +230,50 @@ describe('donation bounds', () => {
       expect(def.maxDonationMinor).toBeGreaterThan(def.minDonationMinor);
       expect(Number.isInteger(def.minDonationMinor)).toBe(true);
       expect(Number.isInteger(def.maxDonationMinor)).toBe(true);
+    }
+  });
+});
+
+describe('currencySymbol', () => {
+  /*
+    Added 2026-10-27 for the create wizard's goal input, which hardcoded `$`
+    beside a hardcoded `USD` badge (`docs/118` §10).
+
+    ⚠️ These values were OBSERVED, not guessed - probed through this harness
+    before being written down, because the whole point of deriving the symbol
+    from `Intl` is that nobody has to know what it returns. KES is "Ksh", three
+    characters, which is why the input's left padding adapts to the length.
+  */
+  it('gives the symbol for each collectable currency', () => {
+    expect(currencySymbol('USD')).toBe('$');
+    expect(currencySymbol('KES')).toBe('Ksh');
+  });
+
+  it('⚠️ is not always one character, which the form layout depends on', () => {
+    expect(currencySymbol('KES').length).toBeGreaterThan(1);
+  });
+
+  it('⛔ falls back to the code instead of throwing', () => {
+    /*
+      The first version called `resolveDisplayCurrency` OUTSIDE its try, so it
+      threw `Unknown currency: ZZZ` while its own doc comment promised a
+      fallback. Found by probing the real output rather than trusting the
+      comment - the defect was in the code AND in the documentation of it.
+    */
+    expect(() => currencySymbol('ZZZ')).not.toThrow();
+    expect(currencySymbol('ZZZ')).toBe('ZZZ');
+    expect(currencySymbol('')).toBe('');
+  });
+
+  it('works for a KNOWN but not collectable currency', () => {
+    // 152 currencies are known for display (docs/103); only 2 are collectable.
+    expect(() => currencySymbol('UGX')).not.toThrow();
+    expect(currencySymbol('UGX').length).toBeGreaterThan(0);
+  });
+
+  it('every collectable currency yields a non-empty symbol', () => {
+    for (const code of Object.keys(CURRENCIES)) {
+      expect(currencySymbol(code), code).not.toBe('');
     }
   });
 });

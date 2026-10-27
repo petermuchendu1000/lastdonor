@@ -23,14 +23,37 @@ const ALL_CAMPAIGN_STATUSES = [
 ] as const;
 
 describe('publicCampaignPath', () => {
-  it('⛔ refuses `archived` - the reported symptom', () => {
+  it('⛔ refuses `under_review` - the reported symptom class', () => {
     /*
-      `notifyCampaignStatusChange` produced a `campaign_archived` notification
-      and linked `/campaigns/<slug>`, which the page does not serve.
-      [VERIFIED live 2026-10-27] `GET /campaigns/zz-payments-test-mpesa-gateway`
-      (a real archived row) -> 404, while an active slug -> 200.
+      ⚠️ This assertion used to name `archived`, which was the originally
+      reported symptom: `notifyCampaignStatusChange` produced a
+      `campaign_archived` notification linking `/campaigns/<slug>`, and
+      [VERIFIED live 2026-10-27] a real archived row answered 404.
+
+      `docs/118` §9 then fixed that at SOURCE - the owner's call was to serve
+      `archived` with a closed notice, since the email its donors receive says
+      we hold a record of their donation. So archived is now public and this
+      builder correctly returns a path for it.
+
+      The test was REPOINTED rather than deleted, because the property it
+      guards is unchanged and still live: a status with no public page must
+      yield null. `under_review` is the status every newly created campaign
+      holds (`docs/78`/`docs/79`), so it is the case that matters most now.
     */
-    expect(publicCampaignPath({ slug: 'help-ada', status: 'archived' })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'under_review' })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'draft' })).toBeNull();
+  });
+
+  it('⚠️ now ALLOWS archived, and that is deliberate (docs/118 §9)', () => {
+    /*
+      Pinned explicitly so that reverting the visibility decision cannot
+      silently leave this builder handing out a 404 again: if `archived` is
+      ever removed from PUBLICLY_VIEWABLE_STATUSES, this fails and whoever
+      did it has to read the decision.
+    */
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'archived' })).toBe(
+      '/campaigns/help-ada',
+    );
   });
 
   it('refuses the statuses that have no public page', () => {

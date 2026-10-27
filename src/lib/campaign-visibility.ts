@@ -19,6 +19,20 @@
  * and renders an explanatory notice; a donor following an old link deserves to
  * be told what happened rather than that the appeal never existed. `draft` and
  * `under_review` are not public and never have been since `docs/78`/`docs/79`.
+ *
+ * ⚠️ `archived` was added 2026-10-27 (`docs/118` §9, owner decision) for
+ * exactly the reason stated above - it had simply been omitted rather than
+ * decided against. It is the status a CLOSED campaign holds, and the email its
+ * donors receive says "We have a record of every donation, including yours",
+ * so a 404 was the one answer that contradicted the message they had just
+ * been sent. [VERIFIED] it also removed the `docs/118` §2.1 defect at source:
+ * the `campaign_archived` notification's link now resolves.
+ *
+ * ⛔ Adding a status here is NOT the same as indexing it. `isIndexable` in
+ * `campaigns/[slug]/page.tsx` and `LIVE_SITEMAP_STATUSES` in `sitemap.ts` are
+ * the narrower set `active|last_donor_zone|completed`, and both stay that way
+ * - a URL that is both in a sitemap and served `noindex` is a contradiction
+ * Google reports. Serving a page and advertising it are separate decisions.
  */
 
 /** Statuses for which the public campaign page returns a page, not a 404. */
@@ -29,6 +43,7 @@ export const PUBLICLY_VIEWABLE_STATUSES = [
   'paused',
   'suspended',
   'cancelled',
+  'archived',
 ] as const;
 
 /**

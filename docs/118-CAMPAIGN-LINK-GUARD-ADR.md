@@ -419,3 +419,206 @@ evidence rather than a re-sweep:
   SQL and live HTTP. The `docs/117` lesson is that a walk finds what none of
   those do, and the donate form's rendered state was checked only by pattern
   matching the HTML.
+
+---
+
+## 9. ✅ Owner decision: `archived` is served, with a notice
+
+Taken 2026-10-27, resolving §2.5 and §2.1. Of the two candidates in §2.5 the
+owner chose the second, which is the one that fixes the cause rather than the
+symptom.
+
+`PUBLICLY_VIEWABLE_STATUSES` gains `archived`, the page's lookup gains the
+matching clause, and the page renders a closed notice in both places it
+already explains `suspended` and `cancelled`.
+
+**Why this is the right one, and it is the doc's own argument:**
+`campaign-visibility.ts` already said, of two other statuses, *"The page
+serves them and renders an explanatory notice; a donor following an old link
+deserves to be told what happened rather than that the appeal never
+existed."* `archived` is the same case and had been **omitted rather than
+decided against**. `campaignArchivedEmail` tells its donors *"We have a record
+of every donation, including yours"* — so a 404 was the one answer that
+contradicted the message they had just been sent.
+
+What it closes, at source rather than by guarding:
+
+- §2.1 disappears. The `campaign_archived` notification's link now resolves,
+  so the guard is no longer load-bearing for that branch.
+- §2.5's rotted production row **heals with no backfill**. Its link is
+  `/campaigns/zz-payments-test-mpesa-gateway`, and that path serves 200 once
+  this deploys. Nothing has to be rewritten in the database.
+
+### 9.1 ⛔ Serving is not indexing, and both narrower lists stay narrow
+
+`isIndexable` (`campaigns/[slug]/page.tsx`) and `LIVE_SITEMAP_STATUSES` +
+`CLOSED_SITEMAP_STATUSES` (`sitemap.ts`) remain `active|last_donor_zone|
+completed`. A URL that is both submitted in a sitemap and served `noindex` is
+a contradiction Google reports as *"Submitted URL marked noindex"*, and
+`sitemap.ts` says so in its own comment. A new test reads **all three** lists
+from source and asserts `archived` is in the viewable set and in neither
+indexing set — so making a status viewable can never quietly advertise it.
+
+⚠️ The sitemap's comment justified excluding `archived` because *"the detail
+query does not even return them, so they would be sitemap entries resolving to
+404"*. That reason is now **stale** and was rewritten: the behaviour is still
+right, for a different reason. A correct rule with a false stated reason is
+how the next person reopens a settled decision.
+
+### 9.2 ⚠️ This does NOT eliminate link rot, and the guard stays
+
+Checked rather than assumed: `ALLOWED_TRANSITIONS` in
+`admin/campaigns/[campaignId]/route.ts` contains `active: ['draft', …]` and
+`archived: ['draft']`. **`draft` has no public page**, so a notification
+written while a campaign was live still rots if an admin moves it to `draft`.
+
+So §9 closes the *common* case — the one that was 100% broken and reaching
+real donors — and the §4 write-time guard stays for the rest, alongside every
+newly created campaign being `under_review`. The test that named `archived` as
+the symptom was **repointed to `under_review`, not deleted**, and a second
+test now pins that `archived` is deliberately allowed, so reverting the
+visibility decision cannot silently restore a 404.
+
+### 9.3 Copy
+
+The notice says **"closed"**, matching `campaignArchivedEmail` word for word,
+because the email is what the reader has in front of them. It states no reason
+the platform has not recorded.
+
+⚠️ Found doing it: the **in-app notification says "concluded"** while the email
+says "closed", for the same event. Not fixed here — it is one word in a
+template and changing outgoing copy is `docs/94` territory — but recorded,
+because the two were written to describe the same thing.
+
+---
+
+## 10. ✅ Owner decision: make the working rail reachable
+
+Taken 2026-10-27, answering §6. Of the four options the owner chose the one
+that needs no credential and touches no production row: **let an organiser
+choose the currency in the create wizard.**
+
+`docs/116` §3 made `currency` settable by the API and recorded that it was
+**reachable from no screen**, so every campaign ever created took the `USD`
+default. §6 is the consequence: 14 active campaigns, all USD, all routed to a
+Stripe key that does not authenticate. This makes the one rail that *works*
+(PayHero/KES, `docs/92`) selectable.
+
+The API end needed nothing — `createUserCampaignSchema` already restricts
+`currency` to `SUPPORTED_CURRENCY_CODES`, and the create route already writes
+`currency: data.currency`. Only the client was missing.
+
+### 10.1 ⛔ Five hardcoded dollars, and one of them was arithmetic
+
+Taking the inventory found that the wizard asserted USD in **five** places,
+not one:
+
+| site | was | now |
+|---|---|---|
+| goal input prefix (×2: goal step + review editor) | literal `$` | `currencySymbol(form.currency)` |
+| the badge beside it (×2) | literal `USD` | a native `<select>` / the chosen code |
+| `aria-label` | "…amount in dollars" | the chosen code |
+| 4 validation messages | `'Minimum goal is $1'`, `'Maximum goal is $1,000,000,000'` | `formatMoney` in the chosen currency |
+| review-screen goal figure | `` `${goalDollars.toLocaleString()}` `` with a `$` | `formatMoney` |
+| **the conversion** | `parseInt(form.goalAmount, 10) * 100` | `majorToMinor(…, form.currency)` |
+
+⛔ **The last row is the one that matters.** A hardcoded `× 100` is right for
+USD and KES, which are both 2-decimal, and **100× wrong** for UGX, RWF, XOF
+and XAF, which are zero-decimal (`docs/92`, `docs/103`). It was latent only
+because currency was unsettable; this change is exactly what would have armed
+it.
+
+### 10.2 A native `<select>`, not an eighth hand-rolled radiogroup
+
+`docs/100` retrofitted a key handler and roving `tabIndex` onto **seven**
+`role="radiogroup"` divs, and its own conclusion is that *"if a new group is a
+plain list of labels, use a native `<input type="radio">` instead"*. Two
+currency codes are a plain list. The native control is one tab stop with arrow
+keys for free, and it is labelled (`sr-only`) because its visible text is only
+the code.
+
+⚠️ The review screen shows the **code as static text**, not a second selector.
+One value gets one control — `docs/99` §8 found two dark-mode toggles each
+holding their own copy of one global, and two controls for one field is the
+same shape of mistake even when they do share state.
+
+### 10.3 ⚠️ A restored draft had to be validated, because `getCurrency` throws
+
+The wizard persists its form to `localStorage`. `getCurrency` deliberately
+throws on an unsupported code, and that value now reaches it through
+`majorToMinor` and `currencySymbol` — so a draft carrying `currency: "ZZZ"`
+would crash the wizard on render. The file **already** validated
+`fundraisingFor` and `beneficiaryRelation` on restore for precisely this
+reason; `currency` now gets the same guard. A stale draft written before the
+field existed has no key at all and keeps the default, because the restore
+spreads over `INITIAL`.
+
+### 10.4 ⚠️ A defect in my own helper, found by probing not assuming
+
+`currencySymbol` is derived from `Intl` rather than a hand-kept symbol map,
+because `formatMoney` already gets the symbol that way and a second list
+drifts from the first. The first version called `resolveDisplayCurrency`
+**outside** its `try`, so it threw `Unknown currency: ZZZ` while its own doc
+comment promised a fallback — the code and its documentation were wrong
+together.
+
+It was caught by running the function and reading the output, not by reasoning
+about it. The same probe produced the two values the tests now pin:
+
+```
+USD -> "$"    (1 char)
+KES -> "Ksh"  (3 chars)
+```
+
+⚠️ **"Ksh" being three characters is load-bearing**, not trivia: the input's
+left padding switches on the symbol's length, because `pl-9` sized for `$`
+overlaps a three-character symbol.
+
+### 10.5 ⚠️ A rule of mine was over-broad and the CODE was right
+
+The first version of the ratchet banned `* 100` anywhere in the wizard. It
+failed — on `((step + 1) / STEP_COUNT) * 100}%`, the **step progress bar**,
+which is a legitimate percentage. The rule was narrowed to lines that mention
+the goal. An over-broad rule is not a strict rule; it is one that sends
+somebody to "fix" working code.
+
+### 10.6 What this does and does not fix
+
+✅ A new campaign can be created in KES and **can therefore actually collect
+money**, over the only rail that works.
+
+⛔ It does **nothing** for the 14 existing USD campaigns. A campaign's
+currency is immutable once any donation exists (composite FK, `docs/92`), and
+these have none — so they *could* be moved, but that is a production data
+mutation and remains the owner's call. §6's other three options are all still
+open.
+
+⛔ `DEFAULT_CURRENCY` is still `USD`, so an organiser who does not touch the
+selector still creates a campaign that cannot collect. Changing the default is
+a product decision (the site claims `areaServed: United States` — the tension
+`docs/82` parked at one constant), and it is not this change.
+
+### 10.7 Checks
+
+| check | count | proves |
+|---|---|---|
+| `wizard-currency.test.ts` | 13 | the selector, the POST, the draft guard, and that no dollar is asserted |
+| `money.test.ts` (`currencySymbol`) | 34 total, 5 new | observed symbols, the non-throwing fallback |
+| `campaign-visibility.test.ts` | 10 total, 2 new | `archived` served, and in neither indexing list |
+
+**Mutations, all killed:** POST omits `currency` · `* 100` restored · the
+`USD` badge restored · the draft guard dropped · `resolveDisplayCurrency`
+moved back outside the `try` · `archived` removed from the viewable set.
+
+### 10.8 ⛔ What is NOT checked
+
+- **No browser walk of the wizard.** The structural tests read source; nobody
+  has watched a KES campaign be created end to end. The `docs/117` lesson is
+  that a walk finds what source reading does not, and the `docs/107` §8 lesson
+  is that a production build behaves differently from `next dev`.
+- **Nothing deployed.** Both decisions are on `main` only.
+- **No archived campaign viewed in a browser.** The page now serves a status
+  it never served; the notice has not been seen rendered.
+- **The `× 100` fix is unexercised for a zero-decimal currency**, because none
+  is collectable. `majorToMinor` is tested for that case; the wizard path is
+  not.

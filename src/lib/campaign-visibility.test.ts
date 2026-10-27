@@ -65,6 +65,40 @@ describe('PUBLICLY_VIEWABLE_STATUSES', () => {
     expect(PUBLICLY_VIEWABLE_STATUSES).toContain('suspended');
     expect(PUBLICLY_VIEWABLE_STATUSES).toContain('cancelled');
   });
+
+  it('⛔ keeps archived, for the same reason (docs/118 §9)', () => {
+    /*
+      Added 2026-10-27, owner decision. `archived` is the status a CLOSED
+      campaign holds, and `campaignArchivedEmail` tells its donors "We have a
+      record of every donation, including yours" - so a 404 was the one answer
+      that contradicted the message they had just been sent. It had been
+      omitted from this list rather than decided against: the doc comment
+      above already made this exact argument for `suspended` and `cancelled`.
+    */
+    expect(PUBLICLY_VIEWABLE_STATUSES).toContain('archived');
+  });
+
+  it('⛔ serving a status is NOT indexing it', () => {
+    /*
+      The control on the change above. Making a status viewable must not have
+      put it in the sitemap or marked it indexable - a URL that is both
+      submitted in a sitemap and served `noindex` is a contradiction Google
+      reports. Both narrower lists are read from source.
+    */
+    const page = readFileSync(resolve(ROOT, 'src/app/campaigns/[slug]/page.tsx'), 'utf8');
+    const indexable = /const isIndexable = \[([^\]]*)\]/.exec(page);
+    expect(indexable, 'isIndexable not found - the page changed shape').toBeTruthy();
+    expect(indexable![1]).not.toContain('archived');
+    expect(indexable![1]).not.toContain('suspended');
+    expect(indexable![1]).not.toContain('cancelled');
+
+    const sitemap = readFileSync(resolve(ROOT, 'src/app/sitemap.ts'), 'utf8');
+    const live = /LIVE_SITEMAP_STATUSES = \[([^\]]*)\]/.exec(sitemap);
+    const closed = /CLOSED_SITEMAP_STATUSES = \[([^\]]*)\]/.exec(sitemap);
+    expect(live, 'LIVE_SITEMAP_STATUSES not found').toBeTruthy();
+    expect(closed, 'CLOSED_SITEMAP_STATUSES not found').toBeTruthy();
+    expect(live![1] + closed![1]).not.toContain('archived');
+  });
 });
 
 describe('hasPublicPage', () => {

@@ -20,9 +20,16 @@ import { hasPublicPage } from './campaign-visibility';
  *     (`campaigns/[slug]/page.tsx:117-122`). So the ONLY condition that
  *     produces a `campaign_archived` notification is the one condition under
  *     which its link cannot resolve. `GET /campaigns/zz-payments-test-mpesa-gateway`
- *     (a real `archived` row) answers **404**; an `active` slug answers 200,
+ *     (a real `archived` row) answered **404**; an `active` slug answered 200,
  *     which is the control proving the probe can tell them apart. The
  *     recipients are real un-refunded donors - the people who gave money.
+ *
+ *     ⚠️ **That specific case is now closed at source** (`docs/118` §9, owner
+ *     decision): `archived` is served with a closed notice, so this builder
+ *     returns a path for it and the test that named it has been repointed.
+ *     The guard still matters - `draft` and `under_review` are not public,
+ *     every newly created campaign is `under_review`, and
+ *     `ALLOWED_TRANSITIONS` still permits `active -> draft`.
  *
  *  2. The message-moderation route wrote `link: /campaigns/<campaignId>` - a
  *     **UUID in the slug position**. `/campaigns/[slug]` resolves only

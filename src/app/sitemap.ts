@@ -72,8 +72,11 @@ export const revalidate = 3600;
  *
  * Excluded, and why: `draft` and `under_review` are not public at all (the
  * detail query does not even return them, so they would be sitemap entries
- * resolving to 404); `archived` likewise; `paused` is a temporary state whose
- * page tells the visitor to come back; `suspended` and `cancelled` are
+ * resolving to 404); `archived` is excluded for a DIFFERENT reason since
+ * 2026-10-27 - it is now served with a closed notice (`docs/118` §9), so it is
+ * no longer a 404, but a closed appeal is not something to advertise to search
+ * engines and `isIndexable` keeps it `noindex`; `paused` is a temporary state
+ * whose page tells the visitor to come back; `suspended` and `cancelled` are
  * trust-and-safety outcomes - advertising a suspended appeal to search
  * engines would be the platform soliciting traffic to a fundraiser it has
  * itself stopped trusting. See docs/46.

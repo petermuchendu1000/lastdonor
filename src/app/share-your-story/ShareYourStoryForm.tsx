@@ -158,11 +158,27 @@ async function clearPendingPhoto(): Promise<void> {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+import {
+  DEFAULT_CURRENCY,
+  SUPPORTED_CURRENCY_CODES,
+} from '@/lib/money/currencies';
+import { currencySymbol, formatMoney, majorToMinor } from '@/lib/money/format';
+
+/*
+  The wizard's sanity range, in MAJOR units, matching the schema's
+  minor-unit range for a 2-decimal currency. Named because four separate
+  literals used to spell them, each with a `$` baked in (`docs/118` §10).
+*/
+const MIN_GOAL_MAJOR = 1;
+const MAX_GOAL_MAJOR = 1_000_000_000;
+
 interface FormData {
   // Step 0: Who are you raising funds for?
   fundraisingFor: string;
   // Step 1: Set Your Goal
   goalAmount: string;
+  /** ISO 4217 code the campaign raises in, fixed at creation (`docs/92`). */
+  currency: string;
   // Step 2: Add Media
   heroImageUrl: string;
   galleryImages: string[];
@@ -187,6 +203,7 @@ type FormErrors = Partial<Record<string, string>>;
 const INITIAL: FormData = {
   fundraisingFor: '',
   goalAmount: '',
+  currency: DEFAULT_CURRENCY,
   heroImageUrl: '',
   galleryImages: [],
   photoCredit: '',
@@ -343,6 +360,19 @@ export function ShareYourStoryForm() {
         if (fields.fundraisingFor === 'yourself' && fields.beneficiaryRelation !== 'self') {
           fields.beneficiaryRelation = 'self';
         }
+        /*
+          ⛔ A restored currency MUST be checked, for the same reason as the
+          two fields above. `getCurrency` THROWS on an unsupported code
+          (deliberately - a shilling figure with a dollar sign still looks
+          like money, `docs/92`), and this value reaches it through
+          `majorToMinor` and `currencySymbol`. A stale draft written before
+          this field existed simply has no key and keeps the default; one
+          carrying a code the platform cannot collect would crash the wizard
+          on render. `docs/118` §10.
+        */
+        if (fields.currency && !SUPPORTED_CURRENCY_CODES.includes(fields.currency)) {
+          fields.currency = DEFAULT_CURRENCY;
+        }
         setForm((prev) => ({ ...prev, ...fields }));
         if (typeof _step === 'number' && _step >= 0 && _step < STEP_COUNT) {
           setStep(_step);
@@ -425,8 +455,8 @@ export function ShareYourStoryForm() {
       }
     } else if (s === 1) {
       const amount = parseInt(form.goalAmount || '0', 10);
-      if (isNaN(amount) || amount < 1) errs.goalAmount = 'Minimum goal is $1';
-      else if (amount > 1_000_000_000) errs.goalAmount = 'Maximum goal is $1,000,000,000';
+      if (isNaN(amount) || amount < MIN_GOAL_MAJOR) errs.goalAmount = `Minimum goal is ${formatMoney(majorToMinor(MIN_GOAL_MAJOR, form.currency), form.currency, 'whole')}`;
+      else if (amount > MAX_GOAL_MAJOR) errs.goalAmount = `Maximum goal is ${formatMoney(majorToMinor(MAX_GOAL_MAJOR, form.currency), form.currency, 'whole')}`;
     } else if (s === 2) {
       // Add Media - no required fields; photo is validated at Review
     } else if (s === 3) {
@@ -450,9 +480,9 @@ export function ShareYourStoryForm() {
         errs.youtubeUrl = 'Please enter a valid YouTube link or remove the video';
       const goalNum = parseInt(form.goalAmount || '0', 10);
       if (isNaN(goalNum) || goalNum < 1)
-        errs.goalAmount = 'Minimum goal is $1';
+        errs.goalAmount = `Minimum goal is ${formatMoney(majorToMinor(MIN_GOAL_MAJOR, form.currency), form.currency, 'whole')}`;
       else if (goalNum > 1_000_000_000)
-        errs.goalAmount = 'Maximum goal is $1,000,000,000';
+        errs.goalAmount = `Maximum goal is ${formatMoney(majorToMinor(MAX_GOAL_MAJOR, form.currency), form.currency, 'whole')}`;
       if (form.subjectHometown.trim().length < 2)
         errs.subjectHometown = 'Location is required (e.g. "Austin, TX")';
       if (!form.category)
@@ -573,7 +603,14 @@ export function ShareYourStoryForm() {
         setPendingGalleryFiles([]);
       }
 
-      const goalCents = parseInt(form.goalAmount, 10) * 100;
+      /*
+        ⛔ `majorToMinor`, never `* 100`. This line was
+        `parseInt(form.goalAmount, 10) * 100`, correct only because every
+        campaign was USD. UGX, RWF, XOF and XAF are zero-decimal, so the
+        same expression overstates a goal 100x the moment one of them
+        becomes collectable (`docs/92`, `docs/103`).
+      */
+      const goalMinor = majorToMinor(parseInt(form.goalAmount, 10), form.currency);
 
       // BUG 3 fix: Validate session.user.name exists for "yourself" fundraisers
       const resolvedSubjectName =
@@ -608,7 +645,8 @@ export function ShareYourStoryForm() {
           beneficiaryConsent: true,
           title: form.title.trim(),
           story: form.story.trim(),
-          goalAmount: goalCents,
+          goalAmount: goalMinor,
+          currency: form.currency,
           heroImageUrl: resolvedHeroImageUrl,
           galleryImages: resolvedGalleryImages.length > 0 ? resolvedGalleryImages : undefined,
           photoCredit: form.photoCredit.trim() || undefined,
@@ -676,6 +714,7 @@ export function ShareYourStoryForm() {
   // ── Render helpers ─────────────────────────────────────────────────────
 
   const goalDollars = form.goalAmount ? parseInt(form.goalAmount, 10) : 0;
+  const goalSymbol = currencySymbol(form.currency);
 
   const storyLen = form.story.trim().length;
   const storyMsg = storyCharMessage(storyLen);
@@ -1052,7 +1091,9 @@ export function ShareYourStoryForm() {
               {/* Amount input */}
               <div className="space-y-4">
                 <div className="relative">
-                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">$</span>
+                  <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">
+                            {goalSymbol}
+                          </span>
                   <Input
                     id="goalAmount"
                     type="number"
@@ -1078,15 +1119,34 @@ export function ShareYourStoryForm() {
                         e.preventDefault();
                       }
                     }}
-                    className="h-14 pl-9 pr-20 text-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    className={`h-14 ${goalSymbol.length > 1 ? 'pl-16' : 'pl-9'} pr-28 text-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
                     placeholder="Enter amount"
-                    aria-label="Fundraising goal amount in dollars"
+                    aria-label={`Fundraising goal amount in ${form.currency}`}
                     aria-invalid={!!errors.goalAmount}
                     aria-describedby={errors.goalAmount ? 'goalAmount-error' : 'goalAmount-hint'}
                   />
-                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                    USD
-                  </span>
+                  {/*
+                    ⛔ A native <select>, not an eighth hand-rolled
+                    role="radiogroup". `docs/100`: when the options are a
+                    plain list of labels, use the native control - it is one
+                    tab stop with arrow keys for free, which is exactly what
+                    all seven hand-rolled groups had to be retrofitted with.
+                  */}
+                  <label htmlFor="currency" className="sr-only">
+                    Currency to raise in
+                  </label>
+                  <select
+                    id="currency"
+                    value={form.currency}
+                    onChange={(e) => update('currency', e.target.value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded bg-muted px-2 py-1 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    {SUPPORTED_CURRENCY_CODES.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 {errors.goalAmount && <p id="goalAmount-error" className="text-sm text-red-500">{errors.goalAmount}</p>}
                 {/*
@@ -1769,7 +1829,15 @@ export function ShareYourStoryForm() {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="text-sm text-muted-foreground">Goal</p>
-                        <p className="mt-1 text-base font-medium text-foreground">${goalDollars.toLocaleString()}</p>
+                        {/*
+                          A FIFTH hardcoded dollar sign lived here, on the
+                          review screen the organiser confirms before
+                          submitting (`docs/118` §10). `formatMoney` places
+                          the symbol and the grouping per locale.
+                        */}
+                        <p className="mt-1 text-base font-medium text-foreground">
+                          {formatMoney(majorToMinor(goalDollars, form.currency), form.currency, 'whole')}
+                        </p>
                         {errors.goalAmount && <p className="mt-1 text-sm text-red-500">{errors.goalAmount}</p>}
                       </div>
                       <button
@@ -1950,7 +2018,9 @@ export function ShareYourStoryForm() {
                     {editField === 'goal' && (
                       <div className="space-y-4">
                         <div className="relative">
-                          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">$</span>
+                          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">
+                            {goalSymbol}
+                          </span>
                           <Input
                             type="number"
                             min={1}
@@ -1965,12 +2035,12 @@ export function ShareYourStoryForm() {
                             onKeyDown={(e) => {
                               if (e.key === '.' || e.key === '-' || e.key === 'e' || e.key === '+') e.preventDefault();
                             }}
-                            className="h-14 pl-9 pr-20 text-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className={`h-14 ${goalSymbol.length > 1 ? 'pl-16' : 'pl-9'} pr-28 text-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
                             placeholder="Enter amount"
                             autoFocus
                           />
                           <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                            USD
+                            {form.currency}
                           </span>
                         </div>
                       </div>

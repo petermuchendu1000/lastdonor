@@ -59,6 +59,45 @@ export function majorToMinor(major: number, currency: string): number {
 }
 
 /**
+ * The symbol a currency is written with, for an input's inline prefix.
+ *
+ * ⚠️ Derived from `Intl`, never a hand-kept map. There is no `symbol` field on
+ * `CurrencyDefinition` on purpose - `formatMoney` already gets the symbol from
+ * `Intl.NumberFormat`, and a second, hand-written list of symbols is a thing
+ * that drifts from the first.
+ *
+ * ⛔ This is for a FORM PREFIX only, beside an input the reader types a major
+ * amount into. A money figure is rendered by `formatMoney` or `<Money>`, which
+ * place the symbol, the grouping and the decimals per locale. Do not build a
+ * figure by concatenating this with a number.
+ *
+ * Falls back to the code itself, which is always meaningful - "KES 500" reads
+ * fine, where an empty prefix would leave the amount unlabelled. Added
+ * 2026-10-27 for the create wizard, which hardcoded `$` (`docs/118` §10).
+ */
+export function currencySymbol(currency: string): string {
+  /*
+    ⚠️ `resolveDisplayCurrency` is INSIDE the try. It throws
+    `Unknown currency: ZZZ` for a code outside the 152 known ones, and the
+    first version of this function called it outside - so the fallback this
+    comment promised did not exist and the function threw. Found by probing
+    the real output rather than assuming it (`docs/118` §10).
+  */
+  try {
+    const def = resolveDisplayCurrency(currency);
+    const parts = new Intl.NumberFormat(def.locale, {
+      style: 'currency',
+      currency: def.code,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).formatToParts(0);
+    return parts.find((p) => p.type === 'currency')?.value ?? def.code;
+  } catch {
+    return (currency ?? '').trim().toUpperCase();
+  }
+}
+
+/**
  * Format a minor-unit integer as money in its own currency.
  *
  * @param minor    amount in the currency's minor unit

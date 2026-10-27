@@ -421,13 +421,18 @@ export async function notifyCampaignStatusChange(p: {
         title: titleText,
         message: messageText,
         /*
-          ⛔ Guarded, because the `archived` branch above is the one case where
-          this link CANNOT resolve: `archived` is absent from
-          `PUBLICLY_VIEWABLE_STATUSES` and from the page's own filter, so the
-          only condition that produces a `campaign_archived` notification was
-          the only condition under which its link 404s - and the recipients
-          here are real un-refunded donors. [VERIFIED live: an `archived` slug
-          answers 404, an `active` one 200.] `docs/118`.
+          ⛔ Guarded. HISTORY: the `archived` branch above used to be the one
+          case where this link could not resolve - `archived` was absent from
+          `PUBLICLY_VIEWABLE_STATUSES`, so the only condition that produced a
+          `campaign_archived` notification was the only condition under which
+          its link 404'd, and the recipients here are real un-refunded donors.
+          [VERIFIED live: an `archived` slug answered 404, an `active` one 200.]
+
+          ⚠️ `archived` is served with a closed notice now (`docs/118` §9), so
+          that branch resolves. The guard stays because this function is
+          reached for ANY status change: `ALLOWED_TRANSITIONS` permits
+          `active -> draft` and `archived -> draft`, and `draft` has no public
+          page. Do not inline the template literal back. `docs/118`.
         */
         link: publicCampaignPath({ slug: p.campaignSlug, status: p.newStatus }),
         email: { to: donor.donorEmail, ...emailContent },
