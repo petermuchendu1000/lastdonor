@@ -1232,8 +1232,11 @@ These exist for a reason; changing them has consequences beyond the local file.
   | **1h** | `/sitemap.xml`, `/blog/sitemap.xml` |
   | 5m | `/donate`, `/transparency`, `/last-donor-wall`, `/cancelled-campaigns`, `/campaigns/category/[category]` |
 
-  ✅ **It repairs itself** - [VERIFIED] `/transparency` went `STALE` with
-  **0** money figures to `HIT` with **2** on the next request, so runtime ISR
+  ✅ **It repairs itself** - [VERIFIED on the sitemap itself, 07:10Z, about an
+  hour after the deploy] three requests answered `STALE` with **0** campaign
+  URLs, then `HIT` with **14** (56 entries against the 42-entry static floor),
+  then `HIT` again. Confirmed first on a 5-minute sibling: `/transparency`
+  went `STALE` with **0** money figures to `HIT` with **2**, so runtime ISR
   regeneration does read the database. So this is neither a defect in
   `sitemap.ts` nor a recurrence of the permanent docs/46 one. ⚠️ **Measure it
   with TWO requests**: stale-while-revalidate means the first request after

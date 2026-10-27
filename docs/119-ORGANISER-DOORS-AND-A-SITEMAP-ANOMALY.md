@@ -143,6 +143,26 @@ record rather than an open question — but it is exactly why the finding cost
 four steps instead of one. **Take a baseline of anything you intend to assert
 after a deploy.**
 
+### 2.2a ✅ Confirmed on the sitemap itself
+
+**[VERIFIED 2026-10-27T07:10:29Z]**, once v111's 3600s window had passed:
+
+| request | `x-nextjs-cache` | campaign URLs | `<url>` entries |
+|---|---|---|---|
+| 1 | `STALE` | **0** | 42 |
+| 2 | `HIT` | **14** | **56** |
+| 3 | `HIT` | 14 | 56 |
+
+14 campaign URLs against 14 `active` campaigns, and 56 = the 42-entry static
+floor plus those 14. The window opened around 05:52Z, so it repaired itself
+about an hour after the deploy with nothing done to it. **The sitemap item is
+closed.**
+
+⚠️ **And request 1 makes the measuring point for itself.** It still answered
+0 campaign URLs: stale-while-revalidate served the build-time copy and only
+*scheduled* the refresh. A single-request check would have reported a defect
+that was not there — which is how this item came to look like one.
+
 ### 2.3 What changed because of it
 
 The build *does* say all this, eight times — about 200 lines above where the
