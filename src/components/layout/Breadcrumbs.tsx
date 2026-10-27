@@ -9,8 +9,27 @@ const LABEL_OVERRIDES: Record<string, string> = {
   'payout-settings': 'Payout Account',
 };
 
-function toLabel(segment: string): string {
+/*
+  An id is not a name.
+
+  Every crumb was title-cased from its path segment, so on any `[id]` route
+  the trail read **"E2e00000 0000 4000 8000 000000000004"** - a UUID with its
+  hyphens turned into spaces and each group capitalised, presented as though
+  it were the page's title. It is on every admin and dashboard detail screen,
+  including the campaign page an administrator reads before approving an
+  appeal, and it is also emitted as a `name` in the `BreadcrumbList` JSON-LD
+  below.
+
+  This component is a client component with nothing but the pathname, so it
+  cannot know the campaign's title; "Details" is the honest label for a
+  segment that carries no name. Found by LOOKING at a screenshot during the
+  `docs/120` review walk - no assertion was anywhere near it.
+*/
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function toLabel(segment: string): string {
   if (LABEL_OVERRIDES[segment]) return LABEL_OVERRIDES[segment];
+  if (UUID_SEGMENT.test(segment)) return 'Details';
   return segment
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());

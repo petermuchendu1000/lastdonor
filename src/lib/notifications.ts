@@ -490,6 +490,8 @@ export async function notifyAdminsCampaignSubmitted(p: {
   creatorName: string;
   category: string;
   goalAmount: number;
+  /** The campaign's own currency. Required, so `tsc` names every call site. */
+  currency: string;
   /** The submitting user, so an admin who submits is not told to review their own campaign. */
   creatorId?: string;
 }) {
@@ -498,24 +500,44 @@ export async function notifyAdminsCampaignSubmitted(p: {
     .from(users)
     .where(eq(users.role, 'admin'));
 
+  /*
+    ⛔ Skipping the submitter is only safe while somebody else is left.
+
+    `docs/93` stopped an admin who submits a campaign from also receiving
+    "[Admin] Review needed" about their own submission, on the stated premise
+    that "other admins still get it, so nothing stops being reviewed".
+    [VERIFIED 2026-10-27 against production] there is exactly ONE admin
+    account, so for that admin the premise is false: the loop skipped the only
+    recipient and the function returned having sent zero emails and written
+    zero notification rows. The test that covers the skip hardcodes two
+    admins, so the one-admin case was never exercised. `docs/120`.
+
+    The skip is kept - it is the right behaviour whenever a second admin
+    exists - and conditioned on there being one.
+  */
+  const others = p.creatorId ? admins.filter((a) => a.id !== p.creatorId) : admins;
+  const recipients = others.length > 0 ? others : admins;
+
   const emailContent = campaignSubmittedEmail(p);
 
-  for (const admin of admins) {
-    /*
-      An admin who submits a campaign used to receive BOTH mails for the
-      one event: their own "Received:" receipt and an "[Admin] Review
-      needed" addressed to them about their own submission. On a platform
-      whose admin set is small, that is most of the traffic this event
-      generates, and it reads as the system repeating itself. Other admins
-      still get it, so nothing stops being reviewed. See docs/93.
-    */
-    if (p.creatorId && admin.id === p.creatorId) continue;
+  for (const admin of recipients) {
     await createAndEmail({
       userId: admin.id,
       type: 'campaign_submitted',
       title: `New campaign: "${p.campaignTitle}"`,
-      message: `${p.creatorName} submitted a campaign for review. It is not public until approved. Category: ${p.category}, Goal: $${(p.goalAmount / 100).toFixed(2)}.`,
-      link: `/admin/campaigns/${p.campaignId}/edit`,
+      /*
+        ⚠️ `formatMoney`, not `$${cents / 100}`. Every amount column is in
+        its row's own minor units, and four of our known currencies are
+        zero-decimal, so dividing by 100 understates them 100x (`docs/92`).
+        This line and the email template were the two sites `docs/114` and
+        `docs/115` missed. `docs/120`.
+      */
+      message: `${p.creatorName} submitted a campaign for review. It is not public until approved. Category: ${p.category}, Goal: ${formatMoney(p.goalAmount, p.currency, 'exact')}.`,
+      /*
+        The campaign page, not the editor. `/admin/campaigns/<id>/edit`
+        published the campaign on save, silently - `docs/120`.
+      */
+      link: `/admin/campaigns/${p.campaignId}`,
       email: { to: admin.email, ...emailContent },
     });
   }

@@ -51,6 +51,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: campaigns.title,
         slug: campaigns.slug,
         status: campaigns.status,
+        // For the first-publication stamp below. One more column on a query
+        // that already runs - no extra round trip (docs/87's three-query cap).
+        publishedAt: campaigns.publishedAt,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -72,12 +75,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    /*
+      ⛔ `publishedAt` is stamped here too, keyed on the column being null.
+
+      It was not, and that made this the second half of the only path to a
+      live campaign with a NULL `published_at`: a queued campaign could be
+      moved to `paused` (by `POST /api/v1/admin/info-requests` with
+      `pauseCampaign: true`, which checked nothing - now guarded) and then
+      resumed straight to `active`. The homepage orders featured campaigns by
+      that column, `/api/v1/campaigns` sorts "newest" on it, and
+      `src/app/sitemap.ts` derives every listing `lastmod` from it and skips
+      a null - so the campaign would have been live and undated everywhere.
+
+      Keyed on null, exactly as
+      `PATCH /api/v1/admin/campaigns/[campaignId]` does it, so resuming a
+      campaign that WAS live does not re-date its publication. `docs/120`.
+    */
+    const isFirstPublication = campaign.publishedAt === null;
+
     await db.update(campaigns).set({
       status: 'active',
       pausedAt: null,
       pausedReason: null,
       suspendedAt: null,
       suspendedReason: null,
+      ...(isFirstPublication ? { publishedAt: new Date() } : {}),
       updatedAt: new Date(),
     }).where(eq(campaigns.id, campaignId));
 

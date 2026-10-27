@@ -47,8 +47,8 @@ export default async function EditCampaignPage({
             storyHtml: campaign.storyHtml,
             goalAmount: campaign.goalAmount,
             impactTiers: tiers,
-            status: campaign.status === 'draft' ? 'draft' : 'active',
           }}
+          currentStatus={campaign.status}
         />
       </div>
     </div>

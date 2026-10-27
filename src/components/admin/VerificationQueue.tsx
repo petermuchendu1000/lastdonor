@@ -32,6 +32,7 @@ import { Money } from '@/components/ui/Money';
 import { formatDate, formatRelativeTime } from '@/lib/utils/dates';
 import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import {
   MagnifyingGlassIcon,
   ChevronUpIcon,
@@ -426,13 +427,19 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
                 return (
                   <tr key={item.id} className="hover:bg-muted/30">
                     <td className="px-4 py-2.5">
-                      <Link
-                        href={`/campaigns/${item.slug}`}
-                        className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
-                        target="_blank"
-                      >
-                        {item.title}
-                      </Link>
+                      {/* docs/118 via docs/120: every campaign in this queue is
+                          `under_review`, so this link was a 404 on every row. */}
+                      {publicCampaignPath({ slug: item.slug, status: item.status }) ? (
+                        <Link
+                          href={publicCampaignPath({ slug: item.slug, status: item.status })!}
+                          className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                          target="_blank"
+                        >
+                          {item.title}
+                        </Link>
+                      ) : (
+                        <p className="text-sm font-medium text-foreground">{item.title}</p>
+                      )}
                       <p className="text-xs text-muted-foreground">{item.category}</p>
                     </td>
                     <td className="hidden px-4 py-2.5 sm:table-cell">

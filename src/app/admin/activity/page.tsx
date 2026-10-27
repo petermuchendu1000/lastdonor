@@ -11,10 +11,19 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-// High-priority event types to surface as alerts
+/*
+  High-priority event types to surface as alerts.
+
+  ⛔ `campaign.auto_drafted` is here because a machine-drafted campaign
+  needs a person exactly as much as a submitted one does, and it had NO push
+  signal of any kind: the news pipeline imports no notifier, so there is no
+  email and no notification row, and this list was the last place it could
+  have surfaced. `docs/120`.
+*/
 const ALERT_EVENTS = [
   'donation.failed', 'donation.refunded', 'reconcile.discrepancy',
-  'campaign.completed', 'campaign.submitted', 'user.role_changed', 'user.deleted',
+  'campaign.completed', 'campaign.submitted', 'campaign.auto_drafted',
+  'user.role_changed', 'user.deleted',
 ];
 
 export default async function AdminActivityPage() {

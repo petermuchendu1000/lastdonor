@@ -78,6 +78,7 @@ const payload = {
   creatorName: 'Peter',
   category: 'medical',
   goalAmount: 500_000,
+  currency: 'USD',
 };
 
 beforeEach(() => {
@@ -123,5 +124,70 @@ describe('notifyAdminsCampaignSubmitted', () => {
     await notifyAdminsCampaignSubmitted(payload);
 
     expect(state.sendCalls).toHaveLength(2);
+  });
+
+  /*
+    ⛔ The case this file's own premise assumed away.
+
+    Every test above seeds TWO admins, which is what made "other admins still
+    get it, so nothing stops being reviewed" look true. [VERIFIED 2026-10-27
+    against production] there is exactly ONE admin account, and for that admin
+    the skip removed the only recipient: zero emails, zero notification rows,
+    and a campaign sitting in a queue nobody had been told about. `docs/120`.
+
+    The skip is still right whenever a second admin exists - the three tests
+    above pin that - so it is now conditional rather than removed.
+  */
+  describe('⛔ when the submitter is the ONLY admin', () => {
+    beforeEach(() => {
+      state.admins = [{ id: SUBMITTER, email: 'peter@example.com' }];
+    });
+
+    it('tells them anyway, because the alternative is silence', async () => {
+      const { notifyAdminsCampaignSubmitted } = await import('./notifications');
+      await notifyAdminsCampaignSubmitted({ ...payload, creatorId: SUBMITTER });
+
+      expect(state.sendCalls.map((c) => c.to)).toEqual(['peter@example.com']);
+      expect(state.notificationInserts).toHaveLength(1);
+      expect(state.notificationInserts[0]).toMatchObject({ userId: SUBMITTER });
+    });
+
+    it('and a non-admin submitter still reaches them', async () => {
+      // The control: the one-admin case must not break the ordinary path.
+      const { notifyAdminsCampaignSubmitted } = await import('./notifications');
+      await notifyAdminsCampaignSubmitted({ ...payload, creatorId: 'user_ordinary_donor' });
+
+      expect(state.sendCalls.map((c) => c.to)).toEqual(['peter@example.com']);
+    });
+  });
+
+  describe('the notification it writes', () => {
+    it('⛔ links to the campaign page, not the editor that published on save', async () => {
+      const { notifyAdminsCampaignSubmitted } = await import('./notifications');
+      await notifyAdminsCampaignSubmitted({ ...payload, creatorId: 'user_ordinary_donor' });
+
+      for (const row of state.notificationInserts) {
+        expect(row.link).toBe('/admin/campaigns/camp_1');
+      }
+    });
+
+    it('⚠️ and renders the goal in the campaign’s own currency', async () => {
+      /*
+        It was `$${goalAmount / 100}`, so a KES 50,000 appeal reached the
+        reviewer as "$500.00" - and four known currencies are zero-decimal,
+        where dividing by 100 understates by 100x (`docs/92`).
+      */
+      const { notifyAdminsCampaignSubmitted } = await import('./notifications');
+      await notifyAdminsCampaignSubmitted({
+        ...payload,
+        currency: 'KES',
+        goalAmount: 5_000_000,
+        creatorId: 'user_ordinary_donor',
+      });
+
+      const message = String(state.notificationInserts[0].message);
+      expect(message).toContain('Ksh');
+      expect(message).not.toContain('$');
+    });
   });
 });

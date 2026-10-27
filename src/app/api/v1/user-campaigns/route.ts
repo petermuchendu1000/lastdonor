@@ -252,6 +252,9 @@ export async function POST(request: NextRequest) {
       creatorName: session.user.name ?? 'Unknown',
       category: data.category,
       goalAmount: data.goalAmount,
+      // The campaign's own currency, so the reviewer reads the real figure
+      // and not a KES goal with a dollar sign (docs/120).
+      currency: data.currency,
       // Skips this admin's own copy if the submitter is one; see docs/93.
       creatorId: userId,
     }).catch((err) => console.error('[campaign.submitted] admin notification error:', err));

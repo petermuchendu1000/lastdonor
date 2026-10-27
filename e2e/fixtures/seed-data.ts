@@ -54,10 +54,30 @@ const E2E_CAMPAIGN_IDS = [
   'e2e00000-0000-4000-8000-000000000001',
   'e2e00000-0000-4000-8000-000000000002',
   'e2e00000-0000-4000-8000-000000000003',
+  /*
+    A campaign sitting in the review queue.
+
+    `docs/120`: the review journey had no fixture at all, so no test in the
+    repo had ever exercised an admin approving or refusing a campaign - and
+    the one screen an admin reads a queued campaign on could only say no.
+    `docs/107` §7 records the same gap from the other end: no admin page's
+    data query is run by any test.
+  */
+  'e2e00000-0000-4000-8000-000000000004',
 ] as const;
 
 const E2E_BLOG_POST_ID = 'e2e00000-0000-4000-8000-00000000000b';
 const E2E_USER_ID = 'e2e00000-0000-4000-8000-00000000000a';
+
+/*
+  An ADMIN who can sign in.
+
+  The suite had none, so every admin screen was unreachable and `e2e-18`
+  asserted `toHaveURL(/\/(admin|login)/)` - which passes whether a protected
+  route is guarded or wide open (`docs/99` §8). `docs/120`.
+*/
+const E2E_ADMIN_ID = 'e2e00000-0000-4000-8000-00000000000e';
+export const E2E_ADMIN_EMAIL = 'e2e-fixture-admin@example.invalid';
 
 /*
   A helper who can actually SIGN IN, and a real pending invitation for them.
@@ -196,7 +216,7 @@ export async function clearE2EData(): Promise<void> {
   await db.delete(schema.blogPosts).where(eq(schema.blogPosts.id, E2E_BLOG_POST_ID));
   await db
     .delete(schema.users)
-    .where(inArray(schema.users.id, [E2E_USER_ID, E2E_HELPER_ID]));
+    .where(inArray(schema.users.id, [E2E_USER_ID, E2E_HELPER_ID, E2E_ADMIN_ID]));
 
   // The rate snapshot, by its own key only - `site_settings` is shared.
   await db.delete(schema.siteSettings).where(eq(schema.siteSettings.key, E2E_FX_KEY));
@@ -252,6 +272,14 @@ export async function seedE2EData(): Promise<void> {
       email: E2E_HELPER_EMAIL,
       name: 'E2E Fixture Helper',
       role: 'donor',
+      passwordHash,
+      emailVerified: now,
+    },
+    {
+      id: E2E_ADMIN_ID,
+      email: E2E_ADMIN_EMAIL,
+      name: 'E2E Fixture Admin',
+      role: 'admin',
       passwordHash,
       emailVerified: now,
     },
@@ -360,6 +388,34 @@ export async function seedE2EData(): Promise<void> {
     is namespaced per provider (CLAUDE.md), so these use an `e2e_` namespace
     that cannot collide with `pi_`, `payhero_` or `seed_`.
   */
+  /*
+    The review queue's one row, inserted separately so the array above keeps
+    describing the PUBLIC fixture set that the listing specs count.
+
+    ⛔ `publishedAt` is null and must stay null: it is what
+    `isFirstPublication` keys on, so a fixture that pre-dates it would make
+    the approval path silently skip the stamp and the audit row.
+  */
+  await db.insert(schema.campaigns).values({
+    id: E2E_CAMPAIGN_IDS[4],
+    title: 'E2E Fixture: Waiting For Review',
+    slug: `${E2E_SLUG_PREFIX}waiting-for-review`,
+    status: 'under_review',
+    heroImageUrl: '/images/categories/medical-hero.webp',
+    storyHtml:
+      '<p>Fixture row for the end-to-end suite. It is in the review queue, ' +
+      'so it has no public page and cannot take a donation until an admin ' +
+      'approves it.</p>',
+    goalAmount: 400_000,
+    raisedAmount: 0,
+    donorCount: 0,
+    currency: 'USD',
+    category: 'medical',
+    subjectName: 'Fixture Subject Queued',
+    creatorId: E2E_USER_ID,
+    publishedAt: null,
+  });
+
   await db.insert(schema.donations).values([
     {
       campaignId: E2E_CAMPAIGN_IDS[1],

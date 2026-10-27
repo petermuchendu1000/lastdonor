@@ -23,7 +23,25 @@ type RouteParams = { params: Promise<{ campaignId: string }> };
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Statuses that can transition to "cancelled". */
-const CANCELLABLE: CampaignStatus[] = ['active', 'last_donor_zone', 'paused', 'under_review', 'suspended', 'draft'];
+/*
+  ⛔ `under_review` is deliberately NOT here.
+
+  Refusing a campaign at review has exactly one path, and `docs/93` is what
+  settled it: `POST .../suspend` with a reason of at least three characters,
+  which emails the organiser the admin's own words. Cancelling reached the
+  same queue and notifies NOBODY - `_processBulkRefundInner` returns early
+  when the campaign has no un-refunded donations, which for a campaign that
+  was never public is always, so none of its emails fire and there is no
+  organiser-facing call in the route at all. It is also terminal
+  (`ALLOWED_TRANSITIONS.cancelled` is empty, `RESUMABLE` excludes it, and the
+  PUT route no longer takes a status), and `cancelled` is in
+  `PUBLICLY_VIEWABLE_STATUSES` - so it would give a never-reviewed appeal
+  about a named real person a permanent public page, silently.
+
+  The matching UI gate is `canCancel` in `src/components/admin/CampaignDetail.tsx`.
+  `docs/120`.
+*/
+const CANCELLABLE: CampaignStatus[] = ['active', 'last_donor_zone', 'paused', 'suspended', 'draft'];
 
 /**
  * POST /api/v1/admin/campaigns/[campaignId]/cancel

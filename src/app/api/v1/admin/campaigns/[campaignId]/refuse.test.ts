@@ -226,12 +226,31 @@ describe('the reasonless door is closed', () => {
   });
 
   it('the list sends a refusal to the suspend endpoint, with a reason', () => {
+    /*
+      ⚠️ This asserted the literal `/suspend\`` until 2026-10-27, and the
+      assertion is what drifted, not the behaviour.
+
+      `docs/120` §10 found that the list ALSO offered `paused`, a target the
+      server's `ALLOWED_TRANSITIONS` has no entry for, so those menu items
+      always answered 400 - the same class as the defect this file exists for.
+      Pausing has its own route with the same reason shape, so the fetch now
+      builds the path from the target (`.../${dedicatedRoute}`) and the literal
+      is gone. What matters is unchanged: a refusal goes to `suspend`, carries
+      a reason, and the admin is told who reads it.
+    */
     const ui = readFileSync(
       resolve(ROOT, 'src/components/admin/CampaignsList.tsx'),
       'utf8',
     ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(ui).toMatch(/\/suspend`/);
+
+    // `suspended` resolves to the suspend endpoint, whatever the path is built from.
+    expect(ui).toMatch(/newStatus === 'suspended' \? 'suspend'/);
+    // And that resolution is what selects the non-PATCH request.
+    expect(ui).toMatch(/dedicatedRoute\s*$/m);
+    expect(ui).toMatch(/admin\/campaigns\/\$\{statusTarget\.campaign\.id\}\/\$\{dedicatedRoute\}/);
     expect(ui).toMatch(/refusalReason/);
+    // A refusal cannot be sent without a reason.
+    expect(ui).toMatch(/dedicatedRoute && reason\.length < 3/);
     // And the admin is told who reads what they write.
     expect(ui).toMatch(/emailed to the organiser/i);
   });

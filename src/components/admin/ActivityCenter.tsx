@@ -96,7 +96,15 @@ function getEventDescription(entry: ActivityEntry | AlertEntry): string {
       return `Campaign reached its goal`;
     case 'campaign.phase_transition':
       return `Campaign moved to ${(details.toPhase as string)?.replace(/_/g, ' ') ?? 'new phase'}`;
+    /*
+      ⛔ Two different events, and they were sharing one sentence.
+      Since `docs/79` the whole point of `campaign.auto_drafted` is that the
+      campaign is NOT published and needs a person - and the activity feed is
+      the only in-app place a machine draft appears at all, so the single
+      surface that showed it told the admin it was finished. `docs/120`.
+    */
     case 'campaign.auto_drafted':
+      return `Campaign drafted by the news pipeline - waiting for review`;
     case 'campaign.auto_published':
       return `Campaign auto-published`;
     case 'user.role_changed':

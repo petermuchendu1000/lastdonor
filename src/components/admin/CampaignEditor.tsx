@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { ImageUpload } from '@/components/admin/ImageUpload';
+import { adminStatusLabel } from './campaign-status-labels';
 
 const CATEGORIES = [
   { value: 'medical', label: 'Medical' },
@@ -65,6 +66,15 @@ interface CampaignEditorProps {
    * recorded as open.
    */
   currency?: string;
+  /**
+   * The campaign's REAL status, for display in edit mode only.
+   *
+   * ⛔ Not a form field. This editor used to receive the status as a
+   * `defaultValues` entry coerced to `'active'` for anything that was not
+   * `draft`, which meant an `under_review` campaign was shown as "Active"
+   * and SAVING PUBLISHED IT. See `docs/120`.
+   */
+  currentStatus?: string;
   defaultValues?: Partial<CreateCampaignInput>;
 }
 
@@ -99,7 +109,7 @@ function FormSection({ title, children }: { title: string; children: React.React
   );
 }
 
-export function CampaignEditor({ mode, campaignId, currency = 'USD', defaultValues }: CampaignEditorProps) {
+export function CampaignEditor({ mode, campaignId, currency = 'USD', currentStatus, defaultValues }: CampaignEditorProps) {
   const router = useRouter();
   const [previewHtml, setPreviewHtml] = useState('');
 
@@ -162,10 +172,30 @@ export function CampaignEditor({ mode, campaignId, currency = 'USD', defaultValu
         : `/api/v1/campaigns/${campaignId}`;
     const method = mode === 'create' ? 'POST' : 'PUT';
 
+    /*
+      ⛔ Edit mode never sends `status`, and deleting the key is not
+      belt-and-braces - it is the fix.
+
+      `createCampaignSchema` declares `status: z.enum(['draft','active'])
+      .default('draft')`, and this form's resolver IS that schema, so zod
+      fills the field whether or not anything rendered it. Simply removing
+      the status control would therefore make every admin save post
+      `status: 'draft'` and UNPUBLISH the campaign - the inverse of the
+      defect, and worse. See `docs/120`.
+
+      Status transitions belong to
+      `PATCH /api/v1/admin/campaigns/[campaignId]` and its pause / resume /
+      suspend / cancel siblings, which check the transition, write an audit
+      row and tell the organiser. The PUT route now answers 400 if a
+      `status` reaches it, so this is checked on both sides.
+    */
+    const payload: Record<string, unknown> = { ...data };
+    if (mode === 'edit') delete payload.status;
+
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -229,24 +259,50 @@ export function CampaignEditor({ mode, campaignId, currency = 'USD', defaultValu
                 <FieldError message={errors.category?.message} />
               </div>
 
-              <div>
-                <FieldLabel htmlFor="status">Initial Status</FieldLabel>
-                <Select
-                  defaultValue={defaultValues?.status ?? 'draft'}
-                  onValueChange={(val) =>
-                    setValue('status', val as 'draft' | 'active')
-                  }
-                >
-                  <SelectTrigger id="status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FieldHint>Draft campaigns are not visible publicly.</FieldHint>
-              </div>
+              {mode === 'create' ? (
+                <div>
+                  <FieldLabel htmlFor="status">Initial Status</FieldLabel>
+                  <Select
+                    defaultValue={defaultValues?.status ?? 'draft'}
+                    onValueChange={(val) =>
+                      setValue('status', val as 'draft' | 'active')
+                    }
+                  >
+                    <SelectTrigger id="status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FieldHint>Draft campaigns are not visible publicly.</FieldHint>
+                </div>
+              ) : (
+                <div>
+                  {/*
+                    Read-only, and it names the real status.
+
+                    An editable control here was the whole defect: it was
+                    labelled "Initial Status", pre-set to Active for a
+                    campaign that was under review, and saving it published
+                    the campaign with no audit row and no email to the
+                    organiser. `docs/120`.
+                  */}
+                  <FieldLabel htmlFor="status-readonly">Status</FieldLabel>
+                  <p
+                    id="status-readonly"
+                    className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm font-medium"
+                  >
+                    {adminStatusLabel(currentStatus)}
+                  </p>
+                  <FieldHint>
+                    Saving this form changes the campaign&rsquo;s content only. To approve,
+                    pause, suspend or cancel it, use the controls on the campaign&rsquo;s
+                    admin page.
+                  </FieldHint>
+                </div>
+              )}
             </div>
           </FormSection>
 

@@ -155,8 +155,19 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
                         {formatRelativeTime(c.createdAt)}
                       </td>
                       <td className="px-4 py-3 text-right">
+                        {/*
+                          ⛔ The campaign page, NOT the editor.
+
+                          This link went to `/admin/campaigns/<id>/edit`,
+                          which was handed the campaign as `'active'` and
+                          published it on save - with no audit row and no
+                          email to the organiser. It was the dashboard's only
+                          review affordance, so the fastest path from
+                          "something is waiting" to "it is live" skipped the
+                          approval route entirely. `docs/120`.
+                        */}
                         <Link
-                          href={`/admin/campaigns/${c.id}/edit`}
+                          href={`/admin/campaigns/${c.id}`}
                           className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                         >
                           Review

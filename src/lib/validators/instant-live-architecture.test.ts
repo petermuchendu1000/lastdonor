@@ -253,6 +253,7 @@ describe('Email templates - new lifecycle templates', () => {
       campaignTitle: 'Help Alice',
       campaignSlug: 'help-alice-123',
       goalAmount: 100000,
+      currency: 'USD',
       donorCount: 42,
       documentRequirementsHtml: docHtml,
     });
@@ -301,6 +302,7 @@ describe('Email templates - new lifecycle templates', () => {
         campaignTitle: 'Help Alice',
         campaignSlug: 'help-alice-123',
         goalAmount: 100000,
+        currency: 'USD',
         donorCount: 1,
         documentRequirementsHtml: docHtml,
       });
@@ -420,6 +422,7 @@ describe('Email templates - updated for instant-live', () => {
       creatorName: 'Alice',
       category: 'medical',
       goalAmount: 100000,
+      currency: 'USD',
       campaignId: '00000000-0000-4000-a000-000000000001',
     });
 

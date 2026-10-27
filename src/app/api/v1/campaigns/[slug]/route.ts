@@ -118,6 +118,42 @@ export const PUT = withApiHandler(async (request, { requestId, session, params }
     }
   }
 
+  /*
+    ⛔ A campaign's status is NOT changed through this route.
+
+    It used to be, and that is how `/admin` published campaigns without
+    recording it. This route accepted `status` and, on `'active'`, stamped
+    `publishedAt` - with no transition check, no audit row and no email.
+    Meanwhile `/admin/campaigns/[id]/edit/page.tsx` handed an `under_review`
+    campaign to `CampaignEditor` as `'active'` (anything not `draft` was
+    coerced), the editor PUT its whole form back here, and so **an admin who
+    opened the dashboard's own "Review" link and pressed Save published the
+    campaign** - silently. Two clicks from `/admin`, and the resulting row is
+    indistinguishable in `audit_logs` from one that was never reviewed, which
+    is the evidence `docs/116` §8's forensics depend on. See `docs/120`.
+
+    A status transition now has ONE writer:
+    `PATCH /api/v1/admin/campaigns/[campaignId]`, which checks
+    `ALLOWED_TRANSITIONS`, stamps `publishedAt` only when it is null, writes
+    `campaign.published`, and emails the organiser - plus the dedicated
+    pause / resume / suspend / cancel routes for the states that carry a
+    reason.
+
+    ⚠️ This is an explicit 400 rather than a silent omission. The
+    field-by-field `updateValues` above would simply ignore `status`, and a
+    caller that still sends one (the "Restore to Draft" button did) would
+    appear to work and do nothing. `docs/116` §3 could leave `currency` to
+    silent omission because nothing should ever send it; `status` had a live
+    caller, so it has to be loud.
+  */
+  if (data.status !== undefined) {
+    return apiError(
+      'VALIDATION_ERROR',
+      'A campaign status is not changed through this route. Use PATCH /api/v1/admin/campaigns/<id>, or the pause, resume, suspend and cancel routes, which check the transition, write an audit row and tell the organiser.',
+      requestId,
+    );
+  }
+
   // If slug changed, check uniqueness
   if (data.slug && data.slug !== existing.slug) {
     const [conflict] = await db
@@ -143,12 +179,6 @@ export const PUT = withApiHandler(async (request, { requestId, session, params }
   if (data.storyHtml !== undefined) updateValues.storyHtml = sanitizeHtml(data.storyHtml);
   if (data.goalAmount !== undefined) updateValues.goalAmount = data.goalAmount;
   if (data.impactTiers !== undefined) updateValues.impactTiers = data.impactTiers;
-  if (data.status !== undefined) {
-    updateValues.status = data.status;
-    if (data.status === 'active') {
-      updateValues.publishedAt = new Date();
-    }
-  }
 
   const [updated] = await db
     .update(campaigns)

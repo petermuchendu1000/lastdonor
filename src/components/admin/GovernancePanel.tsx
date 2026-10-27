@@ -32,6 +32,7 @@ import {
 import { CANCELLATION_REASONS } from '@/lib/validators/verification';
 import { ListCount } from '@/components/admin/ListCount';
 import { toast } from 'sonner';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import {
   MagnifyingGlassIcon,
   ChevronUpIcon,
@@ -322,9 +323,14 @@ export function GovernancePanel({ campaigns: initial, totalCampaigns }: Governan
               {paged.map((c) => (
                 <tr key={c.id} className="hover:bg-muted/30">
                   <td className="max-w-[280px] px-4 py-3">
-                    <Link href={`/campaigns/${c.slug}`} className="font-medium text-foreground hover:underline" target="_blank" rel="noopener">
-                      {c.title}
-                    </Link>
+                    {/* docs/118 via docs/120: a campaign with no public page is not a link. */}
+                    {publicCampaignPath({ slug: c.slug, status: c.status }) ? (
+                      <Link href={publicCampaignPath({ slug: c.slug, status: c.status })!} className="font-medium text-foreground hover:underline" target="_blank" rel="noopener">
+                        {c.title}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-foreground">{c.title}</span>
+                    )}
                     <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">/{c.slug}</p>
                   </td>
                   <td className="px-4 py-3">

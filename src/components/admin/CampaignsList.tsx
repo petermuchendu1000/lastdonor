@@ -36,6 +36,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
 } from '@heroicons/react/24/outline';
+import { ADMIN_STATUS_LABELS } from './campaign-status-labels';
 
 interface Campaign {
   id: string;
@@ -65,17 +66,8 @@ interface CampaignsListProps {
 /* Matches every other admin list. */
 const PAGE_SIZE = 25;
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  active: 'Active',
-  last_donor_zone: 'Last Donor Zone',
-  completed: 'Completed',
-  archived: 'Archived',
-  paused: 'Paused',
-  under_review: 'Under Review',
-  suspended: 'Suspended',
-  cancelled: 'Cancelled',
-};
+/* One admin vocabulary, shared with `CampaignEditor` - see the module. */
+const STATUS_LABELS = ADMIN_STATUS_LABELS as Record<string, string>;
 
 const CATEGORIES = [
   'medical', 'disaster', 'military', 'veterans',
@@ -125,19 +117,40 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
       refused campaign came to notify nobody at all. PATCH now REFUSES this
       transition outright; see the note on its ALLOWED_TRANSITIONS.
     */
-    const isRefusal = statusTarget.newStatus === 'suspended';
+    /*
+      ⛔ Two targets do not go to PATCH, and `paused` is the one that was
+      missing.
+
+      This client map offered `paused` for `active` and `last_donor_zone`,
+      but the SERVER's `ALLOWED_TRANSITIONS` has no `paused` target at all
+      (`src/app/api/v1/admin/campaigns/[campaignId]/route.ts:20-21`), so
+      both menu items posted a transition PATCH answers 400 to - the same
+      class of defect as the `docs/93` Suspend button, in the adjacent
+      statement. Pausing has a dedicated route with the same reason shape as
+      suspend (`pauseCampaignSchema`, free text, min 3), and it notifies
+      donors, so the fix is to route there rather than to delete a control
+      that should work. `docs/120`.
+    */
+    const dedicatedRoute =
+      statusTarget.newStatus === 'suspended' ? 'suspend'
+      : statusTarget.newStatus === 'paused' ? 'pause'
+      : null;
     const reason = refusalReason.trim();
 
-    if (isRefusal && reason.length < 3) {
-      setActionError('Write a reason. The organiser is emailed it.');
+    if (dedicatedRoute && reason.length < 3) {
+      setActionError(
+        statusTarget.newStatus === 'suspended'
+          ? 'Write a reason. The organiser is emailed it.'
+          : 'Write a reason. Donors are told the campaign is paused.',
+      );
       return;
     }
 
     setActionLoading(true);
     setActionError(null);
     try {
-      const res = isRefusal
-        ? await fetch(`/api/v1/admin/campaigns/${statusTarget.campaign.id}/suspend`, {
+      const res = dedicatedRoute
+        ? await fetch(`/api/v1/admin/campaigns/${statusTarget.campaign.id}/${dedicatedRoute}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason }),
@@ -488,7 +501,7 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
               to <strong>{STATUS_LABELS[statusTarget?.newStatus ?? ''] ?? statusTarget?.newStatus}</strong>?
             </DialogDescription>
           </DialogHeader>
-          {statusTarget?.newStatus === 'suspended' && (
+          {(statusTarget?.newStatus === 'suspended' || statusTarget?.newStatus === 'paused') && (
             <div className="space-y-2">
               <label htmlFor="refusal-reason" className="text-sm font-medium text-foreground">
                 Reason
@@ -507,8 +520,9 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
                 now, so the words matter.
               */}
               <p className="text-xs text-muted-foreground">
-                This is emailed to the organiser, in your words. Up to 500
-                characters.
+                {statusTarget?.newStatus === 'paused'
+                  ? 'Donors who subscribed are told the campaign is paused. Up to 500 characters.'
+                  : 'This is emailed to the organiser, in your words. Up to 500 characters.'}
               </p>
             </div>
           )}

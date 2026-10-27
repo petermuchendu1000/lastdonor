@@ -224,6 +224,17 @@ export function campaignSubmittedEmail(p: {
   creatorName: string;
   category: string;
   goalAmount: number;
+  /**
+   * The campaign's own currency. REQUIRED, so `tsc` names every call site.
+   *
+   * It was absent, so the goal rendered through `formatCents`'s `'USD'`
+   * default and a KES 50,000 appeal reached the reviewer as "$500.00" - a
+   * figure wrong by the exchange rate, in the one email whose whole job is
+   * to describe the campaign. Latent until `docs/118` §10 made currency
+   * selectable in the wizard; `data.currency` was at the call site all
+   * along. `docs/120`.
+   */
+  currency: string;
   campaignId: string;
 }) {
   return {
@@ -235,10 +246,11 @@ export function campaignSubmittedEmail(p: {
         <tr><td style="padding: 8px 0; color: #666; width: 120px;">Title</td><td style="padding: 8px 0; font-weight: 600;">${esc(p.campaignTitle)}</td></tr>
         <tr><td style="padding: 8px 0; color: #666;">Created by</td><td style="padding: 8px 0;">${esc(p.creatorName)}</td></tr>
         <tr><td style="padding: 8px 0; color: #666;">Category</td><td style="padding: 8px 0;">${esc(p.category)}</td></tr>
-        <tr><td style="padding: 8px 0; color: #666;">Goal</td><td style="padding: 8px 0;">${formatCents(p.goalAmount)}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Goal</td><td style="padding: 8px 0;">${formatCents(p.goalAmount, p.currency)}</td></tr>
       </table>
       <p>Nobody can see it or give to it while it waits. The person who sent it is waiting too.</p>
-      ${ctaButton(BASE_URL + '/admin/campaigns/' + p.campaignId + '/edit', 'Check this campaign')}
+      ${/* The campaign page, not the editor: saving the editor used to publish the campaign silently. docs/120 */ ''}
+      ${ctaButton(BASE_URL + '/admin/campaigns/' + p.campaignId, 'Check this campaign')}
     `,
       'Nobody can see it or give to it while it waits.',
     ),

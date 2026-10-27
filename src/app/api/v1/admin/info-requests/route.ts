@@ -109,6 +109,9 @@ export async function POST(request: NextRequest) {
         id: campaigns.id,
         title: campaigns.title,
         creatorId: campaigns.creatorId,
+        // For the pause guard below. One more column on a query that already
+        // runs - no extra round trip (docs/87's three-query cap).
+        status: campaigns.status,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -147,7 +150,31 @@ export async function POST(request: NextRequest) {
       pauseCampaign,
     }).returning();
 
-    // Optionally pause the campaign
+    /*
+      Optionally pause the campaign.
+
+      ⛔ The status guard is the fix. This was the only completely unguarded
+      write to `campaigns.status` in the codebase: no check of where the
+      campaign currently is, so `under_review -> paused` went through - and
+      `paused` is in `PUBLICLY_VIEWABLE_STATUSES`, so asking a queued
+      organiser for more information PUBLISHED their unreviewed campaign.
+
+      Worse, it was the first half of the only route to `active` with a NULL
+      `published_at`: once paused, the detail page offers Resume, and that
+      route did not stamp the column. The homepage's featured order,
+      `/campaigns`'s "newest" sort and the sitemap's `lastmod` all read it.
+      `docs/120`.
+
+      `PAUSEABLE` matches `POST .../pause`, which is the dedicated route for
+      this transition and has always been guarded.
+    */
+    const PAUSEABLE: string[] = ['active', 'last_donor_zone'];
+    if (pauseCampaign && !PAUSEABLE.includes(campaign.status)) {
+      return NextResponse.json(
+        { ok: false, error: { code: 'VALIDATION_ERROR', message: `Cannot pause a campaign with status "${campaign.status}". Only an active campaign can be paused.`, requestId } } satisfies ApiError,
+        { status: 400 },
+      );
+    }
     if (pauseCampaign) {
       await db.update(campaigns).set({
         status: 'paused',
