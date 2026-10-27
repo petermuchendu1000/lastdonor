@@ -527,3 +527,120 @@ with one failure in it. Redirect to a file and read `$?`.
   (`goalAmountCents`, `computeStartingGoal`). It now inserts
   `currency: DEFAULT_CURRENCY` explicitly rather than by omission, which makes
   the assumption visible; it does not make that path multi-currency.
+
+---
+
+## 8. AMENDMENT 2026-10-27 — production answered, and §4 fired
+
+§7 above said nothing was measured against production because both Supabase
+pooler ports time out from the sandbox. **That was the wrong conclusion from a
+true observation.** Raw Postgres TCP is blocked; the **Management API over
+HTTPS is not** (`POST /v1/projects/{ref}/database/query` with
+`SUPABASE_ACCESS_TOKEN`). Every [UNKNOWN] in §3 and §4 is now answered.
+
+> ⚠️ The lesson: "the database is unreachable" was a claim about one transport.
+> Before recording something as unmeasurable, enumerate the paths to it.
+
+### 8.1 ⛔ §4 DID fire in production. Five campaigns went public unreviewed.
+
+`brent-ledbetter`, `nicholas-cabo` (2026-10-18 06:01), `samuel-pierre-jr`,
+`maj-sorffly-davius`, `david-l-jones` (18:00–18:01). Verified **three
+independent ways**:
+
+1. **Database** — `published_at = created_at` to the millisecond, and **zero**
+   `campaign.published` audit rows. An admin approval stamps `published_at`
+   separately and logs that event (`docs/78`); these have neither.
+2. **Audit detail shape** — the discriminator, because BOTH modules write
+   `campaign.auto_drafted` so the event name proves nothing.
+   `campaign-publisher` includes `imageSource`/`imageCredit`;
+   `news-pipeline` does not. All five carry the **news-pipeline** key set
+   (`category,goalAmount,messagesGenerated,sourceUrl,storyPattern,subjectName`).
+3. **Live HTTP** — all five answered **200** on `lastdonor.org`, and all five
+   are in `sitemap.xml`, so they were submitted to search engines.
+
+**Zero donations, zero donors, all `unverified`, all USD.** No money is
+implicated. ⛔ They were **still live** after the 2026-10-27 deploy: the code
+fix stops NEW ones, it does not retract existing ones. Retracting them is an
+owner decision (see §8.5).
+
+The one automated campaign created since (`sergeant-morgan-wong`,
+2026-10-25 05:31) carries `imageSource` and landed `under_review` with
+`published_at: null` — so the `docs/79` publisher gate does work in production.
+
+### 8.2 ⚠️ Two of my own conclusions were refuted by the data
+
+Recorded because both were plausible and both were wrong:
+
+- **"It is dormant because the OpenRouter key is out of credit."** The HTTP 402
+  is **intermittent, not total**: 129 articles classified on 10-19, 52 on
+  10-22, 52 on 10-24, with 10 and 2 extractions. It got past classification
+  repeatedly after the last self-publish.
+- **"The volume guard stopped it."** It did — and the guard is now **gone**.
+  The logs say *"Max concurrent simulated campaigns (10) reached"*, but
+  `site_settings` reads **100**. No row for `simulation.max_concurrent`
+  existed before **2026-10-25 01:45**, so `getSetting` returned
+  `SETTING_DEFAULTS` = 10. It is now 100 against 13 active simulated, i.e.
+  headroom for 87 more.
+
+So before the fix shipped, the only thing between the ungated insert and a new
+unreviewed public page was an **intermittent AI billing failure**. That is not
+a safety control.
+
+### 8.3 §3 answered: one KES campaign, hand-made, archived
+
+Exactly one has ever existed: `zz-payments-test-mpesa-gateway`, created
+2026-10-21 03:37, now `archived`. It holds the only two real donations in the
+platform's history (KES 100.00 total). Consistent with no insert path setting
+`currency`, and it confirms `docs/112`'s note that the only non-USD campaign
+is unservable.
+
+⛔ **The consequence is sharper than §3.4 recorded.** Every campaign a donor
+can currently reach is **USD**, and the USD rail is dead (`docs/72`). The one
+rail that works has **no servable campaign**. So "currency settable by API but
+by no screen" is not a cosmetic gap — it is why the working rail cannot be
+used.
+
+### 8.4 Migration state, and a correction about how migrations run
+
+Checked after a report that many migrations were outstanding. **One was.**
+
+- 13 files in `migrations-v2/`; production had applied **12** (0000–0011).
+- **All 12 stored hashes match** a recomputed sha256 of each file, so no
+  migration had been edited after being applied.
+- A **full catalog diff** (tables, columns, types, nullability, defaults, enum
+  labels, constraints, indexes) between production and a fresh database built
+  from all 13 showed the *only* differences were `0012`'s 58 objects (missing)
+  and `_review_gate_backup_20261017` (present, hand-made by `docs/79`).
+- `db:generate` reported *"No schema changes"*, so `schema.ts` was fully
+  captured.
+- `0012` was unapplied **correctly**: it was generated 2026-10-25 23:47:49Z,
+  twelve minutes *after* the then-deployed image was built (23:35:28Z), and
+  was branch-only work. Production matched the code it was running.
+
+⚠️ **The legacy `src/db/migrations/` directory is what makes this look worse
+than it is**: 33 `.sql` files, only 9 journaled, none ever in production's
+ledger. Per `docs/34` it is deliberately inert and cannot be replayed.
+
+⛔ **CORRECTION, and the mistake worth keeping.** I checked
+`scripts/deploy.sh` and `scripts/deploy.ps1` for a migrate step, found none,
+and concluded "the deploy does not run migrations". Wrong: `fly.toml` line 227
+sets `release_command = "/usr/local/bin/release-migrate"`, which runs drizzle
+migrations once per deploy *before traffic shifts*, and a non-zero exit aborts
+the release. **I had checked the scripts, not the deploy.** I therefore applied
+`0012` by hand first — unnecessary, though harmless: the ledger row went in the
+same transaction as the DDL, so the release command correctly skipped it (13
+rows, 13 distinct hashes, exactly one row for `0012` afterwards). The habit to
+keep is that a deploy's steps are defined by its platform config, not only by
+the wrapper script.
+
+### 8.5 ⛔ STILL OPEN — the five live campaigns
+
+The code is fixed and deployed; the five pages are still public. Three
+remediations, none taken, all requiring an owner decision because they change
+live state:
+
+1. Move the five to `under_review` (what `docs/79` did for the earlier twelve;
+   zero donations, so nothing is stranded).
+2. Set `simulation.max_concurrent` back to 10, which re-arms the accidental
+   guard immediately (13 > 10).
+3. Nothing — accept them as published.
