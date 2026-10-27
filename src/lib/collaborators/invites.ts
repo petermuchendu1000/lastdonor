@@ -4,7 +4,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { campaignCollaborators } from '@/db/schema';
+import { campaignCollaborators, campaigns, users } from '@/db/schema';
 
 /**
  * Minting, accepting and revoking collaborator invitations.
@@ -211,6 +211,61 @@ export async function acceptInvite(p: {
 
   if (updated.length === 0) return { ok: false, reason: 'already_accepted' };
   return { ok: true, campaignId: found.campaignId };
+}
+
+/**
+ * What an invitation is FOR, without consuming it.
+ *
+ * ── WHY ─────────────────────────────────────────────────────────────────────
+ *
+ * The accept screen said only "You were asked to help run a campaign"
+ * [VERIFIED 2026-10-27 in a browser]. It named no campaign and no inviter, so
+ * a person holding two invitations could not tell which one they were
+ * accepting - and consent to an unnamed thing is not consent. The email names
+ * the campaign; the screen where the decision is actually made did not.
+ *
+ * ⛔ READ ONLY, and it must stay that way: a GET must not mutate, because mail
+ * clients and link scanners fetch emailed URLs before a person sees them -
+ * the whole reason `collaborate/accept/page.tsx` renders a button instead of
+ * accepting on load.
+ *
+ * ⚠️ Returns null for every unusable token - unknown, revoked, expired or
+ * already taken - with no distinction, matching `acceptInvite`'s single
+ * refusal. Telling the holder of a guessed token that it "expired" says the
+ * token existed.
+ *
+ * ⚠️ Selects the campaign TITLE and the inviter's NAME and nothing else. This
+ * module is sealed by `collaborator-boundary.test.ts` against naming any
+ * money, payout or verification column, and a screen shown to somebody who
+ * has not yet joined is the last place to widen that.
+ */
+export async function describeInvite(token: string): Promise<{
+  campaignTitle: string;
+  inviterName: string | null;
+} | null> {
+  const [row] = await db
+    .select({
+      campaignTitle: campaigns.title,
+      inviterName: users.name,
+      expiresAt: campaignCollaborators.expiresAt,
+      acceptedAt: campaignCollaborators.acceptedAt,
+    })
+    .from(campaignCollaborators)
+    .innerJoin(campaigns, eq(campaigns.id, campaignCollaborators.campaignId))
+    .leftJoin(users, eq(users.id, campaignCollaborators.invitedBy))
+    .where(
+      and(
+        eq(campaignCollaborators.tokenHash, hashToken(token)),
+        isNull(campaignCollaborators.revokedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+  if (row.acceptedAt) return null;
+  if (row.expiresAt.getTime() <= Date.now()) return null;
+
+  return { campaignTitle: row.campaignTitle, inviterName: row.inviterName };
 }
 
 /**

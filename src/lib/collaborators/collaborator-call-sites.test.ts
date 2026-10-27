@@ -55,10 +55,25 @@ const SEALED = [
   'src/app/api/v1/user-campaigns/[id]/payout-designation/route.ts',
 ];
 
-/** Surfaces that are allowed to delegate, and the capability each may use. */
+/**
+ * Surfaces that are allowed to delegate, and the capability each may use.
+ *
+ * ⚠️ Every entry PERFORMS the capability it names. The two SCREENS added
+ * 2026-10-27 (`docs/117`) are here because they are the doors to those same
+ * two actions: until then the API admitted a collaborator and no page did, so
+ * a helper who accepted an invitation was redirected to an empty dashboard
+ * and the grant was unusable.
+ *
+ * ⛔ `dashboard/campaigns/[id]/page.tsx` is deliberately NOT here. It asks
+ * whether somebody is on the team, which is membership, not a capability -
+ * it calls `resolveCampaignRole`. Adding a view-only entry to this map would
+ * make "render a page" look like a delegated power.
+ */
 const DELEGATING = {
   'src/app/api/v1/user-campaigns/[id]/updates/route.ts': 'post_update',
   'src/app/api/v1/user-campaigns/[id]/route.ts': 'edit_content',
+  'src/app/dashboard/campaigns/[id]/updates/page.tsx': 'post_update',
+  'src/app/dashboard/campaigns/[id]/edit/page.tsx': 'edit_content',
 } as const;
 
 describe('the sealed routes exist and were read', () => {
@@ -184,7 +199,27 @@ describe('the delegating surfaces delegate exactly what they claim', () => {
     expect(found.sort()).toEqual(Object.keys(DELEGATING).sort());
   });
 
-  it('every delegatable capability has a declared surface', () => {
-    expect(Object.values(DELEGATING).sort()).toEqual([...DELEGATABLE].sort());
+  it('every delegatable capability has a declared surface, and no surface invents one', () => {
+    /*
+      ⚠️ A SET comparison, not a bijection. This was
+      `expect(Object.values(DELEGATING).sort()).toEqual([...DELEGATABLE].sort())`,
+      which held only while each capability had exactly one surface - and
+      broke the moment `docs/117` added the two SCREENS that perform the same
+      two actions. The property the name states is set-wise, both ways:
+
+        - every capability is reachable somewhere (an unreachable one is the
+          `docs/76`/`docs/77`/`docs/81` defect: a promise with no code);
+        - no surface names a capability outside `DELEGATABLE` (which is what
+          would quietly widen the grant).
+    */
+    const declared = new Set<string>(Object.values(DELEGATING));
+    const delegatable = new Set<string>(DELEGATABLE);
+
+    for (const cap of delegatable) {
+      expect([...declared], `"${cap}" is delegatable but no surface uses it`).toContain(cap);
+    }
+    for (const cap of declared) {
+      expect([...delegatable], `a surface delegates "${cap}", which is not delegatable`).toContain(cap);
+    }
   });
 });

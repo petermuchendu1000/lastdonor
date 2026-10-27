@@ -45,6 +45,7 @@ const KES = {
   verificationStatus: 'unverified',
   currency: 'KES',
   createdAt: new Date('2026-10-26T00:00:00Z').toISOString(),
+  role: 'creator' as const,
 };
 
 /** NBSP sits between "Ksh" and the digits, so normalise before matching. */
@@ -98,5 +99,48 @@ describe('⛔ the row does not starve its own title', () => {
 
   it('reads a file big enough that these cannot pass vacuously', () => {
     expect(src.length).toBeGreaterThan(2_000);
+  });
+});
+
+/**
+ * ⛔ A HELPER'S ROW OFFERS NO MONEY CONTROL.
+ *
+ * `change_payout_account` is in `NEVER_DELEGATED`
+ * (`src/lib/collaborators/capabilities.ts`) and the route behind "Where the
+ * money goes" answers 403 to a collaborator - [VERIFIED 2026-10-27 in a
+ * browser, with the creator's different error as the control]. A link that
+ * can only fail is worse than no link, and the organiser journey it sits
+ * beside is about getting PAID, which is not a helper's to do (`docs/110`).
+ *
+ * The creator's row above asserts the same links are PRESENT, so this pair
+ * cannot both pass by rendering nothing.
+ */
+describe("a collaborator's row", () => {
+  const HELPING = { ...KES, role: 'collaborator' as const };
+
+  it('⛔ does not offer the payout destination', () => {
+    render(<CampaignsListClient campaigns={[HELPING]} />);
+    expect(screen.queryByRole('link', { name: /where the money goes/i })).toBeNull();
+  });
+
+  it('⛔ does not nag them through the organiser journey', () => {
+    render(<CampaignsListClient campaigns={[HELPING]} />);
+    // The ID check is the creator's, and no payout can ever be theirs.
+    expect(text()).not.toMatch(/check your ID|cannot pay out/i);
+  });
+
+  it('says WHY the campaign is on their list', () => {
+    render(<CampaignsListClient campaigns={[HELPING]} />);
+    expect(screen.getByText('Helping')).toBeInTheDocument();
+  });
+
+  it('still lets them open it', () => {
+    render(<CampaignsListClient campaigns={[HELPING]} />);
+    expect(screen.getByRole('link', { name: /^manage$/i })).toBeInTheDocument();
+  });
+
+  it('and the creator keeps the badge off their own row', () => {
+    render(<CampaignsListClient campaigns={[KES]} />);
+    expect(screen.queryByText('Helping')).toBeNull();
   });
 });

@@ -2,14 +2,13 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/auth';
-import { db } from '@/db';
-import { campaigns } from '@/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { listMyCampaigns } from '@/lib/dashboard/my-campaigns.server';
 import { Card, CardContent } from '@/components/ui/card';
 import { CampaignsListClient } from '@/components/dashboard/CampaignsListClient';
 import { CampaignStats } from '@/components/dashboard/CampaignStats';
 import { PlusIcon } from '@/components/ui/icon';
 import { SubmittedForReviewNotice } from '@/components/dashboard/SubmittedForReviewNotice';
+import { JoinedTeamNotice } from '@/components/dashboard/JoinedTeamNotice';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -21,30 +20,27 @@ export default async function CampaignsPage() {
   const session = await auth();
   if (!session?.user?.id) redirect('/login?callbackUrl=/dashboard/campaigns');
 
-  const myCampaigns = await db
-    .select({
-      id: campaigns.id,
-      title: campaigns.title,
-      slug: campaigns.slug,
-      status: campaigns.status,
-      category: campaigns.category,
-      goalAmount: campaigns.goalAmount,
-      raisedAmount: campaigns.raisedAmount,
-      donorCount: campaigns.donorCount,
-      // A fundraising platform's campaigns ARE photographs. Rendering them as
-      // grey text blocks is the single loudest amateur signal on this screen.
-      heroImageUrl: campaigns.heroImageUrl,
-      verificationStatus: campaigns.verificationStatus,
-      // Needed to name the raise cap in the organiser's own money.
-      currency: campaigns.currency,
-      createdAt: campaigns.createdAt,
-    })
-    .from(campaigns)
-    .where(eq(campaigns.creatorId, session.user.id))
-    .orderBy(desc(campaigns.createdAt));
+  /*
+    ⛔ Campaigns this person CREATED **or helps with**.
+
+    This was `where(eq(campaigns.creatorId, session.user.id))`, so a
+    collaborator who had just accepted an invitation landed here - the accept
+    flow redirects to this very page - and read "You haven't created any
+    campaigns yet". [VERIFIED 2026-10-27, three ways at the same moment] the
+    membership row was live and accepted, `GET /api/v1/user-campaigns/<id>`
+    answered 200 for that session, and none of the twelve signed-in dashboard
+    routes named the campaign. See `docs/117`.
+
+    Still ONE query - `listMyCampaigns` folds membership into the same
+    statement, because this route is inside the three-concurrent-query
+    ceiling (`docs/87`) and a second read would have been a change to that
+    budget rather than to this screen.
+  */
+  const myCampaigns = await listMyCampaigns(session.user.id);
 
   const serialized = myCampaigns.map((c) => ({
     ...c,
+    heroImageUrl: c.heroImageUrl ?? '',
     createdAt: c.createdAt.toISOString(),
   }));
 
@@ -84,6 +80,12 @@ export default async function CampaignsPage() {
       */}
       <Suspense fallback={null}>
         <SubmittedForReviewNotice />
+      {/*
+        The other way somebody arrives on this page: they accepted an
+        invitation. `?joined=1` was set by the accept flow and read by
+        NOTHING until `docs/117`.
+      */}
+      <JoinedTeamNotice />
       </Suspense>
 
       {/*

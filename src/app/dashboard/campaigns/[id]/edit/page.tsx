@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
 import { auth } from '@/lib/auth';
+import { canCollaborate } from '@/lib/collaborators/can-collaborate';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -40,7 +41,22 @@ export default async function CampaignEditPage({ params }: { params: Promise<{ i
     .limit(1);
 
   if (!campaign) notFound();
-  if (campaign.creatorId !== session.user.id && !['editor', 'admin'].includes(session.user.role as string)) {
+  /*
+    ⛔ Creator, staff, OR a collaborator holding `edit_content`.
+
+    This was a bare `creatorId !== session.user.id -> redirect`, so a helper
+    who had accepted an invitation was bounced to `/dashboard/campaigns` -
+    which, for them, was an EMPTY list. The API has always admitted them
+    (PUT /api/v1/user-campaigns/[id] checks this same capability and answered 201 in a browser on
+    2026-10-27), so the grant was real and had no door. `docs/117`.
+
+    ⚠️ `canCollaborate` is evaluated LAST on purpose: it issues a query, and
+    every route here is capped at three concurrent ones (`docs/87`). The
+    creator's path - the common one - must not pay for it.
+  */
+  const isOwner = campaign.creatorId === session.user.id;
+  const isStaff = ['editor', 'admin'].includes(session.user.role as string);
+  if (!isOwner && !isStaff && !(await canCollaborate(id, session.user.id, 'edit_content'))) {
     redirect('/dashboard/campaigns');
   }
 

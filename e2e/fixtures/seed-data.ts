@@ -34,10 +34,13 @@
  * misconfigured `DATABASE_URL` away from destroying real data, which is the
  * accident `docs/98` §6 refused to set up.
  */
+import { createHash, randomUUID } from 'node:crypto';
+
 import { eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
+import { hashPassword } from '@/lib/password';
 
 /*
   The general fund is NOT given a fresh uuid. `/donate` looks it up by the
@@ -55,6 +58,29 @@ const E2E_CAMPAIGN_IDS = [
 
 const E2E_BLOG_POST_ID = 'e2e00000-0000-4000-8000-00000000000b';
 const E2E_USER_ID = 'e2e00000-0000-4000-8000-00000000000a';
+
+/*
+  A helper who can actually SIGN IN, and a real pending invitation for them.
+
+  `docs/99` §8 records ten specs skipped "for the missing sign-in fixture" -
+  the suite could reach no authenticated screen at all. This supplies one, and
+  the collaborator journey is the first thing that needs it: the defect it
+  exists to catch (`docs/117`) is invisible from the signed-out side, because
+  every symptom is on a dashboard.
+
+  ⚠️ The password is hashed with the project's own `hashPassword`, not a
+  literal bcrypt string, so it stays correct if the pepper or the rounds
+  change. It needs `PASSWORD_PEPPER` in the environment, which the suite
+  already requires for a production build to serve at all (`docs/99` §6).
+*/
+const E2E_HELPER_ID = 'e2e00000-0000-4000-8000-00000000000d';
+export const E2E_HELPER_EMAIL = 'e2e-fixture-helper@example.invalid';
+export const E2E_FIXTURE_PASSWORD = 'E2eFixture!Passw0rd';
+
+/** The raw token the "emailed" link carries. Only its hash is stored. */
+export const E2E_INVITE_TOKEN = 'e2e-fixture-invite-token-not-a-real-secret-0001';
+/** A second invitation, already past its expiry, for the refusal path. */
+export const E2E_EXPIRED_INVITE_TOKEN = 'e2e-fixture-expired-token-not-a-real-0002';
 const E2E_UPDATE_ID = 'e2e00000-0000-4000-8000-00000000000c';
 
 /** Slugs are asserted nowhere, but they must be stable for teardown. */
@@ -158,8 +184,19 @@ export async function clearE2EData(): Promise<void> {
     .delete(schema.campaigns)
     .where(inArray(schema.campaigns.id, [...E2E_CAMPAIGN_IDS]));
 
+  /*
+    Collaborator rows before their campaigns and users - the FKs cascade, but
+    this fixture deletes what it inserted rather than relying on a schema
+    detail, the same rule the updates delete above follows.
+  */
+  await db
+    .delete(schema.campaignCollaborators)
+    .where(inArray(schema.campaignCollaborators.campaignId, [...E2E_CAMPAIGN_IDS]));
+
   await db.delete(schema.blogPosts).where(eq(schema.blogPosts.id, E2E_BLOG_POST_ID));
-  await db.delete(schema.users).where(eq(schema.users.id, E2E_USER_ID));
+  await db
+    .delete(schema.users)
+    .where(inArray(schema.users.id, [E2E_USER_ID, E2E_HELPER_ID]));
 
   // The rate snapshot, by its own key only - `site_settings` is shared.
   await db.delete(schema.siteSettings).where(eq(schema.siteSettings.key, E2E_FX_KEY));
@@ -199,12 +236,26 @@ export async function seedE2EData(): Promise<void> {
      make the order arbitrary and the assertions flaky. */
   const minutesAgo = (n: number) => new Date(now.getTime() - n * 60_000);
 
-  await db.insert(schema.users).values({
-    id: E2E_USER_ID,
-    email: 'e2e-fixture-organiser@example.invalid',
-    name: 'E2E Fixture Organiser',
-    role: 'donor',
-  });
+  const passwordHash = await hashPassword(E2E_FIXTURE_PASSWORD);
+
+  await db.insert(schema.users).values([
+    {
+      id: E2E_USER_ID,
+      email: 'e2e-fixture-organiser@example.invalid',
+      name: 'E2E Fixture Organiser',
+      role: 'donor',
+      passwordHash,
+      emailVerified: now,
+    },
+    {
+      id: E2E_HELPER_ID,
+      email: E2E_HELPER_EMAIL,
+      name: 'E2E Fixture Helper',
+      role: 'donor',
+      passwordHash,
+      emailVerified: now,
+    },
+  ]);
 
   await db.insert(schema.campaigns).values([
     {
@@ -389,6 +440,32 @@ export async function seedE2EData(): Promise<void> {
       .where(eq(schema.campaigns.id, E2E_CAMPAIGN_IDS[1]));
   });
 
+  /*
+    Two invitations on the first real campaign: one live, one already expired.
+
+    ⚠️ The token is hashed exactly as `src/lib/collaborators/invites.ts`
+    hashes it - SHA-256 of the raw string - because that is what
+    `acceptInvite` looks the presented token up by. A fixture that invented
+    its own hashing would seed a row no code path can ever match, and the
+    spec would fail for a reason that is not about the product.
+  */
+  await db.insert(schema.campaignCollaborators).values([
+    {
+      campaignId: E2E_CAMPAIGN_IDS[1],
+      invitedEmail: E2E_HELPER_EMAIL,
+      invitedBy: E2E_USER_ID,
+      tokenHash: createHash('sha256').update(E2E_INVITE_TOKEN).digest('hex'),
+      expiresAt: new Date(now.getTime() + 7 * 24 * 3600_000),
+    },
+    {
+      campaignId: E2E_CAMPAIGN_IDS[2],
+      invitedEmail: 'e2e-fixture-late@example.invalid',
+      invitedBy: E2E_USER_ID,
+      tokenHash: createHash('sha256').update(E2E_EXPIRED_INVITE_TOKEN).digest('hex'),
+      expiresAt: new Date(now.getTime() - 3600_000),
+    },
+  ]);
+
   await db.insert(schema.blogPosts).values({
     id: E2E_BLOG_POST_ID,
     title: 'E2E Fixture: A Published Post',
@@ -425,10 +502,39 @@ export async function seedE2EData(): Promise<void> {
 
 /** Exported for the fixture's own test, so the ids cannot drift silently. */
 /** Exported for the fixture's own test, so the key cannot drift from the real one. */
+/**
+ * Mint a fresh PENDING invitation for the helper, and return its raw token.
+ *
+ * ⚠️ An invitation is SINGLE USE. The suite runs `fullyParallel`, so a spec
+ * that accepts the one seeded token consumes it for every other test in the
+ * file - which is exactly what happened on the first run here: two tests
+ * failed because a sibling had already accepted, and the accept button was
+ * correctly absent. The product was right and the spec was sharing state.
+ *
+ * Each test that accepts therefore mints its own. Teardown removes every
+ * collaborator row for the fixture campaigns, so these go with them.
+ */
+export async function createE2EInvite(campaignId: string): Promise<string> {
+  assertDatabaseIsDisposable();
+  const raw = `e2e-invite-${randomUUID()}`;
+  await db.insert(schema.campaignCollaborators).values({
+    campaignId,
+    // Unique per invite: the partial unique index allows only ONE live row
+    // per (campaign, email), so reusing the helper's address would collide
+    // with the seeded invitation.
+    invitedEmail: `e2e-fixture-${randomUUID().slice(0, 8)}@example.invalid`,
+    invitedBy: E2E_USER_ID,
+    tokenHash: createHash('sha256').update(raw).digest('hex'),
+    expiresAt: new Date(Date.now() + 7 * 24 * 3600_000),
+  });
+  return raw;
+}
+
 export const E2E_FX_FIXTURE = Object.freeze({ key: E2E_FX_KEY, rates: E2E_FX_RATES });
 
 export const E2E_FIXTURE_IDS = {
   campaigns: E2E_CAMPAIGN_IDS,
+  helper: E2E_HELPER_ID,
   blogPost: E2E_BLOG_POST_ID,
   user: E2E_USER_ID,
   campaignUpdate: E2E_UPDATE_ID,

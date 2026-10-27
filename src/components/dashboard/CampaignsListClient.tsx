@@ -26,6 +26,16 @@ interface Campaign {
   verificationStatus: string;
   currency: string;
   createdAt: string;
+  /**
+   * What this person is to the campaign.
+   *
+   * ⛔ A `collaborator` row hides the organiser-only controls below. That is
+   * not cosmetic: `change_payout_account` and `upload_identity` are in
+   * `NEVER_DELEGATED` (`src/lib/collaborators/capabilities.ts`), the routes
+   * behind them answer 403 to a helper, and showing a control that cannot
+   * work is a worse failure than not showing it. See `docs/117`.
+   */
+  role: 'creator' | 'collaborator';
 }
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -151,12 +161,25 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                         >
                           {c.title}
                         </Link>
-                        <Badge
-                          variant={STATUS_VARIANT[c.status] ?? 'secondary'}
-                          className="shrink-0"
-                        >
-                          {campaignStatusLabel(c.status)}
-                        </Badge>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {/*
+                            Says WHY this campaign is on their list at all. A
+                            helper who sees somebody else's fundraiser among
+                            "My Campaigns" with no explanation has been given
+                            a puzzle, not a feature.
+                          */}
+                          {c.role === 'collaborator' && (
+                            <Badge variant="outline" className="shrink-0">
+                              Helping
+                            </Badge>
+                          )}
+                          <Badge
+                            variant={STATUS_VARIANT[c.status] ?? 'secondary'}
+                            className="shrink-0"
+                          >
+                            {campaignStatusLabel(c.status)}
+                          </Badge>
+                        </div>
                       </div>
 
                       <p className="mt-1.5 font-display text-lg leading-none font-bold tabular-nums text-foreground">
@@ -202,15 +225,26 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                         warning. It renders in full on the screens that show
                         one campaign.
                       */}
-                      <NextStepRow
-                        compact
-                        facts={{
-                          campaignId: c.id,
-                          status: c.status,
-                          verificationStatus: c.verificationStatus,
-                          currency: c.currency,
-                        }}
-                      />
+                      {/*
+                        ⛔ CREATOR ONLY. Every step of the organiser journey
+                        is about getting PAID - checking an ID, choosing where
+                        the money goes - and none of it is a collaborator's to
+                        do or even to be nagged about (`docs/110`). Telling a
+                        helper "we cannot pay out until your ID is checked"
+                        would be false twice over: it is not their ID, and
+                        they can never withdraw.
+                      */}
+                      {c.role === 'creator' && (
+                        <NextStepRow
+                          compact
+                          facts={{
+                            campaignId: c.id,
+                            status: c.status,
+                            verificationStatus: c.verificationStatus,
+                            currency: c.currency,
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
 
@@ -228,12 +262,15 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       was gated on a condition two later decisions made
                       unsatisfiable. The screen itself decides what to show.
                     */}
-                    <Link
-                      href={`/dashboard/campaigns/${c.id}/payout-destination`}
-                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      Where the money goes
-                    </Link>
+                    {/* ⛔ `change_payout_account` is NEVER_DELEGATED. */}
+                    {c.role === 'creator' && (
+                      <Link
+                        href={`/dashboard/campaigns/${c.id}/payout-destination`}
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        Where the money goes
+                      </Link>
+                    )}
                     {/*
                       ⛔ Only when there IS a public page. This used to render
                       for every status, so an organiser whose campaign was

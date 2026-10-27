@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/lib/auth';
+import { describeInvite } from '@/lib/collaborators/invites';
 import { AcceptInviteClient } from '@/components/collaborators/AcceptInviteClient';
 
 /**
@@ -62,28 +63,65 @@ export default async function AcceptInvitePage({
     redirect(`/login?callbackUrl=${encodeURIComponent(back)}`);
   }
 
+  /*
+    ⛔ WHICH campaign. The screen used to say "You were asked to help run a
+    campaign" and name nothing [VERIFIED 2026-10-27 in a browser], so somebody
+    holding two invitations could not tell which they were accepting. The
+    email names it; the screen where the decision is made did not.
+
+    Read-only, and null for any unusable token - the button below then
+    produces the same single refusal as every other bad token, so this adds
+    no way to probe which tokens exist.
+  */
+  const invite = await describeInvite(token);
+
   return (
     <div className="mx-auto max-w-lg px-4 py-16 sm:px-6">
       <h1 className="font-display text-2xl font-bold text-foreground">
         Help with this fundraiser
       </h1>
-      <p className="mt-3 text-muted-foreground">
-        You were asked to help run a campaign. If you accept, you will be able
-        to write updates for its page and change what it says.
-      </p>
+      {invite ? (
+        <p className="mt-3 text-muted-foreground">
+          {invite.inviterName ? (
+            <>
+              <strong className="text-foreground">{invite.inviterName}</strong>{' '}
+              asked you to help with{' '}
+            </>
+          ) : (
+            'You were asked to help with '
+          )}
+          <strong className="text-foreground">&quot;{invite.campaignTitle}&quot;</strong>.
+          If you accept, you will be able to write updates for its page and
+          change what it says.
+        </p>
+      ) : (
+        /*
+          The token is unusable - unknown, expired, revoked or already taken.
+          One message for all four, matching `acceptInvite`: naming the reason
+          would tell the holder of a guessed token which tokens exist.
+        */
+        <p className="mt-3 text-muted-foreground">
+          This invitation is no longer valid. Ask the organiser to send a new
+          one.
+        </p>
+      )}
       {/*
         Stated on the screen where the decision is made, not only in the
         email. Somebody accepting an invitation to help with a fundraiser will
         reasonably assume it includes the money unless told plainly. See
         `docs/111` §1.
       */}
-      <p className="mt-4 rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-        <strong className="text-foreground">You will not be able to touch
-        the money.</strong>{' '}
-        Only the person who started the campaign can ask for a payout or
-        change where it goes.
-      </p>
-      <AcceptInviteClient token={token} />
+      {invite && (
+        <>
+          <p className="mt-4 rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+            <strong className="text-foreground">You will not be able to touch
+            the money.</strong>{' '}
+            Only the person who started the campaign can ask for a payout or
+            change where it goes.
+          </p>
+          <AcceptInviteClient token={token} />
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/auth';
+import { resolveCampaignRole } from '@/lib/dashboard/my-campaigns.server';
 import { db } from '@/db';
 import { campaigns, donations, campaignUpdates, impactUpdates } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
@@ -57,9 +58,50 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     .limit(1);
 
   if (!campaign) notFound();
-  if (campaign.creatorId !== session.user.id && !['editor', 'admin'].includes(session.user.role as string)) {
+  /*
+    ⛔ Creator, staff, OR a live collaborator - and the role decides what
+    renders below, not just whether anything does.
+
+    This page was creator-only, so a helper who accepted an invitation was
+    redirected to `/dashboard/campaigns`, which for them listed nothing
+    (`docs/117`). But simply admitting them would have been worse than the
+    bounce: this screen carries `CampaignTeamPanel` (invite),
+    `JourneyChecklist` (the path to being PAID), a Verification link and a
+    Donors list. `invite_collaborator`, `upload_identity` and
+    `change_payout_account` are all in `NEVER_DELEGATED`
+    (`src/lib/collaborators/capabilities.ts`); the routes behind them answer
+    403 to a helper, so showing the controls would put a lie on the screen.
+
+    Each of those sections is therefore gated on `isOwner` below.
+  */
+  const isStaff = ['editor', 'admin'].includes(session.user.role as string);
+  const isOwner = campaign.creatorId === session.user.id;
+
+  /*
+    ⚠️ MEMBERSHIP, not a capability - and the distinction is the reason this
+    page does not call `canCollaborate`.
+
+    "May this screen render for you" is a question about whether you are on
+    the team. `canCollaborate` answers "may you do X", and asking it with
+    `post_update` as a stand-in for "are you a member" would read as though
+    viewing were a delegated capability, which it is not. It would also put
+    this page in the DELEGATING map in
+    `collaborator-call-sites.test.ts`, where every entry is a surface that
+    PERFORMS the capability it names.
+
+    The two surfaces that genuinely act - `updates` and `edit` - do use
+    `canCollaborate`, with their own capability.
+  */
+  const membership = !isOwner && !isStaff
+    ? await resolveCampaignRole(id, session.user.id)
+    : null;
+
+  if (!isOwner && !isStaff && !membership) {
     redirect('/dashboard/campaigns');
   }
+
+  /** Everything money-, identity- or team-shaped belongs to the organiser. */
+  const showsOrganiserOnly = isOwner || isStaff;
 
   const pct = campaign.goalAmount > 0
     ? Math.min(100, Math.round((campaign.raisedAmount / campaign.goalAmount) * 100))
@@ -209,6 +251,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         An organiser had no screen that said what was required of them -
         see `src/lib/organiser-journey.ts` for the audit and docs/110.
       */}
+      {/* ⛔ The organiser's path to being PAID. Not a helper's (`docs/110`). */}
+      {showsOrganiserOnly && (
       <JourneyChecklist
         className="mt-6"
         facts={{
@@ -218,6 +262,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           currency: campaign.currency,
         }}
       />
+      )}
 
       {/*
         Team management. The panel fetches its own list rather than being
@@ -225,9 +270,13 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         is already inside the three-concurrent-query ceiling (`docs/87`) and
         adding a fourth read here would have put it over.
       */}
-      <div className="mt-6">
-        <CampaignTeamPanel campaignId={id} />
-      </div>
+      {/* ⛔ `invite_collaborator` is NEVER_DELEGATED - the trust root is the
+          creator, so one compromised helper cannot grow the team. */}
+      {showsOrganiserOnly && (
+        <div className="mt-6">
+          <CampaignTeamPanel campaignId={id} />
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -245,12 +294,16 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         >
           Updates ({recentUpdates.length})
         </Link>
-        <Link
-          href={`/dashboard/campaigns/${id}/donors`}
-          className="flex items-center rounded-lg border border-border p-3 text-sm font-medium transition-colors hover:border-primary hover:bg-muted/40"
-        >
-          Donors ({campaign.donorCount})
-        </Link>
+        {/* ⛔ Donor names and addresses are not a content capability. */}
+        {showsOrganiserOnly && (
+          <Link
+            href={`/dashboard/campaigns/${id}/donors`}
+            className="flex items-center rounded-lg border border-border p-3 text-sm font-medium transition-colors hover:border-primary hover:bg-muted/40"
+          >
+            Donors ({campaign.donorCount})
+          </Link>
+        )}
+        {showsOrganiserOnly && (
         <Link
           href={`/dashboard/campaigns/${id}/verification`}
           className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm font-medium transition-colors hover:border-primary hover:bg-muted/40"
@@ -265,6 +318,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             {verificationStatusLabel(campaign.verificationStatus)}
           </Badge>
         </Link>
+        )}
         <Link
           href={`/dashboard/campaigns/${id}/impact-update`}
           className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm font-medium transition-colors hover:border-primary hover:bg-muted/40"
@@ -278,7 +332,16 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
       {/* Two-column layout: Donors + Updates */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        {/* Recent Donors */}
+        {/*
+          Recent Donors.
+
+          ⛔ Organiser only. Donor names are not a content capability, and
+          `DELEGATABLE` holds exactly `post_update` and `edit_content`. The
+          public campaign page already carries a donor feed; this is the
+          organiser's record, beside a "View all" link to a screen a helper
+          cannot open anyway.
+        */}
+        {showsOrganiserOnly && (
         <section>
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-bold text-foreground">Recent Donors</h2>
@@ -323,6 +386,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             </div>
           )}
         </section>
+        )}
 
         {/* Recent Updates */}
         <section>

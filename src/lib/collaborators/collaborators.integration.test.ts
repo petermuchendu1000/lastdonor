@@ -20,6 +20,7 @@ import * as schema from '@/db/schema';
 import { canCollaborate } from '@/lib/collaborators/can-collaborate';
 import {
   acceptInvite,
+  describeInvite,
   countLiveCollaborators,
   createInvite,
   listCollaborators,
@@ -534,5 +535,100 @@ describe('the invitation flow, end to end', () => {
     expect(listed.map((r) => r.invitedEmail).sort()).toEqual(['a@test.invalid', 'b@test.invalid']);
     expect(listed.find((r) => r.invitedEmail === 'a@test.invalid')!.acceptedAt).not.toBeNull();
     expect(listed.find((r) => r.invitedEmail === 'b@test.invalid')!.acceptedAt).toBeNull();
+  });
+});
+
+/**
+ * What the accept SCREEN is allowed to say before anybody accepts.
+ *
+ * The screen used to name no campaign at all - "You were asked to help run a
+ * campaign" - so somebody holding two invitations could not tell which they
+ * were accepting (`docs/117` §2). `describeInvite` is the read behind the
+ * fix, and the cases that matter are the ones where it must say NOTHING.
+ */
+describe('describeInvite', () => {
+  it('names the campaign and the person who invited them', async () => {
+    const { owner, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'describe@test.invalid',
+      invitedBy: owner.id,
+    });
+
+    const seen = await describeInvite(made!.token);
+    expect(seen?.campaignTitle).toBe(campaign.title);
+    expect(seen?.inviterName).toBe(owner.name);
+  });
+
+  it('⛔ says nothing about an unknown token', async () => {
+    expect(await describeInvite('not-a-real-token-at-all')).toBeNull();
+  });
+
+  it('⛔ says nothing about an EXPIRED invitation', async () => {
+    const { owner, campaign } = await fixture();
+    const { raw, hash } = mintInviteToken();
+    await db.insert(schema.campaignCollaborators).values(
+      row({
+        campaignId: campaign.id,
+        invitedBy: owner.id,
+        tokenHash: hash,
+        expiresAt: new Date(Date.now() - 1000),
+      }),
+    );
+    expect(await describeInvite(raw)).toBeNull();
+  });
+
+  it('⛔ says nothing about a REVOKED invitation', async () => {
+    const { owner, campaign } = await fixture();
+    const { raw, hash } = mintInviteToken();
+    await db.insert(schema.campaignCollaborators).values(
+      row({
+        campaignId: campaign.id,
+        invitedBy: owner.id,
+        tokenHash: hash,
+        revokedAt: new Date(),
+      }),
+    );
+    expect(await describeInvite(raw)).toBeNull();
+  });
+
+  it('⛔ says nothing about one already ACCEPTED', async () => {
+    /*
+      Four unusable states, one answer: null. The screen then renders the
+      same single refusal for all of them, matching `acceptInvite`. Naming
+      the reason would tell the holder of a guessed token that it existed.
+    */
+    const { owner, helper, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'taken@test.invalid',
+      invitedBy: owner.id,
+    });
+    await acceptInvite({ token: made!.token, userId: helper.id });
+
+    expect(await describeInvite(made!.token)).toBeNull();
+  });
+
+  it('⛔ does not consume the invitation - a GET must not mutate', async () => {
+    /*
+      The whole reason the accept page renders a button. Mail clients and
+      link scanners fetch emailed URLs before a person sees them; if merely
+      describing an invitation spent it, the scanner would burn it.
+    */
+    const { owner, helper, campaign } = await fixture();
+    const made = await createInvite({
+      campaignId: campaign.id,
+      invitedEmail: 'intact@test.invalid',
+      invitedBy: owner.id,
+    });
+
+    await describeInvite(made!.token);
+    await describeInvite(made!.token);
+
+    // Still acceptable afterwards.
+    expect(await acceptInvite({ token: made!.token, userId: helper.id })).toEqual({
+      ok: true,
+      campaignId: campaign.id,
+    });
   });
 });
