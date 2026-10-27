@@ -58,37 +58,122 @@ diagnose before interpreting).
 
 **[VERIFIED]** production `/sitemap.xml`: 42 `<url>` entries, being static
 pages plus 23 category pages, and **zero campaign detail URLs** — against 14
-`active` campaigns. `x-nextjs-cache: HIT`, identical across three requests and
-unchanged by a cache-busting query string or by going direct to
+campaigns whose status matches. `x-nextjs-cache: HIT`, identical across three
+requests and unchanged by a cache-busting query string or by going direct to
 `lastdonor.fly.dev`.
 
 **[VERIFIED]** `sitemap.ts:54` is `export const revalidate = 3600`, and its
-query is `inArray(campaigns.status, ['active','last_donor_zone','completed'])`
-— which 14 rows match.
+query is `inArray(campaigns.status, ['active','last_donor_zone','completed'])`.
 
-**[VERIFIED]** `scripts/deploy.sh:18-22` documents the cause: `--build-secret`
-exists so that *"the 24 routes that combine `export const revalidate` with a
-database read pre-render real content instead of empty."* **This deploy did not
-pass `--prerender`**, and the build log carries
-`[build] database read failed, pre-rendering as empty` for several routes.
+### 2.1 The cause, verified three ways
 
-**[INFERRED]** (chain: the route is ISR; the build had no database; the empty
-render was cached; the cache reports HIT) the sitemap self-heals once the entry
-ages past 3600s.
+Measured against the **v111** build, 2026-10-27.
 
-⛔ **[UNKNOWN] whether it was populated before this deploy.** I did not capture
-the pre-deploy sitemap, which is the one measurement that would settle whether
-this is a transient artifact of my deploy or a standing defect. A re-check is
-scheduled for 06:09 UTC; §2.1 will record the answer.
+**1. The build took the hermetic branch.** `Dockerfile`'s builder stage runs
+`npm run build` under `--mount=type=secret,id=database_url` and branches on
+whether that file is non-empty. The deploy log carries the `else` arm's own
+words — `NOTE: no 'database_url' build secret; building hermetically.` —
+twice. Neither v110 nor v111 passed `--prerender`.
 
-### 2.1 Result of the re-check
+**2. The fail-soft fired eight times.** `[build] database read failed,
+pre-rendering as empty; the route will render on demand once the schema
+exists` — `src/db/build-phase.ts`, keyed on `NEXT_PHASE` and inert at runtime
+by design.
 
-_To be filled by the scheduled re-check. If campaign URLs are present, the
-inference above is confirmed and the operational note is: **a deploy without
-`--prerender` blanks the campaign sitemap for up to an hour.** If they are
-still absent, this is a real defect and the next step is to run the sitemap's
-own query against production and look for a `try/catch` degrading to the
-static floor._
+⚠️ **Two of those eight carry `Database query exceeded 15000ms. The connection
+pool may be wedged; see src/db/query-timeout.ts and docs/37`.** That is a
+build-time artifact of having no `DATABASE_URL` at all — the driver waits out
+the timeout instead of failing fast — and **not** a recurrence of the pool
+wedge of docs/37, docs/52 and docs/87. It is recorded here because anybody who
+greps a deploy log for *"pool may be wedged"* will meet it and reach for the
+wrong doc.
+
+**3. The build's own route table bounds the blast radius — and it is seven
+routes, not the twenty-four** that `scripts/deploy.sh:18-22` and the
+`Dockerfile` note both quote. That figure is the count of routes *exporting*
+`revalidate`; most of them are `ƒ` (dynamic) and are not baked at all. The
+ones actually frozen into the image, with the window each stays frozen for:
+
+| Route | Window |
+|---|---|
+| `/sitemap.xml` | **1h** |
+| `/blog/sitemap.xml` | **1h** |
+| `/donate` | 5m |
+| `/transparency` | 5m |
+| `/last-donor-wall` | 5m |
+| `/cancelled-campaigns` | 5m |
+| `/campaigns/category/[category]` | 5m |
+
+So a sitemap that advertises no campaigns is the one consequence that outlives
+the deploy by long enough for a crawler to see it.
+
+### 2.2 The heal, observed — so this is not a defect in `sitemap.ts`
+
+**[VERIFIED 2026-10-27T05:57:39Z]** The five-minute cohort's window had already
+expired, so it could be measured without waiting on the sitemap's hour. Two
+requests each:
+
+| Route | 1st request | 2nd request |
+|---|---|---|
+| `/transparency` | `STALE`, **0** `Ksh` figures | `HIT`, **2** `Ksh` figures |
+| `/donate` | `STALE`, 69,777 B | `HIT`, 70,114 B |
+| `/last-donor-wall` | `STALE`, 69,269 B | `HIT`, 69,605 B |
+
+`/transparency` is the one that settles it: **zero** money figures in the
+build-time copy, **two** after regeneration. Empty → populated, on a route
+whose figures come from the database, served from an image built without one.
+**Runtime ISR regeneration reads the database; the empty render is not
+permanent.**
+
+⚠️ **The second request is load-bearing, not thoroughness.** Next serves
+stale-while-revalidate, so the first request after expiry returns the stale
+copy *and* schedules the regeneration. A single request measures the old entry
+and reads as a failure — which is most of why this took four steps.
+
+So: a deploy without the `database_url` build secret blanks seven routes. Five
+refill within five minutes; the two sitemaps within the hour. Nothing is wrong
+with `sitemap.ts`, and this is **not** a recurrence of the docs/46 defect that
+`revalidate` line was added to fix — that one was permanent, this one repairs
+itself with no deploy.
+
+⛔ **Still [UNKNOWN]: whether the sitemap was populated before v110.** No
+pre-deploy baseline was captured and the measurement is not recoverable. The
+mechanism above fully accounts for the observation, so this is a gap in the
+record rather than an open question — but it is exactly why the finding cost
+four steps instead of one. **Take a baseline of anything you intend to assert
+after a deploy.**
+
+### 2.3 What changed because of it
+
+The build *does* say all this, eight times — about 200 lines above where the
+operator is looking by the time a six-minute deploy finishes. So in practice
+nobody sees it, and the static floor is served either way: 42 URLs with no
+`/campaigns/<slug>` entries reads as a perfectly healthy sitemap unless you
+count what is absent.
+
+- **Both deploy scripts now print the campaign-URL count at the end of a
+  deploy** and say which case they are in — expected hermetic window, or a
+  real failure worth reading the logs for.
+  `scripts/deploy.sh`'s `sitemap_report` is proven by injection on all four
+  branches (real production at 0; the same at 0 with `--prerender` escalating
+  to a warning; a synthetic body containing two campaign URLs **and** a
+  category URL that must not count, reporting 2; and an unreachable endpoint
+  degrading to a note). `scripts/deploy.ps1` section 8 is the same logic and is
+  **statically checked only** — docs/96: there is no PowerShell in this
+  sandbox. `-UseBasicParsing` is not optional there; without it Windows
+  PowerShell 5.1 pushes the response through the Internet Explorer engine and
+  can block on a machine where IE has never been opened.
+- ⛔ **The `revalidate` was deliberately NOT lowered.** 3600 is reasoned on its
+  own terms in `sitemap.ts:30-52` (a sitemap is crawler input, and crawlers
+  refetch on their own schedule, so one query an hour per instance rather than
+  one a minute). Shortening it to paper over a missing deploy flag is the shape
+  CLAUDE.md warns against elsewhere — *do not raise a timeout to make a job
+  fit*. The fix is the flag.
+- **Owner call, recorded and not taken:** `--prerender` / `-Prerender` is
+  opt-in on both scripts, so a default deploy ships two blank sitemaps for an
+  hour, every time. Making it the default needs `DATABASE_URL` present on the
+  deploy machine; a read-only pooled (6543) URL is enough, since the build only
+  `SELECT`s. `scripts/deploy.ps1:349-359` already implements the switch.
 
 ---
 

@@ -71,3 +71,56 @@ echo "deploying ${APP}..."
 start=$(date +%s)
 flyctl "${ARGS[@]}" "${EXTRA[@]+"${EXTRA[@]}"}"
 echo "deploy finished in $(( $(date +%s) - start ))s"
+
+# ---------------------------------------------------------------------------
+# Say what this deploy just published to crawlers.
+#
+# A hermetic build (no `database_url` secret) pre-renders every route that
+# combines `export const revalidate` with a database read as EMPTY. The build
+# says so - `[build] database read failed, pre-rendering as empty`, eight
+# times - about 200 lines above where the operator is looking by the time it
+# finishes, so in practice nobody sees it.
+#
+# [VERIFIED 2026-10-27 against v111, docs/119 §2] it is bounded and it does
+# repair itself: seven routes are baked with a revalidate window, and five of
+# them (`/donate`, `/transparency`, `/last-donor-wall`,
+# `/cancelled-campaigns`, `/campaigns/category/[category]`) carry 5m. Only
+# `/sitemap.xml` and `/blog/sitemap.xml` carry 1h - so a sitemap that
+# advertises no campaigns is the one consequence that outlives the deploy by
+# long enough to matter to a crawler.
+#
+# The campaign count is the right probe because the static floor is served
+# either way: 42 URLs with zero `/campaigns/<slug>` entries looks like a
+# perfectly healthy sitemap unless you count what is missing.
+# ---------------------------------------------------------------------------
+sitemap_report() {
+  local url body n
+  url="https://${APP}.fly.dev/sitemap.xml"
+  [ "$APP" != "lastdonor" ] || url="https://lastdonor.org/sitemap.xml"
+
+  if ! body=$(curl -sS --max-time 30 "$url" 2>/dev/null); then
+    echo "note: could not read ${url}; skipping the sitemap report"
+    return 0
+  fi
+
+  # `/campaigns/category/<slug>` cannot match: `[a-z0-9-]+` stops at the
+  # second slash, so the pattern never reaches `</loc>`. The second grep is
+  # belt and braces.
+  n=$(printf '%s' "$body" | grep -oE '/campaigns/[a-z0-9-]+</loc>' | grep -vc '/category/' || true)
+  echo "sitemap: ${n} campaign URL(s) at ${url}"
+  [ "${n:-0}" -eq 0 ] || return 0
+
+  if [ "$PRERENDER" = "1" ]; then
+    echo "warn: --prerender was passed and the sitemap is STILL empty, so this is not" >&2
+    echo "      the hermetic-build window. src/app/sitemap.ts degrades to the static" >&2
+    echo "      floor on a read failure and only console.errors, so check the Fly logs" >&2
+    echo "      for '[sitemap] campaigns could not be read'." >&2
+  else
+    echo "note: expected - this build was hermetic, so /sitemap.xml and"
+    echo "      /blog/sitemap.xml were pre-rendered empty. They refill on their own"
+    echo "      within the hour, with no deploy. To publish them populated instead,"
+    echo "      re-run with --prerender and DATABASE_URL set."
+  fi
+}
+
+sitemap_report

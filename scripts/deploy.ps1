@@ -404,4 +404,55 @@ try {
     Write-Warn 'the deploy may still be fine; check the Fly status output above'
 }
 
+# ---------------------------------------------------------------------------
+# 8. Say what this deploy just published to crawlers
+#
+# A hermetic build (no `database_url` secret) pre-renders every route that
+# combines `export const revalidate` with a database read as EMPTY. The build
+# says so - `[build] database read failed, pre-rendering as empty`, eight
+# times - roughly 200 lines above where you are looking by the time it
+# finishes, so in practice nobody sees it.
+#
+# [VERIFIED 2026-10-27 against v111, docs/119 section 2] it is bounded, and it
+# does repair itself. Seven routes are baked with a revalidate window; five of
+# them (/donate, /transparency, /last-donor-wall, /cancelled-campaigns,
+# /campaigns/category/<slug>) carry 5m. Only /sitemap.xml and
+# /blog/sitemap.xml carry 1h - so a sitemap advertising no campaigns is the
+# one consequence that outlives the deploy by long enough for a crawler to
+# see it.
+#
+# The campaign count is the right probe: the static floor is served either
+# way, so 42 URLs with no /campaigns/<slug> entries reads as a perfectly
+# healthy sitemap unless you count what is absent.
+# ---------------------------------------------------------------------------
+$sitemapUrl = "https://$App.fly.dev/sitemap.xml"
+if ($App -eq 'lastdonor') { $sitemapUrl = 'https://lastdonor.org/sitemap.xml' }
+
+try {
+    # -UseBasicParsing is required: without it Windows PowerShell 5.1 pushes
+    # the response through the Internet Explorer engine and can block on a
+    # machine where IE has never been opened. The raw text is all that is
+    # wanted here.
+    $sm = Invoke-WebRequest -Uri $sitemapUrl -UseBasicParsing -TimeoutSec 30
+    # `/campaigns/category/<slug>` cannot match: [a-z0-9-]+ stops at the
+    # second slash, so the pattern never reaches `</loc>`.
+    $campaignUrls = ([regex]::Matches($sm.Content, '/campaigns/[a-z0-9\-]+</loc>')).Count
+    Write-Host "`nsitemap: $campaignUrls campaign URL(s) at $sitemapUrl"
+    if ($campaignUrls -eq 0) {
+        if ($Prerender) {
+            Write-Warn '-Prerender was passed and the sitemap is STILL empty, so this is not'
+            Write-Warn 'the hermetic-build window. src/app/sitemap.ts degrades to the static'
+            Write-Warn 'floor on a read failure and only console.errors it, so check the Fly'
+            Write-Warn "logs for '[sitemap] campaigns could not be read'."
+        } else {
+            Write-Host '    expected: this build was hermetic, so /sitemap.xml and' -ForegroundColor DarkGray
+            Write-Host '    /blog/sitemap.xml were pre-rendered empty. They refill on their' -ForegroundColor DarkGray
+            Write-Host '    own within the hour, with no deploy. To publish them populated,' -ForegroundColor DarkGray
+            Write-Host '    re-run with -Prerender and $env:DATABASE_URL set.' -ForegroundColor DarkGray
+        }
+    }
+} catch {
+    Write-Warn "could not read $sitemapUrl : $($_.Exception.Message)"
+}
+
 Write-Host "`nDeployed $branch@$sha to $App." -ForegroundColor Green
