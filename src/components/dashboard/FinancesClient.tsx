@@ -271,8 +271,14 @@ export default function FinancesClient({
         <p className="text-sm text-muted-foreground">
           No campaigns yet. Create a campaign to start receiving funds.
         </p>
+        {/*
+          ⛔ Was `href="/dashboard/campaigns"` labelled "Create Campaign" - it
+          pointed at the LIST, not the wizard, so the one button offered to
+          somebody with no campaigns did not do what it said. The wizard is
+          `/share-your-story` (`docs/119`).
+        */}
         <Link
-          href="/dashboard/campaigns"
+          href="/share-your-story"
           className="mt-2 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Create Campaign

@@ -64,6 +64,28 @@ import { campaignCollaborators, campaigns } from '@/db/schema';
  * against real Postgres because that is the only thing that catches it.
  */
 
+/**
+ * Does this person have ANY campaign - created or helping with?
+ *
+ * ⛔ Deliberately the SAME predicate as `listMyCampaigns`, so the navigation
+ * entry that opens that list cannot disagree with the list's own contents.
+ * `dashboard/layout.tsx` used `where(eq(campaigns.creatorId, userId))`, which
+ * is creator-only - so a pure collaborator had `hasCampaigns === false` and no
+ * door to a list that `docs/117` had just taught to include them. `docs/119`.
+ *
+ * ⚠️ Still exactly ONE query, replacing the one the layout already ran
+ * (`docs/87`, pool `max: 5`). `limit(1)` rather than `count(*)`: the question
+ * is existence, and the planner can stop at the first row.
+ */
+export async function hasAnyCampaign(userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: campaigns.id })
+    .from(campaigns)
+    .where(or(eq(campaigns.creatorId, userId), liveMembership(userId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** What this person is to a campaign. Never both - creator wins. */
 export type CampaignRole = 'creator' | 'collaborator';
 

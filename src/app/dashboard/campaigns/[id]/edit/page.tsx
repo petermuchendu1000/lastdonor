@@ -6,6 +6,7 @@ import { campaigns } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { CampaignEditClient } from '@/components/dashboard/CampaignEditClient';
 import type { Metadata } from 'next';
+import { isOrganiserEditable } from '@/lib/campaign-editability';
 
 export const metadata: Metadata = {
   title: 'Edit Campaign - Dashboard - LastDonor.org',
@@ -60,7 +61,7 @@ export default async function CampaignEditPage({ params }: { params: Promise<{ i
     redirect('/dashboard/campaigns');
   }
 
-  if (!['draft', 'active'].includes(campaign.status)) {
+  if (!isOrganiserEditable(campaign.status)) {
     redirect(`/dashboard/campaigns/${id}`);
   }
 

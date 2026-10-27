@@ -17,16 +17,31 @@ import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
   SparklesIcon,
+  MegaphoneIcon,
 } from '@heroicons/react/24/outline';
 
 type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  /** Shown only when the viewer has a campaign to list. */
+  requiresCampaign?: boolean;
 };
 
+/*
+  ⛔ `/dashboard/campaigns` is in here now, and it is `requiresCampaign` so a
+  person with nothing to list is not sent to an empty page.
+
+  It was in NEITHER navigation surface - not this sidebar (which the mobile nav
+  also renders), not `UserNav` - so its only persistent doors were a "View all"
+  link gated on a CREATOR-ONLY count and a "Create Campaign" button in the
+  Finances empty state. After `docs/117` taught that list to include campaigns
+  a person merely HELPS with, the people it was fixed for still had no way back
+  to it once the one-shot redirect had been used. `docs/119`.
+*/
 const PRIMARY_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: HomeIcon },
+  { href: '/dashboard/campaigns', label: 'My campaigns', icon: MegaphoneIcon, requiresCampaign: true },
   { href: '/dashboard/finances', label: 'Finances', icon: BanknotesIcon },
   // GoFundMe puts "Your impact" in the account menu; ours is primary nav
   // because the loop only works if the sharer can find what it earned them.
@@ -45,7 +60,7 @@ interface SidebarProps {
   onToggle?: () => void;
 }
 
-export function DashboardSidebar({ hasCampaigns: _hasCampaigns, collapsed, onToggle }: SidebarProps) {
+export function DashboardSidebar({ hasCampaigns, collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
@@ -115,7 +130,12 @@ export function DashboardSidebar({ hasCampaigns: _hasCampaigns, collapsed, onTog
       <div className={cn('flex-1', collapsed ? 'px-2' : 'px-3')}>
         {/* Primary */}
         <div className="space-y-0.5">
-          {PRIMARY_NAV.map(item => {
+          {/*
+            `hasCampaigns` was destructured as `_hasCampaigns` and thrown
+            away, while `dashboard/layout.tsx` spent one of its three
+            permitted queries (`docs/87`) computing it. It is read now.
+          */}
+          {PRIMARY_NAV.filter(item => !item.requiresCampaign || hasCampaigns).map(item => {
             const Icon = item.icon;
             const active = isActive(item.href);
             return (

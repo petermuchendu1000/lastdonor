@@ -101,9 +101,60 @@ describe('⛔ the sealed sections are gated to the organiser', () => {
     ['JourneyChecklist', 'the organiser path to being paid'],
     ['/verification', 'upload_identity'],
     ['/donors', 'donor names are not a content capability'],
+    /*
+      ⛔ ADDED 2026-10-27 (`docs/119`). This list had FOUR entries and this
+      was the missing fifth - which is exactly why the ungated Impact Update
+      tile survived the `docs/117` pass that wrote this test. The target
+      filters on `eq(campaigns.creatorId, session.user.id)` and then
+      `redirect('/dashboard')`, so a collaborator was thrown off the campaign
+      entirely by a tile they were shown.
+
+      ⚠️ The lesson is about the test, not the tile: a hand-written list of
+      regions is only as good as whoever remembered to extend it. The
+      `requiresAllTiles` rule below is the structural half.
+    */
+    ['/impact-update', 'reporting how a family money was spent is not content'],
   ])('%s is inside the gate (%s)', (marker) => {
     expect(DETAIL, `${marker} is not on the page at all`).toContain(marker);
     expect(gated, `${marker} renders for a collaborator`).toContain(marker);
+  });
+});
+
+describe('⛔ every Quick Action tile is accounted for', () => {
+  /*
+    The hand-written list above missed one. This rule needs no list: it finds
+    every `/dashboard/campaigns/<id>/<child>` link in the file and requires
+    each child to be either inside the organiser gate or named here as
+    deliberately open to a helper.
+
+    ⚠️ The open set is exactly the TWO delegatable capabilities (`docs/111`):
+    `updates` for `post_update` and `edit` for `edit_content`. Both targets
+    admit a collaborator by capability, so gating these tiles would HIDE a
+    power a helper genuinely holds - the opposite mistake.
+
+    `edit` is still conditional, just on a different flag (`isEditable`,
+    `docs/119`), which is why it does not appear inside the organiser gate.
+  */
+  const OPEN_TO_COLLABORATORS = ['updates', 'edit'];
+
+  it('is gated unless explicitly open to a helper', () => {
+    const gated = gatedRegions(DETAIL, 'showsOrganiserOnly').join('\n');
+    const children = [
+      ...new Set(
+        [...DETAIL.matchAll(/\/dashboard\/campaigns\/\$\{id\}\/([a-z-]+)/g)].map(
+          (m) => m[1],
+        ),
+      ),
+    ];
+    expect(children.length, 'found no child links - this rule is blind').toBeGreaterThan(2);
+
+    const ungated = children.filter(
+      (c) => !OPEN_TO_COLLABORATORS.includes(c) && !gated.includes(`/${c}`),
+    );
+    expect(
+      ungated,
+      'each tile must sit inside showsOrganiserOnly, or be named open deliberately',
+    ).toEqual([]);
   });
 });
 

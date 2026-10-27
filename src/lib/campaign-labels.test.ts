@@ -15,11 +15,17 @@ import { join, relative, resolve } from 'node:path';
 
 import {
   CAMPAIGN_STATUS_LABEL,
+  IMPACT_UPDATE_STATUS_LABEL,
   VERIFICATION_STATUS_LABEL,
   campaignStatusLabel,
+  impactUpdateStatusLabel,
   verificationStatusLabel,
 } from '@/lib/campaign-labels';
-import { campaignStatusEnum, verificationStatusEnum } from '@/db/schema';
+import {
+  campaignStatusEnum,
+  impactUpdateStatusEnum,
+  verificationStatusEnum,
+} from '@/db/schema';
 
 const ROOT = resolve(__dirname, '../..');
 
@@ -36,6 +42,40 @@ describe('every state the database can hold has a word for it', () => {
       expect(VERIFICATION_STATUS_LABEL[status], `no label for verification status "${status}"`)
         .toBeTruthy();
     }
+  });
+
+  it('covers every impact-update status', () => {
+    /*
+      ⛔ Added 2026-10-27 (`docs/119`). The Impact Update tile on
+      `/dashboard/campaigns/[id]` rendered `{impactUpdate.status}` - the raw
+      enum - at an organiser, which is the exact thing the Verification tile
+      beside it carries a comment about having stopped doing.
+    */
+    for (const status of impactUpdateStatusEnum.enumValues) {
+      expect(
+        IMPACT_UPDATE_STATUS_LABEL[status],
+        `no label for impact-update status "${status}"`,
+      ).toBeTruthy();
+    }
+  });
+
+  it('labels each impact-update status, and de-snakes an unknown one', () => {
+    // Exercises the FUNCTION, not just the map - the fallback is the part a
+    // new enum value hits first.
+    expect(impactUpdateStatusLabel('submitted')).toBe('With us');
+    expect(impactUpdateStatusLabel('approved')).toBe('Published');
+    expect(impactUpdateStatusLabel(null)).toBe('Not sent yet');
+    expect(impactUpdateStatusLabel('needs_more_detail')).toBe('Needs more detail');
+    expect(impactUpdateStatusLabel('needs_more_detail')).not.toContain('_');
+  });
+
+  it('⛔ and the tile renders the label, not the enum', () => {
+    const page = readFileSync(
+      resolve(ROOT, 'src/app/dashboard/campaigns/[id]/page.tsx'),
+      'utf8',
+    );
+    expect(page).toContain('impactUpdateStatusLabel(impactUpdate.status)');
+    expect(page).not.toContain('>{impactUpdate.status}<');
   });
 
   it('⛔ invents no status the database does not have', () => {

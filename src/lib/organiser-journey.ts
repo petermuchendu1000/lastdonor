@@ -49,6 +49,7 @@
 
 import { isSupportedCurrency, getCurrency } from '@/lib/money/currencies';
 import { formatMoney } from '@/lib/money/format';
+import { isOrganiserEditable } from '@/lib/campaign-editability';
 
 export type StepState =
   /** Finished. Nothing to do. */
@@ -276,14 +277,30 @@ export function organiserJourney(f: JourneyFacts): JourneyStep[] {
   const live = ['active', 'last_donor_zone', 'completed'].includes(f.status);
   const canWithdraw = f.verificationStatus === 'fully_verified' && live;
 
+  /*
+    ⛔ The Edit offer is CONDITIONAL now. This step used to set `href` and
+    `action` unconditionally and say "Done. You can still edit it." - while
+    `edit/page.tsx` redirects anything outside `ORGANISER_EDITABLE_STATUSES`.
+    Both renderers show a button on `step.href && step.action`, so an
+    organiser waiting on review (which is every newly submitted campaign,
+    `docs/78`/`docs/79`) was handed a button that bounced them silently back.
+    `docs/119`.
+
+    ⚠️ The detail line changes with it. Leaving "You can still edit it." in
+    place while hiding the button would still be telling them something
+    untrue, just without a control to prove it.
+  */
+  const editable = isOrganiserEditable(f.status);
   const write: JourneyStep = {
     id: 'write',
     title: 'Write your campaign',
     state: 'done',
-    detail: 'Done. You can still edit it.',
+    detail: editable
+      ? 'Done. You can still edit it.'
+      : 'Done. You cannot change it while it is being checked.',
     consequence: null,
-    href: `/dashboard/campaigns/${f.campaignId}/edit`,
-    action: 'Edit',
+    href: editable ? `/dashboard/campaigns/${f.campaignId}/edit` : null,
+    action: editable ? 'Edit' : null,
   };
 
   const review: JourneyStep = (() => {

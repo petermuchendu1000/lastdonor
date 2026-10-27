@@ -82,6 +82,32 @@ export function campaignStatusLabel(status: string | null | undefined): string {
   return CAMPAIGN_STATUS_LABEL[status] ?? humanise(status);
 }
 
+/**
+ * Organiser-facing words for an impact update's state.
+ *
+ * ⛔ Added 2026-10-27 (`docs/119`). The Impact Update tile on
+ * `/dashboard/campaigns/[id]` rendered `{impactUpdate.status}` - the RAW
+ * ENUM - at an organiser, which is the exact thing the Verification tile
+ * beside it has a comment explaining they stopped doing.
+ *
+ * ⚠️ These are the organiser's words, not the admin's. `submitted` means "we
+ * have it" from their side; what an admin sees is `src/components/admin/`'s
+ * business and is deliberately not consolidated (`docs/110` §4).
+ */
+export const IMPACT_UPDATE_STATUS_LABEL: Record<string, string> = {
+  pending: 'Not sent yet',
+  submitted: 'With us',
+  approved: 'Published',
+  rejected: 'Needs changes',
+  overdue: 'Overdue',
+};
+
+/** Label an impact-update status. Same fallback rule as above. */
+export function impactUpdateStatusLabel(status: string | null | undefined): string {
+  if (!status) return 'Not sent yet';
+  return IMPACT_UPDATE_STATUS_LABEL[status] ?? humanise(status);
+}
+
 /** Label a verification status. Same fallback rule as above. */
 export function verificationStatusLabel(status: string | null | undefined): string {
   if (!status) return 'Not started';

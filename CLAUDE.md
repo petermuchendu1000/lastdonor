@@ -132,6 +132,7 @@ transcript or a commit message is lost.
 | `116-FIVE-FINDINGS-AND-AN-UNGATED-THIRD-PATH.md` | **Closes the five findings docs/115 §7 reported, and found a SIXTH taking the inventory for one of them: ⛔ A THIRD CAMPAIGN-CREATION PATH PUBLISHED WITHOUT REVIEW. `news-pipeline.ts:688` inserted `status: 'active'` with `publishedAt: new Date()` - a machine-generated campaign about a NAMED REAL PERSON, public with nobody having read it - and it is NOT dead code: `CRON_SCHEDULE` runs both `ingest-news` and `fetch-news`, each calls `runNewsPipeline`, and no feature flag sits between the cron and the insert. ⚠️ `publisher-review-gate.test.ts` passed throughout because it NAMED TWO FILES and searched them for the literal `.insert(campaigns)`; this site spells it `.insert(schema.campaigns)` in a file it never opened - the docs/108 lesson again, and the claim 'every campaign is reviewed by a person' is asserted in ~44 lines across 23 files. It also sliced a FIXED 2,600 chars, so adding one comment made it fail with the gate intact. Now DISCOVERS every campaign insert from disk, both spellings, brace-matched - and its first version found SIX inserts because the comment EXPLAINING the fix quotes the forbidden string, so comments are stripped first. Also: campaign currency was UNSETTABLE (all four inserts omitted the column, so every campaign ever created was USD by default on a platform collecting only shillings) - ⛔ now settable by API but STILL NOT REACHABLE FROM ANY SCREEN (docs/83 shape, recorded not half-fixed); donor-segment money thresholds compared a currency-blind `total_donated` against a US dollar rule, now per currency with a REFUSAL when no currency is named, and ⚠️ a `HAVING` with no `GROUP BY` is one group over zero rows, so `maxDonated` matched every donor who had given NOTHING in that currency (probed against real Postgres); 13 sites quoted Stripe's 2.9% + $0.30 on a platform where Stripe cannot take a payment, the rate has never been charged, and ⛔ NO CODE DEDUCTS A PROCESSING FEE AT ALL (`unit_amount: data.amount` with no `application_fee`, `raisedAmount + amount`, `released - withdrawn - pending`) - removed with no substitute number, guarded by `fee-claims.test.ts` (8 -> 14 tests), and the stale test asserting the old claim was replaced not satisfied; the verification screen said 'handled securely by Stripe' while the button calls DIDIT (docs/81); fund-pool allocations could cross a currency boundary; five money settings removed that NOTHING read. Read §4 before touching campaign creation and §5.3 for the three areas reported not changed. **§8 AMENDMENT 2026-10-27: ⛔ §4 FIRED IN PRODUCTION** - five machine-written campaigns naming real people went public unreviewed on 2026-10-18 (`brent-ledbetter`, `nicholas-cabo`, `samuel-pierre-jr`, `maj-sorffly-davius`, `david-l-jones`), proven three ways: `published_at = created_at` with ZERO `campaign.published` audit rows, the news-pipeline audit key set (BOTH modules write `campaign.auto_drafted`, so the discriminator is that only the publisher adds `imageSource`), and HTTP 200 plus sitemap entries. Zero donations. ⛔ STILL LIVE after the fix deployed - the code stops NEW ones, it does not retract existing ones (§8.5 has the three options). ⚠️ TWO of my own conclusions were REFUTED by the data: the OpenRouter 402 is intermittent not total, and the guard that actually held it shut was `simulation.max_concurrent` reading the DEFAULT of 10 (no row existed before 2026-10-25 01:45) - it is now 100 against 13 active, so that accidental guard is GONE. Also: production is reachable over the Supabase MANAGEMENT API even though both pooler ports time out - 'unreachable' was a claim about one transport. Also §8.4: only ONE migration was ever outstanding (`0012`), hashes verified and a full catalog diff clean; and ⛔ `fly.toml:227` sets `release_command = release-migrate`, so A DEPLOY DOES RUN MIGRATIONS - I checked the deploy SCRIPTS, found none, and concluded wrongly.** |
 | `117-COLLABORATOR-JOURNEY-ADR.md` | **Accepting an invitation led NOWHERE, and `docs/111` §5a had recorded the gap without anyone seeing what it looked like. Walked in a real browser against a production build: a helper accepted, landed on `/dashboard/campaigns?joined=1` and read “You haven't created any campaigns yet” - while [VERIFIED three ways at the same moment] their row was live and accepted, `GET /api/v1/user-campaigns/<id>` answered 200 for that session and `POST …/updates` answered 201. The grant was REAL and INVISIBLE; a sweep of ALL TWELVE signed-in dashboard routes named the campaign on none. Also: `?joined=1` was read by NOTHING (grep found one occurrence - the redirect that sets it), all three capability screens redirected a helper INTO that empty list, and the accept screen named no campaign at all. ⚠️ The withdrawal probe was NON-DISCRIMINATING at first (400 on validation, before any ownership check) - with a valid UUID key it is 403, and the creator's DIFFERENT error is the control. Fixed with `src/lib/dashboard/my-campaigns.server.ts` (ONE query, `exists` NOT `leftJoin` because two live rows for one person on one campaign would list it twice), collaborators admitted to the three screens BY CAPABILITY, and ⛔ every sealed control hidden from them - team panel, verification, payout destination, journey checklist, donors - because a control that can only 403 is worse than none. ⛔ The module is NOT in `src/lib/collaborators/`: the boundary test rejected it for naming `raisedAmount`, and the allowlist was NOT widened. BOTH seal tests fired and both were extended deliberately. ⚠️ A mutation SURVIVED and the TEST was wrong, not the code: the pending-invite case left `user_id` null so the userId predicate excluded it on its own. Also adds the E2E SIGN-IN FIXTURE `docs/99` §8 said was missing. ⚠️ An invitation is SINGLE USE and the suite is `fullyParallel`, so each accepting test mints its own; and wait for the URL to leave `/login`, never `networkidle`.** |
 | `118-CAMPAIGN-LINK-GUARD-ADR.md` | **A notification is a LINK, and `docs/109`'s rule ("before rendering ANY link to `/campaigns/<slug>`, call `hasPublicPage`") was enforced for the UI and NEVER SWEPT over notifications. Two handed a real person a 404: `campaign_archived` linked `/campaigns/<slug>` for the ONE status the page does not serve - so the only condition producing that notification was the only condition under which its link dies, and the recipients are un-refunded DONORS - and `message_flagged` put a UUID in the slug position, wrong on every use. Both [VERIFIED live: archived slug 404, uuid 404, active slug 200 as the control]. ⚠️ The ROOT CAUSE is that NOTHING BUILT A CAMPAIGN LINK: 20+ sites each decided slug-vs-id and public-vs-not, and the organiser routes are SPLIT 3/3 on whether they accept a slug (`[id]`, `updates`, `donors`, `edit` are UUID-only and `notFound()` a slug; `verification`, `impact-update`, `payout-destination` take either) - so two identical-looking lines, one working and one 404ing. Now `src/lib/campaign-links.ts`: `publicCampaignPath` returns **null** (both renderers already handle it) and `organiserCampaignPath` always keys on the ID. `campaignStatus` is a REQUIRED param so tsc enumerated every caller (the docs/115 trick); the 7 zero-caller helpers got it too, so a future caller CANNOT reintroduce the 404. ⚠️ §2.5: write-time guarding is NOT SUFFICIENT - a STORED link ROTS, and one production row was a 404 (valid for 2m39s before the campaign was archived). ✅ §9 RESOLVED (owner): `archived` is now SERVED with a closed notice, which kills §2.1 at source and heals that rotted row with NO backfill - `campaign-visibility.ts` already made exactly that argument for `suspended`/`cancelled` and `archived` had been omitted rather than decided. ⚠️ Rot is NOT eliminated: `ALLOWED_TRANSITIONS` still allows `active -> draft`, so the guard stays and the test naming `archived` was REPOINTED to `under_review`, not deleted. ✅ §10 RESOLVED (owner) for §6: currency is now SELECTABLE in the create wizard, so a campaign can be made in KES and actually collect over the one working rail. Taking that inventory found FIVE hardcoded dollars, one of them ARITHMETIC (`* 100`, right for USD/KES and 100x wrong for the zero-decimal currencies). ⛔ Still open: the 14 existing USD campaigns are untouched and `DEFAULT_CURRENCY` is still USD. §7 has the journey inventory with production row counts.** |
+| `119-ORGANISER-DOORS-AND-A-SITEMAP-ANOMALY.md` | **The organiser journey, plus the production verification of docs/118 §9/§10 (v110: archived 404 -> 200 with its notice, `noindex` held, three controls unchanged). ⛔ The journey PROMISED an edit the editor refuses: `organiser-journey.ts:279-287` set `href`+`action`+"Done. You can still edit it." UNCONDITIONALLY while `edit/page.tsx:63` redirects anything outside `['draft','active']`, and BOTH renderers show a button on `step.href && step.action` - docs/83 INVERTED (a door always shown onto a room that refuses to open). ⛔ `/dashboard/campaigns` was in NEITHER nav surface (the mobile nav renders the same sidebar), its three persistent doors all conditional and creator-dependent - so the people docs/117 fixed that list for had no way back to it - while `layout.tsx` spent one of three permitted queries computing `hasCampaigns` and the sidebar destructured it as `_hasCampaigns` and threw it away. ⛔ The Impact Update tile was UNGATED beside two gated siblings and its target redirects a non-creator, and ⚠️ MY OWN docs/117 test had the hole it came through (four named regions, this was the fifth) - now a STRUCTURAL rule finds every child link, and it FAILED FIRST on `edit`, where the rule was wrong not the page (`edit_content` IS delegatable). ⚠️ Gate 3 REFUTED my severity: 9 campaigns would bounce but only 2 have a real organiser - because `creator_id` is NULLABLE and **13 of 14 live campaigns have NO organiser at all**, which is a bigger open finding (nobody to verify, remind or pay). ⚠️ Gate 5 caught a sitemap anomaly via a FAILED CONTROL: production advertises ZERO campaign URLs; a deploy without `--prerender` prerenders ISR+DB routes EMPTY (`deploy.sh:18-22`) - re-check scheduled, §2.1 open. Also two raw enums at organisers and a "Create Campaign" button pointing at the list.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -142,7 +143,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7562 pass + 16 skipped, 253 files, as of 2026-10-27)
+npm run test:unit      # Vitest (7607 pass + 16 skipped, 256 files, as of 2026-10-27)
 npm run test:integration  # Vitest + a throwaway Postgres (256 tests, 26 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -1143,6 +1144,71 @@ These exist for a reason; changing them has consequences beyond the local file.
   that currency. Proven against real Postgres: `?currency=KES&maxDonated=1`
   returned a USD-only donor. `GROUP BY d.currency` in `givenInCurrency` is
   load-bearing.
+
+- **A step may offer an action only if its target will accept it.** Added
+  2026-10-27, see `docs/119`. Use **`isOrganiserEditable`** from
+  `src/lib/campaign-editability.ts` before rendering any link to
+  `/dashboard/campaigns/<id>/edit`. `organiser-journey.ts` set the `write`
+  step's `href`, `action` and the sentence "Done. You can still edit it."
+  unconditionally, while `edit/page.tsx` redirects anything outside
+  `['draft','active']` - and both renderers show a button on
+  `step.href && step.action`, so nothing stood between the step and the
+  organiser. Every newly submitted campaign is `under_review`, which is the
+  whole time they are waiting.
+
+  ⚠️ This is **`docs/83` inverted**: not a working route with no door, but a
+  door always shown onto a room that refuses to open. Same rule as `docs/117`
+  §3.3 from the other side.
+
+  ⛔ Do NOT merge this list with `createCampaignSchema`'s
+  `status: z.enum(['draft','active'])`. That is which status an **admin may
+  create** a campaign in - the same two values for unrelated reasons.
+
+  ⚠️ And note the test shape: once the page CALLS the helper there is one
+  decider, so "the two ends agree" is a check that cannot fail. The ratchet
+  forbids a fourth site hardcoding the pair, and carries a control asserting
+  both screens still call the helper - otherwise deleting the call sites
+  would satisfy it.
+
+- **Every nav-gating flag must mean what the page it opens contains.** Added
+  2026-10-27, see `docs/119`. `/dashboard/campaigns` was in **neither**
+  navigation surface, and `dashboard/layout.tsx` spent one of three permitted
+  queries (`docs/87`) computing `hasCampaigns` which `DashboardSidebar`
+  destructured as `_hasCampaigns` and discarded. Use **`hasAnyCampaign`** from
+  `src/lib/dashboard/my-campaigns.server.ts`: it shares `liveMembership` with
+  `listMyCampaigns`, so the nav entry cannot disagree with the list's
+  contents. A creator-only count hid the door from exactly the people
+  `docs/117` fixed the list for.
+
+  ⚠️ `DashboardMobileNav` **renders `DashboardSidebar`**, so there is one nav
+  list, not two to keep in step.
+
+- **A tile is gated by whether its target will serve the viewer.** Added
+  2026-10-27, see `docs/119` §5. The Impact Update tile was ungated beside two
+  gated siblings while its target filters on `creatorId` and redirects - so a
+  collaborator was ejected from the campaign by a control they were shown.
+  ⛔ `submit_impact_update` is in **neither** `DELEGATABLE` nor
+  `NEVER_DELEGATED`; `isDelegatable` fails closed, so gate the tile. Adding it
+  to `DELEGATABLE` reopens `docs/111` §1 - an impact update reports how a
+  family's money was spent.
+
+  ⚠️ **A hand-written list of sealed regions is only as good as whoever
+  remembered to extend it.** `collaborator-screens.test.ts` named four and
+  missed this one. It now also derives every child link from source and
+  requires each to be gated or named deliberately open - and the open set is
+  exactly the two delegatable surfaces (`updates`, `edit`), because the first
+  version of that rule flagged `edit` and **the rule was wrong, not the page**.
+
+- **A deploy without `--prerender` blanks every ISR route that reads the
+  database.** Added 2026-10-27, see `docs/119` §2. `scripts/deploy.sh:18-22`
+  says so, and it was measured: after v110 the production sitemap served 42
+  URLs with **zero campaign entries** against 14 active campaigns,
+  `x-nextjs-cache: HIT`. The build has no `DATABASE_URL`, so those routes
+  prerender empty and the empty render is cached for `revalidate` seconds
+  (3600 for the sitemap). ⚠️ Found because a positive control failed - the
+  archived slug was absent from the sitemap, but so was the active one, which
+  **voided the measurement** until diagnosed. Take a pre-deploy baseline of
+  anything you intend to assert afterwards.
 
 - **A collaborator must be able to REACH what they were granted, and see
   nothing else.** Added 2026-10-27, see `docs/117`. `/dashboard/campaigns`

@@ -7,9 +7,10 @@ import { campaigns, donations, campaignUpdates, impactUpdates } from '@/db/schem
 import { eq, desc, and } from 'drizzle-orm';
 import { Money } from '@/components/ui/Money';
 import { hasPublicPage } from '@/lib/campaign-visibility';
+import { isOrganiserEditable } from '@/lib/campaign-editability';
 import { JourneyChecklist } from '@/components/dashboard/JourneyChecklist';
 import { CampaignTeamPanel } from '@/components/collaborators/CampaignTeamPanel';
-import { campaignStatusLabel, verificationStatusLabel } from '@/lib/campaign-labels';
+import { campaignStatusLabel, impactUpdateStatusLabel, verificationStatusLabel } from '@/lib/campaign-labels';
 import { formatDate } from '@/lib/utils/dates';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -147,7 +148,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     .where(eq(impactUpdates.campaignId, id))
     .limit(1);
 
-  const isEditable = ['draft', 'active'].includes(campaign.status);
+  // One shared rule, asserted equal to what the edit page enforces (docs/119).
+  const isEditable = isOrganiserEditable(campaign.status);
 
   return (
     <>
@@ -319,15 +321,36 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </Badge>
         </Link>
         )}
+        {/*
+          ⛔ Organiser-only, like Donors and Verification beside it. The
+          target filters `eq(campaigns.creatorId, session.user.id)` and then
+          `redirect('/dashboard')`, so a collaborator saw this tile and was
+          silently thrown off the campaign entirely. `docs/117` §3.3: a
+          control that can only fail is worse than no control - and the test
+          that enforced it named four regions and MISSED this one. `docs/119`.
+
+          ⚠️ An impact update is not a content capability. It reports how a
+          family's money was spent, and `submit_impact_update` is in neither
+          DELEGATABLE nor NEVER_DELEGATED - an undeclared power, which
+          `isDelegatable` fails closed on. Moving it into DELEGATABLE would
+          reopen the `docs/111` §1 decision and is not a bug fix.
+        */}
+        {showsOrganiserOnly && (
         <Link
           href={`/dashboard/campaigns/${id}/impact-update`}
           className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm font-medium transition-colors hover:border-primary hover:bg-muted/40"
         >
           Impact Update
+          {/*
+            Not the raw enum. The Verification tile's own comment says this
+            ("This used to render `documents_uploaded` at an organiser, which
+            is a database value, not a sentence") and this tile still did it.
+          */}
           {impactUpdate && (
-            <Badge variant="outline" className="text-xs">{impactUpdate.status}</Badge>
+            <Badge variant="outline" className="text-xs">{impactUpdateStatusLabel(impactUpdate.status)}</Badge>
           )}
         </Link>
+        )}
       </div>
 
       {/* Two-column layout: Donors + Updates */}
@@ -420,15 +443,20 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </section>
       </div>
 
-      {/* Impact Update */}
-      {impactUpdate && (
+      {/*
+        Impact Update - organiser-only, matching the tile above. The screen it
+        summarises filters `eq(campaigns.creatorId, …)` and redirects anybody
+        else, so showing a collaborator its status is describing a room they
+        cannot enter. `docs/119`.
+      */}
+      {showsOrganiserOnly && impactUpdate && (
         <section className="mt-6">
           <h2 className="font-display text-lg font-bold text-foreground">Impact Update</h2>
           <Card className="mt-3">
             <CardContent className="py-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">Status</span>
-                <Badge variant="outline">{impactUpdate.status}</Badge>
+                <Badge variant="outline">{impactUpdateStatusLabel(impactUpdate.status)}</Badge>
               </div>
               {impactUpdate.dueDate && (
                 <p className="mt-2 text-xs text-muted-foreground">
