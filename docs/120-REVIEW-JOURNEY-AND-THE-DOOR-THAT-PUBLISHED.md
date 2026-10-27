@@ -354,6 +354,29 @@ stopped it:
   only in-app surface a machine draft appeared on told the admin it was
   finished work. **Given its own sentence.**
 
+### 8.1 Confirmed against production, not only by reading imports
+
+**[VERIFIED 2026-10-27T07:1xZ]** The two campaigns the news pipeline drafted
+most recently — `sergeant-morgan-wong` (2026-10-25 05:31) and `nigel-max-edge`
+(2026-10-27 02:32) — each produced **zero** `notifications` rows in the window
+around their creation and **exactly one** `audit_logs` row
+(`campaign.auto_drafted`).
+
+The whole `notifications` table holds **7** rows ever: six
+`campaign_submitted` (three organiser submissions × organiser + admin) and one
+`campaign_donation_received`. Nothing in it came from the machine path.
+
+So the reading of the imports and the production data agree: a campaign about a
+named real person was drafted at 02:32 this morning and nobody was told. The
+`/admin/activity` alert added above is the first signal it will produce — once
+this is deployed.
+
+⚠️ Also measured while there: `cron.verification_reminders` has run **twice**
+and emailed **zero** both times, which is correct rather than broken — there is
+no campaign with both a real organiser and a qualifying donation. But it does
+mean the ladder `docs/110` §7 shipped has never actually sent anything, which
+is the `docs/81` "unexercised path" concern by another name.
+
 What remains true, and is correct: the `/admin` pending-review tile reads
 `eq(campaigns.status, 'under_review')` and nothing else, renders
 unconditionally including a zero state, attributes machine drafts as "News
