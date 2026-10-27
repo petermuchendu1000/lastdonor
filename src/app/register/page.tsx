@@ -250,11 +250,24 @@ function RegisterForm() {
             <li className="flex items-start gap-2.5 text-sm text-card-foreground">
               <span>Track every donation and the impact it made.</span>
             </li>
+            {/*
+              ⛔ Two promises removed, both unsubstantiated.
+
+              "Save campaigns and get updates as they close" named a feature
+              that does not exist: there is no saved-campaigns column in
+              `schema.ts` and no route for one. "One-tap checkout next time you
+              give" is not true either - neither donate form reads the session
+              (`MpesaDonationForm` initialises every field empty), and no saved
+              instrument exists on either rail.
+
+              CLAUDE.md: never add a claim the platform cannot substantiate.
+              What replaces them is what an account actually does. `docs/122`.
+            */}
             <li className="flex items-start gap-2.5 text-sm text-card-foreground">
-              <span>Save campaigns and get updates as they close.</span>
+              <span>Get campaign updates by email, and stop them whenever you want.</span>
             </li>
             <li className="flex items-start gap-2.5 text-sm text-card-foreground">
-              <span>One-tap checkout next time you give.</span>
+              <span>Ask for your money back without digging out a receipt.</span>
             </li>
           </ul>
 

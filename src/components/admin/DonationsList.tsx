@@ -163,7 +163,18 @@ export function DonationsList({ initialDonations, stats, totalsByCurrency, campa
         setDonations((prev) =>
           prev.map((d) => (d.id === refundTarget.id ? { ...d, refunded: true } : d)),
         );
-        toast.success(`Refund processed for ${formatMoney(refundTarget.amount, refundTarget.currency, 'exact')}`);
+        /*
+          ⛔ The route composes an honest message for rails with no refund
+          API, and this handler used to throw it away and say "Refund
+          processed" regardless. Read it. `docs/122`.
+        */
+        const body = await res.json().catch(() => null);
+        const money = formatMoney(refundTarget.amount, refundTarget.currency, 'exact');
+        if (body?.data?.manualRefundRequired) {
+          toast.warning(`Ledger corrected for ${money}. Send the money back by hand - no gateway did it.`);
+        } else {
+          toast.success(`Refund processed for ${money}`);
+        }
         setRefundTarget(null);
       } else {
         const body = await res.json().catch(() => null);
@@ -435,7 +446,15 @@ export function DonationsList({ initialDonations, stats, totalsByCurrency, campa
           <DialogHeader>
             <DialogTitle>Confirm Refund</DialogTitle>
             <DialogDescription>
-              This will refund the {refundTarget ? formatMoney(refundTarget.amount, refundTarget.currency, 'exact') : ''} donation by {refundTarget?.donorName ?? ''} via Stripe and adjust the campaign totals. This action cannot be undone.
+              {/*
+                ⛔ "via Stripe" was hardcoded, and it is wrong for every
+                donation this platform has actually taken. A PayHero refund
+                calls NO gateway: the ledger is corrected and the money has to
+                be sent back by hand. An admin read "via Stripe", pressed
+                confirm, and got "Refund processed" - while the shilling sat in
+                the wallet. `docs/122`.
+              */}
+              This will mark the {refundTarget ? formatMoney(refundTarget.amount, refundTarget.currency, 'exact') : ''} donation by {refundTarget?.donorName ?? ''} as refunded and adjust the campaign totals. On a rail with no refund API the money must then be sent back by hand. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

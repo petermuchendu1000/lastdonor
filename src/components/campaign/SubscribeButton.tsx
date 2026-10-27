@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuthState } from '@/lib/auth-state';
 import { BellIcon } from '@heroicons/react/24/outline';
 import { BellAlertIcon } from '@heroicons/react/24/solid';
 import { cn } from '@/lib/utils';
@@ -12,14 +12,23 @@ interface SubscribeButtonProps {
 }
 
 export function SubscribeButton({ campaignSlug, className }: SubscribeButtonProps) {
-  const { data: session, status } = useSession();
+  /*
+    ⛔ `useAuthState`, not `useSession` (CLAUDE.md, `docs/44`).
+
+    This read `status !== 'authenticated'` and returned null, so a rate-limited
+    or failed session read - which `docs/44` says must render as UNKNOWN, never
+    as signed out - silently removed the only subscribe control in the product,
+    with no error shown. `MessageForm` on the same page does it correctly.
+    `docs/122`.
+  */
+  const { state, session, isAuthenticated } = useAuthState();
   const [subscribed, setSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
 
   // Check current subscription status on mount (authed users only)
   useEffect(() => {
-    if (status !== 'authenticated') return;
+    if (!isAuthenticated) return;
     let cancelled = false;
     fetch(`/api/v1/campaigns/${campaignSlug}/subscribe`)
       .then((r) => r.json())
@@ -31,7 +40,7 @@ export function SubscribeButton({ campaignSlug, className }: SubscribeButtonProp
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [campaignSlug, status]);
+  }, [campaignSlug, isAuthenticated]);
 
   const toggle = useCallback(async () => {
     const email = session?.user?.email;
@@ -56,8 +65,16 @@ export function SubscribeButton({ campaignSlug, className }: SubscribeButtonProp
     }
   }, [campaignSlug, session?.user?.email, subscribed, loading]);
 
-  // Don't show for unauthenticated users or while session is loading
-  if (status !== 'authenticated') return null;
+  /*
+    Hidden only when the reader is KNOWN to be signed out, or while we do not
+    know yet. `docs/44`: an unknown state renders as unknown - here, as the
+    skeleton below rather than as a missing control - so a 429 on the session
+    read does not quietly remove the only subscribe door in the product.
+  */
+  if (state === 'anonymous') return null;
+  if (!isAuthenticated) {
+    return <div className={cn('h-9 w-36 animate-pulse rounded-lg bg-muted', className)} />;
+  }
 
   // Don't flash wrong state while checking
   if (!checked) {

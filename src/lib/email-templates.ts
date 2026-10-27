@@ -59,6 +59,37 @@ function formatCents(cents: number, currency: string = 'USD'): string {
 
 // ─── Email generators ───────────────────────────────────────────────────────
 
+/**
+ * A refund on a rail with no refund API: the ledger is corrected, the money
+ * has not moved, and a person has to send it back.
+ *
+ * ⛔ Separate from `donationRefundedEmail` on purpose. That one opens "We
+ * sent your money back" and says it should arrive "in 5 to 10 working days" -
+ * both false on the PayHero rail, where no gateway call is made at all. The
+ * donor used to be told NOTHING on that rail, because the route returned
+ * before reaching any notification. `docs/122`.
+ */
+export function manualRefundPendingEmail(p: {
+  donorName: string;
+  amount: number;
+  currency: string;
+  campaignTitle: string;
+}) {
+  return {
+    subject: `Your money is coming back`,
+    html: wrap(
+      `
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your money is coming back</h1>
+      <p>Hi ${esc(p.donorName)},</p>
+      <p>We have cancelled your gift of <strong>${formatCents(p.amount, p.currency)}</strong> to ${esc(p.campaignTitle)}.</p>
+      <p>A person sends this money back by hand. It has not moved yet.</p>
+      <p>If you do not get it, email <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a> and a person will reply.</p>
+    `,
+      'A person sends this money back by hand.',
+    ),
+  };
+}
+
 export function donationRefundedEmail(p: {
   donorName: string;
   amount: number;

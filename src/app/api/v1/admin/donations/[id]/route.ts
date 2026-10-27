@@ -3,7 +3,7 @@ import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
-import { notifyDonationRefund } from '@/lib/notifications';
+import { notifyDonationRefund, notifyManualRefundPending } from '@/lib/notifications';
 import { stripe } from '@/lib/stripe';
 import { applyRefund } from '@/lib/services/payment-service';
 import { randomUUID } from 'crypto';
@@ -129,6 +129,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         source: donations.source,
         stripePaymentId: donations.stripePaymentId,
         provider: donations.provider,
+        // For the refund notification's figure. One more column on a query
+        // that already runs - no extra round trip (docs/87's three-query cap).
+        currency: donations.currency,
       })
       .from(donations)
       .where(eq(donations.id, id))
@@ -173,6 +176,38 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         },
       });
 
+      /*
+        ⛔ Tell the donor. This branch used to `return` here, and
+        `notifyDonationRefund` sits ~60 lines below, so **a refund on any
+        non-Stripe rail notified nobody** - no email, no notification row.
+        Both donations this platform has ever taken are `payhero`, so that was
+        every real donor.
+
+        ⚠️ The wording matters on this rail: the ledger is corrected but no
+        gateway moved anything, so the donor is told a person will send the
+        money back rather than that it is already on its way. The Stripe
+        template says "Your money is on the way back", which would be false
+        here. `docs/122`.
+      */
+      if (applied) {
+        const [cancelled] = await db
+          .select({ title: campaigns.title, slug: campaigns.slug, status: campaigns.status })
+          .from(campaigns)
+          .where(eq(campaigns.id, donation.campaignId))
+          .limit(1);
+        if (cancelled) {
+          notifyManualRefundPending({
+            donorEmail: donation.donorEmail,
+            donorName: donation.donorName,
+            amount: donation.amount,
+            currency: donation.currency,
+            campaignTitle: cancelled.title,
+          }).catch((err) =>
+            console.error('[admin/donations] manual-refund notification error:', err),
+          );
+        }
+      }
+
       return NextResponse.json({
         ok: true,
         data: {
@@ -180,6 +215,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           refunded: Boolean(applied),
           changed: Boolean(applied),
           manualRefundRequired: true,
+          provider: donation.provider,
           message:
             `This donation was collected by ${donation.provider}, which has no refund API. ` +
             'The ledger has been corrected, but the money must be returned to the donor manually.',
@@ -245,6 +281,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         campaignTitle: cam.title,
         campaignSlug: cam.slug,
         campaignStatus: cam.status,
+        currency: donation.currency,
         refunded: body.refunded,
       }).catch((err) => console.error('[admin/donations] notification error:', err));
     }

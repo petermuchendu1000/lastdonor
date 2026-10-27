@@ -19,6 +19,7 @@ import { retryWithBackoff } from '@/lib/utils/retry';
 import { organiserCampaignPath, publicCampaignPath } from '@/lib/campaign-links';
 import {
   donationRefundedEmail,
+  manualRefundPendingEmail,
   donationRefundReversedEmail,
   campaignCompletedEmail,
   campaignArchivedEmail,
@@ -270,6 +271,48 @@ export async function notifyPasswordResetOutcome(p: {
 /**
  * Notify a donor that their donation has been refunded (or refund reversed).
  */
+/**
+ * Tell a donor their money is coming back by hand.
+ *
+ * For rails with no refund API, where `notifyDonationRefund`'s words would be
+ * false. A guest gets the email only; a registered donor also gets the row.
+ * `docs/122`.
+ */
+export async function notifyManualRefundPending(p: {
+  donorEmail: string;
+  donorName: string;
+  amount: number;
+  currency: string;
+  campaignTitle: string;
+}) {
+  const emailContent = manualRefundPendingEmail({
+    donorName: p.donorName || 'there',
+    amount: p.amount,
+    currency: p.currency,
+    campaignTitle: p.campaignTitle,
+  });
+
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, p.donorEmail))
+    .limit(1);
+
+  const money = formatMoney(p.amount, p.currency, 'exact');
+  if (user) {
+    await createAndEmail({
+      userId: user.id,
+      type: 'donation_refunded',
+      title: `Donation of ${money} coming back`,
+      message: `We cancelled your gift to "${p.campaignTitle}". A person sends the money back by hand.`,
+      link: null,
+      email: { to: p.donorEmail, ...emailContent },
+    });
+    return;
+  }
+  await sendEmailOnly({ to: p.donorEmail, ...emailContent });
+}
+
 export async function notifyDonationRefund(p: {
   donationId: string;
   donorEmail: string;
@@ -288,6 +331,16 @@ export async function notifyDonationRefund(p: {
    * site keep its 404 and compile. `docs/118`.
    */
   campaignStatus: string;
+  /**
+   * The donation's own currency. REQUIRED, so `tsc` names every call site.
+   *
+   * The title below was `` `$${(p.amount / 100).toFixed(2)}` `` - a hardcoded
+   * dollar sign and a hardcoded exponent - so a KES 50 refund read
+   * **"Donation of $0.50 refunded"** in the bell and the notifications list.
+   * Four known currencies are zero-decimal, where `/ 100` understates by 100x
+   * (`docs/92`). `docs/122`.
+   */
+  currency: string;
   refunded: boolean;
 }) {
   // Find registered user by email (might be a guest donation)
@@ -302,9 +355,10 @@ export async function notifyDonationRefund(p: {
     : donationRefundReversedEmail(p);
 
   const type: NotificationType = p.refunded ? 'donation_refunded' : 'donation_refund_reversed';
+  const money = formatMoney(p.amount, p.currency, 'exact');
   const title = p.refunded
-    ? `Donation of $${(p.amount / 100).toFixed(2)} refunded`
-    : `Refund reversed for $${(p.amount / 100).toFixed(2)} donation`;
+    ? `Donation of ${money} refunded`
+    : `Refund reversed for ${money} donation`;
   const message = p.refunded
     ? `Your donation to "${p.campaignTitle}" has been refunded.`
     : `The refund on your donation to "${p.campaignTitle}" has been reversed.`;
