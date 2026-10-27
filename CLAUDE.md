@@ -138,6 +138,7 @@ transcript or a commit message is lost.
 | `122-DONOR-AFTER-GIVING-ADR.md` | **What happens to a person after they give. ⛔ A REFUND ON THE LIVE RAIL TOLD THE DONOR NOTHING: `PATCH /api/v1/admin/donations/[id]` branches on `provider !== 'stripe'`, corrects the ledger and RETURNED ~60 lines above `notifyDonationRefund` - so it marked the gift refunded, dropped the campaign total, called NO gateway (PayHero has none) and sent no email and no notification. Both donations this platform has ever taken are `payhero`. ⛔ And the admin was told the opposite: the dialog hardcoded 'via Stripe' and the handler discarded the route's own `manualRefundRequired` message to say 'Refund processed'. New `manualRefundPendingEmail` says what is true (a person sends it back by hand, it has not moved, no turnaround quoted) because `donationRefundedEmail` opens 'We sent your money back'. ⛔ AND A DONOR COULD NOT LEAVE: every email footer points at `/settings`, which was an unconditional `redirect('/dashboard/settings')` behind auth - a login wall for a guest, and the M-Pesa rail creates only guests. Also: the refund title printed KES 50 as '$0.50'; `SubscribeButton` used `useSession` so a 429 silently removed the only subscribe control (docs/44); and THREE unsubstantiated promises - 'Monthly donations can be cancelled' (no cancellation path exists), 'Save campaigns' (no such feature) and 'One-tap checkout' (neither form reads the session). ⚠️ CORRECTS docs/115 twice: the PayHero path DOES send a receipt (the zero-caller family is the ADAPTIVE one), and `formatCents` still defaults to USD in `email-templates.ts`. Thirteen findings reported not fixed, incl. ⛔ a guest cannot be suppressed by any stored mechanism (CAN-SPAM, docs/41), the updates opt-in nobody is offered, and the `update-phases` cron that writes 46 of 46 updates and notifies nobody. Read §2, §3 and §8 before touching refunds, donor mail or unsubscribe.** |
 | `123-CONTENT-JOURNEY-AND-A-SILENT-CRON.md` | **The content journey: news -> topics -> articles -> reader -> newsletter. ⛔ `blog-generate` answered `200 { skipped: true }` and wrote NOTHING for nine days - the Worker logs the status and deliberately never reads the body (docs/66), so a skip was indistinguishable from a run that worked. [VERIFIED] `blog_posts` has **0 rows ever**, `blog_pipeline_completed` has NEVER been written, 28 topics sit `pending` (priority 70-100, newest today), and `/blog` is 200 with "No posts published yet" while its sitemap and feed carry 0 entries. ⚠️ The CAUSE is [INFERRED], not verified, and that is the finding: ALL THREE silent paths (flag off, lock held, pipeline threw) wrote nothing, so they could not be told apart in the database - two of them now leave a row (`blog_pipeline_skipped`, `blog_pipeline_failed`). ⛔ And found while Gate-3 checking whether enabling the flag would even work: **step 9 of the pipeline published AI drafts behind the operator.** Step 8 honours `autoPublish`; step 9 then swept `published=false AND source='ai_generated' AND seo_score>=70` and published five, gated ONLY by `canPublishNow` (a cadence check that knows nothing about the flag) - and `.env.example` ships `BLOG_AUTO_PUBLISH=false`, so the DOCUMENTED configuration was the vulnerable one. Proven in 5 integration tests against real Postgres with NO model call (a topic below the score floor `continue`s past generation and still reaches step 9). ⛔ Also: the newsletter welcome was a hand-written `text:` body inline in the route, so BOTH email sweeps missed it - `EMAIL_SOURCE_FILES` is a list of TWO FILES and this is the THIRD inline template to escape it (docs/74 found two) - while promising four real subscribers "updates about campaigns making a real difference". Now a template, swept, and transactional on purpose (§4). ⛔ OWNER-ONLY: `MAILING_POSTAL_ADDRESS` (4 subscribers, 0 emails ever, both cron runs refused on CAN-SPAM) and `BLOG_PIPELINE_ENABLED` (docs/36 is this project's forged-attribution history - but enabling it WITHOUT auto-publish is now safe, and was not before §3). Also `clearDatabase` truncated `blog_posts` and not `blog_topic_queue`. Read §2's elimination and §8 before re-checking any of it.** |
 | `124-ACCOUNT-ERASURE-ADR.md` | **⛔ NOBODY COULD DELETE THEIR ACCOUNT, BY EITHER ROUTE, against a published `/privacy` promise that identifiers go within 30 days. Self-service ended in `tx.delete(users)` and [VERIFIED from the LIVE schema] **36 FKs reference `users.id`, 31 are `NO ACTION`** while the transaction named SIX - so it raised a foreign-key violation and answered `500 "Please try again"`, advice that can never work. [VERIFIED in production] **3 of 9 users were blocked, each by a DIFFERENT column** (a share link, invitations sent, settings edited), which is what showed the handled set was arbitrary. The ADMIN route was worse: its anonymise branch wrote `badges: null, preferences: null` into two **NOT NULL** columns, so the UPDATE threw and the row came back UNCHANGED - that branch had never once worked - and its other branch hard-deleted with the same FK hole. ⚠️ No test caught either because the route test MOCKS DRIZZLE, and **a mock cannot raise a foreign-key or NOT NULL violation** (the docs/101 / docs/107 lesson a third time). Owner decision: **anonymise in place, always** - the row survives carrying an opaque id, so no FK can ever be violated; a full hard delete was REJECTED (it destroys withdrawals, refund batches, vouches and verification documents, kept 7 years) and so was 'erase what you can, refuse the rest' (13 of the 31 columns are NOT NULL). One `anonymiseAccount` both routes call. An ADMIN may no longer erase themselves here - an FK violation used to stop it BY ACCIDENT. Also: `campaigns.creator_id` is now LEFT INTACT (that null only existed to get past the FK, and docs/119 found 13 of 14 campaigns already have no organiser); the scrub list grew by SEVEN columns it had silently never covered as each was added, and is now checked against the live `users` column list; and both UIs were lying - `UsersList` removed the row and said "User deleted" while the row survives (docs/122 §2 class). ⚠️ §5.1: my OWN injection probe was a check that could not fail - a truncating edit made vitest fail to COLLECT, which emits no `×` line, so it reported zero failures; re-done properly the same injection fails 6 of 9. Read §2 for the four verification methods and §6/§7 for what was reported not changed.** |
+| `125-MONEY-IN-JOURNEY-AND-THE-EMAIL-THAT-SPOKE-DOLLARS.md` | **The money-in journey. [VERIFIED FOUR WAYS] not one of the 14 live campaigns can take a donation - DB (all 14 active are USD, the only KES one is archived), code (`USD.gateway='stripe'`), health (`stripe: error` from `balance.retrieve()`), and a LIVE `create-checkout` probe answering **503 PAYMENTS_UNAVAILABLE**, a branch emitted ONLY on `StripeAuthenticationError`. ⚠️ Gate 3's falsifier mattered: a RESTRICTED key could allow checkout while denying `balance.retrieve()`, which would have made the health check a false alarm - the live probe killed it. A fifth method: NO publishable key exists in any of the 33 production chunks (the one `pk_test` hit is Stripe's own SDK regex). That blocker is OWNER-ONLY. ⛔ What the walk FOUND: **seven outgoing emails stated money in dollars whatever the currency**, because `formatCents(cents, currency = 'USD')` carried a default that TWELVE call sites took - invisible at the call site, which is why `docs/114`, `docs/115` and `docs/121` all swept past it. Worst: `notifyCampaignStatusChange` had NO currency field at all and both admin routes selected `{slug, goalAmount}` without the column, so the "your campaign reached its goal" email - sent to EVERY donor - rendered a KES 50,000 goal as **$50,000.00**, ~130x. Latent (0 completed campaigns) but ARMED: `audit_logs` shows a probe campaign transitioned to `completed` twice. ⚠️ CORRECTS MY OWN `docs/122` §2: it gave `notifyDonationRefund` a required currency and the in-app title used it while the EMAIL BODY stayed in dollars - the test asserted `notifications.ts` and never looked at the template. ⚠️ And Gate 4 beat my first three rules: hardcoding `currency: 'USD'` at the call site passed all 41 tests, so a fourth rule forbids a currency literal in `notifications.ts` (derived constants stay legal). ⚠️ `Intl` emits a NON-BREAKING space, so `toContain('Ksh 50.00')` can never match while the `$` cases pass. Read §1.1 for what the donor sees and §5 for what was not checked.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -148,7 +149,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7682 pass + 16 skipped, 262 files, as of 2026-10-27)
+npm run test:unit      # Vitest (7691 pass + 16 skipped, 262 files, as of 2026-10-27)
 npm run test:integration  # Vitest + a throwaway Postgres (270 tests, 28 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -1580,6 +1581,42 @@ These exist for a reason; changing them has consequences beyond the local file.
   A foreign-key violation used to stop it by accident; scrubbing an admin
   takes the attribution on settings, vouches and verification reviews with it,
   and there is one admin.
+
+- **Every money figure in an outgoing email names its own currency, and no
+  helper defaults one.** Added 2026-10-27, see `docs/125`.
+  `formatCents(cents, currency = 'USD')` in `src/lib/email-templates.ts`
+  carried a default that **twelve call sites took**, so seven templates stated
+  money in dollars whatever currency it was raised in. A defaulted parameter
+  is **invisible at the call site** - `formatCents(p.amount)` reads exactly
+  like a correct call - which is why `docs/114`, `docs/115` and `docs/121`
+  each swept currency rendering and each missed it.
+
+  ⛔ The worst was not the default: `notifyCampaignStatusChange` had **no
+  currency field at all**, and both admin callers selected
+  `{ slug, goalAmount }` without the column - so the "your campaign reached
+  its goal" email, sent to EVERY donor, rendered a KES 50,000 goal as
+  **$50,000.00**. Measured by executing the template.
+
+  ⚠️ **A suggested campaign renders in ITS currency, not the reader's.**
+  `campaignCancelledRefundEmail` lists other people's campaigns; they need not
+  share the reader's currency, so `findSimilarCampaigns` carries each one's.
+  The bulk-refund path uses the CAMPAIGN's currency, which is every donation's
+  too (the composite FK, `docs/92`), and the two withdrawal emails derive from
+  `PLATFORM_PAYOUT_CURRENCY` rather than a `'USD'` literal, so they follow the
+  rail if it changes (`docs/121` §4).
+
+  Four rules in `src/components/ui/money-currency.ratchet.test.ts`: no
+  one-argument `formatCents`, no defaulted currency, no `currency?` on a
+  template, and **no currency literal in `notifications.ts`**.
+  ⚠️ That fourth rule exists because Gate 4 beat the first three: injecting
+  `currency: 'USD'` at the call site passed all 41 tests. A shape rule cannot
+  see a wrong literal; the dispatcher never knows a currency of its own, so a
+  literal there is wrong by construction.
+
+  ⚠️ **`Intl` puts a NON-BREAKING space (U+00A0) after a multi-character
+  symbol**, so `toContain('Ksh 50.00')` with an ordinary space never matches -
+  while the `$` assertions pass, because `$1,000.00` has no space. Normalise
+  before asserting on formatted money.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

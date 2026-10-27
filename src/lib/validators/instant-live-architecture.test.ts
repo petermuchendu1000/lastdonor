@@ -210,6 +210,7 @@ describe('Email templates - new lifecycle templates', () => {
       campaignSlug: 'help-alice-123',
       donorName: 'Bob',
       amount: 5000,
+      currency: 'USD',
     });
 
     it('has a celebratory subject line', () => {

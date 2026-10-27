@@ -84,6 +84,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         category: campaigns.category,
         location: campaigns.location,
         raisedAmount: campaigns.raisedAmount,
+        currency: campaigns.currency,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -133,6 +134,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         campaignTitle: campaign.title,
         campaignCategory: campaign.category as CampaignCategory,
         campaignLocation: campaign.location,
+        /*
+          The CAMPAIGN's currency, which is every eligible donation's
+          currency too: `donations` carries a composite FK on
+          (campaign_id, currency) referencing campaigns (id, currency)
+          (`docs/92`), so one campaign's donations cannot differ from it.
+        */
+        campaignCurrency: campaign.currency,
         adminId: session.user?.id ?? '',
         reason,
       });
@@ -166,6 +174,7 @@ async function processBulkRefund(p: {
   campaignTitle: string;
   campaignCategory: CampaignCategory;
   campaignLocation: string | null;
+  campaignCurrency: string;
   adminId: string;
   reason: string;
 }): Promise<{ totalDonors: number; totalAmount: number; failedCount: number }> {
@@ -182,6 +191,8 @@ async function _processBulkRefundInner(p: {
   campaignTitle: string;
   campaignCategory: CampaignCategory;
   campaignLocation: string | null;
+  /** The campaign's currency; every eligible donation shares it (`docs/92`). */
+  campaignCurrency: string;
   adminId: string;
   reason: string;
 }): Promise<{ totalDonors: number; totalAmount: number; failedCount: number }> {
@@ -342,6 +353,7 @@ async function _processBulkRefundInner(p: {
     campaignTitle: p.campaignTitle,
     campaignCategory: p.campaignCategory,
     campaignLocation: p.campaignLocation,
+    campaignCurrency: p.campaignCurrency,
     campaignId: p.campaignId,
     reason: p.reason,
   }).catch((err) => console.error('[bulk-refund] donor email error:', err));
@@ -352,6 +364,7 @@ async function _processBulkRefundInner(p: {
     campaignTitle: p.campaignTitle,
     totalDonors: refundedCount + failedCount,
     totalAmount,
+    currency: p.campaignCurrency,
     failedCount,
   }).catch((err) => console.error('[bulk-refund] notification error:', err));
 
@@ -376,6 +389,7 @@ async function sendDonorRefundEmails(p: {
   campaignTitle: string;
   campaignCategory: CampaignCategory;
   campaignLocation: string | null;
+  campaignCurrency: string;
   campaignId: string;
   reason: string;
 }) {
@@ -399,12 +413,16 @@ async function sendDonorRefundEmails(p: {
       donorName: donation.donorName || 'Donor',
       campaignTitle: p.campaignTitle,
       donationAmount: donation.amount,
+      currency: p.campaignCurrency,
       cancellationReason: reasonMessage,
       similarCampaigns: similarCampaigns.map((c) => ({
         title: c.title,
         slug: c.slug,
         raised: c.raised,
         goal: c.goal,
+        // Each suggested campaign's OWN currency - they are other people's
+        // campaigns and need not share this one's. `docs/125`.
+        currency: c.currency,
       })),
     });
 

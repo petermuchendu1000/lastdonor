@@ -45,7 +45,7 @@ import { readFileSync } from 'node:fs';
   glob implementation across the suite instead of two. See docs/97.
 */
 import { globSync } from 'glob';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** Every `<Money ... />` element in the tree, with the file it came from. */
 function moneyCallSites(): { file: string; tag: string }[] {
@@ -240,5 +240,148 @@ describe('Money currency ratchet', () => {
     }
     expect(form).not.toMatch(/centsToDollars/);
     expect(form).not.toMatch(/\$\$\{/);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Outgoing email: every money figure names its own currency
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Call sites of the email modules' own `formatCents` that pass ONE argument.
+ *
+ * ── WHY THIS IS A SEPARATE RULE ────────────────────────────────────────────
+ *
+ * The sweeps above look for a currency formatter built BY HAND. This one is
+ * the opposite shape: the correct helper, called correctly, with the currency
+ * simply left off - which was legal because `formatCents(cents, currency =
+ * 'USD')` carried a default. Twelve call sites took it, so twelve outgoing
+ * emails stated money in dollars whatever the campaign's currency, including
+ * the "your campaign reached its goal" email sent to EVERY donor. Measured:
+ * a KES 50,000 goal rendered `$50,000.00`, roughly 130x. `docs/125`.
+ *
+ * `docs/114`, `docs/115` and `docs/121` each swept currency rendering and
+ * each missed this, because a defaulted parameter is invisible at the call
+ * site - it reads exactly like a correct call.
+ */
+function emailMoneyCallsWithoutCurrency(): { file: string; snippet: string }[] {
+  const out: { file: string; snippet: string }[] = [];
+  for (const file of ['src/lib/email-templates.ts', 'src/lib/email-adaptive.ts']) {
+    const src = readFileSync(resolve(process.cwd(), file), 'utf-8');
+    for (const m of src.matchAll(/\bformatCents\s*\(/g)) {
+      const open = (m.index ?? 0) + m[0].length - 1;
+      // Skip the declaration itself; it is covered by its own rule below.
+      if (/function\s+formatCents\s*$/.test(src.slice(Math.max(0, open - 40), open))) continue;
+
+      let depth = 0;
+      let commas = 0;
+      let end = open;
+      for (let i = open; i < src.length; i++) {
+        const c = src[i];
+        if (c === '(' || c === '[' || c === '{') depth++;
+        else if (c === ')' || c === ']' || c === '}') {
+          depth--;
+          if (depth === 0) { end = i; break; }
+        } else if (c === ',' && depth === 1) commas++;
+      }
+      if (commas === 0) out.push({ file, snippet: src.slice(m.index ?? 0, end + 1) });
+    }
+  }
+  return out;
+}
+
+describe('⛔ every money figure in an outgoing email names its currency', () => {
+  it('the sweep reads the real email modules', () => {
+    // A wrong path would make the rules below pass against nothing.
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/email-templates.ts'), 'utf-8');
+    expect(src.length).toBeGreaterThan(10_000);
+    expect([...src.matchAll(/\bformatCents\s*\(/g)].length).toBeGreaterThan(10);
+  });
+
+  it('⛔ no call omits the currency', () => {
+    /*
+      ⛔ Do not "fix" a failure here by restoring the default. The default IS
+      the defect: it turns every omission into a silent dollar claim about
+      somebody else's money.
+    */
+    expect(
+      emailMoneyCallsWithoutCurrency().map((h) => `${h.file}: ${h.snippet}`),
+      'an email money figure is being rendered with no currency',
+    ).toEqual([]);
+  });
+
+  it('⛔ and the helper declares no default currency', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/email-templates.ts'), 'utf-8');
+    const decl = src.match(/function formatCents\([^)]*\)/)?.[0] ?? '';
+    expect(decl, 'formatCents declaration not found').toContain('currency');
+    expect(decl, 'a defaulted currency reintroduces the whole defect').not.toMatch(/currency\s*:\s*string\s*=/);
+  });
+
+  it('⛔ no money-printing template takes an OPTIONAL currency', () => {
+    /*
+      The other half of the same defect: five templates declared
+      `currency?: string` and their callers simply never passed one. Optional
+      means "USD unless someone remembers", which is not a decision anybody
+      made about a Kenyan donor's receipt.
+    */
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/email-templates.ts'), 'utf-8');
+    expect(
+      [...src.matchAll(/^\s*currency\?: string;/gm)].map((m) => m[0].trim()),
+      'an email template still treats its currency as optional',
+    ).toEqual([]);
+  });
+
+
+  it('⛔ and `notifications.ts` never writes a currency literal', () => {
+    /*
+      Gate 4, found by injection: the three rules above enforce the SHAPE -
+      no default, no optional parameter, no one-argument call - and a caller
+      that simply writes `currency: 'USD'` satisfies all of them while
+      telling a Kenyan donor their goal in dollars. Hardcoding it at the
+      call site passed the entire suite.
+
+      `notifications.ts` is a dispatcher: it never knows a currency of its
+      own, so every one it passes must come from its own parameters. A
+      literal there is wrong by construction, whatever its value.
+
+      ⚠️ Derived constants stay legal and must: the two withdrawal sites use
+      `PLATFORM_PAYOUT_CURRENCY.toUpperCase()`, which follows the rail if the
+      rail ever changes (`docs/121` §4).
+    */
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/notifications.ts'), 'utf-8');
+    const literals = [...src.matchAll(/currency:\s*['"`][A-Za-z]{3}['"`]/g)].map((m) => m[0]);
+    expect(literals, 'a currency literal in the notification dispatcher').toEqual([]);
+
+    // The rule can actually fire.
+    expect(/currency:\s*['"`][A-Za-z]{3}['"`]/.test("currency: 'USD',")).toBe(true);
+    expect(/currency:\s*['"`][A-Za-z]{3}['"`]/.test('currency: p.currency,')).toBe(false);
+    expect(/currency:\s*['"`][A-Za-z]{3}['"`]/.test('currency: PLATFORM_PAYOUT_CURRENCY.toUpperCase(),')).toBe(false);
+  });
+
+  it('⚠️ and the rule would catch the ones that got through', () => {
+    /*
+      A check that cannot fail is not a check. These are the exact pre-fix
+      lines; if the scanner stops flagging them it has stopped meaning
+      anything. Proven against a fixture, not against the repo.
+    */
+    const scan = (code: string) => {
+      const m = code.match(/\bformatCents\s*\(/);
+      if (!m) return 'no-match';
+      const open = (m.index ?? 0) + m[0].length - 1;
+      let depth = 0, commas = 0;
+      for (let i = open; i < code.length; i++) {
+        const c = code[i];
+        if (c === '(' || c === '[' || c === '{') depth++;
+        else if (c === ')' || c === ']' || c === '}') { depth--; if (depth === 0) break; }
+        else if (c === ',' && depth === 1) commas++;
+      }
+      return commas === 0 ? 'FLAGGED' : 'ok';
+    };
+    expect(scan('${formatCents(p.amount)}')).toBe('FLAGGED');
+    expect(scan('${formatCents(p.goalAmount)}')).toBe('FLAGGED');
+    expect(scan('${formatCents(c.raised)} raised')).toBe('FLAGGED');
+    // And it does not flag a correct call, including one with nested parens.
+    expect(scan('${formatCents(p.amount, p.currency)}')).toBe('ok');
+    expect(scan('${formatCents(Number(p.amount ?? 0), p.currency)}')).toBe('ok');
   });
 });

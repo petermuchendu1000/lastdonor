@@ -173,6 +173,14 @@ function campaignRow(overrides: Row = {}): Row {
     location: 'Portland, OR',
     raisedAmount: 0,
     goalAmount: 1_000_00,
+    /*
+      `campaigns.currency` is NOT NULL in the database, so a row without it
+      is a fixture that cannot exist. It was absent here, and once the
+      cancellation email started requiring a currency (`docs/125`) the whole
+      fire-and-forget send threw and was swallowed - which this file caught
+      as "no donor was emailed at all".
+    */
+    currency: 'USD',
     donorCount: 0,
     totalReleasedAmount: 0,
     totalWithdrawnAmount: 0,

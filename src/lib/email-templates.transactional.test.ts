@@ -12,6 +12,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  campaignCompletedEmail,
+  campaignCancelledRefundEmail,
   passwordResetEmail,
   passwordResetNoAccountEmail,
   passwordResetOauthOnlyEmail,
@@ -33,6 +35,7 @@ const ALL = [
       isAnonymous: false,
       amount: 5000,
       transactionId: 'pi_3Abc',
+      currency: 'USD',
     }),
   ],
 ] as const;
@@ -119,6 +122,7 @@ describe('the donation receipt escapes everything it interpolates', () => {
       isAnonymous: false,
       amount: 5000,
       transactionId: 'pi_3Abc',
+      currency: 'USD',
     }).html;
 
     expect(html).not.toContain('<img');
@@ -134,6 +138,7 @@ describe('the donation receipt escapes everything it interpolates', () => {
       isAnonymous: false,
       amount: 5000,
       transactionId: 'pi_3Abc',
+      currency: 'USD',
     }).html;
 
     expect(html).not.toContain('<img');
@@ -145,6 +150,7 @@ describe('the donation receipt escapes everything it interpolates', () => {
       donorName: 'Grace',
       isAnonymous: false,
       amount: 5000,
+      currency: 'USD',
       transactionId: hostile,
     }).html;
 
@@ -158,6 +164,7 @@ describe('the donation receipt escapes everything it interpolates', () => {
       isAnonymous: true,
       amount: 5000,
       transactionId: 'pi_3Abc',
+      currency: 'USD',
     }).html;
 
     expect(html).not.toContain('Grace');
@@ -173,6 +180,7 @@ describe('the donation receipt escapes everything it interpolates', () => {
       isAnonymous: false,
       amount: 5000,
       transactionId: 'pi_3Abc',
+      currency: 'USD',
       date: new Date('2026-10-16T23:30:00Z'),
     }).html;
 
@@ -188,8 +196,79 @@ describe('the donation receipt escapes everything it interpolates', () => {
       isAnonymous: false,
       amount: 5000,
       transactionId: 'pi_3Abc',
+      currency: 'USD',
     }).html;
 
     expect(html).toMatch(/not a tax receipt/i);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────── */
+
+describe('⛔ an email states money in the campaign\'s own currency', () => {
+  /*
+    The reported symptom, as behaviour rather than shape.
+
+    `notifications.ts` called `campaignCompletedEmail` with no `currency`,
+    and `formatCents` defaulted to USD - so the "your campaign reached its
+    goal" email, which goes to EVERY donor, told a Kenyan campaign's donors
+    the goal in dollars. Measured before the fix: KES 50,000 rendered as
+    `$50,000.00`, roughly 130x. `docs/125`.
+  */
+  const goalMinor = 5_000_000;
+
+  /*
+    ⚠️ `Intl` puts a NON-BREAKING space (U+00A0) between a multi-character
+    symbol and the number, so `toContain('Ksh 50.00')` with an ordinary space
+    never matches - while the `$` cases pass, because `$1,000.00` has no
+    space at all. An assertion that silently cannot match is worse than none.
+  */
+  const flat = (html: string) => html.replace(/\u00a0/g, ' ');
+
+  it('renders a KES goal in shillings, not dollars', () => {
+    const html = campaignCompletedEmail({
+      donorName: 'Ada',
+      campaignTitle: 'Nairobi appeal',
+      campaignSlug: 'nairobi-appeal',
+      goalAmount: goalMinor,
+      currency: 'KES',
+    }).html;
+    expect(flat(html)).toContain('Ksh 50,000.00');
+    expect(flat(html)).not.toContain('$50,000.00');
+  });
+
+  it('⚠️ and the control: the same figure in USD renders differently', () => {
+    // Without this, a template that ignored the parameter entirely and
+    // always printed shillings would satisfy the rule above.
+    const html = campaignCompletedEmail({
+      donorName: 'Ada',
+      campaignTitle: 'US appeal',
+      campaignSlug: 'us-appeal',
+      goalAmount: goalMinor,
+      currency: 'USD',
+    }).html;
+    expect(flat(html)).toContain('$50,000.00');
+    expect(flat(html)).not.toContain('Ksh');
+  });
+
+  it('⚠️ a suggested campaign is rendered in ITS currency, not the reader\'s', () => {
+    /*
+      `campaignCancelledRefundEmail` lists OTHER campaigns to give to. They
+      are other people's campaigns and need not share the reader's currency,
+      so each carries its own - rendering them all in the reader's would
+      misstate a stranger's total.
+    */
+    const html = campaignCancelledRefundEmail({
+      donorName: 'Ada',
+      campaignTitle: 'Nairobi appeal',
+      donationAmount: 5_000,
+      currency: 'KES',
+      cancellationReason: 'The organiser asked us to close it.',
+      similarCampaigns: [
+        { title: 'A US campaign', slug: 'us', raised: 100_000, goal: 900_000, currency: 'USD' },
+      ],
+    }).html;
+    expect(flat(html)).toContain('Ksh 50.00');   // the reader's own donation
+    expect(flat(html)).toContain('$1,000.00');   // the suggested campaign
   });
 });

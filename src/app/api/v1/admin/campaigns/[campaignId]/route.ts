@@ -6,6 +6,7 @@ import { eq, sql } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { notifyCampaignStatusChange, notifyWelcomeCampaigner } from '@/lib/notifications';
 import { randomUUID } from 'crypto';
+import { DEFAULT_CURRENCY } from '@/lib/money/currencies';
 import type { ApiError } from '@/types/api';
 import type { CampaignStatus, UserRole } from '@/types';
 
@@ -159,7 +160,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     // Fetch campaign details needed for notification (slug, goalAmount)
     const [full] = await db
-      .select({ slug: campaigns.slug, goalAmount: campaigns.goalAmount })
+      .select({ slug: campaigns.slug, goalAmount: campaigns.goalAmount, currency: campaigns.currency })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
       .limit(1);
@@ -199,6 +200,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       previousStatus: currentStatus,
       newStatus,
       goalAmount: full?.goalAmount ?? 0,
+      // Without this the completion email told every donor the goal in
+      // DOLLARS whatever the campaign's currency. `docs/125`.
+      currency: full?.currency ?? DEFAULT_CURRENCY,
     }).catch((err) => console.error('[campaign.status_changed] notification error:', err));
 
     /*
@@ -327,7 +331,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
       // Fetch slug for notification
       const [c] = await db
-        .select({ slug: campaigns.slug, goalAmount: campaigns.goalAmount })
+        .select({ slug: campaigns.slug, goalAmount: campaigns.goalAmount, currency: campaigns.currency })
         .from(campaigns)
         .where(eq(campaigns.id, campaignId))
         .limit(1);
@@ -339,6 +343,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
         previousStatus: campaign.status as string,
         newStatus: 'archived',
         goalAmount: c?.goalAmount ?? 0,
+        currency: c?.currency ?? DEFAULT_CURRENCY,
       }).catch((err) => console.error('[campaign.archived] notification error:', err));
 
       return NextResponse.json({

@@ -20,6 +20,13 @@ export interface SimilarCampaign {
   slug: string;
   raised: number;
   goal: number;
+  /**
+   * Each suggested campaign's OWN currency. These are other people's
+   * campaigns, so one of them can be in a different currency from the one the
+   * reader is being emailed about - rendering them all in the sender's
+   * currency would misstate a stranger's total. `docs/125`.
+   */
+  currency: string;
   category: string;
   heroImageUrl: string;
 }
@@ -41,6 +48,7 @@ export async function findSimilarCampaigns(params: {
     slug: campaigns.slug,
     raised: campaigns.raisedAmount,
     goal: campaigns.goalAmount,
+    currency: campaigns.currency,
     category: campaigns.category,
     heroImageUrl: campaigns.heroImageUrl,
     location: campaigns.location,
@@ -80,6 +88,7 @@ export async function findSimilarCampaigns(params: {
         slug: row.slug,
         raised: row.raised,
         goal: row.goal,
+        currency: row.currency,
         category: row.category,
         heroImageUrl: row.heroImageUrl,
       });
@@ -109,6 +118,7 @@ export async function findSimilarCampaigns(params: {
           slug: row.slug,
           raised: row.raised,
           goal: row.goal,
+          currency: row.currency,
           category: row.category,
           heroImageUrl: row.heroImageUrl,
         });
@@ -134,6 +144,7 @@ export async function findSimilarCampaigns(params: {
           slug: row.slug,
           raised: row.raised,
           goal: row.goal,
+          currency: row.currency,
           category: row.category,
           heroImageUrl: row.heroImageUrl,
         });

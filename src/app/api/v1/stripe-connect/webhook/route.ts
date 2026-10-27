@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
+import { PLATFORM_PAYOUT_CURRENCY } from '@/lib/validators/payout';
 import { users, campaigns, campaignWithdrawals } from '@/db/schema';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
@@ -218,6 +219,14 @@ async function handleTransferCreated(transfer: Stripe.Transfer) {
           creatorId: campaign.creatorId,
           creatorEmail: creator.email,
           creatorName: creator.name ?? 'Campaigner',
+          /*
+            Derived from the payout rail, not written as 'USD'.
+            `withdraw/route.ts` refuses any other currency with
+            WRONG_PAYMENT_RAIL (`docs/121` §4), so this IS the currency of
+            every transfer - and if that rail ever changes this email
+            follows instead of quietly lying. `docs/125`.
+          */
+          currency: PLATFORM_PAYOUT_CURRENCY.toUpperCase(),
           campaignTitle: campaign.title ?? 'Campaign',
           amount: transfer.amount,
           transferId: transfer.id,

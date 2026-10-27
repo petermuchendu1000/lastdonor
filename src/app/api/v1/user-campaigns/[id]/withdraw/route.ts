@@ -550,6 +550,9 @@ export async function POST(
           creatorId: session.user.id,
           creatorEmail: user.email,
           creatorName: user.name ?? 'Campaigner',
+          // The payout rail's currency, derived not literal - see `docs/125`
+          // and the WRONG_PAYMENT_RAIL guard this route already enforces.
+          currency: PLATFORM_PAYOUT_CURRENCY.toUpperCase(),
           campaignTitle: campaign.title,
           amount: parsed.data.amount,
           reason: safeFailureMessage(err),

@@ -53,7 +53,7 @@ function ctaButton(href: string, label: string): string {
  * form and the grouped one is what every other surface already renders
  * (`src/components/ui/Money.tsx`).
  */
-function formatCents(cents: number, currency: string = 'USD'): string {
+function formatCents(cents: number, currency: string): string {
   return formatMoney(cents, currency, 'exact');
 }
 
@@ -152,6 +152,8 @@ export function donationRefundedEmail(p: {
   amount: number;
   campaignTitle: string;
   campaignSlug: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   return {
     subject: `Your money is on the way back`,
@@ -164,7 +166,7 @@ export function donationRefundedEmail(p: {
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
         <tr>
           <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Amount</td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount)}</td>
+          <td style="padding: 8px 0; border-bottom: 1px solid #eee; font-weight: bold; text-align: right;">${formatCents(p.amount, p.currency)}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; border-bottom: 1px solid #eee; color: #666;">Campaign</td>
@@ -186,6 +188,8 @@ export function donationRefundReversedEmail(p: {
   donorName: string;
   amount: number;
   campaignTitle: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   return {
     subject: `Your donation is active again`,
@@ -193,7 +197,7 @@ export function donationRefundReversedEmail(p: {
       `
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">We cancelled your refund</h1>
       <p>Hi ${esc(p.donorName)},</p>
-      <p>We refunded your ${formatCents(p.amount)} donation to <strong>${esc(p.campaignTitle)}</strong>. We have now cancelled that refund.</p>
+      <p>We refunded your ${formatCents(p.amount, p.currency)} donation to <strong>${esc(p.campaignTitle)}</strong>. We have now cancelled that refund.</p>
       <p>Your donation counts again. You do not need to do anything.</p>
       <p style="color: #666; font-size: 14px;">If this looks wrong, email <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a>.</p>
     `,
@@ -207,8 +211,8 @@ export function campaignCompletedEmail(p: {
   campaignTitle: string;
   campaignSlug: string;
   goalAmount: number;
-  /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   return {
     subject: `"${p.campaignTitle}" reached its goal`,
@@ -462,14 +466,16 @@ export function campaignCancelledRefundEmail(p: {
   donorName: string;
   campaignTitle: string;
   donationAmount: number;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   cancellationReason: string;
   refundReference?: string;
-  similarCampaigns?: Array<{ title: string; slug: string; raised: number; goal: number }>;
+  similarCampaigns?: Array<{ title: string; slug: string; raised: number; goal: number; currency: string }>;
 }) {
-  const formatCard = (c: { title: string; slug: string; raised: number; goal: number }) => `
+  const formatCard = (c: { title: string; slug: string; raised: number; goal: number; currency: string }) => `
     <div style="border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
       <p style="font-weight: 600; margin: 0 0 4px;">${esc(c.title)}</p>
-      <p style="color: #666; margin: 0 0 8px; font-size: 14px;">${formatCents(c.raised)} raised of ${formatCents(c.goal)} - ✅ Fully Verified</p>
+      <p style="color: #666; margin: 0 0 8px; font-size: 14px;">${formatCents(c.raised, c.currency)} raised of ${formatCents(c.goal, c.currency)} - ✅ Fully Verified</p>
       <a href="${BASE_URL}/campaigns/${c.slug}" style="background-color: #EA580C; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px;">Donate Now</a>
     </div>
   `;
@@ -496,14 +502,14 @@ export function campaignCancelledRefundEmail(p: {
       <p>${esc(p.cancellationReason)}</p>
 
       <h3 style="color: #333; margin: 20px 0 8px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your money</h3>
-      <p>We sent back all <strong>${formatCents(p.donationAmount)}</strong>. It goes back the same way you paid.</p>
+      <p>We sent back all <strong>${formatCents(p.donationAmount, p.currency)}</strong>. It goes back the same way you paid.</p>
       <p>It should reach your account in 5 to 10 working days. Your bank decides how long it takes.</p>
       ${p.refundReference ? `<p style="color: #666; font-size: 14px;">Refund number: ${esc(p.refundReference)}</p>` : ''}
 
       ${similarSection}
       <p style="color: #666; font-size: 14px;">Need help? Email <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a>.</p>
     `,
-      `We sent back all ${formatCents(p.donationAmount)}. It should reach you in 5 to 10 working days.`,
+      `We sent back all ${formatCents(p.donationAmount, p.currency)}. It should reach you in 5 to 10 working days.`,
     ),
   };
 }
@@ -604,8 +610,8 @@ export function donationReceivedEmail(p: {
   campaignSlug: string;
   donorName: string;
   amount: number;
-  /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   isAnonymous: boolean;
   message?: string | null;
 }) {
@@ -652,8 +658,8 @@ export function donationReceiptEmail(p: {
   donorName: string;
   isAnonymous: boolean;
   amount: number;
-  /** ISO 4217 of `amount`. Defaults to USD for callers that predate KES. */
-  currency?: string;
+  /** ISO 4217 of `amount`. Required: there is no safe default. */
+  currency: string;
   transactionId: string;
   date?: Date;
 }) {
@@ -685,6 +691,8 @@ export function bulkRefundCompletedEmail(p: {
   campaignTitle: string;
   totalDonors: number;
   totalAmount: number;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   failedCount: number;
 }) {
   return {
@@ -694,7 +702,7 @@ export function bulkRefundCompletedEmail(p: {
       <p>The refund batch for campaign <strong>"${esc(p.campaignTitle)}"</strong> has been processed.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
         <tr><td style="padding: 8px 0; color: #666;">Donors Refunded</td><td style="padding: 8px 0; font-weight: 600;">${p.totalDonors}</td></tr>
-        <tr><td style="padding: 8px 0; color: #666;">Total Amount</td><td style="padding: 8px 0; font-weight: 600;">${formatCents(p.totalAmount)}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Total Amount</td><td style="padding: 8px 0; font-weight: 600;">${formatCents(p.totalAmount, p.currency)}</td></tr>
         ${p.failedCount > 0 ? `<tr><td style="padding: 8px 0; color: #c00;">Failed</td><td style="padding: 8px 0; color: #c00; font-weight: 600;">${p.failedCount}</td></tr>` : ''}
       </table>
       ${p.failedCount > 0 ? '<p style="color: #c00;">Please review the failed refunds in the admin panel.</p>' : ''}
@@ -711,8 +719,8 @@ export function firstDonationCelebrationEmail(p: {
   campaignSlug: string;
   donorName: string;
   amount: number;
-  /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   return {
     subject: `You got your first gift for "${p.campaignTitle}"`,
@@ -743,8 +751,8 @@ export function campaignCompletedCreatorEmail(p: {
   campaignTitle: string;
   campaignSlug: string;
   goalAmount: number;
-  /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   donorCount: number;
   documentRequirementsHtml: string;
 }) {
@@ -1176,17 +1184,19 @@ export function withdrawalCompletedEmail(p: {
   campaignTitle: string;
   amount: number;
   transferId: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   return {
-    subject: `We sent you ${formatCents(p.amount)}`,
+    subject: `We sent you ${formatCents(p.amount, p.currency)}`,
     html: wrap(
       `
       <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your money is on its way</h1>
       <p>Hi ${esc(p.campaignerName)},</p>
-      <p>We have sent you <strong>${formatCents(p.amount)}</strong> from <strong>"${esc(p.campaignTitle)}"</strong>.</p>
+      <p>We have sent you <strong>${formatCents(p.amount, p.currency)}</strong> from <strong>"${esc(p.campaignTitle)}"</strong>.</p>
       <p>It should reach your bank in about 2 working days.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
-        <tr><td style="padding: 12px 16px; color: #666;">Amount</td><td style="padding: 12px 16px; font-weight: 600; font-family: 'DM Mono', monospace;">${formatCents(p.amount)}</td></tr>
+        <tr><td style="padding: 12px 16px; color: #666;">Amount</td><td style="padding: 12px 16px; font-weight: 600; font-family: 'DM Mono', monospace;">${formatCents(p.amount, p.currency)}</td></tr>
         <tr><td style="padding: 12px 16px; color: #666;">Payment number</td><td style="padding: 12px 16px; font-family: 'DM Mono', monospace; font-size: 13px;">${esc(p.transferId)}</td></tr>
       </table>
       <p>Keep the payment number. We will ask for it if you need help.</p>
@@ -1202,13 +1212,15 @@ export function withdrawalFailedEmail(p: {
   campaignTitle: string;
   amount: number;
   reason: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   return {
     subject: `Withdrawal Failed - "${p.campaignTitle}"`,
     html: wrap(`
       <h1 style="color: #DC2626; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Withdrawal Failed</h1>
       <p>Hi ${esc(p.campaignerName)},</p>
-      <p>Your withdrawal of <strong>${formatCents(p.amount)}</strong> from <strong>"${esc(p.campaignTitle)}"</strong> could not be completed.</p>
+      <p>Your withdrawal of <strong>${formatCents(p.amount, p.currency)}</strong> from <strong>"${esc(p.campaignTitle)}"</strong> could not be completed.</p>
       <p style="background: #fef2f2; padding: 16px; border-radius: 8px; border-left: 4px solid #DC2626; margin: 16px 0;">
         <strong>Reason:</strong> ${esc(p.reason)}
       </p>

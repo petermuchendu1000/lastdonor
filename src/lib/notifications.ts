@@ -390,6 +390,8 @@ export async function notifyCampaignStatusChange(p: {
   previousStatus: string;
   newStatus: string;
   goalAmount: number;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   // Only notify on significant status changes - not draft toggling
   const NOTIFY_STATUSES = ['completed', 'archived'];
@@ -453,6 +455,7 @@ export async function notifyCampaignStatusChange(p: {
         campaignTitle: p.campaignTitle,
         campaignSlug: p.campaignSlug,
         goalAmount: p.goalAmount,
+        currency: p.currency,
       });
     } else if (p.newStatus === 'archived') {
       emailContent = campaignArchivedEmail({
@@ -898,6 +901,8 @@ export async function notifyBulkRefundCompleted(p: {
   totalDonors: number;
   totalAmount: number;
   failedCount: number;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   const admins = await db
     .select({ id: users.id, email: users.email, name: users.name })
@@ -910,6 +915,7 @@ export async function notifyBulkRefundCompleted(p: {
       campaignTitle: p.campaignTitle,
       totalDonors: p.totalDonors,
       totalAmount: p.totalAmount,
+      currency: p.currency,
       failedCount: p.failedCount,
     });
 
@@ -936,7 +942,8 @@ export async function notifyAdminsDonationReceived(p: {
   donorName: string;
   amount: number;
   /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   isAnonymous: boolean;
   message?: string | null;
   excludeUserId?: string;
@@ -975,7 +982,8 @@ export async function notifyCreatorDonationReceived(p: {
   donorName: string;
   amount: number;
   /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   isAnonymous: boolean;
   message?: string | null;
 }) {
@@ -1018,7 +1026,8 @@ export async function notifyCreatorFirstDonation(p: {
   donorName: string;
   amount: number;
   /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   isAnonymous: boolean;
 }) {
   const donor = p.isAnonymous ? 'An anonymous supporter' : p.donorName;
@@ -1054,7 +1063,8 @@ export async function notifyCreatorCampaignCompleted(p: {
   campaignSlug: string;
   goalAmount: number;
   /** ISO 4217 of the amounts above. Defaults to USD. */
-  currency?: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
   donorCount: number;
   documentRequirementsHtml: string;
 }) {
@@ -1339,11 +1349,14 @@ export async function notifyWithdrawalCompleted(p: {
   campaignTitle: string;
   amount: number;
   transferId: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   const emailContent = withdrawalCompletedEmail({
     campaignerName: p.creatorName || 'Campaigner',
     campaignTitle: p.campaignTitle,
     amount: p.amount,
+    currency: p.currency,
     transferId: p.transferId,
   });
 
@@ -1367,11 +1380,14 @@ export async function notifyWithdrawalFailed(p: {
   campaignTitle: string;
   amount: number;
   reason: string;
+  /** ISO 4217 of the amounts above. Required: there is no safe default. */
+  currency: string;
 }) {
   const emailContent = withdrawalFailedEmail({
     campaignerName: p.creatorName || 'Campaigner',
     campaignTitle: p.campaignTitle,
     amount: p.amount,
+    currency: p.currency,
     reason: p.reason,
   });
 
