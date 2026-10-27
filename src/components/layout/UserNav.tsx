@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useUnreadNotificationCount } from '@/components/NotificationBell';
+import { Money } from '@/components/ui/Money';
 import {
   Squares2X2Icon,
   SparklesIcon,
@@ -29,18 +30,30 @@ function getInitials(name: string | null | undefined): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function formatBalance(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  });
-}
+/*
+  ⛔ There is no `formatBalance` here any more, and that is the fix.
+
+  It was `(cents / 100).toLocaleString('en-US', { currency: 'USD' })` - a
+  SEVENTH hand-rolled currency formatter, after the six `docs/88` F4/F5 and
+  `docs/114` removed - rendering a figure that
+  `GET /api/v1/user/balance` had summed across every currency the person
+  holds. A KES 10,000-minor released balance printed as **$100.00** in the
+  navbar of every signed-in page.
+
+  Both sweeps missed it because `money-currency.ratchet.test.ts` looked for
+  `<Money …>` JSX and a hand-rolled `Intl` call has none - the `docs/115`
+  lesson about checking the property rather than the symptom, which that
+  ratchet now does. `docs/121`.
+*/
 
 export function UserNav() {
   const { data: session, status } = useSession();
   const unread = useUnreadNotificationCount();
   const [open, setOpen] = useState(false);
-  const [balance, setBalance] = useState<{ availableBalance: number; hasCampaigns: boolean } | null>(null);
+  const [balance, setBalance] = useState<{
+    balances: { currency: string; availableMinor: number }[];
+    hasCampaigns: boolean;
+  } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   function handleMouseEnter() {
@@ -119,17 +132,30 @@ export function UserNav() {
           </div>
         </DropdownMenuLabel>
         {/* Available Funds - Fiverr-style, shown only for campaign creators */}
-        {balance?.hasCampaigns && (
+        {balance?.hasCampaigns && balance.balances.length > 0 && (
           <>
             <DropdownMenuSeparator />
             <Link
               href="/dashboard/payout-settings"
-              className="flex items-center justify-between px-2 py-2.5 transition-colors hover:bg-muted/60 rounded-sm"
+              className="flex items-center justify-between gap-3 px-2 py-2.5 transition-colors hover:bg-muted/60 rounded-sm"
               onClick={() => setOpen(false)}
             >
               <span className="text-xs font-medium text-muted-foreground">Available funds</span>
-              <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                {formatBalance(balance.availableBalance)}
+              {/*
+                One line per currency. Two currencies are never added together
+                (`docs/92`); where a cross-currency total is wanted, it is
+                reported per currency and never summed.
+              */}
+              <span className="flex flex-col items-end">
+                {balance.balances.map((b) => (
+                  <Money
+                    key={b.currency}
+                    minor={b.availableMinor}
+                    currency={b.currency}
+                    precision="exact"
+                    className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400"
+                  />
+                ))}
               </span>
             </Link>
           </>

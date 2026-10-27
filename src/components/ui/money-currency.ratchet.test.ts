@@ -78,6 +78,103 @@ function moneyCallSites(): { file: string; tag: string }[] {
   return sites;
 }
 
+/**
+ * Every hand-rolled currency formatter in `src/`, outside the money module.
+ *
+ * ── Why this rule exists ────────────────────────────────────────────────────
+ *
+ * The sweep above checks `<Money>` JSX, which is the SYMPTOM. A formatter
+ * written by hand has no `<Money>` tag at all, so it is invisible to it - and
+ * `docs/121` found exactly that: `UserNav.tsx` carried
+ *
+ *   `(cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })`
+ *
+ * rendering a figure `GET /api/v1/user/balance` had summed across every
+ * currency the person holds. A KES 10,000-minor balance printed as **$100.00**
+ * in the navbar of every signed-in page. Both the `docs/114` and `docs/115`
+ * sweeps walked past it, because both looked for `<Money>`.
+ *
+ * It is the seventh such formatter after the six `docs/88` F4/F5 and
+ * `docs/114` removed. The pattern recurs because it is three lines and looks
+ * harmless, so the check is on the PROPERTY - "is a currency being formatted
+ * outside the one module allowed to" - rather than on today's symptom.
+ */
+function handRolledFormatters(): { file: string; snippet: string }[] {
+  const ALLOWED = [
+    // The one module allowed to format money.
+    'src/lib/money/format.ts',
+    // Renders through `formatMoney`; the Intl call IS the implementation.
+    'src/components/ui/Money.tsx',
+  ];
+  const files = globSync('src/**/*.{ts,tsx}', { cwd: process.cwd() })
+    .filter((f) => !/\.(test|spec)\.tsx?$/.test(f))
+    .filter((f) => !ALLOWED.includes(f))
+    .map((f) => join(process.cwd(), f));
+
+  const hits: { file: string; snippet: string }[] = [];
+  for (const file of files) {
+    // Comments stripped first, for the reason given above.
+    const source = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    /*
+      Both spellings of the same thing: `Intl.NumberFormat(…, {currency})` and
+      `.toLocaleString(…, {currency})`. The `currency:` key is what makes it a
+      MONEY formatter - an `Intl.NumberFormat` for a plain count or a date is
+      not this rule's business.
+    */
+    for (const m of source.matchAll(
+      /(?:Intl\.NumberFormat|toLocaleString)\s*\([^)]{0,200}?\bcurrency\s*:/g,
+    )) {
+      hits.push({
+        file: file.replace(`${process.cwd()}/`, ''),
+        snippet: m[0].replace(/\s+/g, ' ').slice(0, 90),
+      });
+    }
+  }
+  return hits;
+}
+
+describe('⛔ no hand-rolled currency formatter outside the money module', () => {
+  it('the sweep reads real files', () => {
+    // A bad glob would make the rule below pass against anything.
+    const files = globSync('src/**/*.{ts,tsx}', { cwd: process.cwd() });
+    expect(files.length).toBeGreaterThan(300);
+  });
+
+  it('⛔ finds none', () => {
+    /*
+      ⛔ Do NOT add an allowlist entry to let one through. Render money with
+      `<Money minor currency>` or `formatMoney(minor, currency, …)`; both read
+      the currency's own exponent, which four known currencies need and a
+      `/ 100` gets wrong by 100x (`docs/92`, `docs/103`).
+    */
+    const hits = handRolledFormatters();
+    expect(
+      hits.map((h) => `${h.file}: ${h.snippet}`),
+      'a currency is being formatted outside src/lib/money',
+    ).toEqual([]);
+  });
+
+  it('⚠️ and the rule would catch the one that got through', () => {
+    /*
+      A check that cannot fail is not a check. This is the exact line that was
+      live in `UserNav.tsx`, so if the pattern stops matching it, the rule has
+      stopped meaning anything.
+    */
+    const re = /(?:Intl\.NumberFormat|toLocaleString)\s*\([^)]{0,200}?\bcurrency\s*:/;
+    expect(
+      re.test("(cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })"),
+    ).toBe(true);
+    expect(re.test("new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' })")).toBe(
+      true,
+    );
+    // And it leaves non-money Intl alone.
+    expect(re.test("count.toLocaleString('en-US')")).toBe(false);
+    expect(re.test("new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })")).toBe(false);
+  });
+});
+
 describe('Money currency ratchet', () => {
   it('finds the Money call sites at all, so a silent zero cannot pass this suite', () => {
     // Guards against the regex quietly matching nothing and every assertion

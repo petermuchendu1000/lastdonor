@@ -108,6 +108,32 @@ const FORBIDDEN: { name: string; re: RegExp }[] = [
     name: 'quotes a turnaround time for the review',
     re: /(?:review(?:ed|s|ing)?|approv\w*|decid\w*|decision|goes live|publish\w*)[^.]{0,80}?\b(?:within|in)\s+\d+\s*(?:hours?|days?|business days?)\b|\b(?:within|in)\s+\d+\s*(?:hours?|days?|business days?)\b[^.]{0,80}?(?:review(?:ed|s|ing)?|approv\w*|decid\w*|decision|goes live|publish\w*)/i,
   },
+  {
+    /*
+      ⛔ A SECOND turnaround rule, because the first one could not see the two
+      live violations `docs/121` found in a directory it already swept.
+
+      `CampaignVerificationDashboard` said "You will be notified by email once
+      a decision has been made. **This typically takes 1 to 2 business
+      days.**" and "our team will review your documents **within 1-2 business
+      days**". The rule above missed BOTH, for two different reasons, and
+      neither is a coverage gap - the file was in `SURFACES`:
+
+        - the first sentence puts "decision" and the duration on opposite
+          sides of a full stop, and that rule deliberately requires them in
+          the SAME sentence (`[^.]{0,80}`);
+        - "1-2" breaks `\d+\s*(?:days)` at the hyphen, and "takes 1 to 2" has
+          no `within`/`in` at all.
+
+      ⚠️ So this rule needs no proximity and no lead-in word. It can afford
+      that because **"business days" is a turnaround promise and nothing
+      else** - the false positive the rule above was narrowed for is a refund
+      window ("normally within 30 days of giving"), which is calendar days.
+      A test below asserts that sentence still passes.
+    */
+    name: 'quotes a turnaround in business days',
+    re: /\b\d+\s*(?:[-\u2013]|\s+to\s+)?\s*\d*\s*business\s+days?\b/i,
+  },
 ];
 
 describe('the sweep is real', () => {
@@ -133,10 +159,30 @@ describe('the sweep is real', () => {
       We email you when it is decided, and tell you exactly what to change
       if anything needs changing. Our editorial team reviews your campaign,
       typically within 24 hours.
+      You will be notified by email once a decision has been made. This
+      typically takes 1 to 2 business days.
     `;
     for (const rule of FORBIDDEN) {
       expect(rule.re.test(offender), `rule "${rule.name}" matched nothing`).toBe(true);
     }
+  });
+
+  it('⚠️ and the business-days rule does not fire on a refund window', () => {
+    /*
+      The reason that rule can skip the proximity requirement the one above it
+      needs. `FundraiserPreviewModal` says donors may request a refund
+      "normally within 30 days of giving", which is the refund window, is
+      stated the same way on `/refund-policy`, and is true. Calendar days, not
+      business days - and the distinction is the whole licence for the looser
+      pattern, so it is asserted rather than assumed.
+    */
+    const businessDays = FORBIDDEN.find((r) => r.name === 'quotes a turnaround in business days');
+    expect(businessDays, 'the business-days rule is gone').toBeTruthy();
+    expect(businessDays!.re.test('request a refund normally within 30 days of giving')).toBe(false);
+    expect(businessDays!.re.test('It should reach your bank in about 2 working days')).toBe(false);
+    // And it still fires on the two sentences that were live.
+    expect(businessDays!.re.test('This typically takes 1 to 2 business days.')).toBe(true);
+    expect(businessDays!.re.test('review your documents within 1-2 business days')).toBe(true);
   });
 });
 

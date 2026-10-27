@@ -9,6 +9,7 @@ import {
   isSupportedPayoutCurrency,
 } from '@/lib/validators/payout';
 import { createTransfer } from '@/lib/stripe-connect';
+import { notifyWithdrawalFailed } from '@/lib/notifications';
 import { organiserWithdrawalBlockedBy } from '@/lib/institutional-payout/decide';
 import { activeDesignation } from '@/lib/institutional-payout/designation.server';
 import { randomUUID } from 'crypto';
@@ -58,6 +59,28 @@ function isDefiniteTransferFailure(err: unknown): boolean {
  * Creator-initiated withdrawal. Validates ownership, Connect status,
  * available balance, then creates a Stripe transfer.
  */
+/**
+ * A failure message safe to show the organiser. Never exposes gateway
+ * internals.
+ *
+ * Extracted so the DEFINITE-failure branch can put the same words in the
+ * email it now sends. It used to be inline in the catch, which is why the
+ * notification could not reuse it.
+ */
+function safeFailureMessage(err: unknown): string {
+  const e = err as { type?: string; message?: string; code?: string };
+  if (e?.code === 'balance_insufficient' || e?.message?.includes('insufficient')) {
+    return 'This withdrawal cannot be processed at the moment. Platform funds are being settled. Please try again later.';
+  }
+  if (e?.message?.includes('not currently available') || e?.message?.includes('payouts_not_allowed')) {
+    return 'Your payout account is not yet ready to receive transfers. Please check your account for any pending requirements.';
+  }
+  if (e?.message?.includes('currency')) {
+    return 'There was a currency mismatch with your payout account. Please contact support.';
+  }
+  return 'Withdrawal could not be processed right now. Please try again later or contact support.';
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -150,6 +173,10 @@ export async function POST(
       stripeConnectAccountId: users.stripeConnectAccountId,
       stripeConnectStatus: users.stripeConnectStatus,
       payoutCurrency: users.payoutCurrency,
+      // For the failure notification below. Two more columns on a query that
+      // already runs - no extra round trip (docs/87's three-query cap).
+      email: users.email,
+      name: users.name,
     })
     .from(users)
     .where(eq(users.id, session.user.id))
@@ -499,6 +526,35 @@ export async function POST(
           processedAt: new Date(),
         })
         .where(eq(campaignWithdrawals.id, withdrawalId));
+
+      /*
+        Tell the organiser. `notifyWithdrawalFailed` and its email template
+        both existed and had ZERO callers, so a definite failure released the
+        reservation and said nothing at all - the organiser's money came back
+        and the only way to learn why was to reload the payouts screen and
+        read a raw gateway string.
+
+        ⛔ ONLY on the definite branch. The `else` below is the UNKNOWN
+        outcome, where we do not know whether the transfer went through -
+        emailing "your withdrawal failed" there would be a claim the platform
+        cannot substantiate, and it is the one case where the money may
+        actually have moved.
+
+        The reason sent is the LAUNDERED message, not `rawReason`: this goes
+        in an email, and `safeFailureMessage` is what the HTTP response has
+        always used. Fire-and-forget - a mail failure must not change the
+        money outcome. `docs/121`.
+      */
+      if (user?.email) {
+        notifyWithdrawalFailed({
+          creatorId: session.user.id,
+          creatorEmail: user.email,
+          creatorName: user.name ?? 'Campaigner',
+          campaignTitle: campaign.title,
+          amount: parsed.data.amount,
+          reason: safeFailureMessage(err),
+        }).catch((e) => console.error('[withdraw] failure notification error:', e));
+      }
     } else {
       await db
         .update(campaignWithdrawals)
@@ -522,19 +578,8 @@ export async function POST(
       );
     }
 
-    // Surface user-safe error messages only. Never expose Stripe internals.
-    let message = 'Withdrawal could not be processed right now. Please try again later or contact support.';
-    const stripeErr = err as { type?: string; message?: string; code?: string };
-    if (stripeErr.code === 'balance_insufficient' || stripeErr.message?.includes('insufficient')) {
-      message = 'This withdrawal cannot be processed at the moment. Platform funds are being settled. Please try again later.';
-    } else if (stripeErr.message?.includes('not currently available') || stripeErr.message?.includes('payouts_not_allowed')) {
-      message = 'Your payout account is not yet ready to receive transfers. Please check your account for any pending requirements.';
-    } else if (stripeErr.message?.includes('currency')) {
-      message = 'There was a currency mismatch with your payout account. Please contact support.';
-    }
-
     return NextResponse.json(
-      { ok: false, error: { code: 'INTERNAL_ERROR', message, requestId } } satisfies ApiError,
+      { ok: false, error: { code: 'INTERNAL_ERROR', message: safeFailureMessage(err), requestId } } satisfies ApiError,
       { status: 500 },
     );
   }

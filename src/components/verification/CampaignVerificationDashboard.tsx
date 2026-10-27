@@ -28,6 +28,7 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { verificationStatusLabel } from '@/lib/campaign-labels';
+import { publicCampaignPath } from '@/lib/campaign-links';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -137,11 +138,18 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
   const canUploadDocs = ['unverified', 'pending', 'documents_uploaded', 'info_requested', 'identity_verified'].includes(
     campaign.verificationStatus,
   );
+  /*
+    ⛔ `identity_verified` is NOT excluded here.
+
+    It was, and it is the state the ID check leaves an organiser in - the one
+    state where Step 2's upload form renders. So the only place they could
+    attach a document was the only place the Submit control was hidden, and the
+    route refused it too (`submit/route.ts`). `docs/121`.
+  */
   const canSubmitForReview =
     !new Set([
       'documents_uploaded',
       'submitted_for_review',
-      'identity_verified',
       'fully_verified',
     ]).has(campaign.verificationStatus) && documents.length > 0;
   const isDocumentReviewPending =
@@ -323,9 +331,24 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
             Verification
           </h1>
           <p className="mt-1 text-muted-foreground">
-            <Link href={`/campaigns/${campaign.slug}`} className="text-brand-teal hover:underline">
-              {campaign.title}
-            </Link>
+            {/*
+              ⛔ `publicCampaignPath`, not a template literal (`docs/118`).
+              This was unconditional, and an organiser is sent to this screen
+              precisely when their campaign is `under_review` - the status the
+              public page does not serve - so the campaign's own title was a
+              404 at the exact moment they were told to come here and check
+              their ID. `docs/121`.
+            */}
+            {publicCampaignPath({ slug: campaign.slug, status: campaign.status }) ? (
+              <Link
+                href={publicCampaignPath({ slug: campaign.slug, status: campaign.status })!}
+                className="text-brand-teal hover:underline"
+              >
+                {campaign.title}
+              </Link>
+            ) : (
+              campaign.title
+            )}
           </p>
         </div>
         <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
@@ -493,7 +516,14 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
               <p className="font-medium text-blue-800 dark:text-blue-200">Documents Under Review</p>
               <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
                 Your documents have been submitted and are being reviewed by our team.
-                You will be notified by email once a decision has been made. This typically takes 1 to 2 business days.
+                {/*
+                  ⛔ No turnaround. `organiser-journey.ts` and `docs/78` forbid
+                  quoting one, and this said "This typically takes 1 to 2
+                  business days" on a platform where not one verification has
+                  ever been reviewed. The email promise stays - it is true, the
+                  Didit webhook sends it. `docs/121`.
+                */}
+                We will email you as soon as there is a decision.
               </p>
             </div>
           </div>
@@ -709,7 +739,8 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
                   {submitting ? 'Submitting\u2026' : 'Submit for Verification Review'}
                 </Button>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Once submitted, our team will review your documents within 1-2 business days.
+                  {/* No turnaround - see the note above. `docs/121`. */}
+                  Once you send these, a person checks them and we email you the decision.
                 </p>
               </div>
             )}

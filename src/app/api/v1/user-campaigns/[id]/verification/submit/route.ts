@@ -50,8 +50,45 @@ export async function POST(request: NextRequest, { params }: Params) {
       throw new ForbiddenError();
     }
 
-    // Only allow submission from certain states
-    const submittableStates = ['unverified', 'submitted_for_review', 'info_requested', 'rejected'];
+    /*
+      ⛔ `identity_verified` is in this list, and leaving it out was a closed
+      loop an organiser could not escape.
+
+      The intended path is: pass the ID check → `identity_verified` → upload
+      supporting documents → submit them → an admin presses `approve_t2` →
+      `fully_verified`, which is the only status
+      `withdraw/route.ts` accepts. But `identity_verified` was absent here, so
+      this route answered **409 "Cannot submit verification from status:
+      identity_verified"**, and `canSubmitForReview` in
+      `CampaignVerificationDashboard` excluded it too, so no button rendered to
+      produce that 409.
+
+      Meanwhile Step 2 - the upload form - only renders once
+      `identityVerified || documents.length > 0`. So the ONLY state in which an
+      organiser can upload a first document was the one state from which they
+      could not submit it. They passed the ID check, were emailed "One more
+      step: send us papers - our team will look at them", uploaded a hospital
+      letter, and then nothing they could do changed anything: no control, no
+      "under review" banner, and no admin notified, because the notification
+      below lives on the route they could not reach.
+
+      `docs/121`. `verification-submittable.test.ts` derives this list and the
+      component's gate from source and requires them to agree, and requires the
+      status the Didit webhook writes on success to be in it.
+
+      ⚠️ That test also took `submitted_for_review` OUT, and it had been here
+      all along. `canSubmitForReview` excludes it and this component is the
+      route's only caller, so no UI could ever reach it - a divergence between
+      the two ends rather than a feature. Re-submitting a campaign that
+      already has a reviewer would reset its place in the queue, so the
+      component's end was the correct one.
+    */
+    const submittableStates = [
+      'unverified',
+      'identity_verified',
+      'info_requested',
+      'rejected',
+    ];
     if (!submittableStates.includes(campaign.verificationStatus)) {
       return NextResponse.json(
         { ok: false, error: { code: 'CONFLICT', message: `Cannot submit verification from status: ${campaign.verificationStatus}`, requestId } } satisfies ApiError,

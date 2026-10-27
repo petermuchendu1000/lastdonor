@@ -134,6 +134,7 @@ transcript or a commit message is lost.
 | `118-CAMPAIGN-LINK-GUARD-ADR.md` | **A notification is a LINK, and `docs/109`'s rule ("before rendering ANY link to `/campaigns/<slug>`, call `hasPublicPage`") was enforced for the UI and NEVER SWEPT over notifications. Two handed a real person a 404: `campaign_archived` linked `/campaigns/<slug>` for the ONE status the page does not serve - so the only condition producing that notification was the only condition under which its link dies, and the recipients are un-refunded DONORS - and `message_flagged` put a UUID in the slug position, wrong on every use. Both [VERIFIED live: archived slug 404, uuid 404, active slug 200 as the control]. ⚠️ The ROOT CAUSE is that NOTHING BUILT A CAMPAIGN LINK: 20+ sites each decided slug-vs-id and public-vs-not, and the organiser routes are SPLIT 3/3 on whether they accept a slug (`[id]`, `updates`, `donors`, `edit` are UUID-only and `notFound()` a slug; `verification`, `impact-update`, `payout-destination` take either) - so two identical-looking lines, one working and one 404ing. Now `src/lib/campaign-links.ts`: `publicCampaignPath` returns **null** (both renderers already handle it) and `organiserCampaignPath` always keys on the ID. `campaignStatus` is a REQUIRED param so tsc enumerated every caller (the docs/115 trick); the 7 zero-caller helpers got it too, so a future caller CANNOT reintroduce the 404. ⚠️ §2.5: write-time guarding is NOT SUFFICIENT - a STORED link ROTS, and one production row was a 404 (valid for 2m39s before the campaign was archived). ✅ §9 RESOLVED (owner): `archived` is now SERVED with a closed notice, which kills §2.1 at source and heals that rotted row with NO backfill - `campaign-visibility.ts` already made exactly that argument for `suspended`/`cancelled` and `archived` had been omitted rather than decided. ⚠️ Rot is NOT eliminated: `ALLOWED_TRANSITIONS` still allows `active -> draft`, so the guard stays and the test naming `archived` was REPOINTED to `under_review`, not deleted. ✅ §10 RESOLVED (owner) for §6: currency is now SELECTABLE in the create wizard, so a campaign can be made in KES and actually collect over the one working rail. Taking that inventory found FIVE hardcoded dollars, one of them ARITHMETIC (`* 100`, right for USD/KES and 100x wrong for the zero-decimal currencies). ⛔ Still open: the 14 existing USD campaigns are untouched and `DEFAULT_CURRENCY` is still USD. §7 has the journey inventory with production row counts.** |
 | `119-ORGANISER-DOORS-AND-A-SITEMAP-ANOMALY.md` | **The organiser journey, plus the production verification of docs/118 §9/§10 (v110: archived 404 -> 200 with its notice, `noindex` held, three controls unchanged). ⛔ The journey PROMISED an edit the editor refuses: `organiser-journey.ts:279-287` set `href`+`action`+"Done. You can still edit it." UNCONDITIONALLY while `edit/page.tsx:63` redirects anything outside `['draft','active']`, and BOTH renderers show a button on `step.href && step.action` - docs/83 INVERTED (a door always shown onto a room that refuses to open). ⛔ `/dashboard/campaigns` was in NEITHER nav surface (the mobile nav renders the same sidebar), its three persistent doors all conditional and creator-dependent - so the people docs/117 fixed that list for had no way back to it - while `layout.tsx` spent one of three permitted queries computing `hasCampaigns` and the sidebar destructured it as `_hasCampaigns` and threw it away. ⛔ The Impact Update tile was UNGATED beside two gated siblings and its target redirects a non-creator, and ⚠️ MY OWN docs/117 test had the hole it came through (four named regions, this was the fifth) - now a STRUCTURAL rule finds every child link, and it FAILED FIRST on `edit`, where the rule was wrong not the page (`edit_content` IS delegatable). ⚠️ Gate 3 REFUTED my severity: 9 campaigns would bounce but only 2 have a real organiser - because `creator_id` is NULLABLE and **13 of 14 live campaigns have NO organiser at all**, which is a bigger open finding (nobody to verify, remind or pay). ✅ §2 RESOLVED: Gate 5 caught a sitemap anomaly via a FAILED CONTROL - production advertised ZERO campaign URLs. Cause verified three ways (the Dockerfile's hermetic branch in the log, eight `[build] database read failed` lines, and the build's route table) and it is **7 baked routes, not the 24 `deploy.sh` quotes**, of which only the two SITEMAPS carry a 1h window; the heal was then OBSERVED on `/transparency` (`STALE` with 0 money figures -> `HIT` with 2), so it is not a defect in `sitemap.ts`. Both deploy scripts now report the campaign-URL count at the END of a deploy, and ⛔ the `revalidate` was deliberately NOT lowered. Also two raw enums at organisers and a "Create Campaign" button pointing at the list.** |
 | `120-REVIEW-JOURNEY-AND-THE-DOOR-THAT-PUBLISHED.md` | **The review journey, and ⛔ THE DASHBOARD'S OWN "Review" LINK PUBLISHED THE CAMPAIGN ON SAVE. Three mistakes composed: all three push signals (the `/admin` tile, the `[Admin] Review needed` email, the in-app row) pointed at `/admin/campaigns/<id>/edit`; that page coerced anything not `draft` to `'active'`, so an `under_review` campaign reached a select labelled "Initial Status" reading **Active**; and `PUT /api/v1/campaigns/[slug]` took a status with NO transition check, NO audit row, NO email, stamping `publishedAt` UNCONDITIONALLY. So an admin who opened the review link and fixed a typo published the campaign - and the row is indistinguishable in `audit_logs` from one nobody read, which is the evidence docs/116 §8's forensics rest on. ✅ The organiser CANNOT do this: an owner is restricted to seven content fields and `status` is not among them. Found from production - the owner's own submission went public **95 seconds** after `campaign.submitted` with ZERO `campaign.published` rows. Now ONE writer: PUT answers 400 (explicitly, because "Restore to Draft" was a live caller - a silent drop leaves a button that looks like it works), the editor DELETES `status` in edit mode (load-bearing: the resolver IS `createCampaignSchema`, whose `.default('draft')` would otherwise make every save UNPUBLISH the campaign), and `/admin/campaigns/[id]` gained **Approve and publish** - it had Suspend and Cancel and NO way to say yes. ⚠️ The ratchet must RESOLVE `.set(variable)`: the approval route assembles `updates.publishedAt = ...` then `.set(updates)`, so a literal-only sweep sees nothing there and my own first pass allowlisted the wrong file. Also: ⛔ `under_review` removed from `CANCELLABLE` (cancel notifies NOBODY, is terminal, and `cancelled` is publicly viewable) and its button had the docs/93 defect in the ADJACENT statement - `governanceReason || 'policy_violation'` against a `z.enum` lacking it, so **Cancel had never worked**; ⛔ the info-request pause had NO status guard (publishing an unreviewed campaign, `paused` being viewable) and `resume` did not stamp `publishedAt`, the two composing into the only route to a live campaign with a NULL `published_at`; ⛔ with ONE admin a self-submission notified NOBODY (the skip's premise "other admins still get it" is false, and the test hardcodes two admins); the review email printed a KES goal as `$500.00`; `campaign.auto_drafted` rendered as **"Campaign auto-published"** on the only in-app surface showing it; and two `paused` menu items always 400'd. ⚠️ The FIRST injection run was VOID - the backup set omitted one file so rows 6-12 measured a polluted tree; the harness now re-verifies a clean restore after EVERY injection. Read §2, §3 and §12 before touching campaign publication.** |
+| `121-MONEY-OUT-JOURNEY-AND-A-CLOSED-LOOP.md` | **The money-out journey: verification → release → payout. [VERIFIED] it has NEVER been entered - 0 verification documents, 0 Didit sessions, 0 Connect accounts, 0 withdrawals, 0 released, and KES 100 sitting unpayable. ⛔ THE ORGANISER COULD NOT COMPLETE VERIFICATION, and it was a closed loop rather than one omission: `identity_verified` was missing from `submittableStates`, `canSubmitForReview` excluded it too, and Step 2's upload form renders ONLY once the ID check has passed - so **the one state where you can attach a document was the one state from which you cannot submit it**. The organiser passed the ID check, was emailed 'send us papers, our team will look at them', uploaded one, and nothing they could do moved anything - and NO ADMIN was told, because `notifyAdminsVerificationSubmitted` lives on the route they could not reach. ⚠️ The test written for it (both ends derived from source, `docs/109` shape) immediately found a SECOND pre-existing divergence: `submitted_for_review` was route-submittable while the component hid it. Also ⛔ the navbar printed a CROSS-CURRENCY sum with a dollar sign - `/api/v1/user/balance` reduced released-minus-withdrawn across every currency and `UserNav` rendered it with a SEVENTH hand-rolled `toLocaleString(..., {currency:'USD'})`; both `docs/114` and `docs/115` walked past it because the ratchet globbed `<Money>` JSX, which a hand-rolled `Intl` call has none of - it now checks the PROPERTY, with no call-site allowlist. Also ⛔ the Withdraw form rendered for a currency `withdraw/route.ts` answers 400 `WRONG_PAYMENT_RAIL` to; ⛔ `notifyWithdrawalFailed` had ZERO callers, so a definite failure told the organiser nothing (now wired on the DEFINITE branch only - emailing 'failed' on the UNKNOWN branch would be unsubstantiated, and that is the branch where the money may have moved); ⛔ two 'business days' turnaround promises in a directory `organiser-promises.test.ts` ALREADY SWEPT (the hole was the pattern: one straddled a full stop, the other broke `\d+` at the hyphen in '1-2'); and ⛔ the verification screen linked its own campaign to a 404 - the THIRD `docs/118` sweep gap in two days. Read §2, §3.1 and §9 before touching verification or payout.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -144,7 +145,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7641 pass + 16 skipped, 258 files, as of 2026-10-27)
+npm run test:unit      # Vitest (7658 pass + 16 skipped, 259 files, as of 2026-10-27)
 npm run test:integration  # Vitest + a throwaway Postgres (256 tests, 26 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -1257,6 +1258,68 @@ These exist for a reason; changing them has consequences beyond the local file.
   was absent from the sitemap, but so was the active one, which **voided the
   measurement** until diagnosed. Take a pre-deploy baseline of anything you
   intend to assert afterwards.
+
+- **The status the ID check grants must be a status the organiser can act
+  from.** Added 2026-10-27, see `docs/121`. The path to being paid is
+  `identity_verified` → upload documents → **submit them** → an admin presses
+  `approve_t2` → `fully_verified`, which is the only status
+  `withdraw/route.ts` accepts. `identity_verified` was missing from
+  `submittableStates`, `canSubmitForReview` excluded it, and Step 2's upload
+  form renders only once the ID check has passed — so **the only state in
+  which an organiser could attach a first document was the only state from
+  which they could not submit it**, and no admin was told, because the
+  notification lives on the route they could not reach.
+
+  `verification-submittable.test.ts` derives the route's list AND the
+  component's gate from source and requires them to agree, rather than pinning
+  either. ⛔ Do not add a status to one end only. ⚠️ That test found a second
+  divergence the moment it was written (`submitted_for_review` was
+  route-submittable and component-hidden), which is the point of comparing two
+  ends instead of asserting one.
+
+- **One module formats money, and the ratchet checks that property, not
+  `<Money>` tags.** Added 2026-10-27, see `docs/121` §3.
+  `GET /api/v1/user/balance` summed `released − withdrawn` across every
+  currency into one integer and `UserNav` rendered it with
+  `toLocaleString('en-US', { currency: 'USD' })` — the **seventh** hand-rolled
+  formatter after the six `docs/88` F4/F5 and `docs/114` removed — so a KES
+  10,000-minor balance printed as **$100.00** in the navbar of every signed-in
+  page. Both currency sweeps missed it because
+  `money-currency.ratchet.test.ts` globbed `<Money …>` JSX and a hand-rolled
+  `Intl` call has no tag.
+
+  That ratchet now also matches `Intl.NumberFormat(…, {currency})` and
+  `.toLocaleString(…, {currency})` across `src/**/*.{ts,tsx}`. ⛔ **It has no
+  call-site allowlist and must not grow one** — the last legitimate formatter
+  (a literal `EXAMPLE_CENTS` in an explainer, never wrong) was converted to
+  `formatMoney` rather than excepted, because an exception that has to be
+  maintained is how the seventh one came to be written. Group per currency in
+  **SQL** where you can, so two currencies never share an accumulator.
+
+- **Only a currency the payout rail can pay may be offered a withdraw form.**
+  Added 2026-10-27, see `docs/121` §4. `withdraw/route.ts` refuses anything but
+  `PLATFORM_PAYOUT_CURRENCY` with `400 WRONG_PAYMENT_RAIL` — deliberate, and
+  the one line between the KES ledger and `stripe.transfers.create` under
+  `'usd'`. `FinancesClient` gated its form on `isVerified && balance > 0` and
+  nothing else, so a shilling campaign showed a live Withdraw button the server
+  rejects (`docs/119`'s rule). The predicate is derived from the route's own
+  constant so the two cannot drift.
+
+  ⚠️ And `notifyWithdrawalFailed` is called on the **definite**-failure branch
+  only. The other branch is the UNKNOWN outcome, where the platform does not
+  know whether the transfer went through — "your withdrawal failed" there is a
+  claim it cannot substantiate, and it is the one case where the money may
+  actually have moved.
+
+- **`organiser-journey.ts`'s `payoutAccount` fact is deliberately left
+  unset.** Added 2026-10-27, see `docs/121` §9.3. It looks like an oversight —
+  nothing sets it, so the payout step is permanently "later". ⛔ **Do not wire
+  it until the Connect rail works.** `isConnectAvailable` returns `true` on an
+  authentication error by design, so the "Connect with Stripe" button renders
+  and the POST answers `500 "Payment service configuration error"`. Setting the
+  fact to `'missing'` would make the journey tell organisers to add a payout
+  account and send them to a 500 — creating the `docs/119` violation the field
+  looks like it would fix.
 
 - **A campaign is published by ONE route, and the editor never carries a
   status.** Added 2026-10-27, see `docs/120`. Publishing means

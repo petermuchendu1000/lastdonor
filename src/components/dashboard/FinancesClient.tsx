@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { campaignStatusLabel } from '@/lib/campaign-labels';
 import { Money } from '@/components/ui/Money';
 import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
+import { PLATFORM_PAYOUT_CURRENCY } from '@/lib/validators/payout';
 import {
   financeTotalsByCurrency,
   type FinanceCurrencyTotals,
@@ -139,6 +140,13 @@ export default function FinancesClient({
 }: FinancesClientProps) {
   const router = useRouter();
   const isVerified = stripeConnectStatus === 'verified';
+  /*
+    Derived from `PLATFORM_PAYOUT_CURRENCY`, the same constant
+    `withdraw/route.ts` refuses on, rather than a literal 'USD' here. If the
+    rail ever gains a currency, both ends move together.
+  */
+  const isPayableCurrency = (currency: string) =>
+    currency.toUpperCase() === PLATFORM_PAYOUT_CURRENCY.toUpperCase();
 
   // Withdraw form state
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
@@ -469,7 +477,7 @@ export default function FinancesClient({
                 )}
 
                 {/* Withdraw inline: Stripe verified + balance available */}
-                {isVerified && campaign.availableBalance > 0 && (
+                {isVerified && isPayableCurrency(campaign.currency) && campaign.availableBalance > 0 && (
                   <div className="mt-4 flex flex-col gap-3 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950/20 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm font-medium text-green-800 dark:text-green-300">
                       <Money minor={campaign.availableBalance} currency={campaign.currency} precision="exact" /> available to withdraw
@@ -506,6 +514,33 @@ export default function FinancesClient({
                         {loading === `withdraw-${campaign.id}` ? 'Processing...' : 'Withdraw'}
                       </Button>
                     </div>
+                  </div>
+                )}
+
+                {/*
+                  ⛔ A balance the payout rail cannot pay.
+
+                  The Withdraw form above was gated on `isVerified` and a
+                  positive balance and NOTHING ELSE, while
+                  `withdraw/route.ts` refuses any campaign whose currency is
+                  not `PLATFORM_PAYOUT_CURRENCY` - so a shilling campaign with
+                  a released balance rendered a live Withdraw button that the
+                  server answers 400 `WRONG_PAYMENT_RAIL` to. `docs/119`'s
+                  rule: a step may offer an action only if its target will
+                  accept it. The predicate is derived from the route's own
+                  constant, so the two cannot drift. `docs/121`.
+                */}
+                {isVerified && !isPayableCurrency(campaign.currency) && campaign.availableBalance > 0 && (
+                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/20">
+                    <p className="text-sm text-amber-800 dark:text-amber-300">
+                      <Money minor={campaign.availableBalance} currency={campaign.currency} precision="exact" />{' '}
+                      is held for this campaign. We cannot pay out {campaign.currency} yet, so
+                      there is nothing for you to do here. Email{' '}
+                      <a href="mailto:support@lastdonor.org" className="underline">
+                        support@lastdonor.org
+                      </a>{' '}
+                      and a person will reply.
+                    </p>
                   </div>
                 )}
 

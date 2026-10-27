@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { formatMoney } from '@/lib/money/format';
 
 /**
  * Where your money goes: the fee claim, as a worked example.
@@ -86,8 +87,17 @@ const platformFeeCents = 0;
 const processingDeductedCents = 0;
 const toCampaignCents = EXAMPLE_CENTS - platformFeeCents - processingDeductedCents;
 
-const usd = (cents: number) =>
-  (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+/*
+  `formatMoney`, not a hand-rolled `Intl` call.
+
+  This one was legitimately USD - `EXAMPLE_CENTS` is a literal in an
+  explainer, not a figure off a row - so it was never wrong. It is converted
+  anyway, because the alternative was an allowlist entry in
+  `money-currency.ratchet.test.ts`, and an exception that has to be maintained
+  is how the seventh hand-rolled formatter got written in the first place
+  (`docs/121`). One module formats money.
+*/
+const usd = (cents: number) => formatMoney(cents, 'USD', 'exact');
 
 interface LedgerRow {
   label: string;

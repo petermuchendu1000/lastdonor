@@ -15,6 +15,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FinancesClient from '@/components/dashboard/FinancesClient';
 import { withdrawalRequestSchema } from '@/lib/validators/payout';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const mockRefresh = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -191,8 +193,54 @@ describe('FinancesClient currency', () => {
     expect(screen.queryByText('Ksh 19,200.00')).toBeNull();
   });
 
-  it('labels the withdraw field with the campaign currency rather than a $', () => {
-    render(<FinancesClient {...defaultProps} campaigns={[{ ...campaign, currency: 'KES', availableBalance: 500_000 }]} />);
-    expect(screen.getAllByText('KES').length).toBeGreaterThan(0);
+  /*
+    ⚠️ This used to assert that a KES campaign's WITHDRAW FIELD is labelled
+    "KES" rather than "$". The field was right about the label and wrong to be
+    there at all: `withdraw/route.ts` refuses any campaign whose currency is
+    not `PLATFORM_PAYOUT_CURRENCY`, so that form offered an action the server
+    answers 400 `WRONG_PAYMENT_RAIL` to - `docs/119`'s rule, and `docs/121`
+    closed it.
+
+    So the assertion is repointed rather than deleted: a currency the rail
+    cannot pay shows an explanation and NO form, a payable one still shows the
+    form, and the label is still derived from the campaign rather than
+    hardcoded. All three matter; the first is the fix, the second is the
+    control, and the third is the tripwire the original test existed to be.
+  */
+  it('⛔ a currency the rail cannot pay shows no withdraw form', () => {
+    render(
+      <FinancesClient
+        {...defaultProps}
+        campaigns={[{ ...campaign, currency: 'KES', availableBalance: 500_000 }]}
+      />,
+    );
+    expect(screen.queryByPlaceholderText(/^0\.01$|^1$/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^withdraw$/i })).toBeNull();
+    expect(screen.getByText(/cannot pay out KES yet/i)).toBeTruthy();
+  });
+
+  it('and a payable currency still does (the control)', () => {
+    render(
+      <FinancesClient
+        {...defaultProps}
+        campaigns={[{ ...campaign, currency: 'USD', availableBalance: 500_000 }]}
+      />,
+    );
+    expect(screen.getAllByRole('button', { name: /^withdraw$/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/cannot pay out/i)).toBeNull();
+  });
+
+  it('⚠️ and the field is still labelled from the campaign, not a literal', () => {
+    /*
+      The tripwire. Only USD is payable today, so no rendered assertion can
+      distinguish "derived from the campaign" from "hardcoded USD" - the
+      source is the only place that difference is visible.
+    */
+    const src = readFileSync(
+      resolve(__dirname, 'FinancesClient.tsx'),
+      'utf-8',
+    );
+    expect(src).toMatch(/\{campaign\.currency\}/);
+    expect(src).toMatch(/minorToMajor\(1, campaign\.currency\)/);
   });
 });
