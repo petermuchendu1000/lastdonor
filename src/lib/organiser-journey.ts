@@ -141,6 +141,31 @@ function identityStep(f: JourneyFacts): JourneyStep {
     case 'identity_verified':
     case 'fully_verified':
     case 'verified':
+    /*
+      ⛔ `documents_uploaded` and `submitted_for_review` are ID-DONE too, and
+      leaving them out made the ladder tell an organiser to redo a check they
+      had just passed.
+
+      They used to fall to `default:` - "Check your ID · Your turn · Takes a
+      few minutes. You need a photo ID", with the raise-cap sentence under it -
+      which was unreachable while `docs/121` had the submit route refusing
+      `identity_verified`. Opening that path armed it: the organiser passes the
+      ID check, sends their papers, and the step above the one they just
+      completed resets to "Your turn".
+
+      ⚠️ "Done" is correct here because the ONLY organiser route into these
+      two statuses is from `identity_verified`: the submit route requires at
+      least one document, and the upload form renders only once the ID check
+      has passed, so a campaign cannot reach them without one.
+      `organiser-journey.test.ts` pins that premise, because it is what makes
+      this branch honest rather than optimistic.
+
+      Found by looking at a screenshot of the walk in `docs/121` §8.1, not by
+      any assertion - the third time in three days (`docs/119` §9.1,
+      `docs/120` §11.3).
+    */
+    case 'documents_uploaded':
+    case 'submitted_for_review':
       return {
         ...base,
         state: 'done',

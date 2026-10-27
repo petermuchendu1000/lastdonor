@@ -315,6 +315,85 @@ rows, because the only route that writes them was one they could not reach.
 
 ---
 
+## 10. ⛔ Opening the path armed two defects behind it
+
+Both were found by **looking at a screenshot** of the §8.1 walk, not by any
+assertion — the third time in three days (`docs/119` §9.1, `docs/120` §11.3).
+
+After submitting papers the journey ladder read:
+
+> **Check your ID — Your turn** · Takes a few minutes. You need a photo ID.
+> Until this is done, this campaign can raise up to $500.00, and we cannot pay
+> you anything.
+
+for an organiser who had passed the ID check thirty seconds earlier.
+
+**1. The ladder.** `identityStep` switched on `verification_status` and
+`documents_uploaded` / `submitted_for_review` fell to `default:` — "now",
+"Takes a few minutes". The status column encodes a *sequence*, so moving
+forward in the document flow erased the record that the ID step was done.
+Fixed: both statuses are ID-done.
+
+**2. The raise cap, which is not a display problem.**
+`CAP_EXEMPT_VERIFICATION_STATUSES` genuinely excluded them, so **submitting
+your papers silently put the cap back** and donors would start being refused.
+
+Neither was reachable before: the submit route requires a document, and the
+upload form renders only once the ID check has passed, so an organiser could
+not get into either status. §2's fix is what made them reachable.
+
+**Owner decision, 2026-10-27: keep the exemption through document review.**
+`docs/101`'s rule is that the cap lifts once a person has checked the
+organiser's ID; sending papers afterwards does not undo that. The
+reachability argument it rests on is now asserted in
+`campaign-raise-cap.test.ts` rather than left in a comment — if the submit
+route stops requiring a document, or the upload form stops sitting behind the
+ID check, the exemption would be lifting a cap on an unchecked campaign and
+the decision must be reopened.
+
+⛔ **Known hole, recorded rather than hidden:** an admin can write
+`submitted_for_review` from `unverified` through
+`POST /api/v1/admin/info-requests` and through `info-requests/[requestId]`,
+which lifts the cap on a campaign whose ID was never checked. Closing it needs
+a durable "the ID was checked" signal that does not live in this single
+sequence column — `didit_verified_name` is written on a Didit pass but not by
+an admin `approve_t1`, so there is no universal one today.
+
+### 10.1 ⚠️ And the cap edit moved a donor disclosure, which I had not foreseen
+
+The cap decision was reported to the owner as a money question. It was not
+only that, and the correction belongs here rather than buried.
+
+`PendingVerificationBadge` — the amber banner that tells a donor *"We have not
+checked this organiser's ID yet. This campaign can raise up to $X until we do,
+and no money can be paid out to them before then."* — was keyed on
+**`isCapExempt`**. So widening the cap exemption silently **hid a disclosure
+donors are owed**, on every campaign in document review.
+
+Hiding it is in fact correct for the organiser-reached case: at
+`documents_uploaded` both of the badge's sentences are false — the ID *has*
+been checked and the campaign is *not* capped. But the admin hole below now
+costs more than a cap: on a campaign an admin pushed to `submitted_for_review`
+from `unverified`, the ID was never checked and the badge would vanish anyway.
+
+⛔ **The two questions are now separate predicates.** `isCapExempt` answers
+"may this campaign raise without limit"; `hasCheckedOrganiserId` answers "has a
+person seen this organiser's ID". The lists are identical today and
+deliberately not shared, so the next change to either moves only what it means
+to move.
+
+⚠️ **Nothing but one test stood between a money edit and a donor-facing
+claim.** It was the control `docs/119` §9.1 left behind with the note that
+*"gating it must never become a way to quietly delete a disclosure donors are
+owed"* — written for a different change, and it caught this one.
+
+⚠️ The transferable lesson: **a fix that opens a path owns what is down the
+path**, and a predicate shared by two unrelated decisions is a defect waiting
+for whichever is edited first. The two defects had sat harmlessly in the code
+for as long as the dead end existed.
+
+---
+
 ## 9. Reported, not changed
 
 1. ⛔ **The status poll is a Stripe poll on a column Didit never writes.**

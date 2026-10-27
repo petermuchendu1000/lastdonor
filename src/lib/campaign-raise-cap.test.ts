@@ -17,6 +17,8 @@ import {
 } from './campaign-raise-cap';
 import { CURRENCIES, getCurrency } from './money/currencies';
 import { formatMoney } from './money/format';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const USD = getCurrency('USD');
 const KES = getCurrency('KES');
@@ -127,19 +129,68 @@ describe('verification lifts the cap', () => {
     (approve_t1 -> identity_verified, approve_t2 -> fully_verified) lift the
     cap. If someone adds a state here, this test makes them say so out loud.
   */
-  it('exempts EXACTLY identity_verified and fully_verified', () => {
+  it('exempts exactly the four statuses downstream of an ID check', () => {
+    /*
+      ⚠️ Was `identity_verified` and `fully_verified` only, and the two
+      document-review statuses were asserted NOT exempt directly below. That
+      was right while nothing could reach them from `identity_verified`;
+      `docs/121` opened the submit path and armed the consequence - an
+      organiser who passed the ID check and sent their papers dropped back
+      under the limit, and donors started being refused.
+
+      Owner decision, 2026-10-27: the cap lifts once a person has checked the
+      ID, and sending papers afterwards does not put it back. `docs/121` §10.
+    */
     expect([...CAP_EXEMPT_VERIFICATION_STATUSES].sort()).toEqual([
+      'documents_uploaded',
       'fully_verified',
       'identity_verified',
+      'submitted_for_review',
     ]);
   });
 
-  it.each(['unverified', 'pending', 'submitted_for_review', 'documents_uploaded', 'info_requested', 'rejected', 'suspended', 'verified'])(
+  it.each(['unverified', 'pending', 'info_requested', 'rejected', 'suspended', 'verified'])(
     '%s is NOT exempt',
     (status) => {
       expect(isCapExempt(status)).toBe(false);
     },
   );
+
+  it('⛔ the premise: an organiser can only reach the document statuses via the ID check', () => {
+    /*
+      This is what makes the two additions above safe rather than generous,
+      so it is asserted rather than left in a comment.
+
+      The submit route is the only organiser writer of `documents_uploaded`,
+      and it requires at least one document; the upload form renders only once
+      the ID check has passed. So neither status is reachable by an organiser
+      without `identity_verified` first - which is why treating them as
+      "a person has checked this ID" is true and not optimistic.
+
+      ⛔ If either of these two reads stops holding, the exemption above is
+      lifting a cap on an unchecked campaign and this decision must be
+      reopened.
+    */
+    const strip = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+    const submitRoute = strip(
+      readFileSync(
+        resolve(__dirname, '../app/api/v1/user-campaigns/[id]/verification/submit/route.ts'),
+        'utf-8',
+      ),
+    );
+    const dashboard = strip(
+      readFileSync(
+        resolve(__dirname, '../components/verification/CampaignVerificationDashboard.tsx'),
+        'utf-8',
+      ),
+    );
+
+    // The submit route refuses without a document.
+    expect(submitRoute).toMatch(/Upload at least one verification document/);
+    // The upload form is behind the ID check.
+    expect(dashboard).toMatch(/identityVerified \|\| documents\.length > 0/);
+  });
 });
 
 describe('money-safety invariants', () => {

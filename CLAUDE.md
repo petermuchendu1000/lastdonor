@@ -145,7 +145,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7658 pass + 16 skipped, 259 files, as of 2026-10-27)
+npm run test:unit      # Vitest (7659 pass + 16 skipped, 259 files, as of 2026-10-27)
 npm run test:integration  # Vitest + a throwaway Postgres (256 tests, 26 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -1258,6 +1258,23 @@ These exist for a reason; changing them has consequences beyond the local file.
   was absent from the sitemap, but so was the active one, which **voided the
   measurement** until diagnosed. Take a pre-deploy baseline of anything you
   intend to assert afterwards.
+
+- **`isCapExempt` and `hasCheckedOrganiserId` are separate predicates, and
+  must stay separate.** Added 2026-10-27, see `docs/121` §10.1. One answers
+  "may this campaign raise without limit", the other "has a person seen this
+  organiser's ID". The lists are identical today. `PendingVerificationBadge`
+  was keyed on the cap one, so widening the cap exemption — a money decision —
+  silently **hid a donor disclosure** on every campaign in document review.
+  ⛔ Do not re-share them to remove a duplicate list. ⚠️ The only thing between
+  that money edit and the donor-facing claim was the control `docs/119` §9.1
+  left behind, written for a different change.
+
+  ⚠️ And a fix that OPENS a path owns what is down it. `docs/121` §2 made
+  `documents_uploaded` reachable by organisers for the first time, which armed
+  two defects that had sat harmlessly behind the dead end: the journey ladder
+  told them to redo the ID check they had just passed, and the raise cap came
+  back. Both found by looking at a screenshot, not by any assertion — the
+  third time in three days.
 
 - **The status the ID check grants must be a status the organiser can act
   from.** Added 2026-10-27, see `docs/121`. The path to being paid is

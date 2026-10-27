@@ -9,7 +9,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { isCapExempt } from '@/lib/campaign-raise-cap';
+import { hasCheckedOrganiserId } from '@/lib/campaign-raise-cap';
 import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
 import { formatMoney } from '@/lib/money/format';
 
@@ -107,7 +107,16 @@ export function PendingVerificationBadge({
 }: PendingVerificationBadgeProps) {
   // A ceiling on future giving means nothing where there is no future giving.
   if (!isDonatable) return null;
-  if (isCapExempt(verificationStatus)) return null;
+  /*
+    ⛔ `hasCheckedOrganiserId`, NOT `isCapExempt`.
+
+    This badge's first sentence is a claim about whether a person has seen the
+    organiser's ID; the cap exemption is a decision about how much a campaign
+    may raise. They share an answer today and they are not the same question -
+    keying this on the cap meant a money decision silently deleted a donor
+    disclosure (`docs/121` §10).
+  */
+  if (hasCheckedOrganiserId(verificationStatus)) return null;
 
   // `getCurrency` throws on an unknown code rather than defaulting to USD
   // (docs/92), which is right for money arithmetic and wrong for a badge:

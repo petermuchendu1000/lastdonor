@@ -38,8 +38,8 @@ describe('PendingVerificationBadge', () => {
     expect(document.body.textContent).toMatch(/no money can be paid out/i);
   });
 
-  it.each(['identity_verified', 'fully_verified'])(
-    'renders nothing once the campaign is %s',
+  it.each(['identity_verified', 'fully_verified', 'documents_uploaded', 'submitted_for_review'])(
+    'renders nothing once the campaign is %s, because a person has seen the ID',
     (status) => {
       const { container } = render(
         <PendingVerificationBadge verificationStatus={status} currency="USD" isDonatable />,
@@ -48,7 +48,25 @@ describe('PendingVerificationBadge', () => {
     },
   );
 
-  it.each(['pending', 'documents_uploaded', 'submitted_for_review', 'rejected'])(
+  /*
+    ⚠️ `documents_uploaded` and `submitted_for_review` were in this list, on
+    the premise that "none of those means a person has checked the ID". That
+    was true while an organiser could not reach either status - the submit
+    route refused `identity_verified` - and `docs/121` opened that path, so
+    both now mean the ID HAS been checked and the papers are in review.
+
+    Showing the badge there would state two things that are false: that nobody
+    has seen the organiser's ID, and that the campaign is still capped. They
+    moved to the hidden list below.
+
+    ⛔ The rule this file exists for is untouched: the badge still shows on
+    every status where nobody has checked the ID, and gating it must never
+    become a way to quietly delete a disclosure donors are owed (`docs/119`
+    §9.1). That is exactly what this test caught when the cap exemption was
+    widened - the badge was keyed on `isCapExempt`, so a money decision moved
+    a donor claim. The two predicates are now separate (`docs/121` §10).
+  */
+  it.each(['pending', 'rejected'])(
     'still shows for %s, because none of those means a person has checked the ID',
     (status) => {
       const { container } = render(

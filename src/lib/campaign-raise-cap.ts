@@ -60,7 +60,74 @@ import { formatMoney } from '@/lib/money/format';
 export const CAP_EXEMPT_VERIFICATION_STATUSES = [
   'identity_verified',
   'fully_verified',
+  /*
+    ⛔ Sending supporting papers must not put the cap back.
+
+    `docs/101`'s rule is that the cap lifts once A PERSON HAS CHECKED THE
+    ORGANISER'S ID, and these two statuses are what the document flow moves
+    through AFTER that check. They were absent, so an organiser who passed the
+    ID check and then submitted their papers silently dropped back under the
+    limit and donors started being refused - a money consequence with no
+    screen anywhere saying so.
+
+    It was unreachable until `docs/121` opened the submit path from
+    `identity_verified`; opening it armed this. Owner decision, 2026-10-27:
+    keep the exemption through document review.
+
+    ⚠️ The reachability argument this rests on: the ONLY organiser route
+    into either status is from `identity_verified`, because the submit route
+    requires at least one document and the upload form renders only once the
+    ID check has passed. `campaign-raise-cap.test.ts` pins that premise.
+
+    ⛔ KNOWN HOLE, recorded rather than hidden: an admin can write
+    `submitted_for_review` from `unverified` through
+    `POST /api/v1/admin/info-requests` and through
+    `info-requests/[requestId]`, which would lift the cap on a campaign whose
+    ID was never checked. Closing it needs a durable "the ID was checked"
+    signal that does not live in this single sequence column - see
+    `docs/121` §10.
+  */
+  'documents_uploaded',
+  'submitted_for_review',
 ] as const;
+
+/**
+ * Has a person checked this organiser's ID?
+ *
+ * ── Why this is NOT `isCapExempt`, although the lists are identical today ───
+ *
+ * They answer different questions, and `docs/121` §10 is what proved it
+ * matters. `PendingVerificationBadge` is a DONOR-FACING claim - "We have not
+ * checked this organiser's ID yet" - and it was keyed on `isCapExempt`. So
+ * widening the cap exemption, which is a money decision about how much a
+ * campaign may raise, silently removed a disclosure donors are owed. One edit,
+ * two unrelated consequences, no test between them except the one `docs/119`
+ * §9.1 had the foresight to leave behind.
+ *
+ * Decoupled so the next change to either moves only what it means to move.
+ *
+ * ⛔ KNOWN HOLE, and it is worse here than for the cap: an admin can write
+ * `submitted_for_review` from `unverified` through the info-request routes,
+ * and this function would then say an ID was checked when it was not -
+ * hiding the badge from donors on an unchecked campaign. Closing it needs a
+ * durable signal that does not live in this sequence column. `docs/121` §10.
+ */
+export function hasCheckedOrganiserId(verificationStatus: string): boolean {
+  return ID_CHECKED_VERIFICATION_STATUSES.includes(verificationStatus);
+}
+
+/**
+ * The statuses that mean a person has seen the organiser's ID.
+ *
+ * Identical to `CAP_EXEMPT_VERIFICATION_STATUSES` today and deliberately a
+ * separate list - see `hasCheckedOrganiserId`.
+ */
+const ID_CHECKED_VERIFICATION_STATUSES: readonly string[] = [
+  'identity_verified',
+  'fully_verified',
+  'documents_uploaded',
+  'submitted_for_review',
+];
 
 export function isCapExempt(verificationStatus: string): boolean {
   return (CAP_EXEMPT_VERIFICATION_STATUSES as readonly string[]).includes(
