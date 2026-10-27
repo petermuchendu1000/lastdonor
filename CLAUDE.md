@@ -143,7 +143,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7607 pass + 16 skipped, 256 files, as of 2026-10-27)
+npm run test:unit      # Vitest (7610 pass + 16 skipped, 256 files, as of 2026-10-27)
 npm run test:integration  # Vitest + a throwaway Postgres (256 tests, 26 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -1198,6 +1198,24 @@ These exist for a reason; changing them has consequences beyond the local file.
   requires each to be gated or named deliberately open - and the open set is
   exactly the two delegatable surfaces (`updates`, `edit`), because the first
   version of that rule flagged `edit` and **the rule was wrong, not the page**.
+
+- **A badge that states a future allowance must check the future is
+  possible.** Added 2026-10-27, see `docs/119` §9.1.
+  `PendingVerificationBadge` takes a **required** `isDonatable`, because it
+  printed *"This campaign can raise up to $500.00 until we do"* directly above
+  *"It can no longer take donations"* - a claim the platform cannot
+  substantiate, which CLAUDE.md forbids outright.
+
+  ⚠️ **The class predates serving `archived`** and was found by LOOKING at a
+  screenshot, not by any assertion: `isDonatable` is
+  `active || last_donor_zone`, so `completed`, `paused`, `suspended` and
+  `cancelled` have all been served and non-donatable for months, and a
+  `completed` campaign renders the same banner today. Serving `archived`
+  (`docs/118` §9) added one more instance and is what made somebody look.
+
+  ⛔ A control test asserts the badge **still renders** on a live unverified
+  campaign. Gating it must never become a way to quietly delete a disclosure
+  donors are owed.
 
 - **A deploy without `--prerender` blanks every ISR route that reads the
   database.** Added 2026-10-27, see `docs/119` §2. `scripts/deploy.sh:18-22`

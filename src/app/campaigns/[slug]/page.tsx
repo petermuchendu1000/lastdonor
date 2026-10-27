@@ -556,6 +556,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               <PendingVerificationBadge
                 verificationStatus={campaign.verificationStatus}
                 currency={campaign.currency}
+                isDonatable={isDonatable}
                 className="mt-3"
               />
 

@@ -67,7 +67,7 @@ describe('exactly one verification banner shows at a time', () => {
   it('shows the pending banner, and not the vouch banner, before a vouch', () => {
     const { container } = render(
       <>
-        <PendingVerificationBadge verificationStatus="unverified" currency="USD" />
+        <PendingVerificationBadge verificationStatus="unverified" currency="USD" isDonatable />
         <VouchedByBadge institutions={[]} />
       </>,
     );
@@ -78,7 +78,7 @@ describe('exactly one verification banner shows at a time', () => {
   it('shows the vouch banner, and not the pending banner, after one', () => {
     const { container } = render(
       <>
-        <PendingVerificationBadge verificationStatus="identity_verified" currency="USD" />
+        <PendingVerificationBadge verificationStatus="identity_verified" currency="USD" isDonatable />
         <VouchedByBadge institutions={[hospital]} />
       </>,
     );

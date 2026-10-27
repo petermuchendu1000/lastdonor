@@ -317,13 +317,81 @@ Restored: **50/50** on the four files.
 
 ---
 
+## 9. ✅ The browser walk, and the claim it found
+
+Run 2026-10-27 against a **production build** (`docs/63`) on a throwaway
+Postgres seeded with the E2E fixture plus three states it does not carry: an
+`under_review` campaign, an `archived` one, and an **accepted** collaborator.
+**21/21 assertions passed, zero console errors.**
+
+Each shot asserts what it should show, so a screenshot cannot quietly capture
+the broken state and look fine as a thumbnail:
+
+| shot | what it proves |
+|---|---|
+| dashboard | the "My campaigns" nav entry exists (§4) |
+| `under_review` detail | **zero** links to the editor; the old sentence gone; the new reason present (§3) |
+| `active` detail | the editor **is** offered — the control |
+| wizard goal step | `select#currency` offers USD and KES, and choosing KES renders **`Ksh`** (`docs/118` §10) |
+| `/campaigns/shot-archived` | **HTTP 200**, closed notice, no donate CTA (`docs/118` §9) |
+| collaborator list | not the empty state; badged *Helping*; nav entry present |
+| collaborator detail | **no** Impact Update / verification / donors — but updates still reachable (§5) |
+
+**This closes `docs/118` §10's [UNKNOWN].** §1 of this document records that an
+HTTP probe could not see the currency selector, because the wizard's goal step
+is not in the initial HTML. A browser at step 2 shows it, and the three-character
+`Ksh` prefix confirms the length-dependent padding works.
+
+⚠️ **Three of my own harness mistakes, each the lesson it illustrates:**
+
+1. The fixture was seeded under one `PASSWORD_PEPPER` and served under
+   another, so every sign-in failed — `docs/99` §6's hazard, met directly.
+2. `getByRole('button', { name: /yourself/i })` matched nothing, so the first
+   run screenshotted **step 1 instead of the goal step** and reported "no
+   currency selector". Those options are `role="radio"`, and an explicit ARIA
+   role **replaces** the implicit one — `docs/99`/`docs/100`, now met from the
+   test side.
+3. `a[href$="/donate"]` reported a donate CTA on the closed campaign. It was
+   matching the **global navbar link** to `/donate`. The rule was wrong, not
+   the page; the scoped version plus a control for the navbar link both pass.
+
+### 9.1 ⛔ The claim the screenshot found
+
+The archived page rendered, directly above *"It can no longer take
+donations"*:
+
+> ⏳ **Pending verification** — We have not checked this organiser's ID yet.
+> **This campaign can raise up to $500.00** until we do…
+
+**[VERIFIED three ways] the class PREDATES serving `archived`:**
+
+1. **Code** — `campaigns/[slug]/page.tsx:556` mounted
+   `PendingVerificationBadge` gated only on `verificationStatus` and
+   `currency`. Nothing about whether money can still arrive.
+2. **Logic** — `isDonatable` is `active || last_donor_zone`, so `completed`,
+   `paused`, `suspended` and `cancelled` have all been served and
+   non-donatable for months.
+3. **A live render** — a `completed` campaign, a status served long before
+   this change, answers 200 with the same banner. So serving `archived` added
+   **one more instance** and is what made somebody look; it did not create the
+   defect.
+
+A ceiling on future giving, on a campaign with no future giving, is a claim
+the platform cannot substantiate — which CLAUDE.md forbids outright.
+`isDonatable` is now a **required** prop, so `tsc` named both existing test
+files rather than letting the old calls compile.
+
+⚠️ A control test asserts the badge **still renders** on a live unverified
+campaign: this must not become a way to quietly delete a disclosure donors are
+owed. Mutation: dropping the guard fails 1 test; restored, 20/20.
+
+---
+
 ## 8. ⛔ What was NOT checked
 
-- **No browser walk of any of this.** Every finding is from source plus
-  production SQL. The `docs/117` lesson is that a walk finds what neither does,
-  and this document's §1 shows an HTTP probe being non-discriminating on the
-  very next thing. In particular: nobody has seen the new "My campaigns" nav
-  entry, the hidden Edit button, or the gated Impact Update tile rendered.
+- ~~No browser walk of any of this.~~ **Done — see §9**, 21/21 with
+  screenshots. What remains unseen: **mobile width** (the walk was 1280px
+  only), and no axe pass on the changed surfaces.
 - **Nothing in §3-§6 is deployed.** Production serves v110, which has §9/§10
   and none of this.
 - **The ownerless-campaign finding (§3.3) is reported, not acted on.** 13 of 14

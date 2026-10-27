@@ -60,6 +60,22 @@ type PendingVerificationBadgeProps = {
   verificationStatus: string;
   /** `campaigns.currency` - the cap is a per-currency figure. */
   currency: string;
+  /**
+   * Can this campaign still take money at all?
+   *
+   * ⛔ REQUIRED, not optional, so the compiler names the call site. This badge
+   * states a FUTURE allowance - "can raise up to X until we check the ID" -
+   * and on a campaign that cannot take a penny that is a claim the platform
+   * cannot substantiate, printed directly above "It can no longer take
+   * donations". [VERIFIED 2026-10-27 in a browser] it rendered on a `closed`
+   * campaign and on a `completed` one. `docs/119` §9.
+   *
+   * ⚠️ The class PREDATES serving `archived` (`docs/118` §9): `isDonatable` is
+   * `active || last_donor_zone`, so `completed`, `paused`, `suspended` and
+   * `cancelled` have all been served and non-donatable for months. Serving
+   * `archived` added one more instance and is what made somebody look.
+   */
+  isDonatable: boolean;
   className?: string;
 };
 
@@ -79,13 +95,18 @@ type PendingVerificationBadgeProps = {
  * a donor needs before deciding.
  *
  * Renders nothing once the campaign is past the cap gate, so it disappears
- * on its own when verification lands.
+ * on its own when verification lands - and nothing when the campaign can no
+ * longer take money, because the cap is then a statement about a future that
+ * cannot happen.
  */
 export function PendingVerificationBadge({
   verificationStatus,
   currency,
+  isDonatable,
   className,
 }: PendingVerificationBadgeProps) {
+  // A ceiling on future giving means nothing where there is no future giving.
+  if (!isDonatable) return null;
   if (isCapExempt(verificationStatus)) return null;
 
   // `getCurrency` throws on an unknown code rather than defaulting to USD
