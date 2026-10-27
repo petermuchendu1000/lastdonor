@@ -1154,7 +1154,28 @@ export function DonationForm({
           <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
             Privacy Policy
           </Link>
-          . Monthly donations can be cancelled before the next billing date.
+          {/*
+            ⛔ Was "Monthly donations can be cancelled before the next billing
+            date" - stated flatly, directly above the pay button, and the
+            platform cannot do it.
+
+            [VERIFIED 2026-10-27] there is no cancellation path anywhere:
+            `stripe.subscriptions.retrieve` in `payment-service.ts:137` is a
+            READ, nothing calls `.cancel` or `.update`, and no screen offers
+            it. `/donate`'s FAQ already hedged the same promise with "from
+            your account when available or by contacting support" - this one
+            did not, in the one place a donor reads before parting with money.
+
+            The copy now matches what the product can actually do.
+          */}
+          . To stop a monthly donation, email{' '}
+          <a
+            href="mailto:support@lastdonor.org"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            support@lastdonor.org
+          </a>{' '}
+          and a person will reply.
         </p>
       </div>
 
