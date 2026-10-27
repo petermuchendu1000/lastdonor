@@ -146,4 +146,22 @@ describe('⛔ the one opt-out link in every email works signed out', () => {
     expect(shell).toMatch(/\$\{BASE_URL\}\/settings/);
     expect(shell).toMatch(/Manage your notifications/);
   });
+
+  it('⛔ and the middleware does not gate it before the page can run', () => {
+    /*
+      ⚠️ The rule above asserts the page's SOURCE, and a page that cannot be
+      reached passes a source assertion happily. It did: `/settings/:path*`
+      was in the middleware's protected matcher, so a guest was redirected to
+      `/login` and the new page never executed. Measured, not reasoned - the
+      walk's positive control returned HTTP 307.
+
+      This is the `docs/83` shape committed into the fix for a `docs/83`
+      shape, which is why the rule is here and not in a comment.
+    */
+    const middleware = read('src/middleware.ts');
+    const matcher = middleware.slice(middleware.indexOf('matcher: ['));
+    const list = matcher.slice(0, matcher.indexOf(']'));
+    expect(list, 'the matcher was not parsed').toContain('/dashboard/:path*');
+    expect(list).not.toMatch(/'\/settings/);
+  });
 });

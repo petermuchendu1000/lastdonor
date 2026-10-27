@@ -270,7 +270,24 @@ export const config = {
     '/dashboard/:path*',
     '/notifications/:path*',
     '/profile/:path*',
-    '/settings/:path*',
+    /*
+      ⛔ `/settings` is NOT here, and that is deliberate.
+
+      It is the link in the footer of EVERY email this platform sends
+      (`email-shell.ts:361`, "Manage your notifications", and no caller
+      overrides `footerLinks`). Gating it at the middleware meant a guest
+      donor - the only shape of donor the M-Pesa rail creates - clicked the
+      one opt-out offered to them and was redirected to a login page for an
+      account they do not have.
+
+      The page handles both cases itself: it redirects a signed-in reader to
+      `/dashboard/settings` and renders a signed-out one an explanation and a
+      support address. It reads nothing user-specific when there is no
+      session, and carries `robots: noindex`.
+
+      ⚠️ If a child route is ever added under `/settings`, protect THAT path,
+      not the parent. `docs/122` §3.
+    */
     '/admin/:path*',
     // Default-deny: ALL API routes go through middleware
     '/api/:path*',

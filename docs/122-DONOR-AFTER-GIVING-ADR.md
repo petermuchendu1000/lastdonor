@@ -177,6 +177,46 @@ claim the platform cannot substantiate.
 
 ---
 
+## 6a. ⚠️ The fix for §3 was itself unreachable, and the build hid it
+
+`/settings` was corrected and **still answered `307 -> /login`**, because
+`'/settings/:path*'` sits in `src/middleware.ts`'s protected matcher. The page
+never ran. A `docs/83` shape, committed inside the fix for a `docs/83` shape.
+
+⛔ And the first version of `donor-is-told.test.ts` passed throughout, because
+it asserted the page's **source**. A page nobody can reach satisfies a source
+assertion happily. It now reads the middleware matcher as well.
+
+The matcher no longer lists `/settings`; the page decides for itself,
+redirecting a signed-in reader to `/dashboard/settings`. If a child route is
+ever added there, protect that path rather than the parent.
+
+⚠️ **Two measurement failures found it, and both are worth recording:**
+
+1. `pgrep -f "next-server"` matches the shell running it, so "stop the server"
+   repeatedly killed the session instead. The old server survived and the
+   browser walk measured a **stale build** — all nine assertions failed for
+   that reason and none of them meant anything. Use a self-excluding pattern:
+   `pgrep -f "next[-]server"`.
+2. `npm run e2e:build` is `seed && build`, the seed failed on
+   `verification_documents_campaign_id_campaigns_id_fk`, **and the script
+   still exited 0** — so the build silently did not run and the server kept
+   serving an hour-old bundle. The `docs/106` "exit 0 is not success" trap, a
+   third time.
+
+The foreign key was a real fixture gap, not just my hand-inserted row: the
+teardown deleted donations, updates, collaborators and campaigns and **not**
+verification documents, so any test that uploads one would break the next
+seed. Fixed, deleting by campaign id rather than relying on a cascade, which
+is that file's own stated rule.
+
+⚠️ The lesson that saved it: **a positive control, read before any
+assertion.** `/settings` returning the new page was checked first, and it was
+the only thing that distinguished "the code is wrong" from "I am measuring
+last hour's bundle".
+
+---
+
 ## 7. Checks
 
 - `npm run lint` — clean (one pre-existing unused-arg warning).

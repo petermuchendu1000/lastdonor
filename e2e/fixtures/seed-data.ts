@@ -196,7 +196,25 @@ export async function clearE2EData(): Promise<void> {
     could change; deleting what we inserted is the fixture's own rule, and it
     keeps teardown's "0 rows left" check meaningful.
   */
+    /*
+    Verification documents, before the campaigns they hang off.
+
+    ⚠️ The fixture deleted donations, updates, collaborators and campaigns and
+    NOT these - so the moment a campaign had a document, teardown failed with
+    `verification_documents_campaign_id_campaigns_id_fk`. Found when a
+    hand-inserted document for the `docs/121` walk made `npm run e2e:seed`
+    fail, and the failure was invisible because `e2e:build` is `seed && build`
+    and still exited 0: the build silently did not run and the server kept
+    serving an hour-old bundle. The same trap `docs/106` records twice.
+
+    This file's rule is to delete what it inserted rather than lean on
+    cascades, so the delete is by campaign id, not by a blanket truncate.
+  */
   await db
+    .delete(schema.verificationDocuments)
+    .where(inArray(schema.verificationDocuments.campaignId, [...E2E_CAMPAIGN_IDS]));
+
+await db
     .delete(schema.campaignUpdates)
     .where(inArray(schema.campaignUpdates.campaignId, [...E2E_CAMPAIGN_IDS]));
 
