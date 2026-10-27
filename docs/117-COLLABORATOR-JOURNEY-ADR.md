@@ -1,7 +1,9 @@
 # 117 — Accepting an invitation led nowhere
 
 **Date:** 2026-10-27
-**Status:** implemented on `main`, **not deployed** (owner runs deploys, `docs/96`).
+**Status:** ✅ **DEPLOYED (v109, 2026-10-27T03:55:07Z)**, and §7 records that the
+defect it fixes had **already happened to a real person in production** 63
+minutes earlier.
 
 `docs/111` built campaign collaborators and recorded, in §5a, that *"a
 collaborator cannot yet REACH a screen to use their capabilities — the API
@@ -231,9 +233,14 @@ e2e-19 (Desktop Chrome)   13 passed
 
 ## 6. ⛔ What was NOT checked
 
-- **Nothing against production.** This is all local. The feature is
+- ~~**Nothing against production.** This is all local. The feature is
   `docs/111` BUILT, NOT DEPLOYED, so production has no collaborator rows to
-  observe — **[VERIFIED]** by the walk being possible only on a seeded fixture.
+  observe — **[VERIFIED]** by the walk being possible only on a seeded
+  fixture.~~ ⚠️ **WRONG, and corrected in §7.** Production held **two**
+  collaborator rows while this sentence was being written. What was actually
+  verified is that *this walk* needed a seeded fixture; that was promoted to a
+  claim about production without anybody querying production. The count is one
+  `SELECT`, and it was not run.
 - **The E2E spec was not mutation-proven against the old code.** The resolver
   mutation that reproduces the original defect was started and the worker
   restarted mid-rebuild; the resolver was restored and re-verified (13/13),
@@ -247,3 +254,78 @@ e2e-19 (Desktop Chrome)   13 passed
 - **No accessibility (axe) pass** on the new notice or the badged row.
 - **The mobile leg and axe.** No accessibility pass on the new notice or the
   badged row, and the new spec was not run on Mobile Chrome.
+
+---
+
+## 7. ⚠️ It had already happened to somebody (added 2026-10-27, post-deploy)
+
+§6's "nothing against production" was not a gap in the walk. It was a **false
+claim**, and the thing it hid is the most useful fact in this document:
+
+**while this fix was being written, a real person walked the broken journey.**
+
+| UTC | What happened | Receipt |
+|---|---|---|
+| 02:08:40 | v108 live. `/dashboard/campaigns` is creator-only | `fly status`; `git show f47b099:src/app/dashboard/campaigns/page.tsx:43` |
+| 02:18:53 | organiser invites `muchs335@…` | `audit_logs` `collaborator.invited` |
+| 02:19:10 | organiser invites `phdtutor0@…` | `audit_logs` `collaborator.invited` |
+| 02:20:53 | the first invitee **creates an account** | `users.created_at` |
+| 02:21:06 | they **accept**, land on `?joined=1`, see the empty state | `audit_logs` `collaborator.accepted`; `campaign_collaborators.accepted_at` |
+| 03:23:59 | this fix is committed | `git log dacc905` |
+| 03:55:07 | v109 live | `fly status` |
+
+**[VERIFIED] three independent ways**, each able to refute the others:
+
+1. **The rows.** `accepted_at` set, `revoked_at` null, `user_id` set — and
+   `creator_id` (`bbaafd95…`) ≠ the acceptor (`d7ee1137…`), so this was a
+   genuine third party, not a self-invite that the creator-only query would
+   have listed anyway.
+2. **`audit_logs`**, a different table written by a different code path:
+   `collaborator.invited` ×2 then `collaborator.accepted`.
+3. **Git.** `dacc905` is the ONLY commit that has ever introduced
+   `listMyCampaigns`, and every commit touching that page back to
+   2026-10-18 carries `.where(eq(campaigns.creatorId, session.user.id))` at
+   line 43 — so whichever commit v108 was built from, it served the
+   creator-only query.
+
+**Falsification (Gate 3)** — *"what would most likely show this wrong?"* That
+the acceptor was the creator. They are not. So both predicates were then run
+against the live row:
+
+```
+v108  where creator_id = 'd7ee1137…'                          -> 0 rows
+v109  where creator_id = … OR exists(live membership …)        -> 1 row, role=collaborator
+```
+
+**0 rows is literally what that person saw.** The fix is therefore verified
+not against a fixture but against the exact production row of the exact person
+who hit it, and v109 now lists that campaign for them, badged *Helping*.
+
+### 7.1 The lesson, which is not "test in production"
+
+The walk in §1 was right, the diagnosis was right, the fix was right. The
+defect was in the **doc**: a sentence that asserted something about production
+in order to bound the work, with no query behind it. It cost nothing here
+because the fix was already correct — but the same sentence shape is how a
+real conclusion gets built on an assumed fact.
+
+⛔ **A claim about production is [UNKNOWN] until production has been asked.**
+Not inferred from a feature's deploy status, and especially not inferred from
+the fact that a local walk needed a fixture. `docs/116` §8 made the same
+mistake in the other direction, concluding production was unreachable when it
+was reachable over a different transport.
+
+### 7.2 Still unchecked
+
+- **Whether anybody told that person.** They saw an empty dashboard at
+  02:21:06 and the only thing that changed for them is a deploy; nothing
+  emails a collaborator to say "try again". **[UNKNOWN]** whether they
+  returned.
+- **The second invitation** (`phdtutor0@…`, no account, `expires_at`
+  2026-11-03) is still pending, so the no-account arm of §1 is live in
+  production and remains **[UNKNOWN]** end to end — §6's note that it stops at
+  "Check your email" still stands.
+- That campaign is `currency=USD` on a platform whose only real money is KES.
+  Not this fix's doing: `docs/116` §3 records that campaign currency is
+  settable by API and reachable from no screen, so every campaign defaults to
+  USD.

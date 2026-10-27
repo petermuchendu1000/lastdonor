@@ -176,6 +176,18 @@ export interface CreatorContext {
   creatorName: string;
   creatorEmail: string;
   creatorId: string;
+  /**
+   * The campaign's UUID.
+   *
+   * ⛔ Required because every organiser link here must be keyed on the id, not
+   * the slug: `/dashboard/campaigns/[id]/page.tsx:33` is
+   * `if (!UUID_RE.test(id)) notFound()`, and `updates`, `donors` and `edit`
+   * carry the same guard. This context previously carried ONLY `campaignSlug`,
+   * so the six "Post an Update" / "View Dashboard" buttons built from it could
+   * not have worked - the type could not supply what the route needs.
+   * `docs/118`.
+   */
+  campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
   /** Days since the campaign went live. */
@@ -201,6 +213,15 @@ export interface AbandonedDonationContext {
   donorEmail: string;
   campaignTitle: string;
   campaignSlug: string;
+  /**
+   * The campaign's status, so a link to its public page can be guarded.
+   *
+   * ⚠️ Required, although nothing calls this yet (`docs/118`). That is the
+   * point: `notifyAbandonedDonation` has zero callers, so requiring the field
+   * now means whoever finally wires it cannot reintroduce a link to a page
+   * that is not public. A `campaignStatus?:` would have let them.
+   */
+  campaignStatus: string;
   /** The amount the donor started to give (cents), if captured. */
   intendedAmountCents: number | null;
   /** Number of current donors on this campaign. */
@@ -584,7 +605,7 @@ export function creatorMotivationEmail(p: {
           ${calloutBox(
             `<strong>Quick tip:</strong> Your donors have no way of knowing what their money did unless you tell them. Five minutes and one photo is the difference between a receipt and a reason to give again.`
           )}
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Post an Update')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignId}`, 'Post an Update')}
           <p style="color: #666; font-size: 14px;">Need help writing an update? Just reply to this email and we'll help you out.</p>
         `),
       };
@@ -605,7 +626,7 @@ export function creatorMotivationEmail(p: {
             <li>"We're ${progressPercent}% of the way there. Here's what your donations are making possible..."</li>
             <li>"A quick note to let you know we haven't forgotten about this. Here's our timeline..."</li>
           </ol>
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Post an Update Now')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignId}`, 'Post an Update Now')}
         `),
       };
     }
@@ -629,7 +650,7 @@ export function creatorMotivationEmail(p: {
             '#EA580C',
             '#fff7ed'
           )}
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Write an update')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignId}`, 'Write an update')}
           <p style="color: #666; font-size: 14px;">If your situation has changed and you need to pause or close the campaign, that's okay too. We can help with that. Contact us at <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a>.</p>
         `),
       };
@@ -645,7 +666,7 @@ export function creatorMotivationEmail(p: {
           <p>Something worth celebrating: <strong>${milestone} people</strong> have now donated to your campaign <strong>"${campaignTitle}."</strong> That's not just a number. That's ${milestone} people who read your story and decided to help.</p>
           <p>You've raised <strong>${formatCents(c.raisedCents, c.currency)}</strong> so far, which is <strong>${progressPercent}%</strong> of your goal.</p>
           ${calloutBox(`<strong>Celebrate this milestone!</strong> Share it on social media or send a thank-you update to your donors. People love being part of a growing community.`)}
-          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Thank the people who gave')}
+          ${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignId}`, 'Thank the people who gave')}
         `),
       };
     }
@@ -721,8 +742,8 @@ export function creatorMotivationEmail(p: {
             </tr>
           </table>
           ${c.updateCount === 0
-            ? `<p>You haven't posted any updates yet. Even a short one can boost donations this week.</p>${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'Write your first update')}`
-            : ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignSlug}`, 'View Dashboard')
+            ? `<p>You haven't posted any updates yet. Even a short one can boost donations this week.</p>${ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignId}`, 'Write your first update')}`
+            : ctaButton(`${BASE_URL}/dashboard/campaigns/${c.campaignId}`, 'View Dashboard')
           }
         `),
       };

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { campaignMessages, auditLogs, notifications } from '@/db/schema';
+import { campaignMessages, campaigns, auditLogs, notifications } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import type { ApiResponse, ApiError } from '@/types/api';
 import { messageModerationSchema } from '@/lib/validators/admin';
+import { publicCampaignPath } from '@/lib/campaign-links';
 
 interface Params {
   params: Promise<{ campaignId: string; messageId: string }>;
@@ -47,10 +48,30 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const { action } = parsed.data;
 
-    // Verify message exists and belongs to campaign
+    /*
+      Verify the message exists, and pick up the campaign's SLUG and STATUS in
+      the same statement.
+
+      ⛔ The notification below used to link `/campaigns/${campaignId}` - a
+      UUID in the slug position. `/campaigns/[slug]` resolves only
+      `eq(campaigns.slug, slug)`, so it missed every time, and the recipient is
+      a donor being told their message was hidden. [VERIFIED live:
+      `GET /campaigns/<uuid>` answers 404; an active slug answers 200.]
+      `docs/118`.
+
+      ⚠️ Joined rather than fetched separately, because `docs/87` caps a route
+      at three CONCURRENT queries and the point of that cap is to stop screens
+      and routes growing a query at a time. The slug was always one join away.
+    */
     const [existing] = await db
-      .select({ id: campaignMessages.id, userId: campaignMessages.userId })
+      .select({
+        id: campaignMessages.id,
+        userId: campaignMessages.userId,
+        campaignSlug: campaigns.slug,
+        campaignStatus: campaigns.status,
+      })
       .from(campaignMessages)
+      .innerJoin(campaigns, eq(campaigns.id, campaignMessages.campaignId))
       .where(eq(campaignMessages.id, messageId))
       .limit(1);
 
@@ -97,7 +118,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         type: 'message_flagged',
         title: 'Message Hidden',
         message: 'One of your messages has been hidden by a moderator.',
-        link: `/campaigns/${campaignId}`,
+        link: publicCampaignPath({
+          slug: existing.campaignSlug,
+          status: existing.campaignStatus,
+        }),
       });
     }
 

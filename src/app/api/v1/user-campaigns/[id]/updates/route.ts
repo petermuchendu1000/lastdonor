@@ -127,6 +127,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       campaignId: id,
       campaignTitle: campaign.title,
       campaignSlug: campaign.slug,
+      campaignStatus: campaign.status,
       updateTitle: parsed.data.title,
       updateExcerpt: excerpt,
       progressPercent,

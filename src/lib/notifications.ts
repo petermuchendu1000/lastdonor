@@ -16,6 +16,7 @@ import { notifications, donations, users, donorCampaignSubscriptions } from '@/d
 import { eq, and, inArray, count } from 'drizzle-orm';
 import { resend } from '@/lib/resend';
 import { retryWithBackoff } from '@/lib/utils/retry';
+import { organiserCampaignPath, publicCampaignPath } from '@/lib/campaign-links';
 import {
   donationRefundedEmail,
   donationRefundReversedEmail,
@@ -117,7 +118,17 @@ export async function createAndEmail(p: {
   type: NotificationType;
   title: string;
   message: string;
-  link?: string;
+  /**
+   * Where the notification points, or `null` for one that is not a link.
+   *
+   * ⚠️ `null` is accepted, not merely tolerated. `publicCampaignPath` returns
+   * `null` when a campaign has no public page, and both renderers already
+   * handle it - `NotificationsClient.tsx:279-285` shows the title as plain
+   * text and `NotificationBell.tsx:246-249` does not navigate. The runtime
+   * always coped (`p.link ?? null` below); only this type was too narrow, so
+   * a guarded link could not be passed in. `docs/118`.
+   */
+  link?: string | null;
   email?: { to: string; subject: string; html: string };
 }): Promise<{ notificationId: string; emailed: boolean } | null> {
   try {
@@ -266,6 +277,17 @@ export async function notifyDonationRefund(p: {
   amount: number;
   campaignTitle: string;
   campaignSlug: string;
+  /**
+   * The campaign's CURRENT status, so the link can be guarded.
+   *
+   * ⚠️ Required rather than optional on purpose: a refund is very often issued
+   * after a campaign has been wound up, and `DELETE` on a campaign with any
+   * donation writes `status: 'archived'` while leaving the donations in place.
+   * So the common case for this notification is a campaign with no public
+   * page. Making the parameter optional would have let every existing call
+   * site keep its 404 and compile. `docs/118`.
+   */
+  campaignStatus: string;
   refunded: boolean;
 }) {
   // Find registered user by email (might be a guest donation)
@@ -294,7 +316,7 @@ export async function notifyDonationRefund(p: {
       type,
       title,
       message,
-      link: `/campaigns/${p.campaignSlug}`,
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -398,7 +420,16 @@ export async function notifyCampaignStatusChange(p: {
         type,
         title: titleText,
         message: messageText,
-        link: `/campaigns/${p.campaignSlug}`,
+        /*
+          ⛔ Guarded, because the `archived` branch above is the one case where
+          this link CANNOT resolve: `archived` is absent from
+          `PUBLICLY_VIEWABLE_STATUSES` and from the page's own filter, so the
+          only condition that produces a `campaign_archived` notification was
+          the only condition under which its link 404s - and the recipients
+          here are real un-refunded donors. [VERIFIED live: an `archived` slug
+          answers 404, an `active` one 200.] `docs/118`.
+        */
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.newStatus }),
         email: { to: donor.donorEmail, ...emailContent },
       });
     } else {
@@ -607,7 +638,7 @@ export async function notifyCampaignPaused(p: {
         type: 'campaign_paused',
         title: `"${p.campaignTitle}" has been paused`,
         message: `The campaign has been temporarily paused. Reason: ${p.reason}`,
-        link: `/campaigns/${p.campaignSlug}`,
+        link: publicCampaignPath({ slug: p.campaignSlug, status: 'paused' }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -641,7 +672,7 @@ export async function notifyCampaignResumed(p: {
         type: 'campaign_resumed',
         title: `"${p.campaignTitle}" has resumed`,
         message: `The campaign has resumed and is accepting donations again.`,
-        link: `/campaigns/${p.campaignSlug}`,
+        link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -675,7 +706,7 @@ export async function notifyCampaignSuspended(p: {
         type: 'campaign_suspended',
         title: `"${p.campaignTitle}" is under review`,
         message: `The campaign is currently being reviewed by our team. Your funds are secure.`,
-        link: `/campaigns/${p.campaignSlug}`,
+        link: publicCampaignPath({ slug: p.campaignSlug, status: 'suspended' }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -772,7 +803,7 @@ export async function notifyWelcomeCampaigner(p: {
     type: 'campaign_submitted',
     title: `Your campaign "${p.campaignTitle}" is live!`,
     message: `Your campaign is now live and accepting donations. Share it to get your first donation!`,
-    link: `/campaigns/${p.campaignSlug}`,
+    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
     email: { to: p.campaignerEmail, ...emailContent },
   });
 }
@@ -846,7 +877,7 @@ export async function notifyAdminsDonationReceived(p: {
       type: 'campaign_donation_received',
       title: `New donation: ${money(p.amount, p.currency)} to "${p.campaignTitle}"`,
       message: `${donor} donated ${money(p.amount, p.currency)} to "${p.campaignTitle}".${p.message ? ` Message: "${p.message}"` : ''}`,
-      link: `/campaigns/${p.campaignSlug}`,
+      link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
       email: { to: admin.email, ...emailContent },
     });
   }
@@ -882,7 +913,7 @@ export async function notifyCreatorDonationReceived(p: {
     type: 'campaign_donation_received',
     title: `New donation: ${money(p.amount, p.currency)}`,
     message: `${donor} donated ${money(p.amount, p.currency)} to your campaign "${p.campaignTitle}".${p.message ? ` They said: "${p.message}"` : ''}`,
-    link: `/campaigns/${p.campaignSlug}`,
+    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
     email: {
       to: creator.email,
       subject: `You received a ${money(p.amount, p.currency)} donation!`,
@@ -924,7 +955,7 @@ export async function notifyCreatorFirstDonation(p: {
     type: 'campaign_donation_received',
     title: `First donation received! ${money(p.amount, p.currency)}`,
     message: `${donor} just made the first donation to your campaign "${p.campaignTitle}". You'll receive funds once your campaign completes and verification is done.`,
-    link: `/campaigns/${p.campaignSlug}`,
+    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
     email: { to: p.creatorEmail, ...emailContent },
   });
 }
@@ -1343,6 +1374,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignStatus: string;
   campaignPhase: 'first_believers' | 'the_push' | 'closing_in' | 'last_donor_zone';
   campaignProgressPercent: number;
   donorCount: number;
@@ -1387,7 +1419,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
         type: 'campaign_donation_received',
         title: `Personal thank you for your ${tier === 'major' ? 'extraordinary' : 'generous'} donation`,
         message: `Your donation of $${(p.amount / 100).toFixed(2)} to "${p.campaignTitle}" stands out. Thank you.`,
-        link: `/campaigns/${p.campaignSlug}`,
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
         email: { to: p.donorEmail, ...hvEmail },
       });
     } else {
@@ -1402,7 +1434,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
       type: 'campaign_donation_received',
       title: `Donation receipt: $${(p.amount / 100).toFixed(2)} to "${p.campaignTitle}"`,
       message: `Thank you for your donation. Your receipt is in your email.`,
-      link: `/campaigns/${p.campaignSlug}`,
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1434,7 +1466,7 @@ export async function notifyAbandonedDonation(p: AbandonedDonationContext) {
           ? `"${p.campaignTitle}" is ${p.progressPercent}% funded`
           : `Last note about "${p.campaignTitle}"`,
       message: `You started a donation but didn't finish. The campaign is still live if you'd like to help.`,
-      link: `/campaigns/${p.campaignSlug}`,
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1454,6 +1486,7 @@ export async function notifyAdaptiveRefund(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignStatus: string;
   refundReason: 'campaign_cancelled' | 'donor_requested' | 'admin_initiated' | 'dispute';
   /*
     `currency` is PER ITEM: these are OTHER campaigns and may be in a
@@ -1483,7 +1516,7 @@ export async function notifyAdaptiveRefund(p: {
       type: 'donation_refunded',
       title: `Refund of $${(p.amount / 100).toFixed(2)} processed`,
       message: `Your donation to "${p.campaignTitle}" has been refunded.`,
-      link: `/campaigns/${p.campaignSlug}`,
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1517,7 +1550,7 @@ export async function notifyCreatorMotivation(p: {
     message: isInactivity
       ? `Your campaign "${p.context.campaignTitle}" could use an update. Your donors would love to hear from you.`
       : `Your campaign "${p.context.campaignTitle}" is making great progress!`,
-    link: `/dashboard/campaigns/${p.context.campaignSlug}`,
+    link: organiserCampaignPath(p.context.campaignId),
     email: { to: p.context.creatorEmail, ...emailContent },
   });
 }
@@ -1611,6 +1644,7 @@ export async function notifyPostDonationImpact(p: {
   donorName: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignStatus: string;
   donationDate: string;
   donationAmount: number;
   currentProgressPercent: number;
@@ -1641,7 +1675,7 @@ export async function notifyPostDonationImpact(p: {
       type: 'campaign_milestone',
       title: `Your donation to "${p.campaignTitle}" is making progress`,
       message: `The campaign is now ${p.currentProgressPercent}% funded with ${p.currentDonorCount} donors.`,
-      link: `/campaigns/${p.campaignSlug}`,
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1658,6 +1692,16 @@ export async function notifyCampaignUpdateDigest(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  /**
+   * The campaign's status, so the link can be guarded.
+   *
+   * ⚠️ An update can be posted to a campaign that is not public: the organiser
+   * route rejects only `archived` (`user-campaigns/[id]/updates/route.ts:68`),
+   * and an `active -> draft` transition is allowed by the admin PATCH map
+   * while the campaign KEEPS its donors - so a digest can go to subscribed
+   * donors naming a page that answers 404. `docs/118`.
+   */
+  campaignStatus: string;
   updateTitle: string;
   updateExcerpt: string;
   progressPercent: number;
@@ -1692,7 +1736,7 @@ export async function notifyCampaignUpdateDigest(p: {
         type: 'campaign_milestone',
         title: `Update on "${p.campaignTitle}": ${p.updateTitle}`,
         message: p.updateExcerpt.substring(0, 200),
-        link: `/campaigns/${p.campaignSlug}`,
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -1708,6 +1752,7 @@ export async function notifyCreatorThankYouUpdate(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignStatus: string;
   creatorName: string;
   thankYouMessage: string;
   progressPercent: number;
@@ -1737,7 +1782,7 @@ export async function notifyCreatorThankYouUpdate(p: {
         type: 'campaign_milestone',
         title: `Message from ${p.creatorName} about "${p.campaignTitle}"`,
         message: `The campaign creator posted a personal thank-you message for donors.`,
-        link: `/campaigns/${p.campaignSlug}`,
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -1781,13 +1826,14 @@ export async function notifyCreatorImpactUpdateApproved(p: {
   creatorName: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignStatus: string;
 }) {
   await createAndEmail({
     userId: p.creatorId,
     type: 'campaign_milestone' as NotificationType,
     title: `Impact update approved for "${p.campaignTitle}"`,
     message: `Your impact update has been reviewed and approved. Thank you for showing your supporters how their donations made a difference.`,
-    link: `/campaigns/${p.campaignSlug}`,
+    link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
     email: {
       to: p.creatorEmail,
       subject: `Impact update approved - ${p.campaignTitle}`,

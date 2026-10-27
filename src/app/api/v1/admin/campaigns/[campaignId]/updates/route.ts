@@ -90,7 +90,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Verify campaign exists
     const [campaign] = await db
-      .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, currency: campaigns.currency, raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount })
+      .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, status: campaigns.status, currency: campaigns.currency, raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
       .limit(1);
@@ -133,6 +133,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       campaignId,
       campaignTitle: campaign.title,
       campaignSlug: campaign.slug,
+      campaignStatus: campaign.status,
       updateTitle: title.trim(),
       updateExcerpt: excerpt,
       progressPercent,

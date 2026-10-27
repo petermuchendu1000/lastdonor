@@ -231,7 +231,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     // Notify the donor (fire-and-forget - never block the admin response)
     const [cam] = await db
-      .select({ title: campaigns.title, slug: campaigns.slug })
+      .select({ title: campaigns.title, slug: campaigns.slug, status: campaigns.status })
       .from(campaigns)
       .where(eq(campaigns.id, donation.campaignId))
       .limit(1);
@@ -244,6 +244,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         amount: donation.amount,
         campaignTitle: cam.title,
         campaignSlug: cam.slug,
+        campaignStatus: cam.status,
         refunded: body.refunded,
       }).catch((err) => console.error('[admin/donations] notification error:', err));
     }

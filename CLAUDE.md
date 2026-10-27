@@ -131,6 +131,7 @@ transcript or a commit message is lost.
 | `115-ADMIN-CURRENCY-AND-TWO-LIVE-DEFECTS.md` | **The admin currency sweep (17 files, 44 direct sites + 10 via local wrappers, verified in a browser across 14 admin routes: 0 dollar figures) and TWO LIVE defects found taking its inventory. (1) `/campaigns` "Load more" rendered EVERY appended card in dollars - the listing API never selected `currency` and `CampaignGrid` parses it with an unchecked `as CampaignData[]` cast; reproduced in a browser, 0/12 dollars before the click and 5/5 after. (2) The campaign-update digest emailed every subscribed donor `$18400.00 of $50000.00 raised` for a KES campaign; `formatCents` now REQUIRES a currency so the compiler enumerated all 28 sites. ⚠️ My first reading of (2) was WRONG and is recorded: receipts are NOT affected - `notifyAdaptiveDonationReceipt` has zero callers and the live PayHero path sends no mail at all. ⛔ `users.total_donated` is a currency-BLIND integer and cannot be rendered in any currency - recomputed per currency from `donations`. Ten admin aggregates now group by currency via `src/lib/admin/donation-totals.server.ts` (13 integration tests). The admin ratchet now checks the PROPERTY (every `<Money>` has a currency) not the symptom, and immediately caught NINE misses in my own sweep. ⛔ Five findings reported not fixed, incl. donor-segment thresholds comparing a currency-blind figure and `fund-pool/allocate` not checking that source and target share a currency (reporting-only: no fund-pool path credits a campaign).** |
 | `116-FIVE-FINDINGS-AND-AN-UNGATED-THIRD-PATH.md` | **Closes the five findings docs/115 §7 reported, and found a SIXTH taking the inventory for one of them: ⛔ A THIRD CAMPAIGN-CREATION PATH PUBLISHED WITHOUT REVIEW. `news-pipeline.ts:688` inserted `status: 'active'` with `publishedAt: new Date()` - a machine-generated campaign about a NAMED REAL PERSON, public with nobody having read it - and it is NOT dead code: `CRON_SCHEDULE` runs both `ingest-news` and `fetch-news`, each calls `runNewsPipeline`, and no feature flag sits between the cron and the insert. ⚠️ `publisher-review-gate.test.ts` passed throughout because it NAMED TWO FILES and searched them for the literal `.insert(campaigns)`; this site spells it `.insert(schema.campaigns)` in a file it never opened - the docs/108 lesson again, and the claim 'every campaign is reviewed by a person' is asserted in ~44 lines across 23 files. It also sliced a FIXED 2,600 chars, so adding one comment made it fail with the gate intact. Now DISCOVERS every campaign insert from disk, both spellings, brace-matched - and its first version found SIX inserts because the comment EXPLAINING the fix quotes the forbidden string, so comments are stripped first. Also: campaign currency was UNSETTABLE (all four inserts omitted the column, so every campaign ever created was USD by default on a platform collecting only shillings) - ⛔ now settable by API but STILL NOT REACHABLE FROM ANY SCREEN (docs/83 shape, recorded not half-fixed); donor-segment money thresholds compared a currency-blind `total_donated` against a US dollar rule, now per currency with a REFUSAL when no currency is named, and ⚠️ a `HAVING` with no `GROUP BY` is one group over zero rows, so `maxDonated` matched every donor who had given NOTHING in that currency (probed against real Postgres); 13 sites quoted Stripe's 2.9% + $0.30 on a platform where Stripe cannot take a payment, the rate has never been charged, and ⛔ NO CODE DEDUCTS A PROCESSING FEE AT ALL (`unit_amount: data.amount` with no `application_fee`, `raisedAmount + amount`, `released - withdrawn - pending`) - removed with no substitute number, guarded by `fee-claims.test.ts` (8 -> 14 tests), and the stale test asserting the old claim was replaced not satisfied; the verification screen said 'handled securely by Stripe' while the button calls DIDIT (docs/81); fund-pool allocations could cross a currency boundary; five money settings removed that NOTHING read. Read §4 before touching campaign creation and §5.3 for the three areas reported not changed. **§8 AMENDMENT 2026-10-27: ⛔ §4 FIRED IN PRODUCTION** - five machine-written campaigns naming real people went public unreviewed on 2026-10-18 (`brent-ledbetter`, `nicholas-cabo`, `samuel-pierre-jr`, `maj-sorffly-davius`, `david-l-jones`), proven three ways: `published_at = created_at` with ZERO `campaign.published` audit rows, the news-pipeline audit key set (BOTH modules write `campaign.auto_drafted`, so the discriminator is that only the publisher adds `imageSource`), and HTTP 200 plus sitemap entries. Zero donations. ⛔ STILL LIVE after the fix deployed - the code stops NEW ones, it does not retract existing ones (§8.5 has the three options). ⚠️ TWO of my own conclusions were REFUTED by the data: the OpenRouter 402 is intermittent not total, and the guard that actually held it shut was `simulation.max_concurrent` reading the DEFAULT of 10 (no row existed before 2026-10-25 01:45) - it is now 100 against 13 active, so that accidental guard is GONE. Also: production is reachable over the Supabase MANAGEMENT API even though both pooler ports time out - 'unreachable' was a claim about one transport. Also §8.4: only ONE migration was ever outstanding (`0012`), hashes verified and a full catalog diff clean; and ⛔ `fly.toml:227` sets `release_command = release-migrate`, so A DEPLOY DOES RUN MIGRATIONS - I checked the deploy SCRIPTS, found none, and concluded wrongly.** |
 | `117-COLLABORATOR-JOURNEY-ADR.md` | **Accepting an invitation led NOWHERE, and `docs/111` §5a had recorded the gap without anyone seeing what it looked like. Walked in a real browser against a production build: a helper accepted, landed on `/dashboard/campaigns?joined=1` and read “You haven't created any campaigns yet” - while [VERIFIED three ways at the same moment] their row was live and accepted, `GET /api/v1/user-campaigns/<id>` answered 200 for that session and `POST …/updates` answered 201. The grant was REAL and INVISIBLE; a sweep of ALL TWELVE signed-in dashboard routes named the campaign on none. Also: `?joined=1` was read by NOTHING (grep found one occurrence - the redirect that sets it), all three capability screens redirected a helper INTO that empty list, and the accept screen named no campaign at all. ⚠️ The withdrawal probe was NON-DISCRIMINATING at first (400 on validation, before any ownership check) - with a valid UUID key it is 403, and the creator's DIFFERENT error is the control. Fixed with `src/lib/dashboard/my-campaigns.server.ts` (ONE query, `exists` NOT `leftJoin` because two live rows for one person on one campaign would list it twice), collaborators admitted to the three screens BY CAPABILITY, and ⛔ every sealed control hidden from them - team panel, verification, payout destination, journey checklist, donors - because a control that can only 403 is worse than none. ⛔ The module is NOT in `src/lib/collaborators/`: the boundary test rejected it for naming `raisedAmount`, and the allowlist was NOT widened. BOTH seal tests fired and both were extended deliberately. ⚠️ A mutation SURVIVED and the TEST was wrong, not the code: the pending-invite case left `user_id` null so the userId predicate excluded it on its own. Also adds the E2E SIGN-IN FIXTURE `docs/99` §8 said was missing. ⚠️ An invitation is SINGLE USE and the suite is `fullyParallel`, so each accepting test mints its own; and wait for the URL to leave `/login`, never `networkidle`.** |
+| `118-CAMPAIGN-LINK-GUARD-ADR.md` | **A notification is a LINK, and `docs/109`'s rule ("before rendering ANY link to `/campaigns/<slug>`, call `hasPublicPage`") was enforced for the UI and NEVER SWEPT over notifications. Two handed a real person a 404: `campaign_archived` linked `/campaigns/<slug>` for the ONE status the page does not serve - so the only condition producing that notification was the only condition under which its link dies, and the recipients are un-refunded DONORS - and `message_flagged` put a UUID in the slug position, wrong on every use. Both [VERIFIED live: archived slug 404, uuid 404, active slug 200 as the control]. ⚠️ The ROOT CAUSE is that NOTHING BUILT A CAMPAIGN LINK: 20+ sites each decided slug-vs-id and public-vs-not, and the organiser routes are SPLIT 3/3 on whether they accept a slug (`[id]`, `updates`, `donors`, `edit` are UUID-only and `notFound()` a slug; `verification`, `impact-update`, `payout-destination` take either) - so two identical-looking lines, one working and one 404ing. Now `src/lib/campaign-links.ts`: `publicCampaignPath` returns **null** (both renderers already handle it) and `organiserCampaignPath` always keys on the ID. `campaignStatus` is a REQUIRED param so tsc enumerated every caller (the docs/115 trick); the 7 zero-caller helpers got it too, so a future caller CANNOT reintroduce the 404. ⛔ §2.5: write-time guarding is NOT SUFFICIENT - a STORED link ROTS, and one production row is a 404 today (valid for 2m39s before the campaign was archived). The likely real fix is serving `archived` with a notice, since `campaign-visibility.ts:18-21` already makes that exact argument for `suspended`/`cancelled` - OWNER CALL. ⛔ §6 OWNER: NO campaign can accept money - all 14 active are USD -> dead Stripe, the one KES campaign is archived, and both donations ever were PayHero/KES on a test campaign. §7 has the journey inventory with production row counts.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -141,7 +142,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7541 pass + 16 skipped, 251 files, as of 2026-10-27)
+npm run test:unit      # Vitest (7562 pass + 16 skipped, 253 files, as of 2026-10-27)
 npm run test:integration  # Vitest + a throwaway Postgres (256 tests, 26 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
@@ -270,9 +271,17 @@ run the gate, and stop there. The owner deploys from their own Windows
 machine with **`.\scripts\deploy.ps1`** (see `docs/96`), which runs
 lint + typecheck + unit tests before building, refuses a dirty tree or a
 branch behind its remote, and reads the health endpoint afterwards.
-`scripts/deploy.sh` is the bash equivalent for Linux/macOS. Either needs
-`fly auth login` or an **org-scoped** `FLY_API_TOKEN` — a builder- or
-deploy-scoped token cannot see the app — and takes roughly 6 minutes.
+⛔ **`scripts/deploy.sh` is NOT the bash equivalent, and this line used to say
+it was.** [VERIFIED 2026-10-27 by reading it] that script runs **no gate at
+all**: lines 31-73 parse flags, set `SSL_CERT_FILE`, check `FLY_API_TOKEN` and
+call `flyctl deploy`. There is no lint, no typecheck, no test, no dirty-tree
+check, no branch check and no health read. It is a flag wrapper, and the
+reasons it exists are `--depot=false` and the proxy CA, not safety. **If you
+deploy with it, you are the gate** — run
+`npm run lint && npm run typecheck && npm run test:unit` yourself first. Either
+script needs `fly auth login` or an **org-scoped** `FLY_API_TOKEN` — a builder-
+or deploy-scoped token cannot see the app — and takes roughly 6 minutes
+(measured: 364s for v109).
 
 This means **`main` can be ahead of production**. Do not infer the
 deployed version from the repository: read it with
@@ -779,6 +788,39 @@ These exist for a reason; changing them has consequences beyond the local file.
   status, so an organiser whose campaign was still in the queue got the same
   404 from their own dashboard. The constant is asserted equal to the page's
   own `getCampaign` filter, parsed from source, so the two cannot drift.
+
+- **A link to a campaign is BUILT, never written by hand.** Added 2026-10-27,
+  see `docs/118`. Use **`publicCampaignPath({ slug, status })`** and
+  **`organiserCampaignPath(campaignId, screen?)`** from
+  `src/lib/campaign-links.ts`. The rule above was enforced for links in the UI
+  and **never swept over notifications** - a notification is a link too, just
+  stored in a column - so two of them handed real donors a 404:
+  `campaign_archived` linked `/campaigns/<slug>` for the one status the page
+  does not serve, and the message-moderation route put a **UUID in the slug
+  position**. [VERIFIED live: an archived slug and a UUID both 404; an active
+  slug 200, which is the control.]
+
+  ⚠️ **The organiser routes are split 3/3 on whether they accept a slug.**
+  `[id]`, `[id]/updates`, `[id]/donors` and `[id]/edit` are
+  `if (!UUID_RE.test(id)) notFound()`; `verification`, `impact-update` and
+  `payout-destination` take either. So two identical-looking lines - one
+  passing a slug to a child, one to the bare route - behave differently, which
+  is what let the mistake spread. `organiserCampaignPath` keys on the id,
+  which is correct on all seven.
+
+  ⛔ **`null` is a real return value and must be handled, not coerced.** Both
+  renderers already do (`NotificationsClient.tsx:279-285` shows plain text,
+  `NotificationBell.tsx:246-249` does not navigate), so an unlinkable
+  notification still says what happened. `campaignStatus` is a **required**
+  parameter on the notification helpers precisely so `tsc` names every call
+  site; an optional one would have let every existing 404 compile.
+
+  ⛔ **Write-time guarding is not enough: a stored link ROTS.** `docs/118`
+  §2.5 - one production row is a 404 today, and it was valid for 2m39s before
+  its campaign was archived. The read side revalidates nothing. The likely
+  real fix is serving `archived` with a notice, since `campaign-visibility.ts`
+  already argues exactly that for `suspended`/`cancelled`; it is an owner call
+  and is **open**.
 
 - **Everything an organiser is told about getting paid comes from one module.**
   Added 2026-10-25, see `docs/110`. `src/lib/organiser-journey.ts` computes the

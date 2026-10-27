@@ -88,6 +88,7 @@ const DIGEST = {
   campaignId: CAMPAIGN,
   campaignTitle: 'Help Ada',
   campaignSlug: 'help-ada',
+  campaignStatus: 'active',
   updateTitle: 'Surgery scheduled',
   updateExcerpt: 'Good news this week.',
   progressPercent: 42,
