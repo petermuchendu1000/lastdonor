@@ -494,7 +494,16 @@ function DeleteAccountSection() {
           <CardTitle className="text-destructive">Delete account</CardTitle>
         </div>
         <CardDescription>
-          Permanently delete your account and anonymize all donation data. This action cannot be undone.
+          {/*
+            Says what happens, because what happens changed (`docs/124`).
+            "Anonymize all donation data" was the vaguer half of a promise the
+            route could not keep at all: it ended in `delete(users)`, which
+            raised a foreign-key violation for three of nine real users and
+            returned a 500 telling them to try again.
+          */}
+          We delete your name, email address and phone number. Your donations stay
+          on record with your name removed, because we have to keep the payment
+          records. This cannot be undone.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -506,8 +515,9 @@ function DeleteAccountSection() {
             <DialogHeader>
               <DialogTitle>Are you absolutely sure?</DialogTitle>
               <DialogDescription>
-                This will permanently delete your account and anonymize all your donation records.
-                You will not be able to recover your data.
+                We delete your name, email address and phone number, and you will not be
+                able to sign in again. Your donations stay on record with your name
+                removed. You cannot get any of this back.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

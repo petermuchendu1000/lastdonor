@@ -142,8 +142,28 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
         setActionError(body?.error?.code === 'VALIDATION_ERROR' ? (body?.error?.message ?? 'Failed to delete user') : 'Failed to delete user');
         return;
       }
-      setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
-      toast.success('User deleted');
+      /*
+        ⛔ The row SURVIVES now, so it must not be removed from the list.
+
+        Account removal anonymises in place (`docs/124`): the `users` row is
+        kept carrying an opaque id so the 31 `NO ACTION` foreign keys that
+        point at it stay valid. Filtering it out told the administrator it was
+        gone and then it reappeared as "Deleted User" on the next load. Same
+        class as `docs/122` §2 - the admin UI asserting an outcome the route
+        did not report.
+      */
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === deleteTarget.id
+            ? { ...u, name: 'Deleted User', email: `deleted-${u.id}@lastdonor.org` }
+            : u,
+        ),
+      );
+      toast.success(
+        typeof body?.data?.reason === 'string'
+          ? body.data.reason
+          : 'Personal identifiers removed.',
+      );
       setDeleteTarget(null);
     } finally {
       setActionLoading(false);
@@ -482,13 +502,19 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
       <Dialog open={!!deleteTarget} onOpenChange={() => { setDeleteTarget(null); setActionError(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
+            <DialogTitle>Remove this person&rsquo;s details</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteTarget?.name ?? deleteTarget?.email}?{' '}
-              {/* "has any donation history" - a count, so no currency is involved. */}
-              {(deleteTarget?.donationTotals.length ?? 0) > 0
-                ? 'This user has donation history and their account will be anonymized to preserve financial records.'
-                : 'This action cannot be undone.'}
+              {/*
+                One outcome, so one sentence. This used to branch on donation
+                history and promise a hard delete ("This action cannot be
+                undone") when there was none - and neither branch of the route
+                worked: the anonymise one wrote null into two NOT NULL columns
+                and threw, the delete one hit a foreign key. `docs/124`.
+              */}
+              Remove {deleteTarget?.name ?? deleteTarget?.email}? Their name, email
+              address and phone number are deleted. The account row and the
+              financial records that reference it are kept, with the person
+              removed from them. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           {actionError && (

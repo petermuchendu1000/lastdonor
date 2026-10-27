@@ -9,6 +9,7 @@ import { refreshDonorScore } from '@/lib/donor-scoring.server';
 import type { ApiError } from '@/types/api';
 import type { UserRole } from '@/types';
 import { notifyRoleChange, notifyAccountDeletion } from '@/lib/notifications';
+import { anonymiseAccount } from '@/lib/account-erasure';
 import { logError } from '@/lib/errors';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -426,80 +427,63 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     );
   }
 
-  // Check for donations linked to this user
+  /*
+    ONE path, and it anonymises. `docs/124`.
+
+    This used to branch on the donation count: anonymise in place when the
+    user had donations, hard-delete otherwise. BOTH branches were broken.
+
+    ⛔ The anonymise branch wrote `badges: null, preferences: null`, and both
+    columns are `NOT NULL` (`schema.ts:389-390`), so the UPDATE threw and the
+    whole transaction rolled back - [VERIFIED against a real Postgres, and
+    again through drizzle] the row came back completely unchanged. That branch
+    had never once worked.
+
+    ⛔ The hard-delete branch had the same foreign-key hole as the
+    self-service route: 31 of the 36 references to `users.id` are `NO ACTION`
+    and it cleared two of them, so it raised a violation for almost anybody.
+
+    So neither branch could remove a person, and the donation count was never
+    the right discriminator anyway - a user with no donations can still hold a
+    share link, an invitation or a verification document.
+  */
   const [donationCount] = await db
     .select({ total: sql<number>`count(*)::int` })
     .from(donations)
     .where(eq(donations.userId, id));
 
-  if (donationCount.total > 0) {
-    // Notify the user BEFORE anonymization (their email is about to be changed)
-    await notifyAccountDeletion({ userEmail: user.email, userName: user.name ?? '' });
-
-    // Soft-delete: anonymize user data, unlink donations
-    await db.transaction(async (tx) => {
-      await tx.update(users).set({
-        name: 'Deleted User',
-        email: `deleted-${id}@lastdonor.org`,
-        passwordHash: null,
-        phone: null,
-        avatarUrl: null,
-        location: null,
-        organizationName: null,
-        address: null,
-        preferences: null,
-        badges: null,
-      }).where(eq(users.id, id));
-
-      // Nullify userId on donations so they become "guest" donations
-      await tx.update(donations).set({ userId: null }).where(eq(donations.userId, id));
-
-      // Clean up CRM data
-      await tx.delete(interactionLogs).where(eq(interactionLogs.donorId, id));
-      await tx.delete(donorRelationships).where(
-        or(eq(donorRelationships.donorId, id), eq(donorRelationships.relatedDonorId, id)),
-      );
-
-      await tx.insert(auditLogs).values({
-        eventType: 'user.anonymized',
-        actorId: session.user?.id ?? null,
-        actorRole: session.user?.role as UserRole,
-        targetType: 'user',
-        targetId: id,
-        severity: 'warning',
-        details: { email: user.email, name: user.name, reason: 'admin_delete_with_donations', donationCount: donationCount.total },
-      });
-    });
-
-    return NextResponse.json({
-      ok: true,
-      data: { id, action: 'anonymized', reason: `User has ${donationCount.total} donation(s) - anonymized for financial integrity.` },
-    });
-  }
-
-  // Hard-delete: no donations, safe to remove completely
-  // Notify the user BEFORE hard deletion
+  // Mail them BEFORE the address is scrubbed, or there is nowhere to send it.
   await notifyAccountDeletion({ userEmail: user.email, userName: user.name ?? '' });
 
   await db.transaction(async (tx) => {
-    await tx.delete(interactionLogs).where(eq(interactionLogs.donorId, id));
-    await tx.delete(donorRelationships).where(
-      or(eq(donorRelationships.donorId, id), eq(donorRelationships.relatedDonorId, id)),
-    );
-    await tx.delete(users).where(eq(users.id, id));
+    await anonymiseAccount(tx, { userId: id, email: user.email });
 
     await tx.insert(auditLogs).values({
-      eventType: 'user.deleted',
+      eventType: 'user.anonymized',
       actorId: session.user?.id ?? null,
       actorRole: session.user?.role as UserRole,
       targetType: 'user',
       targetId: id,
       severity: 'warning',
-      details: { email: user.email, name: user.name, role: user.role },
+      details: {
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        reason: 'admin_delete',
+        donationCount: donationCount.total,
+      },
     });
   });
 
-  return NextResponse.json({ ok: true, data: { id, action: 'deleted' } });
+  return NextResponse.json({
+    ok: true,
+    data: {
+      id,
+      action: 'anonymized',
+      reason:
+        'Personal identifiers removed. The account row is kept so financial and audit records stay intact.',
+    },
+  });
   } catch (err) {
     logError(err, 'admin-user-delete', { requestId, userId: id });
     return NextResponse.json(

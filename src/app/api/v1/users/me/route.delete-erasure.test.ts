@@ -52,6 +52,11 @@ vi.mock('@/db/schema', () => ({
   newsletterSubscribers: { __table: 'newsletter_subscribers' },
   supportConversations: { __table: 'support_conversations' },
   auditLogs: { __table: 'audit_logs' },
+  // CRM rows, which go with the person. Added 2026-10-27 when the erasure
+  // moved into `src/lib/account-erasure.ts`; without them `eq()` dereferences
+  // undefined and the route 500s, which is the 'unknown' guard below working.
+  interactionLogs: { __table: 'interaction_logs' },
+  donorRelationships: { __table: 'donor_relationships' },
 }));
 
 function nameOf(table: unknown): string {
@@ -138,11 +143,48 @@ describe('account deletion erases mailing state', () => {
     });
   });
 
-  it('deletes the user row and writes one audit entry', async () => {
+  it('⛔ ANONYMISES the user row instead of deleting it, and writes one audit entry', async () => {
+    /*
+      ⚠️ Corrected 2026-10-27, not satisfied. This asserted a `delete` on
+      `users`, and it passed the whole time, because drizzle is mocked at the
+      table-identity level below and **a mock cannot raise a foreign-key
+      violation**. Against a real Postgres that statement failed for anyone
+      holding one of the 25 references the transaction did not name - three of
+      nine production users - and the route answered 500 "Please try again".
+      `docs/124`, and the behaviour is executed for real in
+      `src/lib/account-erasure.integration.test.ts`.
+    */
     await DELETE(del());
 
-    expect(state.ops.filter((o) => o.kind === 'delete' && o.table === 'users')).toHaveLength(1);
+    expect(state.ops.filter((o) => o.kind === 'delete' && o.table === 'users')).toHaveLength(0);
+    const userUpdates = state.ops.filter((o) => o.kind === 'update' && o.table === 'users');
+    expect(userUpdates).toHaveLength(1);
+    const values = (userUpdates[0] as { values: Record<string, unknown> }).values;
+    expect(values.email).toBe('deleted-u-1@lastdonor.org');
+    expect(values.name).toBe(DELETED_DONOR_NAME);
+    expect(values.passwordHash).toBeNull();
+    // The two NOT NULL columns the admin path set to null, which made its
+    // own UPDATE throw every time it ran.
+    expect(values.badges).toEqual([]);
+    expect(values.preferences).toEqual({});
+
     expect(state.ops.filter((o) => o.table === 'audit_logs')).toHaveLength(1);
+  });
+
+  it('⛔ refuses an administrator, who must be removed by another administrator', async () => {
+    /*
+      `/api/v1/admin/users/[id]` has always refused an admin deleting their
+      own account; this route did not. Until the fix above, a foreign-key
+      violation stopped it by ACCIDENT - the one production admin holds six
+      `site_settings.updated_by` rows - and removing that accident is what
+      makes the refusal have to be deliberate.
+    */
+    state.session = { user: { id: 'u-1', email: 'a@example.invalid', role: 'admin' } };
+
+    const res = await DELETE(del());
+    expect(res.status).toBe(403);
+    // Nothing was written at all.
+    expect(state.ops).toEqual([]);
   });
 
   it('still erases subscriptions when the session carries no email', async () => {
@@ -163,5 +205,15 @@ describe('account deletion erases mailing state', () => {
   it('touches no table outside the known set', async () => {
     await DELETE(del());
     expect(state.ops.filter((o) => o.table === 'unknown')).toEqual([]);
+  });
+
+  it('⚠️ and leaves the campaign link alone, which it used to null', async () => {
+    /*
+      The null was only ever there to get past the foreign key. Nothing needs
+      it now the row survives, and `docs/119` found 13 of 14 live campaigns
+      already have no organiser - one that cannot be traced, reminded or paid.
+    */
+    await DELETE(del());
+    expect(state.ops.filter((o) => o.table === 'campaigns')).toEqual([]);
   });
 });

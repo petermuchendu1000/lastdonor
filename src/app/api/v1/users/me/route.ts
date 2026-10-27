@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { db } from '@/db';
-import { users, donations, campaigns, campaignMessages, donorCampaignSubscriptions, newsletterSubscribers, supportConversations, auditLogs } from '@/db/schema';
-import { eq, or } from 'drizzle-orm';
-import { DELETED_DONOR_PLACEHOLDER, DELETED_DONOR_NAME } from '@/lib/constants';
+import { users, auditLogs } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+import { anonymiseAccount } from '@/lib/account-erasure';
 import { updateProfileSchema } from '@/lib/validators/user';
 import { resend } from '@/lib/resend';
 import { retryWithBackoff } from '@/lib/utils/retry';
@@ -122,98 +122,54 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(error, { status: 400 });
   }
 
+  /*
+    ⛔ An administrator may not erase themselves here.
+
+    `DELETE /api/v1/admin/users/[id]` has always refused an admin deleting
+    their own account; this route did not, and the account page reaches it.
+    Until now a foreign-key violation stopped it by ACCIDENT - [VERIFIED in
+    production] the one admin holds six `site_settings.updated_by` rows - and
+    the fix below removes that accident. The refusal has to be deliberate:
+    scrubbing an admin takes the attribution on settings changes, institution
+    vouches and verification reviews with it, and there is currently exactly
+    one admin, so doing it would leave the platform with none. `docs/124`.
+  */
+  if (session.user.role === 'admin') {
+    const error: ApiError = {
+      ok: false,
+      error: {
+        code: 'FORBIDDEN',
+        message:
+          'An administrator account cannot be removed from here. Ask another administrator to remove it for you.',
+        requestId,
+      },
+    };
+    return NextResponse.json(error, { status: 403 });
+  }
+
   const userId = session.user.id;
   const userEmail = session.user.email;
 
   try {
     await db.transaction(async (tx) => {
-      // Anonymize donations (null FK + scrub PII)
-      await tx
-        .update(donations)
-        .set({
-          donorName: DELETED_DONOR_NAME,
-          donorEmail: DELETED_DONOR_PLACEHOLDER,
-          message: null,
-          userId: null,
-        })
-        .where(eq(donations.userId, userId));
+      /*
+        Anonymise in place; do NOT delete the row.
 
-      // Null out campaign messages FK
-      await tx
-        .update(campaignMessages)
-        .set({ userId: null, donorName: DELETED_DONOR_NAME })
-        .where(eq(campaignMessages.userId, userId));
+        `tx.delete(users)` used to be the last statement here, and 31 of the
+        36 foreign keys pointing at `users.id` are `NO ACTION`, so it raised
+        a violation for anyone holding a reference this transaction did not
+        happen to name. See `src/lib/account-erasure.ts` for the full
+        reasoning and `docs/124` for the evidence.
+      */
+      await anonymiseAccount(tx, { userId, email: userEmail ?? null });
 
-      // Erase campaign-update subscriptions outright.
-      //
-      // Nulling `userId` here (what this did before) left `donor_email`
-      // holding the deleted person's REAL address in a table that mail is
-      // sent to: `bulk-email-recipients.ts` resolves the `subscribed_donors`
-      // filter straight off `donor_campaign_subscriptions.donor_email`, and
-      // the campaign-update digest reads the same rows. So a user who
-      // deleted their account kept receiving campaign email at the address
-      // they had just asked us to forget.
-      //
-      // Deleted rather than scrubbed to the `deleted@lastdonor.org`
-      // placeholder: `idx_donor_subs_email_campaign` is UNIQUE on
-      // (donor_email, campaign_id), so two deleted users who both followed
-      // the same campaign would collide and abort the transaction. Deletion
-      // is also the honest reading of an erasure request.
-      //
-      // Matched on userId OR the address, because a row can carry the email
-      // with a null userId (a guest donor who later registered).
-      await tx
-        .delete(donorCampaignSubscriptions)
-        .where(
-          userEmail
-            ? or(
-                eq(donorCampaignSubscriptions.userId, userId),
-                eq(donorCampaignSubscriptions.donorEmail, userEmail),
-              )
-            : eq(donorCampaignSubscriptions.userId, userId),
-        );
-
-      // Erase the newsletter subscription.
-      //
-      // Previously untouched by account deletion, so a deleted user's row
-      // kept `unsubscribed_at IS NULL` and the weekly newsletter cron kept
-      // mailing them indefinitely. There is no userId on this table, so the
-      // address is the only join.
-      //
-      // Trade-off accepted: deleting the row leaves no suppression record,
-      // so the same address could be subscribed again later. That would be a
-      // fresh, affirmative opt-in, which is the correct outcome for someone
-      // who asked to be forgotten; keeping a durable record of them in order
-      // to honour the erasure would defeat it.
-      if (userEmail) {
-        await tx
-          .delete(newsletterSubscribers)
-          .where(eq(newsletterSubscribers.email, userEmail));
-      }
-
-      // Null out support conversations FK
-      await tx
-        .update(supportConversations)
-        .set({ userId: null })
-        .where(eq(supportConversations.userId, userId));
-
-      // Null out campaigns creator FK (campaigns persist for donors)
-      await tx
-        .update(campaigns)
-        .set({ creatorId: null })
-        .where(eq(campaigns.creatorId, userId));
-
-      // Delete user
-      await tx.delete(users).where(eq(users.id, userId));
-
-      // Audit log
       await tx.insert(auditLogs).values({
         eventType: 'user.deleted',
         actorId: userId,
         targetType: 'user',
         targetId: userId,
         severity: 'warning',
-        details: { email: userEmail },
+        details: { email: userEmail, mode: 'anonymised', initiatedBy: 'self' },
       });
     });
   } catch (error) {
@@ -237,8 +193,8 @@ export async function DELETE(request: NextRequest) {
         () => resend.emails.send({
           from: 'LastDonor.org <noreply@lastdonor.org>',
           to: userEmail,
-          subject: 'Your LastDonor.org account has been deleted',
-          text: 'Your account has been permanently deleted and your donation records have been anonymized. If you did not request this, please contact support@lastdonor.org immediately.',
+          subject: 'We deleted your LastDonor.org account',
+          text: 'We deleted your LastDonor.org account. Your name, email address and phone number are gone, and your donations are no longer linked to you. We keep the payment records themselves, with your name removed. If you did not ask for this, email support@lastdonor.org now.',
         }),
         { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },
       );
