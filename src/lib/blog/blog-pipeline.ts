@@ -498,10 +498,50 @@ export async function runBlogPipeline(
     result.details.push(postResult);
   }
 
-  // Step 9: Promote qualifying drafts that were deferred by cadence limits.
-  // On previous runs, posts may have been saved as drafts because canPublishNow()
-  // blocked them (weekly cap, category gap). On THIS run, the cadence window may
-  // have opened. Promote the highest-quality draft that now passes all gates.
+  /*
+    Step 9: Promote qualifying drafts that were deferred by cadence limits.
+    On previous runs, posts may have been saved as drafts because
+    canPublishNow() blocked them (weekly cap, category gap). On THIS run the
+    cadence window may have opened, so promote the best drafts that now pass
+    every gate.
+
+    ⛔ ONLY WHEN `autoPublish` IS SET, and that guard is the fix rather than
+    a precaution.
+
+    Step 8 inserts a new post `published: autoPublish && seoScore >= 70`, so
+    with `BLOG_AUTO_PUBLISH` unset - which is how production is configured -
+    a machine-written article is meant to wait for an admin to read it. This
+    step then selected on `published = false AND source = 'ai_generated' AND
+    seo_score >= 70` and published up to five of them in the SAME RUN, gated
+    only by `canPublishNow`, which is purely a cadence check (weekly cap 7,
+    per-category cap 3, one-day gap) and knows nothing about the flag. The
+    predicate cannot tell a cadence-deferred draft from one that is
+    unpublished BECAUSE the operator said not to auto-publish, or from one an
+    admin has not read yet, or from one an admin unpublished deliberately.
+
+    It was latent only because the route returns early on
+    `BLOG_PIPELINE_ENABLED !== 'true'`. [VERIFIED 2026-10-27 against
+    production] `blog_posts` has 0 rows and `blog_pipeline_completed` has
+    never been written; [INFERRED] the flag is what stops it, because the
+    three silent paths (flag off, lock held, pipeline threw) all wrote
+    nothing and were indistinguishable in the database - see `docs/123` §2
+    for the elimination. Either way it armed the moment the pipeline ran at
+    all, with 28 topics queued and every cadence check passing trivially
+    against zero published posts. Note `.env.example` ships
+    `BLOG_AUTO_PUBLISH=false`, so the documented configuration IS the
+    vulnerable one.
+
+    Nothing legitimate is lost: a cadence-deferred draft only exists because
+    a run with `autoPublish` ON created it, so there is nothing for this step
+    to promote while the flag is off. `src/lib/blog/draft-promotion.integration.test.ts`
+    executes both directions against a real Postgres. `docs/123`, the
+    `docs/116` §4 shape in the content pipeline.
+  */
+  if (!autoPublish) {
+    pipelineLog('pipeline', 'Draft promotion skipped: autoPublish is off');
+    return result;
+  }
+
   try {
     const drafts = await db
       .select()

@@ -69,6 +69,63 @@ function formatCents(cents: number, currency: string = 'USD'): string {
  * donor used to be told NOTHING on that rail, because the route returned
  * before reaching any notification. `docs/122`.
  */
+/**
+ * The newsletter welcome, which used to be hand-written inside the subscribe
+ * route as a bare `text:` body.
+ *
+ * ── Why it moved here ───────────────────────────────────────────────────────
+ *
+ * `EMAIL_SOURCE_FILES` in `src/lib/email-readability.ts` is a hand-written
+ * list of TWO files, so the plain-language budget (`docs/94`) and the
+ * dark-mode contrast ratchet both swept past it entirely. `docs/74` already
+ * found two inline templates hiding in route handlers the same way; this was
+ * the third. Living in this file is what puts it inside both sweeps, and the
+ * sweep in `src/lib/mail-senders.ratchet.test.ts` is what stops a fourth.
+ *
+ * ── Why it is TRANSACTIONAL, not `commercial: true` ────────────────────────
+ *
+ * The old copy said *"You'll receive updates about campaigns making a real
+ * difference in people's lives"* and *"Every dollar has a name behind it"* -
+ * editorial claims that push a confirmation over CAN-SPAM's primary-purpose
+ * line and make the postal address mandatory. The shell OMITS that block
+ * when `MAILING_POSTAL_ADDRESS` is unset and leaves refusing to the caller
+ * (`email-shell.ts:196-199`) - and [VERIFIED 2026-10-27 against production]
+ * it IS unset, which is why `cron/send-newsletter` has refused both of its
+ * two runs and the four real subscribers have had nothing.
+ *
+ * ⛔ So marking this `commercial` would send it without the address anyway.
+ * Refusing to send it instead is worse than either: this message carries the
+ * only unsubscribe link and `List-Unsubscribe` header the subscriber will
+ * ever be given, so withholding it leaves somebody on a list with no way off
+ * it. The copy is therefore reduced to what it actually is - a confirmation
+ * of a subscription the reader asked for, and how to leave - which is
+ * squarely a transactional/relationship message and exempt. `docs/123`.
+ */
+export function newsletterWelcomeEmail(p: { unsubscribeUrl: string }) {
+  return {
+    subject: 'You are on the LastDonor mailing list',
+    html: renderEmail({
+      preheader: 'You asked us to email you. Here is how to stop.',
+      /*
+        Both links, not one. The shell's default is `/settings`, which
+        `docs/122` §3 made reachable signed out and which is the only opt-out
+        every other template offers - but it can only point a listed address
+        at a person, whereas this token unsubscribes in one click. Replacing
+        the default outright would drop the former; this keeps both.
+      */
+      footerLinks:
+        `<a href="${esc(p.unsubscribeUrl)}" style="color:#5B6B68;text-decoration:underline;">Unsubscribe</a>` +
+        ` &middot; <a href="${BASE_URL}/settings" style="color:#5B6B68;text-decoration:underline;">Manage your notifications</a>`,
+      body: `
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">You are on the list</h1>
+      <p>You asked us to email you about LastDonor. We added your address.</p>
+      <p>We send one email at a time, and not often.</p>
+      <p>You can stop them whenever you like. Use the link at the bottom of any email we send.</p>
+    `,
+    }),
+  };
+}
+
 export function manualRefundPendingEmail(p: {
   donorName: string;
   amount: number;

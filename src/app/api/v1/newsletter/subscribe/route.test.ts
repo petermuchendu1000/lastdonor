@@ -93,8 +93,19 @@ describe('welcome email opt-out (P0, legal)', () => {
     await POST(post({ email: 'new@example.com', source: 'homepage' }));
 
     expect(state.sendCalls).toHaveLength(1);
-    const text = state.sendCalls[0].text as string;
-    const match = text.match(/token=([^\s]+)/);
+    /*
+      ⚠️ `html`, not `text`. The body used to be a hand-written `text:`
+      string in the route, which put it outside both email sweeps; it now
+      renders through the one shell (`docs/123`). The assertion is the same
+      one - the link must carry a token this process can verify - read from
+      the field the body is actually in.
+
+      The capture stops at a quote and an ampersand because this is markup
+      now: `[^\s]+` would swallow the rest of the anchor's style attribute.
+    */
+    const html = state.sendCalls[0].html as string;
+    expect(state.sendCalls[0].text).toBeUndefined();
+    const match = html.match(/token=([^"\s&]+)/);
     expect(match).not.toBeNull();
     expect(verifyUnsubscribeToken(decodeURIComponent(match![1]))).toBe(NEW_ID);
   });
@@ -116,7 +127,7 @@ describe('welcome email opt-out (P0, legal)', () => {
     const headers = state.sendCalls[0].headers as Record<string, string>;
     expect(headers['List-Unsubscribe']).toBe('<mailto:support@lastdonor.org?subject=Unsubscribe>');
     expect(headers).not.toHaveProperty('List-Unsubscribe-Post');
-    expect(state.sendCalls[0].text as string).toContain('mailto:support@lastdonor.org');
+    expect(state.sendCalls[0].html as string).toContain('mailto:support@lastdonor.org');
   });
 });
 

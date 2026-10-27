@@ -9,6 +9,13 @@ import * as schema from '@/db/schema';
 /**
  * Clear all test data from the database.
  * CAUTION: This truncates tables - only use against a test database.
+ *
+ * NOTE on `blog_topic_queue`: it was absent from this list while
+ * `blog_posts` was present, so a test that seeded a topic leaked it into
+ * every later file. The integration suite runs SERIALLY against one shared
+ * database by design (docs/98), which is exactly the condition that turns a
+ * leak into a unique-constraint failure three files away. Found by writing
+ * the first integration test that touches the queue (docs/123).
  */
 export async function clearDatabase() {
   await db.execute(sql`
@@ -24,6 +31,7 @@ export async function clearDatabase() {
       newsletter_subscribers,
       news_items,
       blog_posts,
+      blog_topic_queue,
       sessions,
       accounts,
       verification_tokens,

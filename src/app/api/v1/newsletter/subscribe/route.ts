@@ -6,6 +6,7 @@ import { subscribeSchema } from '@/lib/validators/newsletter';
 import { resend } from '@/lib/resend';
 import { retryWithBackoff } from '@/lib/utils/retry';
 import { unsubscribeMechanism } from '@/lib/unsubscribe-tokens';
+import { newsletterWelcomeEmail } from '@/lib/email-templates';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 
@@ -60,13 +61,21 @@ export async function POST(request: NextRequest) {
       source: source ?? null,
     }).returning({ id: newsletterSubscribers.id });
 
-    // Send welcome email.
-    //
-    // This is a marketing message, so it must carry a working opt-out: it
-    // previously shipped with no unsubscribe link and no List-Unsubscribe
-    // header at all. The token is minted with the shared helper so the link
-    // is byte-compatible with the newsletter cron and the unsubscribe route.
+    /*
+      Send the welcome, which carries a working opt-out: it once shipped with
+      no unsubscribe link and no List-Unsubscribe header at all. The token is
+      minted with the shared helper so the link is byte-compatible with the
+      newsletter cron and the unsubscribe route.
+
+      ⚠️ The body used to be a hand-written `text:` string right here, which
+      put it outside BOTH email sweeps - `EMAIL_SOURCE_FILES` is a list of two
+      files, so neither the plain-language budget (`docs/94`) nor the
+      dark-mode contrast ratchet ever saw it. It now renders through the one
+      shell like the other 49 templates. See `newsletterWelcomeEmail` for why
+      it is transactional rather than `commercial: true`. `docs/123`.
+    */
     const unsub = unsubscribeMechanism(created?.id ?? null);
+    const welcome = newsletterWelcomeEmail({ unsubscribeUrl: unsub.url });
     try {
       // The Resend SDK resolves { data: null, error } instead of throwing, so
       // the old bare try/catch here could never observe a failure
@@ -75,8 +84,8 @@ export async function POST(request: NextRequest) {
         () => resend.emails.send({
           from: 'LastDonor.org <noreply@lastdonor.org>',
           to: email,
-          subject: 'Welcome to LastDonor.org',
-          text: `Thank you for subscribing to LastDonor.org!\n\nYou'll receive updates about campaigns making a real difference in people's lives.\n\nEvery dollar has a name behind it.\n\n- The LastDonor.org Team\n\n---\nDon't want these emails? Unsubscribe: ${unsub.url}`,
+          subject: welcome.subject,
+          html: welcome.html,
           headers: unsub.headers,
         }),
         { maxRetries: 2, baseDelayMs: 500, isFailure: (result) => Boolean(result?.error) },

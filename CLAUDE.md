@@ -136,6 +136,7 @@ transcript or a commit message is lost.
 | `120-REVIEW-JOURNEY-AND-THE-DOOR-THAT-PUBLISHED.md` | **The review journey, and ⛔ THE DASHBOARD'S OWN "Review" LINK PUBLISHED THE CAMPAIGN ON SAVE. Three mistakes composed: all three push signals (the `/admin` tile, the `[Admin] Review needed` email, the in-app row) pointed at `/admin/campaigns/<id>/edit`; that page coerced anything not `draft` to `'active'`, so an `under_review` campaign reached a select labelled "Initial Status" reading **Active**; and `PUT /api/v1/campaigns/[slug]` took a status with NO transition check, NO audit row, NO email, stamping `publishedAt` UNCONDITIONALLY. So an admin who opened the review link and fixed a typo published the campaign - and the row is indistinguishable in `audit_logs` from one nobody read, which is the evidence docs/116 §8's forensics rest on. ✅ The organiser CANNOT do this: an owner is restricted to seven content fields and `status` is not among them. Found from production - the owner's own submission went public **95 seconds** after `campaign.submitted` with ZERO `campaign.published` rows. Now ONE writer: PUT answers 400 (explicitly, because "Restore to Draft" was a live caller - a silent drop leaves a button that looks like it works), the editor DELETES `status` in edit mode (load-bearing: the resolver IS `createCampaignSchema`, whose `.default('draft')` would otherwise make every save UNPUBLISH the campaign), and `/admin/campaigns/[id]` gained **Approve and publish** - it had Suspend and Cancel and NO way to say yes. ⚠️ The ratchet must RESOLVE `.set(variable)`: the approval route assembles `updates.publishedAt = ...` then `.set(updates)`, so a literal-only sweep sees nothing there and my own first pass allowlisted the wrong file. Also: ⛔ `under_review` removed from `CANCELLABLE` (cancel notifies NOBODY, is terminal, and `cancelled` is publicly viewable) and its button had the docs/93 defect in the ADJACENT statement - `governanceReason || 'policy_violation'` against a `z.enum` lacking it, so **Cancel had never worked**; ⛔ the info-request pause had NO status guard (publishing an unreviewed campaign, `paused` being viewable) and `resume` did not stamp `publishedAt`, the two composing into the only route to a live campaign with a NULL `published_at`; ⛔ with ONE admin a self-submission notified NOBODY (the skip's premise "other admins still get it" is false, and the test hardcodes two admins); the review email printed a KES goal as `$500.00`; `campaign.auto_drafted` rendered as **"Campaign auto-published"** on the only in-app surface showing it; and two `paused` menu items always 400'd. ⚠️ The FIRST injection run was VOID - the backup set omitted one file so rows 6-12 measured a polluted tree; the harness now re-verifies a clean restore after EVERY injection. Read §2, §3 and §12 before touching campaign publication.** |
 | `121-MONEY-OUT-JOURNEY-AND-A-CLOSED-LOOP.md` | **The money-out journey: verification → release → payout. [VERIFIED] it has NEVER been entered - 0 verification documents, 0 Didit sessions, 0 Connect accounts, 0 withdrawals, 0 released, and KES 100 sitting unpayable. ⛔ THE ORGANISER COULD NOT COMPLETE VERIFICATION, and it was a closed loop rather than one omission: `identity_verified` was missing from `submittableStates`, `canSubmitForReview` excluded it too, and Step 2's upload form renders ONLY once the ID check has passed - so **the one state where you can attach a document was the one state from which you cannot submit it**. The organiser passed the ID check, was emailed 'send us papers, our team will look at them', uploaded one, and nothing they could do moved anything - and NO ADMIN was told, because `notifyAdminsVerificationSubmitted` lives on the route they could not reach. ⚠️ The test written for it (both ends derived from source, `docs/109` shape) immediately found a SECOND pre-existing divergence: `submitted_for_review` was route-submittable while the component hid it. Also ⛔ the navbar printed a CROSS-CURRENCY sum with a dollar sign - `/api/v1/user/balance` reduced released-minus-withdrawn across every currency and `UserNav` rendered it with a SEVENTH hand-rolled `toLocaleString(..., {currency:'USD'})`; both `docs/114` and `docs/115` walked past it because the ratchet globbed `<Money>` JSX, which a hand-rolled `Intl` call has none of - it now checks the PROPERTY, with no call-site allowlist. Also ⛔ the Withdraw form rendered for a currency `withdraw/route.ts` answers 400 `WRONG_PAYMENT_RAIL` to; ⛔ `notifyWithdrawalFailed` had ZERO callers, so a definite failure told the organiser nothing (now wired on the DEFINITE branch only - emailing 'failed' on the UNKNOWN branch would be unsubstantiated, and that is the branch where the money may have moved); ⛔ two 'business days' turnaround promises in a directory `organiser-promises.test.ts` ALREADY SWEPT (the hole was the pattern: one straddled a full stop, the other broke `\d+` at the hyphen in '1-2'); and ⛔ the verification screen linked its own campaign to a 404 - the THIRD `docs/118` sweep gap in two days. Read §2, §3.1 and §9 before touching verification or payout.** |
 | `122-DONOR-AFTER-GIVING-ADR.md` | **What happens to a person after they give. ⛔ A REFUND ON THE LIVE RAIL TOLD THE DONOR NOTHING: `PATCH /api/v1/admin/donations/[id]` branches on `provider !== 'stripe'`, corrects the ledger and RETURNED ~60 lines above `notifyDonationRefund` - so it marked the gift refunded, dropped the campaign total, called NO gateway (PayHero has none) and sent no email and no notification. Both donations this platform has ever taken are `payhero`. ⛔ And the admin was told the opposite: the dialog hardcoded 'via Stripe' and the handler discarded the route's own `manualRefundRequired` message to say 'Refund processed'. New `manualRefundPendingEmail` says what is true (a person sends it back by hand, it has not moved, no turnaround quoted) because `donationRefundedEmail` opens 'We sent your money back'. ⛔ AND A DONOR COULD NOT LEAVE: every email footer points at `/settings`, which was an unconditional `redirect('/dashboard/settings')` behind auth - a login wall for a guest, and the M-Pesa rail creates only guests. Also: the refund title printed KES 50 as '$0.50'; `SubscribeButton` used `useSession` so a 429 silently removed the only subscribe control (docs/44); and THREE unsubstantiated promises - 'Monthly donations can be cancelled' (no cancellation path exists), 'Save campaigns' (no such feature) and 'One-tap checkout' (neither form reads the session). ⚠️ CORRECTS docs/115 twice: the PayHero path DOES send a receipt (the zero-caller family is the ADAPTIVE one), and `formatCents` still defaults to USD in `email-templates.ts`. Thirteen findings reported not fixed, incl. ⛔ a guest cannot be suppressed by any stored mechanism (CAN-SPAM, docs/41), the updates opt-in nobody is offered, and the `update-phases` cron that writes 46 of 46 updates and notifies nobody. Read §2, §3 and §8 before touching refunds, donor mail or unsubscribe.** |
+| `123-CONTENT-JOURNEY-AND-A-SILENT-CRON.md` | **The content journey: news -> topics -> articles -> reader -> newsletter. ⛔ `blog-generate` answered `200 { skipped: true }` and wrote NOTHING for nine days - the Worker logs the status and deliberately never reads the body (docs/66), so a skip was indistinguishable from a run that worked. [VERIFIED] `blog_posts` has **0 rows ever**, `blog_pipeline_completed` has NEVER been written, 28 topics sit `pending` (priority 70-100, newest today), and `/blog` is 200 with "No posts published yet" while its sitemap and feed carry 0 entries. ⚠️ The CAUSE is [INFERRED], not verified, and that is the finding: ALL THREE silent paths (flag off, lock held, pipeline threw) wrote nothing, so they could not be told apart in the database - two of them now leave a row (`blog_pipeline_skipped`, `blog_pipeline_failed`). ⛔ And found while Gate-3 checking whether enabling the flag would even work: **step 9 of the pipeline published AI drafts behind the operator.** Step 8 honours `autoPublish`; step 9 then swept `published=false AND source='ai_generated' AND seo_score>=70` and published five, gated ONLY by `canPublishNow` (a cadence check that knows nothing about the flag) - and `.env.example` ships `BLOG_AUTO_PUBLISH=false`, so the DOCUMENTED configuration was the vulnerable one. Proven in 5 integration tests against real Postgres with NO model call (a topic below the score floor `continue`s past generation and still reaches step 9). ⛔ Also: the newsletter welcome was a hand-written `text:` body inline in the route, so BOTH email sweeps missed it - `EMAIL_SOURCE_FILES` is a list of TWO FILES and this is the THIRD inline template to escape it (docs/74 found two) - while promising four real subscribers "updates about campaigns making a real difference". Now a template, swept, and transactional on purpose (§4). ⛔ OWNER-ONLY: `MAILING_POSTAL_ADDRESS` (4 subscribers, 0 emails ever, both cron runs refused on CAN-SPAM) and `BLOG_PIPELINE_ENABLED` (docs/36 is this project's forged-attribution history - but enabling it WITHOUT auto-publish is now safe, and was not before §3). Also `clearDatabase` truncated `blog_posts` and not `blog_topic_queue`. Read §2's elimination and §8 before re-checking any of it.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -146,8 +147,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7666 pass + 16 skipped, 260 files, as of 2026-10-27)
-npm run test:integration  # Vitest + a throwaway Postgres (256 tests, 26 files)
+npm run test:unit      # Vitest (7680 pass + 16 skipped, 262 files, as of 2026-10-27)
+npm run test:integration  # Vitest + a throwaway Postgres (261 tests, 27 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
@@ -296,14 +297,15 @@ deployed version from the repository: read it with
 Added 2026-10-24. `workers/cron/src/index.ts` imports `dueJobs` from
 `src/lib/cron-schedule.ts`, so the schedule is **bundled into the Worker at
 `wrangler deploy` time** — it is not read from the app at runtime. Adding a
-row to `CRON_SCHEDULE` therefore changes nothing in production until the
+row to `CRON_JOBS` (the export; this file called it `CRON_SCHEDULE` until
+2026-10-27) therefore changes nothing in production until the
 Worker is redeployed, and redeploying the Worker *first* makes it call a
 route the live image does not serve yet (a 404 the Worker logs and nothing
 else surfaces). Deploy the app, confirm the route answers **401** rather
 than 404 unauthenticated, then redeploy the Worker. ✅ `refresh-fx-rates`
 was the worked example and is now DEPLOYED AND FIRING: first run
 **2026-10-25T02:00:05Z**, 151 rates stored, verified from the production
-database (`docs/105` §7.7a). **Every job in `CRON_SCHEDULE` is now observed
+database (`docs/105` §7.7a). **Every job in `CRON_JOBS` is now observed
 firing in production**, `verification-reminders` included (first run
 **2026-10-25T09:00:05Z**, `docs/110` §7.5a — and the adjacent `*/5` ticks are
 the control: both dispatched two jobs and neither included it, so the daily
@@ -1467,6 +1469,83 @@ These exist for a reason; changing them has consequences beyond the local file.
   partial unique index is per `(campaign_id, invited_email)`, so one person
   who accepted two invitations to one campaign holds two live rows and a join
   lists it twice.
+
+- **A scheduled job that decides to do nothing says so in `audit_logs`.**
+  Added 2026-10-27, see `docs/123`. The cron Worker logs the HTTP status of
+  each call and **deliberately never reads the response body** (`docs/66`,
+  the 10 ms CPU ceiling), so `200 { ok: true, skipped: true }` is
+  indistinguishable from a run that did the work. `blog-generate` returned
+  exactly that for nine days: [VERIFIED] `blog_posts` has **0 rows ever**,
+  `blog_pipeline_completed` has **never been written**, 28 topics sit
+  `pending`, and `/blog` serves "No posts published yet" with 0 sitemap and
+  0 feed entries.
+
+  ⚠️ **The cause is [INFERRED], and that is the point.** All three ways that
+  route could do nothing - flag off, lock held, pipeline threw - wrote
+  nothing, so they could not be told apart in the database and the diagnosis
+  had to be made by elimination. Two of them now leave a row
+  (`blog_pipeline_skipped` warning, `blog_pipeline_failed` error); the lock
+  skip is left alone, because it goes through the shared `lockSkipPayload`
+  and is transient contention, not a configuration decision.
+  `src/app/api/v1/cron/scheduled-skips-are-recorded.test.ts` derives the job
+  list from **`CRON_JOBS`**, which is what applies it to a job added
+  tomorrow and what correctly exempts the unscheduled `simulate-donations`.
+
+  ⛔ Its block finder must **walk out of object literals** - a `skipped:
+  true` is always a property, so the nearest brace pair is never the branch -
+  and must stop at the **first** statement block, because the handler body
+  audits on its success path and a rule that reaches it passes against
+  anything. ⚠️ And do not assert `auditLogs` over a whole file: that was my
+  own control, and an injection removing the refusal row left it green.
+
+- **`autoPublish` governs every path in the blog pipeline, not just the
+  insert.** Added 2026-10-27, see `docs/123` §3. Step 8 inserts a post
+  `published: autoPublish && seoScore >= 70`, so with `BLOG_AUTO_PUBLISH`
+  unset a machine-written article waits for a person - the `docs/78`/
+  `docs/79` shape for content. ⛔ Step 9 then swept
+  `published = false AND source = 'ai_generated' AND seo_score >= 70` and
+  published five of them in the SAME run, gated only by `canPublishNow`,
+  which is purely a cadence check (weekly cap 7, category cap 3, one-day gap)
+  and reads the flag nowhere. Its comment says these are drafts "deferred by
+  cadence limits", but the predicate cannot tell one of those from a draft
+  nobody has read.
+
+  ⚠️ **`.env.example` ships `BLOG_AUTO_PUBLISH=false`, so the documented
+  configuration was the vulnerable one**, and it was latent only because
+  `BLOG_PIPELINE_ENABLED` kept the route from running. Step 9 now returns
+  early when the flag is off, and nothing legitimate is lost: a
+  cadence-deferred draft only exists because a run with the flag ON made it.
+  `src/lib/blog/draft-promotion.integration.test.ts` executes BOTH
+  directions against a real Postgres - deleting step 9 would otherwise
+  satisfy the rule. ⚠️ No model is called: step 7 returns early on an empty
+  queue, but a topic BELOW `minPriorityScore` is `continue`d past generation
+  and still reaches step 9.
+
+- **Mail is rendered by the shell, or the sender is allowlisted with a
+  reason.** Added 2026-10-27, see `docs/123` §4. `EMAIL_SOURCE_FILES` in
+  `src/lib/email-readability.ts` is a **hand-written list of two files**, and
+  it is the input to BOTH email sweeps - the plain-language budget and the
+  dark-mode contrast ratchet - so a template written inline in a route
+  handler is measured by nothing. `docs/74` found two that way; the
+  newsletter welcome was the third, a bare `text:` body telling four real
+  subscribers they would get "updates about campaigns making a real
+  difference in people's lives" on a platform with zero blog posts and zero
+  newsletters sent.
+
+  `src/lib/mail-senders.ratchet.test.ts` **discovers** every
+  `resend.emails.send` / `resend.batch.send` call site from disk and requires
+  each to reach `renderEmail` or to carry a written reason. ⛔ Adding a path
+  to that allowlist exempts the body from both sweeps - prefer moving the
+  copy into `src/lib/email-templates.ts`, which costs nothing. Extending
+  `EMAIL_SOURCE_FILES` instead is not the fix: the list is the defect.
+
+  ⚠️ A welcome/confirmation is **transactional**, not `commercial: true`.
+  The shell omits the CAN-SPAM postal block when `MAILING_POSTAL_ADDRESS` is
+  unset and leaves refusing to the caller - and it IS unset - so marking it
+  commercial would send it without the address anyway, while refusing to
+  send it withholds the only unsubscribe link and `List-Unsubscribe` header
+  the subscriber will ever get. Keep the copy to the confirmation so the
+  classification is true.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a
