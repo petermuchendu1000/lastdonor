@@ -263,9 +263,27 @@ fix in passing — and fixing only the one I happened to be reading would leave
 `docs/127` §6 declined for the same reason. A missing IP is also weaker than a
 forged one: `NULL` says *unknown*, which is honest.
 
-The fix is one line per route (`actorIp: getClientIp(request.headers)`) plus a
+⚠️ **AMENDED 2026-10-28 by `docs/140` PART B — this next sentence was wrong,
+and acting on it would have been worse than leaving the gap.**
+
+~~The fix is one line per route (`actorIp: getClientIp(request.headers)`) plus a
 derived rule over the same 35-route discovery used to find them. Recommended as
-its own change.
+its own change.~~
+
+There is no "the fix", because capture is not obviously the right direction.
+[VERIFIED] **nothing displays `actor_ip`** (`AuditLogViewer`'s type omits it
+and the page projects to 9 fields), **nothing purges it** (no
+`delete(auditLogs)` exists, while `docs/06` §9.3 specifies 1yr/7yr/1yr
+retention), **erasure never reaches it** (`account-erasure.ts` does not touch
+`audit_logs`), and **`/privacy` discloses no IP collection at all** — with
+`audit_logs.actor_ip` the only IP column in the schema.
+
+So filling 27 routes would create, for the first time, a permanent store of
+undisclosed personal data with no consumer, no purge and no erasure path, on a
+platform whose published promise is that identifiers go within 30 days
+(`docs/124`). The forensic case for capturing it is real and is argued in §3
+above; the two directions are both defensible and the choice is the owner's.
+`docs/140` PART B names the two prerequisites if the answer is "capture".
 
 The full list is in the body of this section's measurement and reproducible
 with: discover `src/app/api/v1/admin/**/route.ts`, strip comments, keep those
