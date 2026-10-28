@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronRightIcon, HomeIcon } from '@heroicons/react/24/outline';
 
+import { isNavigablePath } from '@/lib/navigable-routes';
+
 const LABEL_OVERRIDES: Record<string, string> = {
   withdrawals: 'Finances',
   'payout-settings': 'Payout Account',
@@ -41,18 +43,53 @@ export function Breadcrumbs() {
 
   if (segments.length === 0) return null;
 
-  const crumbs = segments.map((seg, i) => ({
-    label: toLabel(seg),
-    href: '/' + segments.slice(0, i + 1).join('/'),
-    isLast: i === segments.length - 1,
-  }));
+  /*
+    ⛔ A crumb is only a LINK if something is served at its href.
+
+    This used to link every segment unconditionally, and four of those hrefs
+    were 404s - one of them public and indexable. [VERIFIED live]
+    `/campaigns/category` answers 404 while `/campaigns/category/medical`
+    answers 200, carries `index, follow`, and had `href="/campaigns/category"`
+    in its markup; 23 such category URLs are in the production sitemap. The
+    other three are `/admin/blog/<id>`, `/admin/campaigns/<id>/updates` and
+    `/admin/institutions/<id>`, each linked from the screen one level below
+    it. `docs/128`.
+
+    `isNavigablePath` is checked against a list the ratchet derives from
+    `src/app/`, so a route deleted tomorrow stops being linked without anybody
+    remembering this file (`docs/109`).
+  */
+  const crumbs = segments.map((seg, i) => {
+    const href = '/' + segments.slice(0, i + 1).join('/');
+    const isLast = i === segments.length - 1;
+    return {
+      label: toLabel(seg),
+      href,
+      isLast,
+      // The last crumb is already plain text, so its target is irrelevant.
+      navigable: !isLast && isNavigablePath(href),
+    };
+  });
+
+  /*
+    ⚠️ The JSON-LD lists only the crumbs that ARE navigable, renumbered.
+
+    A `BreadcrumbList` item is a claim that the URL is a navigable ancestor of
+    this page. Emitting one that 404s states something untrue to every
+    consumer of the structured data, and on `/campaigns/category/*` that page
+    is indexable. Positions are recomputed rather than carried over, so the
+    list stays contiguous.
+
+    The LAST crumb keeps its `item`: it is this page, which plainly exists.
+  */
+  const linkedCrumbs = crumbs.filter((c) => c.navigable || c.isLast);
 
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://lastdonor.org' },
-      ...crumbs.map((c, i) => ({
+      ...linkedCrumbs.map((c, i) => ({
         '@type': 'ListItem',
         position: i + 2,
         name: c.label,
@@ -99,13 +136,22 @@ export function Breadcrumbs() {
                 >
                   {crumb.label}
                 </span>
-              ) : (
+              ) : crumb.navigable ? (
                 <Link
                   href={crumb.href}
                   className="transition-colors hover:text-foreground"
                 >
                   {crumb.label}
                 </Link>
+              ) : (
+                /*
+                  Nothing is served here, so it is text. The trail still shows
+                  the step - deleting it would hide where the reader is - it
+                  simply does not pretend to be a destination. Same shape as
+                  `docs/118`, where `publicCampaignPath` returns null and both
+                  renderers show plain text rather than a dead link.
+                */
+                <span className="min-w-0 truncate">{crumb.label}</span>
               )}
             </li>
           ))}
