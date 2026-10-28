@@ -67,6 +67,7 @@ export const ROUTE_PATTERNS: readonly string[] = [
   '/admin/donors',
   '/admin/fund-releases',
   '/admin/governance',
+  '/admin/impact-updates',
   '/admin/info-requests',
   '/admin/institutions',
   '/admin/institutions/*/payout-accounts',

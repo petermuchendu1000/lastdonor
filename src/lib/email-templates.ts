@@ -940,6 +940,73 @@ export function campaignRefusedEmail(p: {
   };
 }
 
+/*
+  ─────────────────────────────────────────────────────────────────────────
+  IMPACT UPDATES — the two outcome emails.                        docs/139
+  ─────────────────────────────────────────────────────────────────────────
+
+  These two bodies used to be written INLINE in `notifications.ts`, as raw
+  `html:` template literals handed straight to `resend.emails.send`. That put
+  them outside `renderEmail` and so outside BOTH email sweeps - the
+  plain-language budget and the dark-mode contrast ratchet both read
+  `EMAIL_SOURCE_FILES`, which is a list of two files (docs/123 §4). They were
+  also the only two of the forty notification functions that did it.
+
+  ⛔ `reviewerNotes` is an admin's own typed words going into email markup -
+  the same hazard `docs/93` escapes on the campaign refusal, and the reason
+  `esc()` is not optional here.
+
+  The colours are deliberately the SAME values the refusal email above uses,
+  so this adds no colour the shell's dark block does not already cover
+  (docs/94 §9).
+*/
+
+export function impactUpdateApprovedEmail(p: {
+  campaignerName: string;
+  campaignTitle: string;
+  campaignUrl: string;
+}) {
+  return {
+    subject: 'We published your update',
+    html: wrap(
+      `
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your update is live</h1>
+      <p>Hi ${esc(p.campaignerName)},</p>
+      <p>A person read your update about <strong>&quot;${esc(p.campaignTitle)}&quot;</strong>. We published it.</p>
+      <p>The people who gave can now see how you used their money.</p>
+      <p>Thank you for showing them.</p>
+      ${ctaButton(p.campaignUrl, 'See your campaign')}
+    `,
+      'A person read your update and we published it.',
+    ),
+  };
+}
+
+export function impactUpdateChangesRequestedEmail(p: {
+  campaignerName: string;
+  campaignTitle: string;
+  reason: string;
+  updateUrl: string;
+}) {
+  return {
+    subject: 'Your update needs a change',
+    html: wrap(
+      `
+      <h1 style="color: #EA580C; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">Your update needs a change</h1>
+      <p>Hi ${esc(p.campaignerName)},</p>
+      <p>A person read your update about <strong>&quot;${esc(p.campaignTitle)}&quot;</strong>. It needs one change first.</p>
+      <p style="background: #fff7ed; padding: 16px; border-radius: 8px; border-left: 4px solid #EA580C; margin: 20px 0;">
+        <strong>What they said:</strong> ${esc(p.reason)}
+      </p>
+      <p>You can change it and send it again.</p>
+      ${ctaButton(p.updateUrl, 'Change your update')}
+      <p style="color: #666; font-size: 14px;">Write to <a href="mailto:support@lastdonor.org" style="color: #0F766E;">support@lastdonor.org</a> and a person will read it.</p>
+    `,
+      'A person read your update and asked for one change.',
+    ),
+  };
+}
+
 export function verificationConsequenceEmail(p: {
   campaignerName: string;
   campaignTitle: string;

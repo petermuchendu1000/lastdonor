@@ -98,6 +98,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/verification', label: 'Verification Queue', icon: ShieldCheckIcon },
       { href: '/admin/screening', label: 'Document Screening', icon: ClipboardDocumentListIcon },
+      { href: '/admin/impact-updates', label: 'Impact Updates', icon: ClipboardDocumentListIcon },
       { href: '/admin/institutions', label: 'Trusted Orgs', icon: UserGroupIcon },
       { href: '/admin/payouts', label: 'Payouts', icon: BanknotesIcon },
       // `docs/113` §11 screen D1. Read-only: no rail exists to send with.

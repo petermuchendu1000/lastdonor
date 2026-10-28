@@ -17,7 +17,10 @@ import { eq, and, inArray, count } from 'drizzle-orm';
 import { resend } from '@/lib/resend';
 import { retryWithBackoff } from '@/lib/utils/retry';
 import { organiserCampaignPath, publicCampaignPath } from '@/lib/campaign-links';
+import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 import {
+  impactUpdateApprovedEmail,
+  impactUpdateChangesRequestedEmail,
   donationRefundedEmail,
   manualRefundPendingEmail,
   donationRefundReversedEmail,
@@ -1909,8 +1912,9 @@ export async function notifyCreatorThankYouUpdate(p: {
  */
 export async function notifyAdminImpactUpdateSubmitted(p: {
   campaignTitle: string;
-  campaignSlug: string;
   creatorName: string;
+  /** Omitted for the submitter themselves, so nobody is told about their own work (docs/93). */
+  skipUserId?: string;
 }) {
   const admins = await db
     .select({ id: users.id, email: users.email })
@@ -1918,12 +1922,23 @@ export async function notifyAdminImpactUpdateSubmitted(p: {
     .where(eq(users.role, 'admin'));
 
   for (const admin of admins) {
+    if (p.skipUserId && admin.id === p.skipUserId) continue;
     await createAndEmail({
       userId: admin.id,
-      type: 'campaign_milestone' as NotificationType,
+      /*
+        `campaign_milestone`, NOT `milestone_approved`. Those two enum values
+        exist and read as though they were meant for this, but
+        `NotificationsClient.tsx:79-80` marks both "Legacy: renders historical
+        notifications" - so using them would resurrect retired values. The
+        `as NotificationType` cast that used to sit here was also unnecessary:
+        `campaign_milestone` is in the union (`types/index.ts:105`) and in the
+        database enum. A needless cast is where a real mismatch hides.
+        `docs/139`.
+      */
+      type: 'campaign_milestone',
       title: `[Impact Update] "${p.campaignTitle}" submitted`,
-      message: `${p.creatorName} submitted an impact update showing how funds were used. Review required.`,
-      link: `/admin/impact-updates`,
+      message: `${p.creatorName} sent an update showing how the money was used. It needs a review.`,
+      link: '/admin/impact-updates',
     });
   }
 }
@@ -1940,16 +1955,34 @@ export async function notifyCreatorImpactUpdateApproved(p: {
   campaignPublishedAt: Date | string | null;
   campaignStatus: string;
 }) {
+  const path = publicCampaignPath({
+    slug: p.campaignSlug,
+    status: p.campaignStatus,
+    publishedAt: p.campaignPublishedAt,
+  });
   await createAndEmail({
     userId: p.creatorId,
-    type: 'campaign_milestone' as NotificationType,
-    title: `Impact update approved for "${p.campaignTitle}"`,
-    message: `Your impact update has been reviewed and approved. Thank you for showing your supporters how their donations made a difference.`,
-    link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
+    type: 'campaign_milestone',
+    title: `We published your update on "${p.campaignTitle}"`,
+    message: `A person read your update and we published it. The people who gave can now see how you used their money.`,
+    link: path,
     email: {
       to: p.creatorEmail,
-      subject: `Impact update approved - ${p.campaignTitle}`,
-      html: `<p>Hi ${p.creatorName},</p><p>Your impact update for "<strong>${p.campaignTitle}</strong>" has been reviewed and approved.</p><p>Your supporters can now see exactly how their donations were used. Thank you for your transparency!</p><p><a href="https://lastdonor.org/campaigns/${p.campaignSlug}">View your campaign</a></p>`,
+      /*
+        ⛔ Through the template, not an inline `html:` literal. The body used
+        to be written here, which put it outside `renderEmail` and so outside
+        both email sweeps, and interpolated `creatorName` unescaped. It also
+        hardcoded `https://lastdonor.org`. `docs/139`.
+
+        `path` is null when the campaign has no public page, which is every
+        campaign still in review - so the button falls back to the organiser's
+        own list rather than linking at a page that 404s (docs/118).
+      */
+      ...impactUpdateApprovedEmail({
+        campaignerName: p.creatorName,
+        campaignTitle: p.campaignTitle,
+        campaignUrl: `${appBaseUrl()}${path ?? '/dashboard/campaigns'}`,
+      }),
     },
   });
 }
@@ -1961,20 +1994,39 @@ export async function notifyCreatorImpactUpdateRejected(p: {
   creatorId: string;
   creatorEmail: string;
   creatorName: string;
+  campaignId: string;
   campaignTitle: string;
-  campaignSlug: string;
   reviewerNotes: string;
 }) {
+  /*
+    ⛔ Built with `organiserCampaignPath`, keyed on the ID. The old line was
+    `/dashboard/campaigns/${p.campaignSlug}/impact-update` - hand-written, and
+    with a SLUG in the id position. That page happens to accept either
+    (`impact-update/page.tsx:26-28`), so it was not a 404 - but the organiser
+    routes are split 3/3 on that (docs/118) and a hand-written one is a 404
+    waiting for whoever copies the line. `docs/139`.
+  */
+  const path = organiserCampaignPath(p.campaignId, 'impact-update');
   await createAndEmail({
     userId: p.creatorId,
-    type: 'campaign_milestone' as NotificationType,
-    title: `Changes requested for impact update on "${p.campaignTitle}"`,
-    message: `Your impact update needs some changes before it can be approved. Please review the feedback and resubmit.`,
-    link: `/dashboard/campaigns/${p.campaignSlug}/impact-update`,
+    type: 'campaign_milestone',
+    title: `Your update on "${p.campaignTitle}" needs a change`,
+    message: `A person read your update and asked for one change. You can change it and send it again.`,
+    link: path,
     email: {
       to: p.creatorEmail,
-      subject: `Changes requested - Impact update for ${p.campaignTitle}`,
-      html: `<p>Hi ${p.creatorName},</p><p>Your impact update for "<strong>${p.campaignTitle}</strong>" needs a few changes before we can approve it.</p><p><strong>Feedback:</strong> ${p.reviewerNotes}</p><p><a href="https://lastdonor.org/dashboard/campaigns/${p.campaignSlug}/impact-update">Update your submission</a></p>`,
+      /*
+        ⛔ `reviewerNotes` is an ADMIN'S OWN TYPED WORDS going into email
+        markup. The old inline body interpolated it raw - the exact hazard
+        `docs/93` escapes on the campaign refusal reason. The template escapes
+        it.
+      */
+      ...impactUpdateChangesRequestedEmail({
+        campaignerName: p.creatorName,
+        campaignTitle: p.campaignTitle,
+        reason: p.reviewerNotes,
+        updateUrl: `${appBaseUrl()}${path}`,
+      }),
     },
   });
 }

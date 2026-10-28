@@ -77,6 +77,8 @@ const SEVERITY_STYLES: Record<string, { dot: string; variant: 'default' | 'secon
 */
 const CATEGORY_PREFIXES: Record<string, string> = {
   'donation.': 'donations',
+  // An impact update is about a campaign (docs/139).
+  'impact_update.': 'campaigns',
   'campaign.': 'campaigns',
   'user.': 'users',
   'cron.': 'system',

@@ -6,6 +6,7 @@ import { auth, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { supabase, BUCKET_NAME, getPublicUrl } from '@/lib/supabase-storage';
 import { randomUUID } from 'crypto';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
+import { notifyAdminImpactUpdateSubmitted } from '@/lib/notifications';
 import type { ApiError, ApiResponse } from '@/types/api';
 
 export const runtime = 'nodejs';
@@ -235,6 +236,22 @@ export async function POST(request: NextRequest, { params }: Params) {
         details: { impactUpdateId: updated.id, photoCount: photoUrls.length, receiptCount: receiptUrls.length },
       });
 
+      /*
+        ⛔ The resubmission path needs this as much as the first submission:
+        it is reached only after an admin asked for a change, so somebody is
+        waiting on the second look. Fire-and-forget with a logged catch, the
+        same shape as `user-campaigns/route.ts:260` - the row is already
+        written and a mail failure must not 500 a successful submission.
+        `docs/139`.
+      */
+      notifyAdminImpactUpdateSubmitted({
+        campaignTitle: campaign.title,
+        creatorName: session.user.name ?? 'The organiser',
+        skipUserId: session.user.id,
+      }).catch((err) =>
+        console.error('[impact_update.resubmitted] admin notification error:', err),
+      );
+
       const response: ApiResponse<typeof updated> = { ok: true, data: updated };
       return NextResponse.json(response, { status: 200 });
     }
@@ -262,6 +279,20 @@ export async function POST(request: NextRequest, { params }: Params) {
       severity: 'info',
       details: { impactUpdateId: impactUpdate.id, photoCount: photoUrls.length, receiptCount: receiptUrls.length },
     });
+
+    /*
+      ⛔ Nobody was told. An organiser reporting how a family's money was
+      spent submitted into silence: this route sent no notification, no admin
+      screen listed the queue, and `notifyAdminImpactUpdateSubmitted` had
+      zero callers. `docs/139`.
+    */
+    notifyAdminImpactUpdateSubmitted({
+      campaignTitle: campaign.title,
+      creatorName: session.user.name ?? 'The organiser',
+      skipUserId: session.user.id,
+    }).catch((err) =>
+      console.error('[impact_update.submitted] admin notification error:', err),
+    );
 
     const response: ApiResponse<typeof impactUpdate> = { ok: true, data: impactUpdate };
     return NextResponse.json(response, { status: 201 });

@@ -214,6 +214,20 @@ export async function clearE2EData(): Promise<void> {
     .delete(schema.verificationDocuments)
     .where(inArray(schema.verificationDocuments.campaignId, [...E2E_CAMPAIGN_IDS]));
 
+  /*
+    `impact_updates` is the next instance of exactly the defect the comment
+    above describes, met while walking `docs/139`: a hand-inserted impact
+    update made `npm run e2e:seed` fail with
+    `violates foreign key constraint "impact_updates_campaign_id_campaigns_id_fk"`,
+    because this list named every child table of a fixture campaign except
+    that one. `docs/123` found the same omission in `clearDatabase`
+    (`blog_posts` truncated, `blog_topic_queue` not). A hand-written list of
+    child tables is only as good as whoever remembered to extend it.
+  */
+  await db
+    .delete(schema.impactUpdates)
+    .where(inArray(schema.impactUpdates.campaignId, [...E2E_CAMPAIGN_IDS]));
+
 await db
     .delete(schema.campaignUpdates)
     .where(inArray(schema.campaignUpdates.campaignId, [...E2E_CAMPAIGN_IDS]));
