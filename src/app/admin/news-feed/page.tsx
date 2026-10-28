@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { auth } from '@/lib/auth';
 import { newsItems } from '@/db/schema';
 import { desc, count } from 'drizzle-orm';
 import { NewsFeedMonitor } from '@/components/admin/NewsFeedMonitor';
@@ -10,6 +11,16 @@ export const metadata: Metadata = {
 };
 
 export default async function NewsFeedPage() {
+  /*
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`, and this
+    page is deliberately reachable by one: `GET /api/v1/admin/news-feed` admits `['editor','admin']`, so an editor
+    belongs on this screen. The Create control does not: it calls
+    `POST .../news-feed/[id]/create-campaign`, which is `['admin']`.
+    So the role is read once here and gates that control alone. `docs/134`.
+  */
+  const session = await auth();
+  const isAdmin = session?.user?.role === 'admin';
+
   /* Select only the columns the UI needs - excludes heavy articleBody */
   const items = await db
     .select({
@@ -71,6 +82,7 @@ export default async function NewsFeedPage() {
       </p>
       <div className="mt-6">
         <NewsFeedMonitor
+          isAdmin={isAdmin}
           items={items.map((item) => ({
             id: item.id,
             title: item.title,

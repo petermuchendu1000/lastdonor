@@ -58,6 +58,15 @@ interface Topic {
 interface TopicQueueListProps {
   topics: Topic[];
   counts: Record<string, number>;
+  /*
+    Whether the viewer may DELETE a topic. An editor belongs here - `topics`
+    GET/POST and `topics/[id]` PATCH admit `['admin','editor']`, so they may
+    add, boost, generate, reject and restore - but
+    `DELETE /api/v1/admin/blog/topics/[id]` is `requireRole(['admin'])`
+    (`topics/[id]/route.ts:125`). [VERIFIED by pressing it as an editor: 403,
+    the topic survived; as an admin: 200, deleted.] `docs/134`.
+  */
+  isAdmin: boolean;
 }
 
 /* ─── Constants ─── */
@@ -89,7 +98,7 @@ const STATUS_ACTIONS: Record<string, string[]> = {
 
 /* ─── Component ─── */
 
-export function TopicQueueList({ topics: initialTopics, counts }: TopicQueueListProps) {
+export function TopicQueueList({ topics: initialTopics, counts, isAdmin }: TopicQueueListProps) {
   /* State */
   const [topics, setTopics] = useState(initialTopics);
   const [search, setSearch] = useState('');
@@ -540,7 +549,12 @@ export function TopicQueueList({ topics: initialTopics, counts }: TopicQueueList
                             <XCircleIcon className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        {actions.includes('delete') && (
+                        {/*
+                          The role joins the per-status action test in ONE
+                          condition - the same question, asked once.
+                          `docs/134`.
+                        */}
+                        {isAdmin && actions.includes('delete') && (
                           <Button
                             variant="ghost"
                             size="sm"

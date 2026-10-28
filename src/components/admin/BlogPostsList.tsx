@@ -53,6 +53,15 @@ interface BlogPost {
 interface BlogPostsListProps {
   initialPosts: BlogPost[];
   counts: { total: number; published: number; draft: number };
+  /*
+    Whether the viewer may DELETE a post. An editor belongs on this screen -
+    `blog` GET/POST and `blog/[id]` GET/PATCH all admit `['admin','editor']`,
+    so they may write and publish - but `DELETE /api/v1/admin/blog/[id]` is
+    `requireRole(['admin'])` (`blog/[id]/route.ts:178`). [VERIFIED by pressing
+    it as an editor: 403, the post survived; as an admin: 200, the post was
+    deleted.] `docs/134`.
+  */
+  isAdmin: boolean;
 }
 
 /* ─── Constants ─── */
@@ -69,7 +78,7 @@ type SortDir = 'asc' | 'desc';
 
 /* ─── Component ─── */
 
-export function BlogPostsList({ initialPosts, counts }: BlogPostsListProps) {
+export function BlogPostsList({ initialPosts, counts, isAdmin }: BlogPostsListProps) {
   /* Filters */
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -385,15 +394,17 @@ export function BlogPostsList({ initialPosts, counts }: BlogPostsListProps) {
                         <PencilSquareIcon className="mr-1 h-3.5 w-3.5" />
                         Edit
                       </Link>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteTarget({ id: post.id, title: post.title })}
-                        aria-label={`Delete ${post.title}`}
-                      >
-                        <TrashIcon className="h-3.5 w-3.5" />
-                      </Button>
+                      {isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                          onClick={() => setDeleteTarget({ id: post.id, title: post.title })}
+                          aria-label={`Delete ${post.title}`}
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

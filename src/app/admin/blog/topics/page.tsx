@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { auth } from '@/lib/auth';
 import { blogTopicQueue } from '@/db/schema';
 import { desc, count } from 'drizzle-orm';
 import { TopicQueueList } from '@/components/admin/TopicQueueList';
@@ -10,6 +11,16 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminBlogTopicsPage() {
+  /*
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`, and this
+    page is deliberately reachable by one: `topics` GET/POST and `topics/[id]` PATCH admit `['admin','editor']`, so an
+    editor may add, boost, generate, reject and restore. `DELETE
+    .../topics/[id]` is `['admin']`, so only that control is gated.
+    So the role is read once here and gates that control alone. `docs/134`.
+  */
+  const session = await auth();
+  const isAdmin = session?.user?.role === 'admin';
+
   /* Select only the columns the UI needs */
   const [topics, statusCounts] = await Promise.all([
     db
@@ -53,6 +64,7 @@ export default async function AdminBlogTopicsPage() {
       </p>
       <div className="mt-6">
         <TopicQueueList
+          isAdmin={isAdmin}
           topics={topics.map((t) => ({
             id: t.id,
             title: t.title,

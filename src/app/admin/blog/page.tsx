@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { auth } from '@/lib/auth';
 import { blogPosts } from '@/db/schema';
 import { desc, count } from 'drizzle-orm';
 import { BlogPostsList } from '@/components/admin/BlogPostsList';
@@ -10,6 +11,16 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminBlogPage() {
+  /*
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`, and this
+    page is deliberately reachable by one: `blog` GET/POST and `blog/[id]` GET/PATCH all admit `['admin','editor']`,
+    so an editor may write and publish here. `DELETE /api/v1/admin/blog/[id]`
+    is `['admin']`, so the Delete control is gated.
+    So the role is read once here and gates that control alone. `docs/134`.
+  */
+  const session = await auth();
+  const isAdmin = session?.user?.role === 'admin';
+
   /* Select only the columns the UI needs - excludes heavy bodyHtml, faqData, etc. */
   const [rows, statusCounts] = await Promise.all([
     db
@@ -49,6 +60,7 @@ export default async function AdminBlogPage() {
       <p className="mt-1 text-sm text-muted-foreground">Manage blog content - create, edit, and publish articles.</p>
       <div className="mt-6">
         <BlogPostsList
+          isAdmin={isAdmin}
           initialPosts={rows.map((p) => ({
             ...p,
             createdAt: p.createdAt.toISOString(),

@@ -47,6 +47,18 @@ interface NewsFeedMonitorProps {
   sources: string[];
   categories: string[];
   counts: { total: number; withCampaign: number; pending: number };
+  /*
+    Whether the viewer may turn a news item into a campaign.
+
+    This page is open to an `editor` on purpose - `GET /api/v1/admin/news-feed`
+    admits `['editor','admin']` - but the Create control calls
+    `POST .../news-feed/[id]/create-campaign`, which is
+    `requireRole(['admin'])`. [VERIFIED by pressing it as an editor: HTTP 403,
+    "Insufficient permissions", the row untouched; the same press as an admin
+    returns 200.] Required, not optional, so `tsc` names the render site -
+    `docs/118`, and the same rule as `docs/133`. `docs/134`.
+  */
+  isAdmin: boolean;
 }
 
 /* ─── Constants ─── */
@@ -75,7 +87,7 @@ function RelevanceIndicator({ score }: { score: number | null }) {
 
 /* ─── Component ─── */
 
-export function NewsFeedMonitor({ items, sources, categories, counts }: NewsFeedMonitorProps) {
+export function NewsFeedMonitor({ items, sources, categories, counts, isAdmin }: NewsFeedMonitorProps) {
   /* Filters */
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
@@ -484,7 +496,13 @@ export function NewsFeedMonitor({ items, sources, categories, counts }: NewsFeed
                             <ArrowTopRightOnSquareIcon className="mr-1 h-3.5 w-3.5" />
                             Source
                           </a>
-                          {!isCampaign && (
+                          {/*
+                            `isAdmin` sits in the SAME condition as the state
+                            test, not beside it: "will the route behind this
+                            button accept this viewer, for this item?" is one
+                            question. `docs/133`, `docs/134`.
+                          */}
+                          {isAdmin && !isCampaign && (
                             <Button
                               size="sm"
                               disabled={isPublishing}
