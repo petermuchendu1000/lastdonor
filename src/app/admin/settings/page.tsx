@@ -5,6 +5,7 @@ import { users, campaigns, donations, newsletterSubscribers, siteSettings } from
 import { sql, like } from 'drizzle-orm';
 import { SystemSettings } from '@/components/admin/SystemSettings';
 import { getAllSettings } from '@/lib/settings.server';
+import { cronScheduleRows } from '@/lib/cron-schedule-display';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -12,15 +13,13 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-const CRON_JOBS = [
-  { name: 'Ingest News', schedule: '*/30 * * * *' },
-  { name: 'Update Phases', schedule: '*/5 * * * *' },
-  { name: 'Process Donations', schedule: '*/15 * * * *' },
-  { name: 'Reconcile', schedule: '0 4 * * *' },
-  { name: 'Fetch News', schedule: '0 */6 * * *' },
-  { name: 'Send Newsletter', schedule: '0 14 * * 4' },
-  { name: 'Publish Campaigns', schedule: '*/30 * * * *' },
-];
+/*
+  The schedule shown to the operator is DERIVED from the one the Worker
+  runs. A hand-written list of seven used to sit here; it matched neither
+  `CRON_JOBS` (twelve) nor `vercel.json` (nine, inert on Fly - docs/65), and
+  one of its rows named the one job this project deliberately does not
+  schedule. See `cron-schedule-display.ts` and `docs/138`.
+*/
 
 export default async function AdminSettingsPage() {
   const session = await auth();
@@ -58,7 +57,7 @@ export default async function AdminSettingsPage() {
     totalCampaigns: counts.campaigns,
     totalDonations: counts.donations,
     totalNewsletterSubscribers: counts.subscribers,
-    cronJobs: CRON_JOBS,
+    cronJobs: cronScheduleRows(),
   };
 
   const environment = {

@@ -7,6 +7,7 @@ import { encryptSecret, verifySecurityToken } from '@/lib/crypto.server';
 import { resolveEnvVar, type ManagedEnvKey } from '@/lib/settings.server';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
+import { getClientIp } from '@/lib/rate-limit';
 
 /**
  * Canonical list of environment keys that can be managed through the admin UI.
@@ -193,7 +194,15 @@ export async function PATCH(request: NextRequest) {
   // Encrypt and store each key in a transaction, and audit log each change
   const now = new Date();
   const updatedKeys: string[] = [];
-  const actorIp = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? null;
+  /*
+    ⛔ `getClientIp`, not the raw header - and this is the most sensitive
+    write in the product, so the audit row's actor matters most here. The
+    LEFT-most `x-forwarded-for` entry is whatever the caller typed, and
+    `docs/105` records that `lastdonor.fly.dev` reaches the origin directly,
+    so that prefix is attacker-chosen. `getClientIp` takes the hop our own
+    infrastructure appended instead. `docs/138`.
+  */
+  const actorIp = getClientIp(request.headers);
 
   await db.transaction(async (tx) => {
     for (const [key, value] of Object.entries(body.keys!)) {
@@ -239,6 +248,16 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    data: { updatedKeys, message: `Updated ${updatedKeys.length} environment key(s)` },
+    /*
+      ⛔ "Saved", not "Updated". Nothing reads an `env.*` row except the GET
+      that draws the settings screen, so the running app is unchanged by this
+      write - see the note on `EnvItemInteractive`. `docs/138`.
+    */
+    data: {
+      updatedKeys,
+      message:
+        `Saved ${updatedKeys.length} environment key(s). The running app still uses ` +
+        'the values it was deployed with; set them on the host and redeploy to change that.',
+    },
   });
 }

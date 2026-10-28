@@ -7,6 +7,7 @@ import { auditLogs } from '@/db/schema';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import { logError } from '@/lib/errors';
+import { getClientIp } from '@/lib/rate-limit';
 
 export async function GET() {
   const requestId = randomUUID();
@@ -197,7 +198,17 @@ export async function PATCH(request: NextRequest) {
     eventType: 'settings.updated',
     actorId: session.user.id,
     actorRole: 'admin',
-    actorIp: request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? null,
+    /*
+      ⛔ `getClientIp`, not the raw header. This read
+      `x-forwarded-for ?? x-real-ip` directly, and the LEFT-most XFF entry is
+      whatever the caller typed - so the actor IP on an audit row was a value
+      the actor chose. `docs/105` built this resolver for exactly that: it
+      takes the hop our own infrastructure appended, and never falls back to
+      the client-supplied prefix. 8 of the 10 `actorIp` sites in `src/`
+      already used it; this route and its `environment` sibling were the two
+      that did not. `docs/138`.
+    */
+    actorIp: getClientIp(request.headers),
     targetType: 'settings',
     severity: 'info',
     details: { keys: Object.keys(body) },

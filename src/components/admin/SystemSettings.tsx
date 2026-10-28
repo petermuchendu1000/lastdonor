@@ -290,8 +290,20 @@ export function SystemSettings({ initialSettings, hasSecurityQuestion: initialHa
           )}
         </div>
         <div className="p-4">
-          <p className="mb-4 text-sm text-muted-foreground">
+          <p className="mb-2 text-sm text-muted-foreground">
             Click &quot;Update&quot; on any key to provide a new API credential. Changes require security verification and are encrypted at rest.
+          </p>
+          {/*
+            ⛔ Says plainly what saving here does and does not do. Without
+            this, an owner fixing a dead credential through this screen sees
+            the key go green and believes the service is fixed, while the
+            running app keeps using the old value. `docs/138`.
+          */}
+          <p className="mb-4 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            A key saved here is stored encrypted, but the running app does not
+            read it yet: services still take their credentials from the
+            environment they were deployed with. To change what the platform
+            actually uses, set the value on the host and redeploy.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <EnvItem label="Node Environment" value={environment.nodeEnv} ok readOnly />
@@ -488,8 +500,32 @@ export function SystemSettings({ initialSettings, hasSecurityQuestion: initialHa
           <Badge variant="outline" className="text-xs font-normal">Read-only</Badge>
         </div>
         <div className="p-4">
+          {/*
+            ⛔ This used to say "defined in vercel.json and managed via
+            deployment configuration". `vercel.json` is inert on Fly and has
+            never scheduled anything in this platform's life (docs/65); the
+            list that runs is `src/lib/cron-schedule.ts`, bundled into the
+            Cloudflare Worker at `wrangler deploy` time (docs/66). Pointing
+            an operator at the wrong file during an incident is the cost.
+            `docs/138`.
+          */}
+          <p className="mb-2 text-sm text-muted-foreground">
+            These are the jobs the cron Worker is configured to dispatch, read
+            from <code className="font-mono text-xs">src/lib/cron-schedule.ts</code>.
+            Changing one needs an app deploy and then a Worker deploy, in that
+            order.
+          </p>
+          {/*
+            ⛔ The badge used to read "Active" on every row, unconditionally.
+            It says "Scheduled" now because that is what this list IS and all
+            it can honestly claim. Do NOT turn it into a liveness badge from
+            `audit_logs`: docs/136 §10 measured that signal per job and it is
+            wrong for the two that run most often.
+          */}
           <p className="mb-4 text-sm text-muted-foreground">
-            Cron schedules are defined in vercel.json and managed via deployment configuration.
+            A row says a job is scheduled, not that it ran. What actually fired
+            is in the Worker&apos;s own log and in the{' '}
+            <code className="font-mono text-xs">cron.*</code> audit rows.
           </p>
           <div className="space-y-3">
             {stats.cronJobs.map((job) => (
@@ -498,7 +534,7 @@ export function SystemSettings({ initialSettings, hasSecurityQuestion: initialHa
                   <p className="font-medium">{job.name}</p>
                   <p className="font-mono text-sm text-muted-foreground">{job.schedule}</p>
                 </div>
-                <Badge variant="secondary">Active</Badge>
+                <Badge variant="secondary">Scheduled</Badge>
               </div>
             ))}
           </div>
@@ -807,8 +843,24 @@ function EnvItemInteractive({ envKey, label, source, maskedValue, onUpdate }: {
   maskedValue: string | null;
   onUpdate: (key: string) => void;
 }) {
+  /*
+    ⛔ A stored key is NOT in use, and this badge used to say it was.
+
+    `source: 'db'` rendered as "Custom" with a primary badge, which reads as
+    "this is the value the platform is using". [VERIFIED] it is not:
+    `resolveEnvVar` (`settings.server.ts:25-41`) is the only reader of an
+    `env.*` row, and its only call site is the GET that draws THIS screen -
+    while the actual consumers take `process.env` directly
+    (`stripe.ts:7`, `resend.ts:7`). Nothing copies the database value into
+    `process.env` at boot either.
+
+    So the honest label is that the value is saved and not yet used. The
+    badge is `secondary`, not `default`, for the same reason - a primary
+    badge reads as the active source. `docs/138`.
+  */
   const ok = source !== 'missing';
-  const displayValue = source === 'missing' ? 'Missing' : source === 'db' ? 'Custom' : 'Env';
+  const displayValue =
+    source === 'missing' ? 'Missing' : source === 'db' ? 'Saved · not in use' : 'Env';
 
   return (
     <div className="flex items-center justify-between rounded-md border px-3 py-2">
@@ -819,7 +871,7 @@ function EnvItemInteractive({ envKey, label, source, maskedValue, onUpdate }: {
         )}
       </div>
       <div className="flex items-center gap-2">
-        <Badge variant={ok ? (source === 'db' ? 'default' : 'secondary') : 'destructive'} className="text-xs">
+        <Badge variant={ok ? 'secondary' : 'destructive'} className="text-xs">
           {displayValue}
         </Badge>
         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onUpdate(envKey)}>
