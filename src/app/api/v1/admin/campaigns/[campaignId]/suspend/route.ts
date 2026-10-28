@@ -55,6 +55,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         slug: campaigns.slug,
         status: campaigns.status,
         creatorId: campaigns.creatorId,
+        /*
+          ⛔ Load-bearing for `docs/131`. A REFUSED campaign (`under_review ->
+          suspended`) has never been published, so it has no public page and
+          its donor notification must carry no link - and it has no donors
+          either. A LIVE campaign suspended for investigation does have one.
+          This column is what tells the two apart; the status cannot.
+        */
+        publishedAt: campaigns.publishedAt,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -130,6 +138,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         campaignId,
         campaignTitle: campaign.title,
         campaignSlug: campaign.slug ?? '',
+        campaignPublishedAt: campaign.publishedAt,
       }).catch((err) => console.error('[campaign.suspended] notification error:', err));
     }
 

@@ -54,6 +54,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         title: campaigns.title,
         slug: campaigns.slug,
         status: campaigns.status,
+        // Carried for the notification's link: a paused campaign has a public
+        // page only if it was published (`docs/131`).
+        publishedAt: campaigns.publishedAt,
       })
       .from(campaigns)
       .where(eq(campaigns.id, campaignId))
@@ -94,6 +97,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       campaignId,
       campaignTitle: campaign.title,
       campaignSlug: campaign.slug ?? '',
+      campaignPublishedAt: campaign.publishedAt,
       reason,
       notifyDonors,
     }).catch((err) => console.error('[campaign.paused] notification error:', err));

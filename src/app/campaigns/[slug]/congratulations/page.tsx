@@ -33,6 +33,8 @@ export default async function CongratulationsPage({ params }: PageProps) {
       // `docs/109` - the page serves only some statuses, and both links here
       // went straight to a 404 for any campaign still in the review queue.
       status: campaigns.status,
+      // ...and `docs/131`: the status alone does not say a person approved it.
+      publishedAt: campaigns.publishedAt,
       heroImageUrl: campaigns.heroImageUrl,
       category: campaigns.category,
       subjectName: campaigns.subjectName,
@@ -67,7 +69,7 @@ export default async function CongratulationsPage({ params }: PageProps) {
       campaign={{
         title: campaign.title,
         slug: campaign.slug,
-        hasPublicPage: hasPublicPage(campaign.status),
+        hasPublicPage: hasPublicPage({ status: campaign.status, publishedAt: campaign.publishedAt }),
         heroImageUrl: campaign.heroImageUrl,
         currency: campaign.currency,
         category: campaign.category,

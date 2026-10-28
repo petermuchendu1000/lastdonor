@@ -423,6 +423,7 @@ async function handlePostPaymentEffects(
         creatorName: creator.name || 'Campaigner',
         campaignTitle: campaign.title,
         campaignSlug: campaign.slug,
+        campaignPublishedAt: campaign.publishedAt,
         donorName, amount, currency, isAnonymous,
       }),
       'webhook/first-donation', requestCtx,
@@ -569,6 +570,7 @@ async function sendDonationNotifications({
   await notifyAdminsDonationReceived({
     campaignId: meta.campaignId,
     campaignSlug: campaign.slug,
+    campaignPublishedAt: campaign.publishedAt,
     campaignTitle: campaign.title,
     donorName: meta.donorName,
     amount,
@@ -584,6 +586,7 @@ async function sendDonationNotifications({
       campaignId: meta.campaignId,
       campaignTitle: campaign.title,
       campaignSlug: campaign.slug,
+      campaignPublishedAt: campaign.publishedAt,
       donorName: meta.donorName,
       amount,
       currency,

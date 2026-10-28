@@ -23,6 +23,9 @@ const ALL_CAMPAIGN_STATUSES = [
 ] as const;
 
 describe('publicCampaignPath', () => {
+  /** A campaign a person approved. The status dimension is what these test. */
+  const PUBLISHED = new Date('2026-10-01T00:00:00Z');
+
   it('⛔ refuses `under_review` - the reported symptom class', () => {
     /*
       ⚠️ This assertion used to name `archived`, which was the originally
@@ -40,8 +43,8 @@ describe('publicCampaignPath', () => {
       yield null. `under_review` is the status every newly created campaign
       holds (`docs/78`/`docs/79`), so it is the case that matters most now.
     */
-    expect(publicCampaignPath({ slug: 'help-ada', status: 'under_review' })).toBeNull();
-    expect(publicCampaignPath({ slug: 'help-ada', status: 'draft' })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'under_review', publishedAt: PUBLISHED })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'draft', publishedAt: PUBLISHED })).toBeNull();
   });
 
   it('⚠️ now ALLOWS archived, and that is deliberate (docs/118 §9)', () => {
@@ -51,7 +54,7 @@ describe('publicCampaignPath', () => {
       ever removed from PUBLICLY_VIEWABLE_STATUSES, this fails and whoever
       did it has to read the decision.
     */
-    expect(publicCampaignPath({ slug: 'help-ada', status: 'archived' })).toBe(
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'archived', publishedAt: PUBLISHED })).toBe(
       '/campaigns/help-ada',
     );
   });
@@ -64,14 +67,14 @@ describe('publicCampaignPath', () => {
     // If this is ever empty the test below proves nothing.
     expect(notPublic.length).toBeGreaterThan(0);
     for (const status of notPublic) {
-      expect(publicCampaignPath({ slug: 'help-ada', status }), status).toBeNull();
+      expect(publicCampaignPath({ slug: 'help-ada', status, publishedAt: PUBLISHED }), status).toBeNull();
     }
   });
 
   it('returns the path for every status the page DOES serve', () => {
     // The control. Without this, returning null always would pass above.
     for (const status of PUBLICLY_VIEWABLE_STATUSES) {
-      expect(publicCampaignPath({ slug: 'help-ada', status }), status).toBe(
+      expect(publicCampaignPath({ slug: 'help-ada', status, publishedAt: PUBLISHED }), status).toBe(
         '/campaigns/help-ada',
       );
     }
@@ -80,16 +83,16 @@ describe('publicCampaignPath', () => {
   it('covers every status in the enum, one way or the other', () => {
     // Guards against a status being added and silently landing in neither set.
     for (const status of ALL_CAMPAIGN_STATUSES) {
-      const got = publicCampaignPath({ slug: 'help-ada', status });
+      const got = publicCampaignPath({ slug: 'help-ada', status, publishedAt: PUBLISHED });
       const isPublic = (PUBLICLY_VIEWABLE_STATUSES as readonly string[]).includes(status);
       expect(got, status).toBe(isPublic ? '/campaigns/help-ada' : null);
     }
   });
 
   it('refuses an unknown status rather than guessing', () => {
-    expect(publicCampaignPath({ slug: 'help-ada', status: 'what-is-this' })).toBeNull();
-    expect(publicCampaignPath({ slug: 'help-ada', status: null })).toBeNull();
-    expect(publicCampaignPath({ slug: 'help-ada', status: undefined })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: 'what-is-this', publishedAt: PUBLISHED })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: null, publishedAt: PUBLISHED })).toBeNull();
+    expect(publicCampaignPath({ slug: 'help-ada', status: undefined, publishedAt: PUBLISHED })).toBeNull();
   });
 
   it('⚠️ refuses an empty slug, which produced `/campaigns/` and a silent 308', () => {
@@ -99,9 +102,9 @@ describe('publicCampaignPath', () => {
       whole listing, so a donor told their campaign had concluded landed on a
       browse page with no explanation.
     */
-    expect(publicCampaignPath({ slug: '', status: 'active' })).toBeNull();
-    expect(publicCampaignPath({ slug: null, status: 'active' })).toBeNull();
-    expect(publicCampaignPath({ slug: undefined, status: 'active' })).toBeNull();
+    expect(publicCampaignPath({ slug: '', status: 'active', publishedAt: PUBLISHED })).toBeNull();
+    expect(publicCampaignPath({ slug: null, status: 'active', publishedAt: PUBLISHED })).toBeNull();
+    expect(publicCampaignPath({ slug: undefined, status: 'active', publishedAt: PUBLISHED })).toBeNull();
   });
 });
 

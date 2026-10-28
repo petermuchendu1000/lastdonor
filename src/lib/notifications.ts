@@ -320,6 +320,7 @@ export async function notifyDonationRefund(p: {
   amount: number;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   /**
    * The campaign's CURRENT status, so the link can be guarded.
    *
@@ -370,7 +371,7 @@ export async function notifyDonationRefund(p: {
       type,
       title,
       message,
-      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -387,6 +388,7 @@ export async function notifyCampaignStatusChange(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   previousStatus: string;
   newStatus: string;
   goalAmount: number;
@@ -491,7 +493,7 @@ export async function notifyCampaignStatusChange(p: {
           `active -> draft` and `archived -> draft`, and `draft` has no public
           page. Do not inline the template literal back. `docs/118`.
         */
-        link: publicCampaignPath({ slug: p.campaignSlug, status: p.newStatus }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.newStatus, publishedAt: p.campaignPublishedAt }),
         email: { to: donor.donorEmail, ...emailContent },
       });
     } else {
@@ -699,6 +701,7 @@ export async function notifyCampaignPaused(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   reason: string;
   notifyDonors: boolean;
 }) {
@@ -722,7 +725,7 @@ export async function notifyCampaignPaused(p: {
         type: 'campaign_paused',
         title: `"${p.campaignTitle}" has been paused`,
         message: `The campaign has been temporarily paused. Reason: ${p.reason}`,
-        link: publicCampaignPath({ slug: p.campaignSlug, status: 'paused' }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: 'paused', publishedAt: p.campaignPublishedAt }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -738,6 +741,7 @@ export async function notifyCampaignResumed(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
 }) {
   const subscribers = await getSubscribedDonors(p.campaignId);
   const nameMap = await resolveDonorNames(subscribers.map((s) => s.donorEmail));
@@ -756,7 +760,7 @@ export async function notifyCampaignResumed(p: {
         type: 'campaign_resumed',
         title: `"${p.campaignTitle}" has resumed`,
         message: `The campaign has resumed and is accepting donations again.`,
-        link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: 'active', publishedAt: p.campaignPublishedAt }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -772,6 +776,7 @@ export async function notifyCampaignSuspended(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
 }) {
   const subscribers = await getSubscribedDonors(p.campaignId);
   const nameMap = await resolveDonorNames(subscribers.map((s) => s.donorEmail));
@@ -790,7 +795,7 @@ export async function notifyCampaignSuspended(p: {
         type: 'campaign_suspended',
         title: `"${p.campaignTitle}" is under review`,
         message: `The campaign is currently being reviewed by our team. Your funds are secure.`,
-        link: publicCampaignPath({ slug: p.campaignSlug, status: 'suspended' }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: 'suspended', publishedAt: p.campaignPublishedAt }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -875,6 +880,7 @@ export async function notifyWelcomeCampaigner(p: {
   campaignerName: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
 }) {
   const emailContent = welcomeCampaignerEmail({
     campaignerName: p.campaignerName || 'Campaigner',
@@ -887,7 +893,7 @@ export async function notifyWelcomeCampaigner(p: {
     type: 'campaign_submitted',
     title: `Your campaign "${p.campaignTitle}" is live!`,
     message: `Your campaign is now live and accepting donations. Share it to get your first donation!`,
-    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
+    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active', publishedAt: p.campaignPublishedAt }),
     email: { to: p.campaignerEmail, ...emailContent },
   });
 }
@@ -938,6 +944,7 @@ export async function notifyBulkRefundCompleted(p: {
 export async function notifyAdminsDonationReceived(p: {
   campaignId: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   campaignTitle: string;
   donorName: string;
   amount: number;
@@ -965,7 +972,7 @@ export async function notifyAdminsDonationReceived(p: {
       type: 'campaign_donation_received',
       title: `New donation: ${money(p.amount, p.currency)} to "${p.campaignTitle}"`,
       message: `${donor} donated ${money(p.amount, p.currency)} to "${p.campaignTitle}".${p.message ? ` Message: "${p.message}"` : ''}`,
-      link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
+      link: publicCampaignPath({ slug: p.campaignSlug, status: 'active', publishedAt: p.campaignPublishedAt }),
       email: { to: admin.email, ...emailContent },
     });
   }
@@ -979,6 +986,7 @@ export async function notifyCreatorDonationReceived(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   donorName: string;
   amount: number;
   /** ISO 4217 of the amounts above. Defaults to USD. */
@@ -1002,7 +1010,7 @@ export async function notifyCreatorDonationReceived(p: {
     type: 'campaign_donation_received',
     title: `New donation: ${money(p.amount, p.currency)}`,
     message: `${donor} donated ${money(p.amount, p.currency)} to your campaign "${p.campaignTitle}".${p.message ? ` They said: "${p.message}"` : ''}`,
-    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
+    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active', publishedAt: p.campaignPublishedAt }),
     email: {
       to: creator.email,
       subject: `You received a ${money(p.amount, p.currency)} donation!`,
@@ -1023,6 +1031,7 @@ export async function notifyCreatorFirstDonation(p: {
   creatorName: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   donorName: string;
   amount: number;
   /** ISO 4217 of the amounts above. Defaults to USD. */
@@ -1045,7 +1054,7 @@ export async function notifyCreatorFirstDonation(p: {
     type: 'campaign_donation_received',
     title: `First donation received! ${money(p.amount, p.currency)}`,
     message: `${donor} just made the first donation to your campaign "${p.campaignTitle}". You'll receive funds once your campaign completes and verification is done.`,
-    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active' }),
+    link: publicCampaignPath({ slug: p.campaignSlug, status: 'active', publishedAt: p.campaignPublishedAt }),
     email: { to: p.creatorEmail, ...emailContent },
   });
 }
@@ -1471,6 +1480,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   campaignStatus: string;
   campaignPhase: 'first_believers' | 'the_push' | 'closing_in' | 'last_donor_zone';
   campaignProgressPercent: number;
@@ -1516,7 +1526,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
         type: 'campaign_donation_received',
         title: `Personal thank you for your ${tier === 'major' ? 'extraordinary' : 'generous'} donation`,
         message: `Your donation of $${(p.amount / 100).toFixed(2)} to "${p.campaignTitle}" stands out. Thank you.`,
-        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
         email: { to: p.donorEmail, ...hvEmail },
       });
     } else {
@@ -1531,7 +1541,7 @@ export async function notifyAdaptiveDonationReceipt(p: {
       type: 'campaign_donation_received',
       title: `Donation receipt: $${(p.amount / 100).toFixed(2)} to "${p.campaignTitle}"`,
       message: `Thank you for your donation. Your receipt is in your email.`,
-      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1563,7 +1573,7 @@ export async function notifyAbandonedDonation(p: AbandonedDonationContext) {
           ? `"${p.campaignTitle}" is ${p.progressPercent}% funded`
           : `Last note about "${p.campaignTitle}"`,
       message: `You started a donation but didn't finish. The campaign is still live if you'd like to help.`,
-      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1583,6 +1593,7 @@ export async function notifyAdaptiveRefund(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   campaignStatus: string;
   refundReason: 'campaign_cancelled' | 'donor_requested' | 'admin_initiated' | 'dispute';
   /*
@@ -1613,7 +1624,7 @@ export async function notifyAdaptiveRefund(p: {
       type: 'donation_refunded',
       title: `Refund of $${(p.amount / 100).toFixed(2)} processed`,
       message: `Your donation to "${p.campaignTitle}" has been refunded.`,
-      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1741,6 +1752,7 @@ export async function notifyPostDonationImpact(p: {
   donorName: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   campaignStatus: string;
   donationDate: string;
   donationAmount: number;
@@ -1772,7 +1784,7 @@ export async function notifyPostDonationImpact(p: {
       type: 'campaign_milestone',
       title: `Your donation to "${p.campaignTitle}" is making progress`,
       message: `The campaign is now ${p.currentProgressPercent}% funded with ${p.currentDonorCount} donors.`,
-      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+      link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
       email: { to: p.donorEmail, ...emailContent },
     });
   } else {
@@ -1789,6 +1801,7 @@ export async function notifyCampaignUpdateDigest(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   /**
    * The campaign's status, so the link can be guarded.
    *
@@ -1833,7 +1846,7 @@ export async function notifyCampaignUpdateDigest(p: {
         type: 'campaign_milestone',
         title: `Update on "${p.campaignTitle}": ${p.updateTitle}`,
         message: p.updateExcerpt.substring(0, 200),
-        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -1849,6 +1862,7 @@ export async function notifyCreatorThankYouUpdate(p: {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   campaignStatus: string;
   creatorName: string;
   thankYouMessage: string;
@@ -1879,7 +1893,7 @@ export async function notifyCreatorThankYouUpdate(p: {
         type: 'campaign_milestone',
         title: `Message from ${p.creatorName} about "${p.campaignTitle}"`,
         message: `The campaign creator posted a personal thank-you message for donors.`,
-        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+        link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
         email: { to: sub.donorEmail, ...emailContent },
       });
     } else {
@@ -1923,6 +1937,7 @@ export async function notifyCreatorImpactUpdateApproved(p: {
   creatorName: string;
   campaignTitle: string;
   campaignSlug: string;
+  campaignPublishedAt: Date | string | null;
   campaignStatus: string;
 }) {
   await createAndEmail({
@@ -1930,7 +1945,7 @@ export async function notifyCreatorImpactUpdateApproved(p: {
     type: 'campaign_milestone' as NotificationType,
     title: `Impact update approved for "${p.campaignTitle}"`,
     message: `Your impact update has been reviewed and approved. Thank you for showing your supporters how their donations made a difference.`,
-    link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus }),
+    link: publicCampaignPath({ slug: p.campaignSlug, status: p.campaignStatus, publishedAt: p.campaignPublishedAt }),
     email: {
       to: p.creatorEmail,
       subject: `Impact update approved - ${p.campaignTitle}`,

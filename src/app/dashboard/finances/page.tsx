@@ -42,6 +42,7 @@ export default async function DonationHistoryPage() {
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,
       campaignStatus: campaigns.status,
+      campaignPublishedAt: campaigns.publishedAt,
     })
     .from(donations)
     .innerJoin(campaigns, eq(donations.campaignId, campaigns.id))
@@ -117,7 +118,7 @@ export default async function DonationHistoryPage() {
                       exactly that to twelve live campaigns - and this link
                       would then 404 from the donor's own history.
                     */}
-                    {hasPublicPage(d.campaignStatus) ? (
+                    {hasPublicPage({ status: d.campaignStatus, publishedAt: d.campaignPublishedAt }) ? (
                       <Link
                         href={`/campaigns/${d.campaignSlug}`}
                         className="font-medium text-[#0F766E] hover:underline"

@@ -70,6 +70,15 @@ import { hasPublicPage } from './campaign-visibility';
  * out: *"the failure mode of hiding a working link is a missing button, and
  * the failure mode of showing a broken one is a 404"*.
  *
+ * ⛔ `publishedAt` is carried, and REQUIRED, for the reason `hasPublicPage`
+ * states at length: the page serves a campaign only once a person approved its
+ * publication, and three of its statuses are reachable from a campaign nobody
+ * read. It is required rather than optional on exactly the `docs/118`
+ * reasoning that made `campaignStatus` required - *"an optional one would have
+ * let every existing 404 compile"* - except inverted: an optional one here
+ * would let every call site keep promising a page the lookup has started
+ * refusing, which is the `docs/118` defect arriving from the other direction.
+ *
  * ⚠️ The empty slug is refused too. Two admin call sites pass
  * `campaignSlug: full?.slug ?? ''`, which produced the string
  * `'/campaigns/'` - not a 404 but a silent 308 to the whole listing, so a
@@ -78,9 +87,10 @@ import { hasPublicPage } from './campaign-visibility';
 export function publicCampaignPath(p: {
   slug: string | null | undefined;
   status: string | null | undefined;
+  publishedAt: Date | string | null | undefined;
 }): string | null {
   if (!p.slug) return null;
-  if (!hasPublicPage(p.status)) return null;
+  if (!hasPublicPage({ status: p.status, publishedAt: p.publishedAt })) return null;
   return `/campaigns/${p.slug}`;
 }
 

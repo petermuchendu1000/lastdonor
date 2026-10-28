@@ -35,6 +35,8 @@ export default async function CampaignVerificationPage({ params }: Props) {
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      // `docs/131`: the public-link guard needs the publication date.
+      publishedAt: campaigns.publishedAt,
       verificationStatus: campaigns.verificationStatus,
       verificationNotes: campaigns.verificationNotes,
       verificationReviewedAt: campaigns.verificationReviewedAt,
@@ -100,6 +102,7 @@ export default async function CampaignVerificationPage({ params }: Props) {
   const serializedCampaign = {
     ...campaign,
     verificationReviewedAt: campaign.verificationReviewedAt?.toISOString() ?? null,
+    publishedAt: campaign.publishedAt?.toISOString() ?? null,
   };
 
   const serializedDocuments = documents.map((d) => ({

@@ -37,6 +37,8 @@ interface Campaign {
   title: string;
   slug: string;
   status: string;
+  /** `docs/131`: a campaign has a public page only once a person approved its publication. */
+  publishedAt: string | null;
   verificationStatus: string;
   verificationNotes: string | null;
   verificationReviewedAt: string | null;
@@ -339,9 +341,9 @@ export function CampaignVerificationDashboard({ campaign, documents, infoRequest
               404 at the exact moment they were told to come here and check
               their ID. `docs/121`.
             */}
-            {publicCampaignPath({ slug: campaign.slug, status: campaign.status }) ? (
+            {publicCampaignPath({ slug: campaign.slug, status: campaign.status, publishedAt: campaign.publishedAt }) ? (
               <Link
-                href={publicCampaignPath({ slug: campaign.slug, status: campaign.status })!}
+                href={publicCampaignPath({ slug: campaign.slug, status: campaign.status, publishedAt: campaign.publishedAt })!}
                 className="text-brand-teal hover:underline"
               >
                 {campaign.title}

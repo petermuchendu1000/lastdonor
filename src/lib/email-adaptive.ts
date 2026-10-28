@@ -222,6 +222,7 @@ export interface AbandonedDonationContext {
    * that is not public. A `campaignStatus?:` would have let them.
    */
   campaignStatus: string;
+  campaignPublishedAt: Date | string | null;
   /** The amount the donor started to give (cents), if captured. */
   intendedAmountCents: number | null;
   /** Number of current donors on this campaign. */

@@ -42,6 +42,7 @@ export default async function CampaignsPage() {
     ...c,
     heroImageUrl: c.heroImageUrl ?? '',
     createdAt: c.createdAt.toISOString(),
+    publishedAt: c.publishedAt?.toISOString() ?? null,
   }));
 
   return (

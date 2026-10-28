@@ -52,6 +52,8 @@ interface GovernanceCampaign {
   title: string;
   slug: string;
   status: string;
+  /** `docs/131`: a campaign has a public page only once a person approved its publication. */
+  publishedAt: string | null;
   /** The campaign's own currency; its amounts are in THAT currency's minor units (`docs/92`). */
   currency: string;
   raisedAmount: number;
@@ -324,8 +326,8 @@ export function GovernancePanel({ campaigns: initial, totalCampaigns }: Governan
                 <tr key={c.id} className="hover:bg-muted/30">
                   <td className="max-w-[280px] px-4 py-3">
                     {/* docs/118 via docs/120: a campaign with no public page is not a link. */}
-                    {publicCampaignPath({ slug: c.slug, status: c.status }) ? (
-                      <Link href={publicCampaignPath({ slug: c.slug, status: c.status })!} className="font-medium text-foreground hover:underline" target="_blank" rel="noopener">
+                    {publicCampaignPath({ slug: c.slug, status: c.status, publishedAt: c.publishedAt }) ? (
+                      <Link href={publicCampaignPath({ slug: c.slug, status: c.status, publishedAt: c.publishedAt })!} className="font-medium text-foreground hover:underline" target="_blank" rel="noopener">
                         {c.title}
                       </Link>
                     ) : (

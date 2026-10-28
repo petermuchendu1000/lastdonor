@@ -89,6 +89,7 @@ const DIGEST = {
   campaignTitle: 'Help Ada',
   campaignSlug: 'help-ada',
   campaignStatus: 'active',
+  campaignPublishedAt: new Date('2026-10-01T00:00:00Z'),
   updateTitle: 'Surgery scheduled',
   updateExcerpt: 'Good news this week.',
   progressPercent: 42,
@@ -160,6 +161,7 @@ describe('campaign status notices are NOT suppressed by emailCampaignUpdates', (
       campaignId: CAMPAIGN,
       campaignTitle: 'Help Ada',
       campaignSlug: 'help-ada',
+      campaignPublishedAt: new Date('2026-10-01T00:00:00Z'),
       reason: 'Documents under review',
       notifyDonors: true,
     });

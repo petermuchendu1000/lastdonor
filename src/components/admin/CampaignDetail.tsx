@@ -592,11 +592,11 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
         value and is rendered as text.
       */}
       <div className="text-sm text-muted-foreground">
-        {publicCampaignPath({ slug: campaign.slug, status: campaign.status }) ? (
+        {publicCampaignPath({ slug: campaign.slug, status: campaign.status, publishedAt: campaign.publishedAt }) ? (
           <>
             Public link:{' '}
             <Link
-              href={publicCampaignPath({ slug: campaign.slug, status: campaign.status })!}
+              href={publicCampaignPath({ slug: campaign.slug, status: campaign.status, publishedAt: campaign.publishedAt })!}
               className="text-primary underline-offset-4 hover:underline"
             >
               /campaigns/{campaign.slug}

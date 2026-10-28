@@ -21,6 +21,8 @@ export default async function AdminGovernancePage() {
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      // `docs/131`: the public-link guard needs the publication date.
+      publishedAt: campaigns.publishedAt,
       // The row's own currency; without it these screens printed every
       // campaign's money as dollars (`docs/92`).
       currency: campaigns.currency,
@@ -58,6 +60,7 @@ export default async function AdminGovernancePage() {
     pausedAt: r.pausedAt?.toISOString() ?? null,
     suspendedAt: r.suspendedAt?.toISOString() ?? null,
     cancelledAt: r.cancelledAt?.toISOString() ?? null,
+    publishedAt: r.publishedAt?.toISOString() ?? null,
   }));
 
   return (

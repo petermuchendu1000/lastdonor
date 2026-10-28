@@ -69,6 +69,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         userId: campaignMessages.userId,
         campaignSlug: campaigns.slug,
         campaignStatus: campaigns.status,
+        campaignPublishedAt: campaigns.publishedAt,
       })
       .from(campaignMessages)
       .innerJoin(campaigns, eq(campaigns.id, campaignMessages.campaignId))
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         link: publicCampaignPath({
           slug: existing.campaignSlug,
           status: existing.campaignStatus,
+          publishedAt: existing.campaignPublishedAt,
         }),
       });
     }

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!session?.user) throw new UnauthorizedError();
 
     const [campaign] = await db
-      .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, creatorId: campaigns.creatorId, status: campaigns.status, currency: campaigns.currency, raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount })
+      .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, creatorId: campaigns.creatorId, status: campaigns.status, publishedAt: campaigns.publishedAt, currency: campaigns.currency, raisedAmount: campaigns.raisedAmount, goalAmount: campaigns.goalAmount })
       .from(campaigns)
       .where(eq(campaigns.id, id))
       .limit(1);
@@ -128,6 +128,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       campaignTitle: campaign.title,
       campaignSlug: campaign.slug,
       campaignStatus: campaign.status,
+      campaignPublishedAt: campaign.publishedAt,
       updateTitle: parsed.data.title,
       updateExcerpt: excerpt,
       progressPercent,

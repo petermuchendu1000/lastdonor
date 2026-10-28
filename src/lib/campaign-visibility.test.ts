@@ -102,15 +102,46 @@ describe('PUBLICLY_VIEWABLE_STATUSES', () => {
 });
 
 describe('hasPublicPage', () => {
-  it('answers true for every served status', () => {
+  const PUBLISHED = new Date('2026-10-01T00:00:00Z');
+
+  it('answers true for every served status, once it was published', () => {
     for (const status of PUBLICLY_VIEWABLE_STATUSES) {
-      expect(hasPublicPage(status), status).toBe(true);
+      expect(hasPublicPage({ status, publishedAt: PUBLISHED }), status).toBe(true);
+    }
+  });
+
+  it('⛔ answers FALSE for every served status while published_at is null', () => {
+    /*
+      `docs/131`. A status allowlist cannot answer "did a person approve this",
+      and four routes move a `draft` or `under_review` campaign into
+      `suspended` or `archived` - the first of them being the DOCUMENTED
+      refusal path. So every one of these was served for a campaign nobody had
+      read.
+    */
+    for (const status of PUBLICLY_VIEWABLE_STATUSES) {
+      expect(hasPublicPage({ status, publishedAt: null }), status).toBe(false);
     }
   });
 
   it('answers false for a campaign still in the queue', () => {
-    expect(hasPublicPage('under_review')).toBe(false);
-    expect(hasPublicPage('draft')).toBe(false);
+    expect(hasPublicPage({ status: 'under_review', publishedAt: null })).toBe(false);
+    expect(hasPublicPage({ status: 'draft', publishedAt: null })).toBe(false);
+  });
+
+  it('⛔ a publication date does NOT make an unserved status public', () => {
+    // The control on the rule above: the two predicates are an AND, so a
+    // campaign restored to `draft` (`ALLOWED_TRANSITIONS` permits
+    // `active -> draft`) keeps its date and still has no page.
+    expect(hasPublicPage({ status: 'draft', publishedAt: PUBLISHED })).toBe(false);
+    expect(hasPublicPage({ status: 'under_review', publishedAt: PUBLISHED })).toBe(false);
+  });
+
+  it('⚠️ accepts an ISO string as well as a Date', () => {
+    // The same row is read on both sides of the serialization boundary: a
+    // server component holds a Date, a client component handed it through
+    // props holds a string. A string-rejecting guard would hide every live
+    // campaign's link in the dashboard.
+    expect(hasPublicPage({ status: 'active', publishedAt: '2026-10-01T00:00:00.000Z' })).toBe(true);
   });
 
   it('⛔ fails toward hiding the link, not toward a 404', () => {
@@ -119,10 +150,12 @@ describe('hasPublicPage', () => {
       shown one that 404s is the platform handing the organiser a dead page
       for their own appeal, which is the defect this came from.
     */
-    expect(hasPublicPage(null)).toBe(false);
-    expect(hasPublicPage(undefined)).toBe(false);
-    expect(hasPublicPage('')).toBe(false);
-    expect(hasPublicPage('something_new')).toBe(false);
+    expect(hasPublicPage({ status: null, publishedAt: PUBLISHED })).toBe(false);
+    expect(hasPublicPage({ status: undefined, publishedAt: PUBLISHED })).toBe(false);
+    expect(hasPublicPage({ status: '', publishedAt: PUBLISHED })).toBe(false);
+    expect(hasPublicPage({ status: 'something_new', publishedAt: PUBLISHED })).toBe(false);
+    expect(hasPublicPage({ status: 'active', publishedAt: undefined })).toBe(false);
+    expect(hasPublicPage({ status: 'active', publishedAt: '' })).toBe(false);
   });
 });
 
@@ -140,14 +173,14 @@ describe('the dashboard uses it', () => {
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
   it('gates the public link on hasPublicPage', () => {
-    expect(list).toContain('hasPublicPage(c.status)');
+    expect(list).toContain('hasPublicPage({ status: c.status, publishedAt: c.publishedAt })');
   });
 
   it('⛔ has no ungated link to the public campaign page', () => {
     const links = [...list.matchAll(/href=\{`\/campaigns\/\$\{[^}]+\}`\}/g)];
     expect(links.length, 'expected exactly one public campaign link').toBe(1);
     // ...and it sits inside the guard.
-    const guard = list.indexOf('hasPublicPage(c.status)');
+    const guard = list.indexOf('hasPublicPage({ status: c.status');
     expect(guard).toBeGreaterThan(-1);
     expect(links[0].index!).toBeGreaterThan(guard);
   });

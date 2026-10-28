@@ -18,6 +18,8 @@ interface Campaign {
   title: string;
   slug: string;
   status: string;
+  /** `docs/131`: a campaign has a public page only once a person approved it. */
+  publishedAt: string | null;
   category: string;
   goalAmount: number;
   raisedAmount: number;
@@ -277,7 +279,7 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       still `under_review` clicked "View" on their own
                       dashboard and got a 404 (docs/109).
                     */}
-                    {hasPublicPage(c.status) && (
+                    {hasPublicPage({ status: c.status, publishedAt: c.publishedAt }) && (
                       <Link
                         href={`/campaigns/${c.slug}`}
                         className="ml-auto rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

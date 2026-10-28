@@ -93,13 +93,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     */
     const isFirstPublication = campaign.publishedAt === null;
 
+    /*
+      Hoisted so the notification below can carry the SAME value this
+      statement writes. The resumed campaign is `active` and therefore has a
+      public page, but `publicCampaignPath` now requires the publication date
+      to say so (`docs/131`), and the row read above still holds the old null.
+    */
+    const publishedStamp = isFirstPublication ? new Date() : campaign.publishedAt;
+
     await db.update(campaigns).set({
       status: 'active',
       pausedAt: null,
       pausedReason: null,
       suspendedAt: null,
       suspendedReason: null,
-      ...(isFirstPublication ? { publishedAt: new Date() } : {}),
+      ...(isFirstPublication ? { publishedAt: publishedStamp } : {}),
       updatedAt: new Date(),
     }).where(eq(campaigns.id, campaignId));
 
@@ -117,6 +125,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       campaignId,
       campaignTitle: campaign.title,
       campaignSlug: campaign.slug ?? '',
+      campaignPublishedAt: publishedStamp,
     }).catch((err) => console.error('[campaign.resumed] notification error:', err));
 
     revalidatePath(`/campaigns/${campaign.slug}`);

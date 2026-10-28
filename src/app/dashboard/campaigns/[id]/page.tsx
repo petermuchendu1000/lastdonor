@@ -173,7 +173,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           button). A campaign in the review queue has no public page, so
           this handed the organiser a 404 for their own campaign.
         */}
-        {hasPublicPage(campaign.status) && (
+        {hasPublicPage({ status: campaign.status, publishedAt: campaign.publishedAt }) && (
           <Link
             href={`/campaigns/${campaign.slug}`}
             target="_blank"

@@ -42,6 +42,8 @@ export default async function AdminVerificationPage() {
         title: campaigns.title,
         slug: campaigns.slug,
         status: campaigns.status,
+      // `docs/131`: the public-link guard needs the publication date.
+      publishedAt: campaigns.publishedAt,
         category: campaigns.category,
         verificationStatus: campaigns.verificationStatus,
         verificationNotes: campaigns.verificationNotes,
@@ -115,6 +117,7 @@ export default async function AdminVerificationPage() {
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
     verificationReviewedAt: c.verificationReviewedAt?.toISOString() ?? null,
+    publishedAt: c.publishedAt?.toISOString() ?? null,
   }));
 
   return (

@@ -132,8 +132,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       republish cannot silently re-date a campaign that was already live.
     */
     const isFirstPublication = newStatus === 'active' && campaign.publishedAt === null;
+    /*
+      Hoisted so the two notifications below carry the SAME value this
+      statement writes. They render a link to the public page, and
+      `publicCampaignPath` now requires the publication date (`docs/131`) -
+      the row read above still holds the pre-update null.
+    */
+    const publishedStamp = isFirstPublication ? new Date() : campaign.publishedAt;
     if (isFirstPublication) {
-      updates.publishedAt = new Date();
+      updates.publishedAt = publishedStamp;
     }
     if (newStatus === 'completed') {
       updates.completedAt = new Date();
@@ -188,6 +195,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           campaignerName: creator.name ?? 'Campaigner',
           campaignTitle: campaign.title,
           campaignSlug: campaign.slug,
+          campaignPublishedAt: publishedStamp,
         }).catch((err) => console.error('[campaign.published] welcome notification error:', err));
       }
     }
@@ -197,6 +205,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       campaignId,
       campaignTitle: campaign.title,
       campaignSlug: full?.slug ?? '',
+      campaignPublishedAt: publishedStamp,
       previousStatus: currentStatus,
       newStatus,
       goalAmount: full?.goalAmount ?? 0,
@@ -331,7 +340,15 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
       // Fetch slug for notification
       const [c] = await db
-        .select({ slug: campaigns.slug, goalAmount: campaigns.goalAmount, currency: campaigns.currency })
+        .select({
+          slug: campaigns.slug,
+          goalAmount: campaigns.goalAmount,
+          currency: campaigns.currency,
+          // The archived campaign has a public page only if it was ever
+          // published (`docs/131`); this archive branch is one of the four
+          // routes that could reach a servable status without that.
+          publishedAt: campaigns.publishedAt,
+        })
         .from(campaigns)
         .where(eq(campaigns.id, campaignId))
         .limit(1);
@@ -340,6 +357,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
         campaignId,
         campaignTitle: campaign.title,
         campaignSlug: c?.slug ?? '',
+        campaignPublishedAt: c?.publishedAt ?? null,
         previousStatus: campaign.status as string,
         newStatus: 'archived',
         goalAmount: c?.goalAmount ?? 0,

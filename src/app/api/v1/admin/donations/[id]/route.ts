@@ -267,7 +267,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     // Notify the donor (fire-and-forget - never block the admin response)
     const [cam] = await db
-      .select({ title: campaigns.title, slug: campaigns.slug, status: campaigns.status })
+      .select({
+        title: campaigns.title,
+        slug: campaigns.slug,
+        status: campaigns.status,
+        // The refund notification links the campaign page, which serves only a
+        // campaign a person approved for publication (`docs/131`).
+        publishedAt: campaigns.publishedAt,
+      })
       .from(campaigns)
       .where(eq(campaigns.id, donation.campaignId))
       .limit(1);
@@ -280,6 +287,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         amount: donation.amount,
         campaignTitle: cam.title,
         campaignSlug: cam.slug,
+        campaignPublishedAt: cam.publishedAt,
         campaignStatus: cam.status,
         currency: donation.currency,
         refunded: body.refunded,

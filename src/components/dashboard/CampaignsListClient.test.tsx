@@ -45,6 +45,9 @@ const KES = {
   verificationStatus: 'unverified',
   currency: 'KES',
   createdAt: new Date('2026-10-26T00:00:00Z').toISOString(),
+  // A published campaign: these tests are about currency and the action row,
+  // and `docs/131` would otherwise hide the "View" link from all of them.
+  publishedAt: new Date('2026-10-26T00:00:00Z').toISOString(),
   role: 'creator' as const,
 };
 

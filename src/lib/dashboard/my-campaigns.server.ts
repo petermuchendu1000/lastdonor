@@ -94,6 +94,8 @@ export interface MyCampaignRow {
   title: string;
   slug: string;
   status: string;
+  /** `docs/131`: the row's "View" button needs this, not just the status. */
+  publishedAt: Date | null;
   category: string;
   goalAmount: number;
   raisedAmount: number;
@@ -137,6 +139,12 @@ export async function listMyCampaigns(userId: string): Promise<MyCampaignRow[]> 
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      /*
+        `docs/131`: the row's "View" button is gated on `hasPublicPage`, which
+        needs the publication date - the status alone served campaigns a person
+        had never approved. Same round trip, no extra query (`docs/87`).
+      */
+      publishedAt: campaigns.publishedAt,
       category: campaigns.category,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,

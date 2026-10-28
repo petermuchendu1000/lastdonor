@@ -11,7 +11,7 @@ import {
   trustedInstitutions,
 } from '@/db/schema';
 import { publicCampaignSelect } from '@/db/public-select';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, isNotNull } from 'drizzle-orm';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { LaunchSuccessBanner } from '@/components/campaign/LaunchSuccessBanner';
@@ -113,6 +113,22 @@ async function getCampaign(slug: string) {
     .where(
       and(
         eq(campaigns.slug, slug),
+        /*
+          ⛔ A PERSON MUST HAVE APPROVED THIS. `published_at` is the record of
+          that approval (`docs/120` pinned it to two UPDATE writers), and
+          without this line a status allowlist alone served campaigns nobody
+          had read: four routes move a `draft` or `under_review` campaign into
+          `suspended` or `archived`, and the first of them is the DOCUMENTED
+          refusal path. So refusing a campaign published it - 200, the whole
+          appeal about a named real person, and the admin's own refusal words
+          on the page. `docs/131`.
+
+          ⚠️ It takes nothing away from `docs/118` §9: a campaign that WAS live
+          and is now closed, suspended or cancelled has the column set, so it
+          keeps its page and its notice. The column is exactly the
+          discriminator `docs/93` said the status could not carry.
+        */
+        isNotNull(campaigns.publishedAt),
         or(
           eq(campaigns.status, 'active'),
           eq(campaigns.status, 'last_donor_zone'),

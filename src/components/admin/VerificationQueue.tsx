@@ -54,6 +54,8 @@ interface VerificationItem {
   title: string;
   slug: string;
   status: string;
+  /** `docs/131`: a campaign has a public page only once a person approved its publication. */
+  publishedAt: string | null;
   category: string;
   verificationStatus: string;
   verificationNotes: string | null;
@@ -429,9 +431,9 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
                     <td className="px-4 py-2.5">
                       {/* docs/118 via docs/120: every campaign in this queue is
                           `under_review`, so this link was a 404 on every row. */}
-                      {publicCampaignPath({ slug: item.slug, status: item.status }) ? (
+                      {publicCampaignPath({ slug: item.slug, status: item.status, publishedAt: item.publishedAt }) ? (
                         <Link
-                          href={publicCampaignPath({ slug: item.slug, status: item.status })!}
+                          href={publicCampaignPath({ slug: item.slug, status: item.status, publishedAt: item.publishedAt })!}
                           className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
                           target="_blank"
                         >
