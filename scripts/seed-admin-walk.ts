@@ -104,11 +104,25 @@ async function main() {
     description: 'Seeded for the admin walk.', status: 'pending',
   }).returning({ id: schema.verificationDocuments.id });
 
+  /*
+    ⚠️ `action`, `flags` and `name_match_kind` are `text`/`jsonb` with NO CHECK
+    constraint, so `information_schema` says nothing about their permitted
+    values and Postgres accepts anything. The first version of this fixture
+    invented all three - `action: 'hold'`, `nameMatchKind: 'cannot_judge'` and
+    `flags` as `[{code, detail}]` objects - and `/admin/screening` answered
+    HTTP 500, which read exactly like a defect in the page.
+
+    It was not. The real unions are `decide.ts:108` (`auto_approve` |
+    `needs_human`), `decide.ts:66-82` (`ScreeningFlag`, string literals) and
+    `name-match.ts:92-104` (`NameMatchKind`). A column whose domain lives in
+    TypeScript rather than in a constraint can only be read from the code
+    that writes it.
+  */
   await db.insert(schema.documentScreenings).values({
-    documentId: doc.id, campaignId: c0.id, action: 'hold',
-    flags: [{ code: 'name_missing', detail: 'No trusted name to compare against' }],
+    documentId: doc.id, campaignId: c0.id, action: 'needs_human',
+    flags: ['no_trusted_name', 'low_text_yield'],
     summary: 'Held for a person to read: no verified organiser name exists to compare.',
-    nameMatchKind: 'cannot_judge', nameMatchScore: 0, modelUsed: 'walk-fixture', latencyMs: 1234, pageCount: 1,
+    nameMatchKind: 'indeterminate', nameMatchScore: 0, modelUsed: 'walk-fixture', latencyMs: 1234, pageCount: 1,
   });
 
   // ── news_items: /admin/news-feed
