@@ -286,14 +286,11 @@ The helper account was promoted to `editor` for the run and restored to
 
 - `npm run lint` — clean (one pre-existing unused-arg warning, untouched)
 - `npm run typecheck` — clean
-- `npm run test:unit` — the run taken BEFORE the two stale docs/120
-  assertions were corrected was **2 failed / 7737 passed / 16 skipped** (both
-  failures are the stale assertions described in §3.7, and both are now
-  green: `campaign-publication-writers.ratchet.test.ts` is **17/17**, proven
-  still able to fail three ways). ⚠️ The confirming FULL-suite rerun was still
-  in flight when this was written, so the post-fix total is not stated here
-  rather than guessed — expect 7739, and read it from the run, not from this
-  line.
+- `npm run test:unit` — **7739 passed / 16 skipped / 0 failed**, 264 files.
+  The run taken *before* the two stale docs/120 assertions (§3.7) were
+  corrected was 2 failed / 7737 passed, and both of those failures are those
+  assertions; `campaign-publication-writers.ratchet.test.ts` is now **17/17**
+  and still able to fail three ways.
 - `npm run test:integration` — **301 passed**, 31 files, on a throwaway Postgres
 - `src/db/pool-fanout.ratchet.test.ts` — passes with `auth()` added to two
   pages (the detail page's queries are all sequential, so its concurrency is

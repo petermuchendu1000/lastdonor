@@ -157,7 +157,7 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7725 pass + 16 skipped, 265 files, as of 2026-10-28)
+npm run test:unit      # Vitest (7739 pass + 16 skipped, 267 files, as of 2026-10-28)
 npm run test:integration  # Vitest + a throwaway Postgres (301 tests, 31 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   164 pass / 0 fail / 24 declared skips (2026-10-28)
