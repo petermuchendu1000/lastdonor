@@ -145,6 +145,44 @@ async function main() {
     });
   }
 
+  /*
+    A PayHero / KES donation, and a refund batch.
+
+    The E2E fixture seeds only `stripe` / `USD` donations, but the live rail
+    is PayHero and every real donation this platform has taken is `payhero`
+    in KES (`docs/92`, `docs/122`). The admin refund route branches on
+    `provider !== 'stripe'` and that branch is where `docs/122` found a
+    refund telling the donor nothing - so a money walk on Stripe-only rows
+    exercises the branch real money never takes.
+
+    The composite FK on `(campaign_id, currency)` (`docs/92`) means this has
+    to hang off the KES campaign above, not the general fund.
+  */
+  const [kesDonation] = await db.insert(schema.donations).values({
+    campaignId: kesCampaign.id,
+    stripePaymentId: 'payhero_WALKFIXTURE001',
+    provider: 'payhero',
+    currency: 'KES',
+    amount: 5_000,
+    donorName: 'Walk Fixture Donor',
+    donorEmail: 'walk-fixture-donor@example.invalid',
+    donorLocation: 'Nairobi',
+    message: 'Seeded for the money walk.',
+    phaseAtTime: 'first_believers',
+    source: 'real',
+  }).returning({ id: schema.donations.id });
+
+  await db.insert(schema.refundBatches).values({
+    campaignId: c0.id,
+    initiatedBy: admin.id,
+    reason: 'Seeded for the money walk, so /admin/refunds is not measured empty.',
+    totalDonations: 2,
+    totalAmount: 480_000,
+    refundedCount: 1,
+    failedCount: 1,
+    status: 'partial_failure',
+  });
+
   // ── newsletter_subscribers: /admin/(index)
   await db.insert(schema.newsletterSubscribers).values([
     { email: 'walk-fixture-a@example.invalid', source: 'footer' },
@@ -153,7 +191,8 @@ async function main() {
 
   console.log(JSON.stringify({
     adminId: admin.id, adminEmail: E2E_ADMIN_EMAIL,
-    campaignId: c0.id, institutionId: inst.id, documentId: doc.id,
+    campaignId: c0.id, kesCampaignId: kesCampaign.id, kesDonationId: kesDonation.id,
+    institutionId: inst.id, documentId: doc.id,
     campaigns: campaigns.length, fixtureIds: E2E_FIXTURE_IDS.slugPrefix,
   }, null, 2));
   process.exit(0);
