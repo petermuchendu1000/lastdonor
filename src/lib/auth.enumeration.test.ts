@@ -570,7 +570,15 @@ describe('password reset clears the lockout it would otherwise survive (P1)', ()
     // set meant the new password was refused for the rest of the window.
     await postReset();
 
-    const authSource = readFileSync(path.resolve(__dirname, 'auth.ts'), 'utf8');
+    /*
+      ⚠️ `auth-lockout.ts`, not `auth.ts`. The lockout helpers moved there so
+      an integration test could EXECUTE their SQL - `auth.ts` imports NextAuth,
+      which imports `next/server`, which the node-environment suite cannot
+      load, so the read-modify-write in `recordFailedAttempt` was unreachable
+      by any test that could have caught it (`docs/126`). This assertion's
+      subject moved with the function; the assertion itself is unchanged.
+    */
+    const authSource = readFileSync(path.resolve(__dirname, 'auth-lockout.ts'), 'utf8');
     const cleared = state.updateValues[0] as Record<string, unknown>;
     for (const column of Object.keys(cleared).filter((k) => k !== 'passwordHash')) {
       expect(authSource).toMatch(new RegExp(`${column}:`));

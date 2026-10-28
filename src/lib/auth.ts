@@ -5,6 +5,11 @@ import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import {
+  checkAccountLocked,
+  clearFailedAttempts,
+  recordFailedAttempt,
+} from '@/lib/auth-lockout';
 import type { UserRole } from '@/types';
 import type { JWT } from 'next-auth/jwt';
 
@@ -109,9 +114,6 @@ const ROLE_REVALIDATION_INTERVAL: Record<UserRole, number> = {
  * `resolveSessionToken`.
  */
 const ROLE_LOOKUP_RETRY_BACKOFF = 30;
-
-const LOCKOUT_THRESHOLD = 5;
-const LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * A real bcrypt hash of a value nobody knows, used to spend the same CPU on a
@@ -267,68 +269,6 @@ export async function resolveSessionToken(
   // Clear the backoff so a later failure is not measured from a stale mark.
   delete token.roleRetryAfter;
   return token;
-}
-
-async function checkAccountLocked(email: string): Promise<boolean> {
-  const [user] = await db
-    .select({
-      failedLoginCount: schema.users.failedLoginCount,
-      failedLoginWindowStart: schema.users.failedLoginWindowStart,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.email, email))
-    .limit(1);
-
-  if (!user?.failedLoginWindowStart) return false;
-
-  const elapsed = Date.now() - user.failedLoginWindowStart.getTime();
-  if (elapsed > LOCKOUT_WINDOW_MS) {
-    // Window expired, reset
-    await db
-      .update(schema.users)
-      .set({ failedLoginCount: 0, failedLoginWindowStart: null })
-      .where(eq(schema.users.email, email));
-    return false;
-  }
-
-  return user.failedLoginCount >= LOCKOUT_THRESHOLD;
-}
-
-async function recordFailedAttempt(email: string): Promise<void> {
-  const [user] = await db
-    .select({
-      failedLoginCount: schema.users.failedLoginCount,
-      failedLoginWindowStart: schema.users.failedLoginWindowStart,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.email, email))
-    .limit(1);
-
-  if (!user) return;
-
-  const now = new Date();
-
-  if (!user.failedLoginWindowStart || now.getTime() - user.failedLoginWindowStart.getTime() > LOCKOUT_WINDOW_MS) {
-    // Start a new window
-    await db
-      .update(schema.users)
-      .set({ failedLoginCount: 1, failedLoginWindowStart: now })
-      .where(eq(schema.users.email, email));
-    return;
-  }
-
-  // Increment within the existing window
-  await db
-    .update(schema.users)
-    .set({ failedLoginCount: user.failedLoginCount + 1 })
-    .where(eq(schema.users.email, email));
-}
-
-async function clearFailedAttempts(email: string): Promise<void> {
-  await db
-    .update(schema.users)
-    .set({ failedLoginCount: 0, failedLoginWindowStart: null })
-    .where(eq(schema.users.email, email));
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
