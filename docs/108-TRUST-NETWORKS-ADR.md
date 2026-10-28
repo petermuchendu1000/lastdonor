@@ -1,7 +1,20 @@
 # 108 — Trust Networks: institutional vouchers
 
 **Date:** 2026-10-25
-**Status:** BUILT, NOT DEPLOYED. No institution exists in any environment.
+**Status:** ⚠️ **AMENDED 2026-10-28 — "NOT DEPLOYED" was the wrong word, the
+same conflation `docs/106` carried.** The code IS deployed: all seven
+institution/vouch routes appear in the build's own route table and ship in
+every image (`/admin/institutions`, `.../[institutionId]/payout-accounts`,
+`/api/v1/admin/institutions`, `.../[institutionId]`,
+`.../[institutionId]/payout-accounts`, `/api/v1/admin/campaigns/[campaignId]/vouch`,
+`/api/v1/admin/vouches/[vouchId]`). What is true is that the feature is
+**UNUSED**: [VERIFIED in production 2026-10-28, v119] `trusted_institutions`
+0 rows, `institution_vouches` 0 rows, campaigns with
+`verification_source='institution_vouch'` 0. Nothing can happen until an admin
+creates an institution — which remains the trust root this doc describes.
+⚠️ Note an external probe CANNOT settle this: the middleware is default-deny,
+so `/api/v1/admin/fabricated-not-real` also answers 401 and
+`/admin/fabricated-not-real` also answers 307. See `docs/136` §3.1.
 **Read before:** touching `src/lib/trust-network/`, `campaigns.verification_source`,
 the pre-verification raise cap (`docs/101`), or anything that writes
 `campaigns.verification_status`.

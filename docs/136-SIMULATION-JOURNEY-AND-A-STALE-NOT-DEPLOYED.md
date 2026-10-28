@@ -91,6 +91,36 @@ screen the first document anybody uploads, under the auto-approve decision
 This is the `docs/77` shape — a status line that stayed wrong after the world
 moved — and it is why `docs/77`'s row was corrected two days late.
 
+### 3.1 `docs/108` carried the same wrong word, and the probe that found it does not generalise
+
+Checking whether `docs/108` (trust networks) had drifted the same way: it had.
+Its header said **"BUILT, NOT DEPLOYED"**. [VERIFIED] all seven
+institution/vouch routes appear in the build's own route table, so they ship
+in every image. What is true is that the feature is **unused**: [VERIFIED in
+production] `trusted_institutions` 0 rows, `institution_vouches` 0 rows, 0
+campaigns with `verification_source='institution_vouch'`. Header amended.
+
+⛔ **And the method that settled `screen-documents` does NOT work here.** The
+`docs/104` §5.1a probe depends on a fabricated path answering 404, and that
+holds for cron routes. It does not hold for the admin surface, because the
+middleware is default-deny:
+
+```
+/api/v1/admin/institutions        -> 401
+/api/v1/admin/fabricated-not-real -> 401   ← the control, same answer
+/admin/institutions               -> 307
+/admin/fabricated-not-real        -> 307   ← the control, same answer
+```
+
+Both controls return the same status as the real route, so the probe
+distinguishes nothing. Had I skipped the control I would have read "401 means
+served" and reported a verified fact that the evidence does not support. The
+build route table is what settles it for admin routes.
+
+⚠️ The general form, worth carrying: **"not deployed" and "not used" are
+different claims**, and a doc that says the first when it means the second
+reads as "this cannot run" about a feature that can.
+
 ---
 
 ## 4. ⚠️ My own suspicion, refuted twice
