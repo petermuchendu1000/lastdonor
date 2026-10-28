@@ -53,16 +53,44 @@ const SEVERITY_STYLES: Record<string, { dot: string; variant: 'default' | 'secon
   critical: { dot: 'bg-destructive', variant: 'destructive' },
 };
 
-const CATEGORY_EVENTS: Record<string, string[]> = {
-  donations: ['donation.recorded', 'donation.failed', 'donation.refunded'],
-  campaigns: ['campaign.phase_transition', 'campaign.completed', 'campaign.auto_published', 'campaign.auto_drafted', 'campaign.created'],
-  users: ['user.login', 'user.deleted', 'user.role_changed'],
-  system: ['cron.send_newsletter', 'cron.simulate_donations', 'cron.publish_campaigns', 'cron.fetch_news', 'cron.ingest_news', 'cron.reconcile', 'admin.seed_purge', 'admin.seed_messages_generated', 'audit_log.viewed'],
+/*
+  ─────────────────────────────────────────────────────────────────────────
+  THE CATEGORY IS DERIVED FROM THE EVENT TYPE, NOT ENUMERATED.   docs/137
+  ─────────────────────────────────────────────────────────────────────────
+
+  This was a hand-written map of category -> event types, and it had gone
+  the way every hand-written list in this codebase goes (`docs/110`'s seven
+  status maps, `docs/119`'s four named regions): it listed **20** event
+  types while the code writes **94**.
+
+  ⛔ That was not merely a cosmetic drift, because the FILTER read the map
+  directly while the BADGE called `getEventCategory` - two paths for one
+  question. Selecting a chip kept only the enumerated types, so on
+  production data, pressing "campaigns" showed **20 of 62** campaign audit
+  rows and silently dropped the other 42 - including all 14
+  `campaign.published` rows, which is the evidence `docs/116` §8's forensics
+  rest on. There was no "other" chip either (`Object.keys` built the list),
+  so an unlisted event had no home at all.
+
+  Deriving from the prefix makes the drift impossible: a new `campaign.*`
+  event is categorised the day it is written, with nothing to remember.
+*/
+const CATEGORY_PREFIXES: Record<string, string> = {
+  'donation.': 'donations',
+  'campaign.': 'campaigns',
+  'user.': 'users',
+  'cron.': 'system',
+  'admin.': 'system',
+  'audit_log.': 'system',
 };
 
-function getEventCategory(eventType: string): string {
-  for (const [cat, events] of Object.entries(CATEGORY_EVENTS)) {
-    if (events.includes(eventType)) return cat;
+/** Every chip the filter offers, in order. `other` is NOT optional - it is
+ *  what guarantees every event type is reachable (see the test). */
+export const ACTIVITY_CATEGORIES = ['donations', 'campaigns', 'users', 'system', 'other'] as const;
+
+export function getEventCategory(eventType: string): string {
+  for (const [prefix, cat] of Object.entries(CATEGORY_PREFIXES)) {
+    if (eventType.startsWith(prefix)) return cat;
   }
   return 'other';
 }
@@ -130,8 +158,14 @@ export function ActivityCenter({ activity, summary, alerts }: ActivityCenterProp
     let result = activity;
 
     if (categoryFilter) {
-      const eventTypes = CATEGORY_EVENTS[categoryFilter] ?? [];
-      result = result.filter((a) => eventTypes.includes(a.eventType));
+      /*
+        ⛔ The SAME function the badge uses (`getEventCategory`), not a
+        second lookup. The filter used to read the enumerated map directly
+        while the badge derived its label, so a row could be badged
+        "campaigns" and then be hidden by the "campaigns" chip. One
+        decider, one answer. `docs/137`.
+      */
+      result = result.filter((a) => getEventCategory(a.eventType) === categoryFilter);
     }
 
     if (severityFilter) {
@@ -248,7 +282,7 @@ export function ActivityCenter({ activity, summary, alerts }: ActivityCenterProp
           >
             All
           </button>
-          {Object.keys(CATEGORY_EVENTS).map((cat) => (
+          {ACTIVITY_CATEGORIES.map((cat) => (
             <button
               key={cat}
               onClick={() => updateFilter(setCategoryFilter, categoryFilter === cat ? null : cat)}
