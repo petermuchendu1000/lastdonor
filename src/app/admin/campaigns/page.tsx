@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import { campaigns, users } from '@/db/schema';
 import { desc, inArray, sql } from 'drizzle-orm';
+import { auth } from '@/lib/auth';
 import { CampaignsList } from '@/components/admin/CampaignsList';
 import type { Metadata } from 'next';
 
@@ -23,6 +24,15 @@ export const metadata: Metadata = {
 const FETCH_LIMIT = 200;
 
 export default async function AdminCampaignsPage() {
+  /*
+    This list is deliberately open to an editor - it is the only door to the
+    campaign whose updates `POST /api/v1/admin/campaigns/[campaignId]/updates`
+    admits them to post. The row actions are not: `Change Status`, `Delete`
+    and the form behind `Edit` all require `admin`. `docs/133`.
+  */
+  const session = await auth();
+  const isAdmin = session?.user?.role === 'admin';
+
   const allCampaigns = await db
     .select({
       id: campaigns.id,
@@ -102,6 +112,7 @@ export default async function AdminCampaignsPage() {
       campaigns={campaignData}
       statusCounts={statusCounts}
       totalCampaigns={totalCampaigns}
+      isAdmin={isAdmin}
     />
   );
 }

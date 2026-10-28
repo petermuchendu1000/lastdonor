@@ -61,8 +61,18 @@ function navItems(): NavItem[] {
   // Groups start at a 2-space-indented `{` holding a `label:`.
   for (const chunk of body.split(/\n  \{\n/).slice(1)) {
     const label = /label:\s*'([^']+)'/.exec(chunk)?.[1] ?? '?';
-    const adminOnly = /\n\s*adminOnly:\s*true/.test(chunk);
-    for (const m of chunk.matchAll(/href:\s*'([^']+)'/g)) {
+    /* Group-level policy. The `\n\s*` anchor keeps this off an ITEM's own
+       flag, which sits inside a single-line `{ … }`. */
+    const groupAdminOnly = /\n\s*adminOnly:\s*true/.test(chunk);
+    /*
+      ⚠️ Items are matched as whole objects, not by `href:` alone, because
+      policy is now expressible per ITEM as well as per group: `/admin/campaigns`
+      stays open to an editor while `/admin/campaigns/new` does not, and the
+      group flag cannot say that. An href-only match would read the second as
+      open and pass. `docs/133`.
+    */
+    for (const m of chunk.matchAll(/\{[^{}]*href:\s*'([^']+)'[^{}]*\}/g)) {
+      const adminOnly = groupAdminOnly || /adminOnly:\s*true/.test(m[0]);
       out.push({ href: m[1], group: label, adminOnly });
     }
   }
@@ -90,7 +100,18 @@ function gatesOutEditor(file: string): boolean {
   const src = readFileSync(file, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
-  if (/role\s*!==\s*['"]admin['"]/.test(src)) return true;
+  /*
+    ⚠️ `role !== 'admin'` alone is NOT enough to conclude an editor is
+    refused: `/admin/blog/[id]/edit` reads
+    `role !== 'admin' && role !== 'editor'`, which admits one. The first
+    version of this helper answered `true` for that shape - right on every
+    file it happened to be pointed at, wrong in general, and the kind of
+    imprecision that makes a rule agree with whatever it is shown. Require
+    that the refusal does NOT also name `editor`. `docs/133`.
+  */
+  for (const m of src.matchAll(/role\s*!==\s*['"]admin['"][^;{]*/g)) {
+    if (!/['"]editor['"]/.test(m[0])) return true;
+  }
   for (const m of src.matchAll(/requireRole\(\[([^\]]*)\]/g)) {
     if (!/['"]editor['"]/.test(m[1])) return true;
   }

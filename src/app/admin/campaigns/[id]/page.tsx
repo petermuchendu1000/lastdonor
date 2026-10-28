@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { db } from '@/db';
 import { campaigns, donations, campaignUpdates, institutionVouches, trustedInstitutions } from '@/db/schema';
 import { eq, desc, sql, and, gte } from 'drizzle-orm';
+import { auth } from '@/lib/auth';
 import { CampaignDetail } from '@/components/admin/CampaignDetail';
 import { CampaignVouches } from '@/components/admin/CampaignVouches';
 import { VOUCH_WINDOW_DAYS } from '@/lib/trust-network/decide';
@@ -22,6 +23,19 @@ export default async function AdminCampaignDetailPage({
 }) {
   const { id } = await params;
   if (!UUID_REGEX.test(id)) notFound();
+
+  /*
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`, and this
+    page is deliberately reachable by one: `/admin/campaigns` sits in the
+    sidebar's open `Content` group because
+    `POST /api/v1/admin/campaigns/[campaignId]/updates` admits
+    `['editor','admin']` and the "Add Update" link below is the only door to
+    it. Everything else on the screen is `requireRole(['admin'])`, so the role
+    is read once here and decides both what is RENDERED and what is SENT.
+    `docs/133`.
+  */
+  const session = await auth();
+  const isAdmin = session?.user?.role === 'admin';
 
   const [campaign] = await db
     .select()
@@ -84,13 +98,21 @@ export default async function AdminCampaignDetailPage({
     docs/83's lesson is why this block exists at all: the Didit verification
     flow worked and was unreachable for days because its only link was behind
     a condition nothing could satisfy. A vouch panel that only appeared for
-    campaigns in some particular state would repeat that, so this renders on
-    every campaign, in every state, and says what it can do.
+    campaigns in some particular state would repeat that, so for an admin this
+    renders on every campaign, in every state, and says what it can do.
+
+    ⛔ And they do not run for a non-admin at all. Both vouch controls
+    (`POST /api/v1/admin/campaigns/[campaignId]/vouch` and
+    `DELETE /api/v1/admin/vouches/[vouchId]`) are `requireRole(['admin'])`,
+    the panel has no read-only purpose for an editor, and the institutions and
+    vouch history it lists are Trust & Verification data that `/admin/verification`
+    and `/admin/institutions` already refuse them (`docs/132`). Skipping the
+    queries is also what keeps it out of the RSC payload. `docs/133`.
   */
-  const vouches = await listCampaignVouches(id);
-  const documents = await countCampaignDocuments(id);
+  const vouches = isAdmin ? await listCampaignVouches(id) : [];
+  const documents = isAdmin ? await countCampaignDocuments(id) : { total: 0, approved: 0 };
   const vouchWindowStart = new Date(Date.now() - VOUCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  const institutions = await db
+  const institutions = !isAdmin ? [] : await db
     .select({
       id: trustedInstitutions.id,
       name: trustedInstitutions.name,
@@ -111,6 +133,23 @@ export default async function AdminCampaignDetailPage({
     .orderBy(trustedInstitutions.name)
     .limit(200);
 
+  /*
+    ⛔ The donor's name, email and location are REMOVED for a non-admin, not
+    hidden in the markup. `CampaignDetail` is `'use client'`, so anything
+    passed to it is serialized into the RSC payload whether or not a cell
+    renders it - the `docs/132` §4.1 lesson. `/admin/donations` and
+    `/admin/donors` both gate on `role !== 'admin'`, so this page was the one
+    place an editor could read a donor's name against a gift amount.
+    `docs/133`.
+  */
+  const donationRows = recentDonations.map((d) => ({
+    ...d,
+    donorName: isAdmin ? d.donorName : '',
+    donorEmail: isAdmin ? d.donorEmail : '',
+    donorLocation: isAdmin ? d.donorLocation : null,
+    createdAt: d.createdAt.toISOString(),
+  }));
+
   return (
     <>
     <CampaignDetail
@@ -124,10 +163,7 @@ export default async function AdminCampaignDetailPage({
         suspendedAt: campaign.suspendedAt?.toISOString() ?? null,
         cancelledAt: campaign.cancelledAt?.toISOString() ?? null,
       }}
-      donations={recentDonations.map((d) => ({
-        ...d,
-        createdAt: d.createdAt.toISOString(),
-      }))}
+      donations={donationRows}
       updates={updates.map((u) => ({
         ...u,
         createdAt: u.createdAt.toISOString(),
@@ -137,7 +173,9 @@ export default async function AdminCampaignDetailPage({
         count: p.count,
         total: p.total ?? 0,
       }))}
+      isAdmin={isAdmin}
     />
+    {isAdmin && (
     <div className="mt-6">
       <CampaignVouches
         campaignId={id}
@@ -156,6 +194,7 @@ export default async function AdminCampaignDetailPage({
         windowDays={VOUCH_WINDOW_DAYS}
       />
     </div>
+    )}
     </>
   );
 }

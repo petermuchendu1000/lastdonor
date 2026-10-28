@@ -318,7 +318,18 @@ describe('⛔ every surface that says "review" points at a screen that can appro
     const detail = stripComments(
       readFileSync(resolve(ROOT, 'src/components/admin/CampaignDetail.tsx'), 'utf-8'),
     );
-    expect(detail).toMatch(/const canApprove = campaign\.status === 'under_review'/);
+    /*
+      ⚠️ The PROPERTY, not the spelling. This asserted
+      `const canApprove = campaign.status === 'under_review'` verbatim and went
+      red when `docs/133` put the viewer's role into the same predicate
+      (`isAdmin && campaign.status === …`) - a stale test, not a regression,
+      and the `docs/109` trap in miniature: pinning today's text means an
+      unrelated correct change has to edit the test. What matters is that the
+      control EXISTS and is keyed on the queued status.
+    */
+    const canApprove = /const canApprove =[^;]*;/.exec(detail)?.[0] ?? '';
+    expect(canApprove, 'canApprove not found').not.toBe('');
+    expect(canApprove).toMatch(/campaign\.status === 'under_review'/);
     expect(detail).toMatch(/canApprove && \(/);
     // And it goes through the recording route.
     expect(detail).toMatch(/admin\/campaigns\/\$\{campaign\.id\}`,[\s\S]{0,80}method: 'PATCH'/);
@@ -342,8 +353,14 @@ describe('⛔ refusing at review has one path, and cancel is not it', () => {
     );
     const canCancel = /const canCancel =[^;]*;/.exec(detail)?.[0] ?? '';
     expect(canCancel, 'canCancel not found').not.toBe('');
-    expect(canCancel).toMatch(/under_review/); // present in the EXCLUSION list
-    expect(canCancel).toMatch(/^const canCancel = !\[/);
+    /*
+      `under_review` must appear inside the NEGATED list, which is what makes
+      it un-cancellable. ⚠️ This used to require the declaration to START
+      `const canCancel = ![`, and went red when `docs/133` added the viewer's
+      role to the same predicate. The negation and the membership are the
+      property; where the role guard sits is not.
+    */
+    expect(canCancel).toMatch(/!\[[^\]]*'under_review'/);
   });
 
   it('⛔ and the cancel dialog offers the schema’s own reasons', () => {

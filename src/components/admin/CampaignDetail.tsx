@@ -101,6 +101,24 @@ interface CampaignDetailProps {
   donations: Donation[];
   updates: Update[];
   phaseBreakdown: PhaseRow[];
+  /*
+    Whether the viewer may actually perform the write actions below.
+
+    ⛔ Required, not optional, so `tsc` names every render site - the
+    `docs/118` reasoning. An optional flag defaulting to `true` would leave
+    this screen offering an editor seven controls that answer 403.
+
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`, and
+    `/admin/campaigns` sits in the sidebar's open `Content` group ON PURPOSE:
+    `POST /api/v1/admin/campaigns/[campaignId]/updates` admits
+    `['editor','admin']`, and this page holds the only link to the form that
+    posts it. So an editor BELONGS here. What they may not do is every other
+    action on the screen - `PATCH /api/v1/admin/campaigns/[campaignId]` and
+    its pause / resume / suspend / cancel siblings, and
+    `PUT`/`DELETE /api/v1/campaigns/[slug]`, all `requireRole(['admin'])`.
+    `docs/133`.
+  */
+  isAdmin: boolean;
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -114,7 +132,7 @@ function formatCategory(cat: string) {
   return cat.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }: CampaignDetailProps) {
+export function CampaignDetail({ campaign, donations, updates, phaseBreakdown, isAdmin }: CampaignDetailProps) {
   const router = useRouter();
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -125,11 +143,18 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
     ? Math.min((campaign.raisedAmount / campaign.goalAmount) * 100, 100)
     : 0;
 
-  const canArchive = ['draft', 'completed'].includes(campaign.status);
-  const canRestore = campaign.status === 'archived';
-  const canPause = ['active', 'last_donor_zone'].includes(campaign.status);
-  const canResume = campaign.status === 'paused';
-  const canSuspend = ['active', 'last_donor_zone', 'paused', 'under_review'].includes(campaign.status);
+  /*
+    Every `can*` below answers ONE question: will the route behind this button
+    accept this viewer in this campaign state? So `isAdmin` belongs in the
+    predicate, not in the JSX - the status half and the role half are the same
+    question asked of the same control, and splitting them is how a screen
+    comes to render a control its route refuses. `docs/133`.
+  */
+  const canArchive = isAdmin && ['draft', 'completed'].includes(campaign.status);
+  const canRestore = isAdmin && campaign.status === 'archived';
+  const canPause = isAdmin && ['active', 'last_donor_zone'].includes(campaign.status);
+  const canResume = isAdmin && campaign.status === 'paused';
+  const canSuspend = isAdmin && ['active', 'last_donor_zone', 'paused', 'under_review'].includes(campaign.status);
   /*
     ⛔ `under_review` is NOT cancellable, and that is the `docs/93` decision
     being enforced rather than a new one.
@@ -144,13 +169,13 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
     never-reviewed appeal about a named real person a permanent public page.
     `docs/120`.
   */
-  const canCancel = !['cancelled', 'completed', 'archived', 'under_review'].includes(campaign.status);
+  const canCancel = isAdmin && !['cancelled', 'completed', 'archived', 'under_review'].includes(campaign.status);
   /*
     The approval door. The detail page used to offer BOTH refusal controls
     (Suspend, Cancel) and no way to approve - so the one screen an admin reads
     a queued campaign on could only say no. `docs/120`.
   */
-  const canApprove = campaign.status === 'under_review';
+  const canApprove = isAdmin && campaign.status === 'under_review';
 
   async function handleArchive() {
     setActionLoading(true);
@@ -308,13 +333,20 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
               Approve and publish
             </button>
           )}
-          <Link
-            href={`/admin/campaigns/${campaign.id}/edit`}
-            className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors duration-100 hover:bg-muted/60"
-          >
-            <PencilSquareIcon className="mr-1.5 h-4 w-4" />
-            Edit
-          </Link>
+          {/*
+            The editor form submits `PUT /api/v1/campaigns/[slug]`, which is
+            `requireRole(['admin'])`, so for anyone else this is a link to a
+            form that can only 403 on save. `docs/133`.
+          */}
+          {isAdmin && (
+            <Link
+              href={`/admin/campaigns/${campaign.id}/edit`}
+              className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors duration-100 hover:bg-muted/60"
+            >
+              <PencilSquareIcon className="mr-1.5 h-4 w-4" />
+              Edit
+            </Link>
+          )}
           {canPause && (
             <button
               onClick={() => setGovernanceAction({ action: 'pause', label: 'Pause Campaign' })}
@@ -473,14 +505,32 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown }:
               {donations.map((d) => (
                 <tr key={d.id} className={`transition-colors duration-100 hover:bg-muted/30${d.refunded ? ' opacity-50' : ''}`}>
                   <td className="px-4 py-3">
-                    <div>
-                      <p className="font-medium">
-                        {d.isAnonymous ? 'Anonymous' : d.donorName}
-                      </p>
-                      {!d.isAnonymous && (
-                        <p className="text-xs text-muted-foreground">{d.donorEmail}</p>
-                      )}
-                    </div>
+                    {/*
+                      ⛔ A non-admin is told the column is withheld, not
+                      shown a blank.
+
+                      `/admin/donations` and `/admin/donors` both gate on
+                      `role !== 'admin'`, so a name against a gift amount is
+                      data an editor is refused everywhere else - and this
+                      page used to hand it to them. The page narrows the rows
+                      before sending them (this component is `'use client'`,
+                      so hiding a cell leaves the value in the RSC payload),
+                      and an empty cell would read as "Anonymous", which is a
+                      different and false claim. `docs/133`, and the
+                      `docs/132` §4.1 pattern.
+                    */}
+                    {isAdmin ? (
+                      <div>
+                        <p className="font-medium">
+                          {d.isAnonymous ? 'Anonymous' : d.donorName}
+                        </p>
+                        {!d.isAnonymous && (
+                          <p className="text-xs text-muted-foreground">{d.donorEmail}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs italic text-muted-foreground">Admins only</p>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums">
                     <Money minor={d.amount} currency={d.currency} precision="exact" />

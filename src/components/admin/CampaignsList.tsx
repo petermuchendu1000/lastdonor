@@ -61,6 +61,17 @@ interface CampaignsListProps {
   statusCounts: Record<string, number>;
   /** True `count(*)`, before the page's fetch cap (docs/88 F8, F16). */
   totalCampaigns: number;
+  /*
+    Whether the viewer may perform the row actions. Required, not optional, so
+    `tsc` names every render site (`docs/118`).
+
+    An editor reaches this list on purpose - it is the only door to the
+    campaign whose updates `POST /api/v1/admin/campaigns/[campaignId]/updates`
+    lets them post - but `Change Status` (PATCH, and the pause / suspend
+    siblings) and `Delete` are `requireRole(['admin'])`, as is the editor form
+    `Edit` opens. `docs/133`.
+  */
+  isAdmin: boolean;
 }
 
 /* Matches every other admin list. */
@@ -90,7 +101,7 @@ function formatCategoryLabel(cat: string) {
   return cat.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: CampaignsListProps) {
+export function CampaignsList({ campaigns, statusCounts, totalCampaigns, isAdmin }: CampaignsListProps) {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -376,10 +387,12 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
                             <DropdownMenuItem asChild>
                               <Link href={`/admin/campaigns/${c.id}`}>View Details</Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/admin/campaigns/${c.id}/edit`}>Edit</Link>
-                            </DropdownMenuItem>
-                            {(ALLOWED_TRANSITIONS[c.status]?.length ?? 0) > 0 && (
+                            {isAdmin && (
+                              <DropdownMenuItem asChild>
+                                <Link href={`/admin/campaigns/${c.id}/edit`}>Edit</Link>
+                              </DropdownMenuItem>
+                            )}
+                            {isAdmin && (ALLOWED_TRANSITIONS[c.status]?.length ?? 0) > 0 && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuSub>
@@ -407,7 +420,7 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns }: Campa
                               which a non-draft becomes deletable, so a
                               greyed-out item would only invite a retry.
                             */}
-                            {c.status === 'draft' && (
+                            {isAdmin && c.status === 'draft' && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem

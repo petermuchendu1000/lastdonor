@@ -36,6 +36,15 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  /*
+    Set when THIS page refuses a non-admin but its group does not. The group
+    flag could not express that: `/admin/campaigns` must stay open to an
+    editor (it is the only door to the campaign whose updates
+    `POST /api/v1/admin/campaigns/[campaignId]/updates` admits them to post)
+    while `/admin/campaigns/new` must not be offered at all, because the form
+    it opens submits the admin-only `POST /api/v1/campaigns`. `docs/133`.
+  */
+  adminOnly?: boolean;
 };
 
 type NavGroup = {
@@ -58,7 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     collapsible: true,
     items: [
       { href: '/admin/campaigns', label: 'Campaigns', icon: FolderOpenIcon },
-      { href: '/admin/campaigns/new', label: 'New Campaign', icon: PlusCircleIcon },
+      { href: '/admin/campaigns/new', label: 'New Campaign', icon: PlusCircleIcon, adminOnly: true },
       { href: '/admin/news-feed', label: 'News Feed', icon: NewspaperIcon },
       { href: '/admin/blog', label: 'Blog', icon: PencilSquareIcon },
       { href: '/admin/blog/topics', label: 'Blog Topics', icon: ClipboardDocumentListIcon },
@@ -216,6 +225,8 @@ export function AdminSidebar({ role }: { role: string }) {
             >
               <div className="mt-0.5">
                 {group.items.map((item) => {
+                  /* Per-item policy, for a page whose group is open. */
+                  if (item.adminOnly && !isAdmin) return null;
                   const Icon = item.icon;
                   const active = isActive(item.href);
                   return (

@@ -372,9 +372,19 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 /**
- * DELETE /api/v1/admin/users/[id] - Delete a user account
- * Users with donations are anonymized (soft-delete) to preserve financial records.
- * Users with no donations are hard-deleted.
+ * DELETE /api/v1/admin/users/[id] - Remove a person from the platform.
+ *
+ * ONE path, and it anonymises: `anonymiseAccount` scrubs the identifying
+ * columns and the `users` row survives carrying an opaque id. Nothing is
+ * hard-deleted. `docs/124`.
+ *
+ * ⛔ This docstring used to say "users with donations are anonymized ... users
+ * with no donations are hard-deleted", which was the two-branch behaviour
+ * `docs/124` replaced - and NEITHER branch had ever worked (the anonymise one
+ * wrote `null` into two `NOT NULL` columns; the hard-delete one raised a
+ * foreign-key violation for almost anybody). A comment that describes a
+ * deleted design is worse than none: it is what a reader reaches for before
+ * they read the code.
  */
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   const requestId = randomUUID();
@@ -452,9 +462,6 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     .from(donations)
     .where(eq(donations.userId, id));
 
-  // Mail them BEFORE the address is scrubbed, or there is nowhere to send it.
-  await notifyAccountDeletion({ userEmail: user.email, userName: user.name ?? '' });
-
   await db.transaction(async (tx) => {
     await anonymiseAccount(tx, { userId: id, email: user.email });
 
@@ -474,6 +481,24 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       },
     });
   });
+
+  /*
+    ⛔ AFTER the transaction commits, not before it.
+
+    This ran above the transaction under the comment "Mail them BEFORE the
+    address is scrubbed, or there is nowhere to send it" - and that premise is
+    false: `user` is a local read at the top of this handler, so `user.email`
+    survives the scrub by construction. What the ordering actually did was
+    tell somebody their account had been removed and THEN try to remove it, so
+    any failure inside the transaction left a person holding an email about an
+    erasure that had been rolled back.
+
+    Moving it down costs nothing: `sendEmailOnly` catches everything it can
+    throw (`notifications.ts:182-195`), so a delivery failure cannot turn a
+    completed erasure into a 500. An unsent email is a delivery failure; a sent
+    one about work that did not happen is a false statement. `docs/133`.
+  */
+  await notifyAccountDeletion({ userEmail: user.email, userName: user.name ?? '' });
 
   return NextResponse.json({
     ok: true,
