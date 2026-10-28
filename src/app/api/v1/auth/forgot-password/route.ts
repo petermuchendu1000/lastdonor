@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { accounts, users, verificationTokens } from '@/db/schema';
+import { accounts, users } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import { forgotPasswordSchema } from '@/lib/validators/user';
 import { notifyPasswordResetOutcome } from '@/lib/notifications';
-
-const TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+import { claimResetSend, issueResetToken } from '@/lib/password-reset-tokens';
 
 /**
  * POST /api/v1/auth/forgot-password
@@ -33,6 +32,27 @@ export async function POST(request: NextRequest) {
       ok: true,
       data: { message: 'If an account with that email exists, a password reset link has been sent.' },
     });
+
+    /*
+      One send per address per minute, claimed BEFORE the account lookup so
+      every outcome branch shares the decision.
+
+      Until this existed the only control was the `auth` tier,
+      `slidingWindow(10, '60 s')` per IP - [VERIFIED live, 2026-10-28: calls
+      1-10 answered 400 and 11-13 answered 429] - which is per CALLER, while
+      the cost of this endpoint lands on a MAILBOX and on the shared Resend
+      quota. So one stranger who knew an address could put ten emails a
+      minute into it and, because the mint below deletes the live token
+      first, kill the recovery link about every six seconds.
+
+      The response is unchanged on this path, so `docs/32`'s enumeration
+      oracle stays closed, and `docs/74`'s property holds: "a reset link has
+      been sent" is still true of that mailbox - a send inside the last
+      minute is exactly what suppresses this one. `docs/127`.
+    */
+    if (!(await claimResetSend(email))) {
+      return successResponse;
+    }
 
     // Look up the user
     const [user] = await db
@@ -79,21 +99,11 @@ export async function POST(request: NextRequest) {
       return successResponse;
     }
 
-    // Generate token
+    // Generate the token. The lifecycle lives in `password-reset-tokens.ts`
+    // so the integration suite can execute it - nothing in `src/**` is run
+    // from inside a route handler by any test here (`docs/107`, `docs/126`).
     const token = randomUUID();
-    const expires = new Date(Date.now() + TOKEN_EXPIRY_MS);
-
-    // Delete any existing tokens for this email
-    await db
-      .delete(verificationTokens)
-      .where(eq(verificationTokens.identifier, `reset:${email}`));
-
-    // Insert new token
-    await db.insert(verificationTokens).values({
-      identifier: `reset:${email}`,
-      token,
-      expires,
-    });
+    await issueResetToken(email, token);
 
     // Send email.
     //

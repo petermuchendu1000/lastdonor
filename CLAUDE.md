@@ -140,6 +140,7 @@ transcript or a commit message is lost.
 | `124-ACCOUNT-ERASURE-ADR.md` | **⛔ NOBODY COULD DELETE THEIR ACCOUNT, BY EITHER ROUTE, against a published `/privacy` promise that identifiers go within 30 days. Self-service ended in `tx.delete(users)` and [VERIFIED from the LIVE schema] **36 FKs reference `users.id`, 31 are `NO ACTION`** while the transaction named SIX - so it raised a foreign-key violation and answered `500 "Please try again"`, advice that can never work. [VERIFIED in production] **3 of 9 users were blocked, each by a DIFFERENT column** (a share link, invitations sent, settings edited), which is what showed the handled set was arbitrary. The ADMIN route was worse: its anonymise branch wrote `badges: null, preferences: null` into two **NOT NULL** columns, so the UPDATE threw and the row came back UNCHANGED - that branch had never once worked - and its other branch hard-deleted with the same FK hole. ⚠️ No test caught either because the route test MOCKS DRIZZLE, and **a mock cannot raise a foreign-key or NOT NULL violation** (the docs/101 / docs/107 lesson a third time). Owner decision: **anonymise in place, always** - the row survives carrying an opaque id, so no FK can ever be violated; a full hard delete was REJECTED (it destroys withdrawals, refund batches, vouches and verification documents, kept 7 years) and so was 'erase what you can, refuse the rest' (13 of the 31 columns are NOT NULL). One `anonymiseAccount` both routes call. An ADMIN may no longer erase themselves here - an FK violation used to stop it BY ACCIDENT. Also: `campaigns.creator_id` is now LEFT INTACT (that null only existed to get past the FK, and docs/119 found 13 of 14 campaigns already have no organiser); the scrub list grew by SEVEN columns it had silently never covered as each was added, and is now checked against the live `users` column list; and both UIs were lying - `UsersList` removed the row and said "User deleted" while the row survives (docs/122 §2 class). ⚠️ §5.1: my OWN injection probe was a check that could not fail - a truncating edit made vitest fail to COLLECT, which emits no `×` line, so it reported zero failures; re-done properly the same injection fails 6 of 9. Read §2 for the four verification methods and §6/§7 for what was reported not changed.** |
 | `125-MONEY-IN-JOURNEY-AND-THE-EMAIL-THAT-SPOKE-DOLLARS.md` | **The money-in journey. [VERIFIED FOUR WAYS] not one of the 14 live campaigns can take a donation - DB (all 14 active are USD, the only KES one is archived), code (`USD.gateway='stripe'`), health (`stripe: error` from `balance.retrieve()`), and a LIVE `create-checkout` probe answering **503 PAYMENTS_UNAVAILABLE**, a branch emitted ONLY on `StripeAuthenticationError`. ⚠️ Gate 3's falsifier mattered: a RESTRICTED key could allow checkout while denying `balance.retrieve()`, which would have made the health check a false alarm - the live probe killed it. A fifth method: NO publishable key exists in any of the 33 production chunks (the one `pk_test` hit is Stripe's own SDK regex). That blocker is OWNER-ONLY. ⛔ What the walk FOUND: **seven outgoing emails stated money in dollars whatever the currency**, because `formatCents(cents, currency = 'USD')` carried a default that TWELVE call sites took - invisible at the call site, which is why `docs/114`, `docs/115` and `docs/121` all swept past it. Worst: `notifyCampaignStatusChange` had NO currency field at all and both admin routes selected `{slug, goalAmount}` without the column, so the "your campaign reached its goal" email - sent to EVERY donor - rendered a KES 50,000 goal as **$50,000.00**, ~130x. Latent (0 completed campaigns) but ARMED: `audit_logs` shows a probe campaign transitioned to `completed` twice. ⚠️ CORRECTS MY OWN `docs/122` §2: it gave `notifyDonationRefund` a required currency and the in-app title used it while the EMAIL BODY stayed in dollars - the test asserted `notifications.ts` and never looked at the template. ⚠️ And Gate 4 beat my first three rules: hardcoding `currency: 'USD'` at the call site passed all 41 tests, so a fourth rule forbids a currency literal in `notifications.ts` (derived constants stay legal). ⚠️ `Intl` emits a NON-BREAKING space, so `toContain('Ksh 50.00')` can never match while the `$` cases pass. Read §1.1 for what the donor sees and §5 for what was not checked.** |
 | `126-LOCKOUT-RACE-ADR.md` | **⛔ THE ACCOUNT LOCKOUT GOT WEAKER THE HARDER IT WAS ATTACKED. `recordFailedAttempt` was a read-modify-write across an `await` - SELECT `failedLoginCount`, then write `user.failedLoginCount + 1` - so concurrent failed sign-ins all read N and all wrote N+1 and every increment but one was LOST. Measured against a real Postgres: sequential x10 recorded 10, but **5 concurrent recorded 2 (threshold is 5, so NOT LOCKED), 10 recorded 1, 20 recorded 1** - the attacker picks the concurrency. ⚠️ The Gate-3 falsifier FAILED to falsify: the binding limiter is the `auth` tier, `slidingWindow(10, '60 s')` per IP, which is ABOVE the threshold of 5, so it never subsumed this control - and it is keyed per IP so more addresses multiply it. Fixed as ONE statement with the window decision moved out of TypeScript into a `CASE`, because that IS the root cause (a branch and its write must be atomic); in an UPDATE's SET list every right-hand column reference reads the PRE-UPDATE row, so both arms agree. ⚠️ `sql.param(value, column)` not `${cutoff}` - two Dates are interpolated and the docs/107 trap was one keystroke away (injection 2 fails 10 of 11 tests with `TypeError: The "string" argument must be…`). ⛔ The code MOVED to `src/lib/auth-lockout.ts`, and that is the real lesson: `auth.ts` imports NextAuth -> `next/server`, which the node-environment integration suite CANNOT LOAD, so nothing could ever execute this SQL - which is how a lost-update survived in a file carrying 47 unit tests. Same move and same reason as docs/107. 11 integration tests call the REAL functions (a replica would be the docs/101 trap in test form), assert the security property itself (five at once LOCKS) AND its control (four does NOT, or "locks after five" would be satisfied by locking everybody), both window boundaries, and that the statement RUNS. All four injections fire. ⚠️ Records an unrelated pre-existing flake (`simulation-engine` 48h boundary, passes 26/26 in isolation at HEAD too) and that the per-email lockout is a deliberate trade-off, not an oversight.** |
+| `127-ACCOUNT-DOORS-AND-A-RESET-LINK-ANYONE-COULD-KILL.md` | **The account doors, walked in a browser at v113 (14 screenshots). ⛔ THE PASSWORD-RESET LINK COULD BE KILLED BY ANYONE WHO KNEW THE ADDRESS. `forgot-password` mails an address from an anonymous body and DELETES the live token before minting a new one, and its only control was the `auth` tier - `slidingWindow(10, '60 s')` **per IP** [VERIFIED live: POSTs 1-10 answered 400, 11-13 answered 429]. [VERIFIED against a real Postgres] the second request takes `token_one_valid` from `t` to `f`. So one stranger could put ten emails a minute into an inbox, off the one shared Resend quota, and kill the recovery link about every six seconds. ⚠️ Gate 3's falsifier PARTLY HELD and narrowed the claim: every request mails a FRESH valid link to the victim's own inbox, so this is a RACE (~6s window), not a permanent lockout - what makes it matter is that it composes with the per-email lockout (docs/126 §7). Fixed with a per-ADDRESS cooldown in `src/lib/password-reset-tokens.ts`, not a tighter IP tier, because the cost lands on a MAILBOX and a shared quota and neither is keyed by who asked - the identical argument `phone-verification.ts:145` already makes for SMS. ONE statement (`ON CONFLICT DO UPDATE … WHERE expires <= now RETURNING`), claimed BEFORE the account lookup so all three docs/74 branches share it, response byte-identical so docs/32 stays closed, no migration (a constant token under a `reset-cooldown:` prefix is one row per address and `expires` is the timestamp). ⛔ ALSO: two claims nothing backs. `/login` said "saved campaigns" - the words appeared in EXACTLY ONE PLACE in the codebase, that sentence - and docs/122 had deleted the IDENTICAL claim from `/register` without sweeping the sibling page; `/register` promised "Ask for your money back without digging out a receipt" while `/refund-policy` demands the donation date, campaign name, amount and an explanation, and every refund route is under `/api/v1/admin/`. ⚠️ CORRECTS MY OWN FIRST READING: an admin CAN find a donation from the address alone, so the effort is real - what is false is that an ACCOUNT saves it. ⛔ AND A FIFTH STORE erasure had never looked at: `verification_tokens.identifier` holds the address as PLAINTEXT with no FK to `users`, and this change would have added a second such row. ⚠️ `account-promises.test.ts` derives BOTH ENDS (copy vs schema/routes); its first version fired on a NOTIFICATION TOGGLE LABEL and the surface set was narrowed on a principle, not allowlisted. ⚠️ Gate 4 twice: the call-site order check matched the IMPORT on line 9 so moving the call left it green, and an injection first reported "no tests" because a `!` at module scope threw during COLLECTION (docs/124 §5.1 again). ⛔ §6: `/api/auth/register` has the SAME hazard and is REPORTED NOT FIXED - I built the fix and TOOK IT OUT, because throttling only the duplicate branch creates a TIMING ORACLE (the second request for an existing address skips a Resend round trip the fresh-address one still makes), which is the invariant `notifications.ts:250` states outright, and throttling BOTH branches withholds the welcome email the screen tells a new user to look for. `auth.enumeration.test.ts` went red on the half-fix and was RIGHT. ⚠️ §8: a paired integration run reported 24 unrelated failures because I ran a SECOND vitest against the same database while the gate's run was in flight - docs/98 reproduced by hand; alone it is 291/291.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -150,8 +151,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (7691 pass + 16 skipped, 262 files, as of 2026-10-27)
-npm run test:integration  # Vitest + a throwaway Postgres (281 tests, 29 files)
+npm run test:unit      # Vitest (7702 pass + 16 skipped, 263 files, as of 2026-10-28)
+npm run test:integration  # Vitest + a throwaway Postgres (291 tests, 30 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
                        #   138 pass / 0 fail / 24 declared skips (docs/99 §8, docs/104 §2)
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
@@ -1649,6 +1650,74 @@ These exist for a reason; changing them has consequences beyond the local file.
   ⚠️ There is an unrelated `recordFailedAttempt` in
   `admin/settings/verify-security/route.ts` - in-memory, admin step-up, same
   name, different thing.
+
+- **A password-reset email is bounded per ADDRESS, not per IP.** Added
+  2026-10-28, see `docs/127`. `POST /api/v1/auth/forgot-password` mails an
+  address taken from an anonymous body and **deletes the live reset token**
+  before minting a new one, so its cost lands on a mailbox and on the one
+  shared Resend quota - neither of which is keyed by who asked. Claim the send
+  with **`claimResetSend`** from `src/lib/password-reset-tokens.ts` before
+  anything else in that route.
+
+  ⛔ **The `auth` tier does not cover this.** It is
+  `slidingWindow(10, '60 s')` per IP - [VERIFIED live: POSTs 1-10 answered
+  400, 11-13 answered 429] - so one stranger who knew an address could put ten
+  emails a minute into that inbox and kill the recovery link roughly every six
+  seconds. [VERIFIED against a real Postgres: a second request takes
+  `token_one_valid` from `t` to `f`.] ⚠️ It is a **race, not a permanent
+  lockout** - each request mails a fresh valid link to the victim's own inbox -
+  but it composes with the per-email account lockout (`docs/126` §7).
+  `phone-verification.ts:145` already made this argument for SMS, and
+  `docs/85` states the general form: an IP limit does not protect a resource
+  keyed by something else.
+
+  ⛔ **The claim is ONE statement** (`ON CONFLICT DO UPDATE … WHERE expires <=
+  now RETURNING`). Concurrency is not an accident on this endpoint, it is the
+  attack, and a read-then-write is the exact shape `docs/126` measured losing
+  increments on the login lockout.
+
+  ⚠️ **It is claimed BEFORE the account lookup**, so all three `docs/74`
+  outcome branches share one decision; a cooldown applied only where a token
+  is minted would leave every non-account address unprotected and make the
+  difference observable. The HTTP response is byte for byte identical either
+  way, so `docs/32`'s oracle stays closed, and `docs/74`'s property survives -
+  a send inside the last minute is exactly what suppresses the next one.
+
+  ⛔ **Do NOT reuse it on `POST /api/auth/register` without solving the timing
+  first.** That route has the same hazard and is reported, not fixed
+  (`docs/127` §6). Throttling only its duplicate branch makes the second
+  request for an existing address skip a Resend round trip the same request
+  for a fresh address still makes - the oracle `notifications.ts:250` names
+  ("keep the call shape identical ... so response time does not encode the
+  outcome") and `docs/32`/`docs/39` closed. Throttling both branches withholds
+  the welcome email the screen tells a new user to look for.
+
+- **A screen that sells an account may not name a feature the product lacks.**
+  Added 2026-10-28, see `docs/127`. `/login` said *"…track your donations and
+  saved campaigns"* when the words **"saved campaign" appeared in exactly one
+  place in the whole codebase** - that sentence. `/register` offered *"Ask for
+  your money back without digging out a receipt"* while `/refund-policy` asks
+  the donor for the donation date, campaign name, amount and an explanation,
+  and every refund route is under `/api/v1/admin/`.
+
+  `src/app/account-promises.test.ts` sweeps `src/app/login` and
+  `src/app/register` and **derives both ends**: a saved-campaigns claim
+  requires storage in `schema.ts`, a refund promise requires a donor-facing
+  refund route discovered from disk. Build either feature and the rule passes
+  on its own. ⛔ Its surface set stops at screens that SELL an account - the
+  first version also swept `src/components/user/` and fired on a notification
+  toggle's label, where naming refunds is factual. The rule was narrowed on
+  that boundary rather than given an allowlist entry (`docs/121` §3).
+
+- **Erasing a person deletes their password-reset rows.**
+  `verification_tokens.identifier` stores the address as **plaintext**
+  (`reset:<email>`, `reset-cooldown:<email>`), the table has no foreign key to
+  `users`, and nothing else ever deletes those rows -  so they outlived the
+  person until `docs/127`. `anonymiseAccount` asks
+  **`resetTokenIdentifiersFor`** for the identifiers, from the module that
+  writes them, and matches them **exactly**: `%` and `_` are legal in the
+  local part of an address, so a `LIKE` built from one reaches other people's
+  rows. A control test asserts a bystander's rows survive.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

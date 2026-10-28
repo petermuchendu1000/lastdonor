@@ -57,6 +57,15 @@ vi.mock('@/db/schema', () => ({
   // undefined and the route 500s, which is the 'unknown' guard below working.
   interactionLogs: { __table: 'interaction_logs' },
   donorRelationships: { __table: 'donor_relationships' },
+  /*
+    Password-reset rows: `verification_tokens.identifier` holds the address as
+    plaintext (`reset:<email>`, `reset-cooldown:<email>`) and nothing else
+    deletes them. Added 2026-10-28 for the same reason as the two above - and
+    the fact that this mock needed updating at all is the `docs/124` lesson
+    restated: a mock has to be told what the real code touches, which is
+    exactly why it can never find what the real code gets wrong. `docs/127`.
+  */
+  verificationTokens: { __table: 'verification_tokens' },
 }));
 
 function nameOf(table: unknown): string {

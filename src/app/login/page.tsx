@@ -216,8 +216,23 @@ function LoginForm() {
             <h1 className="font-display text-3xl font-bold tracking-tight text-card-foreground">
               Welcome back
             </h1>
+            {/*
+              ⛔ Was "Log in to track your donations and saved campaigns."
+
+              There is no saved-campaigns feature: no column in `schema.ts`, no
+              route, no component, no button. Before this change the words
+              "saved campaign" appeared in exactly ONE place in the whole
+              codebase - this sentence promising them.
+
+              `docs/122` deleted the identical claim from `/register` ("Save
+              campaigns and get updates as they close") and the sweep did not
+              reach the sibling page in the same flow. CLAUDE.md: never add a
+              claim the platform cannot substantiate. What replaces it is what
+              signing in actually opens - `/dashboard/supported` and
+              `/dashboard/subscriptions`. `docs/127`.
+            */}
             <p className="mt-2 text-sm text-muted-foreground">
-              Log in to track your donations and saved campaigns.
+              Log in to see the campaigns you have supported and the updates you follow.
             </p>
           </div>
 

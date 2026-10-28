@@ -266,8 +266,35 @@ function RegisterForm() {
             <li className="flex items-start gap-2.5 text-sm text-card-foreground">
               <span>Get campaign updates by email, and stop them whenever you want.</span>
             </li>
+            {/*
+              ⛔ Was "Ask for your money back without digging out a receipt."
+
+              A benefit of REGISTERING that registering does not confer. There
+              is no donor-facing refund route - every one of them is under
+              `/api/v1/admin/` - and no refund control on any donor screen:
+              `refund` appears there only as the SQL filter `refunded = false`.
+              Account or not, a donor follows the same path, and
+              `/refund-policy` tells them to email support with "the donor
+              email address, donation date, campaign name, amount, and a short
+              explanation" - which is the receipt.
+
+              ⚠️ An admin CAN find a donation from the address alone
+              (`admin/donations/route.ts:46`, `ilike(donations.donorEmail)`),
+              so the effort the claim promises to save is real. What is false
+              is that an account saves it: a guest emails support exactly the
+              same way, and 1 of the 2 real donations this platform has taken
+              was a guest's. Making the claim true is a product decision
+              (a donor-facing refund request), not a copy edit.
+
+              This is the third of the three bullets; `docs/122` corrected the
+              other two and this one survived the same sweep. What replaces it
+              is account-only and verified: `SidebarShareButton.tsx:63` mints
+              an attributed `/s/<token>` only `if (isAuthenticated)`, and
+              `/dashboard/impact` reports what each link brought in
+              (`docs/57`, `docs/58`). `docs/127`.
+            */}
             <li className="flex items-start gap-2.5 text-sm text-card-foreground">
-              <span>Ask for your money back without digging out a receipt.</span>
+              <span>Share a campaign with your own link, and see what it raised.</span>
             </li>
           </ul>
 

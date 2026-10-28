@@ -23,6 +23,7 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { DELETED_DONOR_NAME, DELETED_DONOR_PLACEHOLDER } from '@/lib/constants';
 import { USER_PII_SCRUB, anonymiseAccount, anonymisedEmail } from '@/lib/account-erasure';
+import { authEmailIdentifiersFor } from '@/lib/password-reset-tokens';
 import { clearDatabase } from '../../test/helpers';
 
 let seq = 0;
@@ -196,18 +197,34 @@ describe('⛔ the address is gone from every store mail is sent from', () => {
     });
     await db.insert(schema.donorCampaignSubscriptions).values({ campaignId, donorEmail: email, userId });
     await db.insert(schema.newsletterSubscribers).values({ email });
+    /*
+      ⛔ `verification_tokens` stores the address as PLAINTEXT in `identifier`,
+      has no foreign key to `users`, and nothing else ever deletes these rows.
+      It was a fifth store this function had never looked at, found while
+      adding the password-reset cooldown - which would have written a second
+      row holding the same address. `docs/127`.
+    */
+    for (const identifier of authEmailIdentifiersFor(email)) {
+      await db.insert(schema.verificationTokens).values({
+        identifier,
+        token: `tok-${seq}`,
+        expires: new Date(Date.now() + 3_600_000),
+      });
+    }
 
     await erase(userId, email);
 
-    const [[u], donationRows, subs, subscribers] = await Promise.all([
+    const [[u], donationRows, subs, subscribers, tokens] = await Promise.all([
       db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, userId)),
       db.select().from(schema.donations),
       db.select().from(schema.donorCampaignSubscriptions),
       db.select().from(schema.newsletterSubscribers),
+      db.select().from(schema.verificationTokens),
     ]);
 
-    const everywhere = JSON.stringify({ u, donationRows, subs, subscribers });
+    const everywhere = JSON.stringify({ u, donationRows, subs, subscribers, tokens });
     expect(everywhere).not.toContain(email);
+    expect(tokens).toEqual([]);
 
     // And the donation itself survives, scrubbed.
     expect(donationRows).toHaveLength(1);
@@ -217,6 +234,30 @@ describe('⛔ the address is gone from every store mail is sent from', () => {
     expect(donationRows[0].userId).toBeNull();
     expect(subs).toEqual([]);
     expect(subscribers).toEqual([]);
+  });
+
+  it('⚠️ the control: it leaves ANOTHER person\'s reset rows alone', async () => {
+    /*
+      Without this, "the address is gone from verification_tokens" would also
+      be satisfied by truncating the table - and the identifiers are built
+      from an address, so a `LIKE` pattern would reach other people's rows
+      (`%` and `_` are legal in a local part).
+    */
+    const email = `erase-tokens-${++seq}@example.invalid`;
+    const userId = await seedUser(email);
+    const bystander = 'bystander@example.invalid';
+    for (const identifier of [...authEmailIdentifiersFor(email), ...authEmailIdentifiersFor(bystander)]) {
+      await db.insert(schema.verificationTokens).values({
+        identifier,
+        token: 'tok',
+        expires: new Date(Date.now() + 3_600_000),
+      });
+    }
+
+    await erase(userId, email);
+
+    const left = await db.select({ identifier: schema.verificationTokens.identifier }).from(schema.verificationTokens);
+    expect(left.map((r) => r.identifier).sort()).toEqual(authEmailIdentifiersFor(bystander).sort());
   });
 
   it('⚠️ two people who followed the SAME campaign can both be erased', async () => {

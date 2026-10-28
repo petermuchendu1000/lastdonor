@@ -1,7 +1,8 @@
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 
 import * as schema from '@/db/schema';
 import { DELETED_DONOR_NAME, DELETED_DONOR_PLACEHOLDER } from '@/lib/constants';
+import { authEmailIdentifiersFor } from '@/lib/password-reset-tokens';
 
 /**
  * Erasing a person without destroying the records that mention them.
@@ -174,6 +175,24 @@ export async function anonymiseAccount(
   */
   if (email) {
     await tx.delete(schema.newsletterSubscribers).where(eq(schema.newsletterSubscribers.email, email));
+  }
+
+  /*
+    Password-reset rows carry the address as PLAINTEXT in `identifier`
+    (`reset:<email>`, `reset-cooldown:<email>`), and nothing else ever deletes
+    them for a user - `verification_tokens` has no foreign key to `users`, as
+    `reset-password/route.ts:97` notes. So an erased person's address survived
+    them in a table this function had never looked at. `docs/127`.
+
+    The identifiers come from the module that writes them, not from a second
+    list of prefixes here, and they are matched EXACTLY rather than with a
+    `LIKE` - `%` and `_` are legal in the local part of an address, and a
+    pattern built from one would erase other people's rows.
+  */
+  if (email) {
+    await tx
+      .delete(schema.verificationTokens)
+      .where(inArray(schema.verificationTokens.identifier, authEmailIdentifiersFor(email)));
   }
 
   await tx

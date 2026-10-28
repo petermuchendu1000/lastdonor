@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth';
 import { db } from '@/db';
-import { users, donations, campaigns, auditLogs, interactionLogs, donorRelationships } from '@/db/schema';
-import { eq, desc, and, sql, count, gte, or } from 'drizzle-orm';
+import { users, donations, campaigns, auditLogs } from '@/db/schema';
+import { eq, desc, and, sql, count, gte } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { updateDonorProfileSchema } from '@/lib/validators/donor';
 import { refreshDonorScore } from '@/lib/donor-scoring.server';
