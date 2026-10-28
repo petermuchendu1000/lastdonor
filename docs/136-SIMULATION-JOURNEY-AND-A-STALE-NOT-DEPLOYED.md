@@ -151,10 +151,49 @@ observed firing in production — for this one that claim cannot rest on audit
 rows, and `docs/66` notes the Worker logs the HTTP status and never reads the
 body.
 
-[UNKNOWN] whether `screen-documents` fires. What would establish it: the
-Worker's own log, or one pending document. Not fixed, because the noise
-argument in its comment is sound and the cheap remedy (a low-frequency
-heartbeat row) is a judgement call about log volume, not a defect.
+⚠️ **RESOLVED 2026-10-28, later the same day — it is [VERIFIED], and the
+method is the useful part.** `workers/cron/wrangler.toml` sets
+`[observability] enabled = true`, so the Worker's logs are queryable through
+Cloudflare's API and nobody had tried:
+
+```
+POST /accounts/{id}/workers/observability/telemetry/query
+  { queryId, timeframe:{from,to},
+    parameters:{ datasets:["cloudflare-workers"],
+                 filters:[{key:"$metadata.service", operation:"eq",
+                           value:"lastdonor-cron", type:"string"}] },
+    view:"events", limit, dry:false }
+```
+
+⚠️ Both `queryId` **and** `parameters` are required — `queryId` alone returns
+`"Query not found"`, and `parameters` alone returns a Zod error naming
+`queryId`. It took three shapes to find that.
+
+The answer, from the Worker's own output:
+
+```
+11:25:04  [cron] 2026-10-28T11:25:03.916Z dispatching 2: update-phases, screen-documents
+11:25:05  [cron] screen-documents ok 200
+11:25:05  [cron] update-phases ok 200
+```
+
+Over the window the API returns (200 events, which truncates the 6h request,
+so these are **floors**): `update-phases` 46, **`screen-documents` 46**,
+`ingest-news` 7, `publish-campaigns` 7, `verification-reminders` 1,
+`blog-generate` 1 — and **zero** `REJECTED`, `failed` or `threw` lines.
+
+Two things follow beyond the immediate answer:
+
+1. `docs/66`'s "the Worker logs the status and deliberately never reads the
+   body" describes what the Worker *does*; it does not mean the log is
+   unreadable. **A cron question that the database cannot answer is now
+   answerable**, and this is the way to do it.
+2. The deployed bundle can be read directly too
+   (`GET /accounts/{id}/workers/scripts/lastdonor-cron`), which is how
+   "`screen-documents` is in the deployed schedule" was verified rather than
+   inferred from the deploy date — and how `simulate-donations`'s single
+   occurrence in that bundle was confirmed to be **inside a comment**, not a
+   job entry. That is a fourth, independent confirmation of §2's lock 1.
 
 ---
 
@@ -195,3 +234,105 @@ the other three formerly-silent jobs are also confirmed running:
   blockers; `docs/115` §7 and `docs/129` cover fund-pool disbursing nothing.
 - **Turning simulation on** to watch the engine write — that is a production
   write of money-shaped data and Gate 8 forbids it without an instruction.
+
+---
+
+## 7. ⛔ THE DEFECT THIS TURNED UP: a remedy that was wrong at the worst moment
+
+Rendering `/admin/simulation` as an admin — item 4 of the open list, and the
+step `docs/88` F9 warns cannot be skipped, because that screen once returned
+**200 with the error boundary inside it** — the three blockers display
+correctly. The third one's remedy did not:
+
+> **3. No cron job has run recently, so nothing is driving any schedule.**
+> *To clear it:* "Deploy the Worker in workers/cron. **It is built and tested
+> but has never been deployed, so none of the nine scheduled jobs has ever run
+> in production.**"
+
+[VERIFIED three ways]
+
+1. **Code.** `simulation-readiness.ts:136-141`: `title` and `detail` are
+   computed, but `fix` is a **static string** with no condition — it cannot
+   vary.
+2. **Production.** The Worker *is* deployed (`lastdonor-cron`, modified
+   `2026-10-25T07:40:05Z`) and jobs *are* running (§4.1's log). Both halves of
+   the sentence are false, and `CRON_JOBS` holds **12**, not nine.
+3. **Execution.** The walk rendered that exact sentence on screen.
+
+**Falsification attempt:** *"it is unreachable, therefore harmless."* It
+failed. The blocker renders **only** when the scheduler has been quiet for
+three ticks — which is the incident — and at that moment it told the operator
+to perform a first-time deploy that happened ten days ago, while denying any
+job had ever run. The real causes then are a stopped trigger or a
+`CRON_SECRET` mismatch, and the Worker already logs the latter loudly
+(`workers/cron/src/index.ts:58-63`).
+
+### 7.1 The module states the rule it broke
+
+```
+ * ── Why this is computed and not written as copy ──
+ * A hardcoded "this does not work yet" banner becomes a lie the day it
+ * starts working, and nobody deletes a stale warning.
+```
+
+Three blockers obey that; the fourth string is prose. Item 3 of the module's
+own header had gone stale the same way and is corrected too.
+
+### 7.2 The fix, and the rules that bite
+
+The remedy now derives the job count from `CRON_JOBS.length` and the cadence
+from `TICK_MINUTES`, and points at what is actually diagnostic: the trigger,
+`wrangler tail`, and the silent `CRON_SECRET` mismatch. Three rules in
+`simulation-readiness.test.ts`, all injection-proven:
+
+| Injection | Result |
+|---|---|
+| the ORIGINAL stale sentence restored | **FIRED** (3 rules) |
+| job count hardcoded as "nine" | **FIRED** |
+| **CONTROL** the remedy emptied out | **FIRED** (3 rules) |
+
+The control matters: without it, deleting the remedy would satisfy "says
+nothing false".
+
+⛔ **Blast radius is text only** — `getSimulationReadiness` has one real caller
+(`admin/simulation/page.tsx:9`) plus a type import, no test pinned the old
+string, and the `SCHEDULER_STALE_AFTER_MS = TICK_MINUTES * 3` invariant
+(tolerance 15 min must exceed the 5 min tick) is untouched and holds.
+
+---
+
+## 8. The trust network, finally exercised
+
+Item 5. `docs/108`'s logic passed 28 unit and 17 integration tests, and no
+vouch had ever been recorded anywhere. One has now been, through the real
+admin API against a production build: institution created → vouch recorded →
+revoked. **13/13.**
+
+The part worth having is not that it worked; it is that `docs/108`'s central
+safety claim — *a vouch grants `identity_verified` and NOTHING else* — is now
+proven **by execution** rather than by a test asserting the shape of a
+`.set()`:
+
+| column | before | after vouch |
+|---|---|---|
+| `verification_status` | unverified | **identity_verified** |
+| `verification_source` | null | **institution_vouch** |
+| `status` | unchanged | **unchanged** |
+| `raised_amount` | unchanged | **unchanged** |
+| `total_released_amount` | unchanged | **unchanged** |
+| `goal_amount` | unchanged | **unchanged** |
+
+Revoking reversed the verification and left `status` untouched. ⚠️ Local
+only — production still holds 0 institutions and 0 vouches, so the path is now
+proven in a browser against real Postgres, and still never used in life.
+
+---
+
+## 9. The admin probe, decided
+
+Item 3 is not fixable and does not need fixing; it needs recording so the next
+session does not repeat it. §3.1 holds it: **the `docs/104` §5.1a 401-vs-404
+probe works for cron routes and not for the admin surface**, because the
+middleware is default-deny and answers before routing. For admin routes the
+build's route table is the evidence. Both controls returning exactly what the
+real route returns is the only reason that was caught.

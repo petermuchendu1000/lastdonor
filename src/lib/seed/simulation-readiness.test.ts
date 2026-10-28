@@ -143,3 +143,56 @@ describe('the simulation page cannot exhaust the connection pool (docs/87)', () 
     }
   });
 });
+
+/*
+  ─────────────────────────────────────────────────────────────────────────
+  THE REMEDY TEXT MUST NOT ASSERT A WORLD THAT HAS MOVED ON.    docs/136
+  ─────────────────────────────────────────────────────────────────────────
+
+  The `no-scheduler` blocker's `fix` was the one string in that module
+  written as prose instead of derived, and it said the Cloudflare Worker
+  "has never been deployed, so none of the nine scheduled jobs has ever run
+  in production". `docs/66` deployed it on 2026-10-18, and `CRON_JOBS` grew
+  past nine.
+
+  ⛔ That blocker renders ONLY when the scheduler has been quiet for three
+  ticks - the incident - so the stale sentence sent an operator to redo a
+  first-time deploy while denying any job had ever run.
+
+  These rules bite on exactly that: the first fails on the old sentence, the
+  second fails on any hardcoded job count, and the third is the control -
+  without it, deleting the remedy entirely would satisfy both.
+*/
+describe('the scheduler remedy does not claim the Worker was never deployed', () => {
+  const blocker = () => {
+    const r = getSimulationReadiness(null, NOW, OPTED_IN);
+    const b = r.blockers.find((x) => x.id === 'no-scheduler');
+    if (!b) throw new Error('the no-scheduler blocker did not render');
+    return b;
+  };
+
+  it('⛔ never says the Worker has not been deployed, or that nothing has ever run', () => {
+    const text = `${blocker().title} ${blocker().detail} ${blocker().fix}`;
+    expect(text).not.toMatch(/never been deployed/i);
+    expect(text).not.toMatch(/has ever run in production/i);
+    expect(text).not.toMatch(/no scheduler exists/i);
+  });
+
+  it('⛔ states the job count from CRON_JOBS, never a written-out number', () => {
+    const { fix } = blocker();
+    expect(fix).toContain(String(CRON_JOBS.length));
+    // The literals this string has actually carried, plus the neighbours a
+    // future edit would reach for.
+    for (const stale of ['nine', 'ten', 'eleven', 'twelve', 'thirteen']) {
+      expect(fix.toLowerCase()).not.toContain(stale);
+    }
+  });
+
+  it('⚠️ CONTROL: the remedy still tells the operator what to do', () => {
+    const { fix } = blocker();
+    expect(fix.length).toBeGreaterThan(80);
+    expect(fix).toMatch(/workers\/cron/);
+    // The failure mode that is otherwise silent (workers/cron/src/index.ts:58-63).
+    expect(fix).toMatch(/CRON_SECRET/);
+  });
+});

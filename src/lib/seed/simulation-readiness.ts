@@ -26,8 +26,14 @@ import {
  *      route refuses with 403 before any write (docs/33, docs/41).
  *   2. `simulate-donations` is deliberately absent from `CRON_JOBS`, so
  *      even a healthy scheduler would never call it (docs/66).
- *   3. No scheduler exists yet: the Cloudflare Worker is built and
- *      tested but not deployed (docs/65, docs/66).
+ *   3. No cron job has ticked recently, so nothing is driving any
+ *      schedule. ⚠️ This read "no scheduler exists yet: the Cloudflare
+ *      Worker is built and tested but not deployed" until 2026-10-28,
+ *      which stopped being true on 2026-10-18 when `docs/66` deployed
+ *      it. [VERIFIED 2026-10-28 from the Worker's own logs: 46
+ *      `update-phases` and 46 `screen-documents` dispatches, 0
+ *      failures.] The blocker is real whenever it fires; what was wrong
+ *      was the remedy text. `docs/136`.
  *
  * ── Why this is computed and not written as copy ─────────────────────
  *
@@ -135,10 +141,33 @@ export function getSimulationReadiness(
           ? 'No cron job has ever recorded a run.'
           : `The most recent cron run of any job was ${schedulerLastRunAt.toISOString()}. ` +
             `A live scheduler ticks every ${TICK_MINUTES} minutes.`,
+      /*
+        ⚠️ This used to read "Deploy the Worker in workers/cron. It is built
+        and tested but has never been deployed, so none of the nine scheduled
+        jobs has ever run in production."
+
+        Both halves went stale on 2026-10-18, when `docs/66` deployed the
+        Worker - and the count was wrong too, because `CRON_JOBS` has grown
+        past nine. It is the one string in this module written as PROSE rather
+        than derived, and the module's own header says why that is the hazard:
+        "a hardcoded 'this does not work yet' banner becomes a lie the day it
+        starts working, and nobody deletes a stale warning".
+
+        ⛔ It is also the worst possible moment to be wrong. This blocker
+        renders ONLY when the scheduler has gone quiet for three ticks - the
+        incident - and it was telling the operator to perform a first-time
+        deploy that already happened, while denying that any job had ever run.
+        The real causes at that moment are a stopped trigger or a
+        `CRON_SECRET` mismatch, and the Worker already logs the latter loudly
+        (`workers/cron/src/index.ts:58-63`). `docs/136`.
+      */
       fix:
-        'Deploy the Worker in workers/cron. It is built and tested but has ' +
-        'never been deployed, so none of the nine scheduled jobs has ever ' +
-        'run in production. See docs/65 and docs/66.',
+        `The Worker in workers/cron dispatches all ${CRON_JOBS.length} jobs from one ` +
+        `*/${TICK_MINUTES} trigger. Check it is still deployed and its trigger is ` +
+        'active ("npx wrangler deployments list"), then watch a tick with ' +
+        '"npx wrangler tail lastdonor-cron". A CRON_SECRET mismatch between ' +
+        'the Worker and Fly logs "REJECTED 401" there and is otherwise ' +
+        'silent. See docs/65 and docs/66.',
     });
   }
 
