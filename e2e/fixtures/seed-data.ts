@@ -604,6 +604,33 @@ export async function createE2EInvite(campaignId: string): Promise<string> {
   return raw;
 }
 
+/**
+ * Has this invitation been accepted?
+ *
+ * ⛔ The property `/collaborate/accept` must hold is *"a GET does not
+ * mutate"*, and the spec used to check it by asserting the helper's dashboard
+ * listed no campaign at all. That is a claim about the WHOLE ACCOUNT, and the
+ * account is shared: any sibling test that accepts anything makes it false.
+ * It only ever passed because it ran before them.
+ *
+ * ⚠️ And it could not fail usefully either way - a global count says nothing
+ * about THIS invitation. Asking the row is the actual claim.
+ *
+ * Its two uses are each other's control: the GET test expects `false`, and
+ * the accepting test expects `true`, so a helper stuck on either answer
+ * fails one of them. `docs/131` §5.5.
+ */
+export async function isInviteAccepted(token: string): Promise<boolean> {
+  assertDatabaseIsDisposable();
+  const [row] = await db
+    .select({ acceptedAt: schema.campaignCollaborators.acceptedAt })
+    .from(schema.campaignCollaborators)
+    .where(eq(schema.campaignCollaborators.tokenHash, createHash('sha256').update(token).digest('hex')))
+    .limit(1);
+  if (!row) throw new Error(`isInviteAccepted: no invitation row for the given token`);
+  return row.acceptedAt !== null;
+}
+
 export const E2E_FX_FIXTURE = Object.freeze({ key: E2E_FX_KEY, rates: E2E_FX_RATES });
 
 export const E2E_FIXTURE_IDS = {

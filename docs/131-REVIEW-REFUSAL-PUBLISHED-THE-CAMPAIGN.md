@@ -308,7 +308,7 @@ Screenshots: `scratchpad/review-shots/01..03-*.png`.
 
 ---
 
-## 5. Reported, not fixed
+## 5. Reported — four not fixed, one since resolved
 
 **5.1 ⛔ `DELETE /api/v1/user-campaigns/[id]` archives a queued campaign
 silently.** Its guard is `['archived','completed']`, so `draft` and
@@ -326,7 +326,7 @@ admin who was reviewing it is told, is a product call.
 `published_at` makes this harmless, so it is debt rather than a defect. Worth
 knowing before anyone proposes serving a status on `published_at`'s behalf.
 
-**5.5 ⛔ THE E2E SUITE IS RED AT HEAD, and CLAUDE.md says it is green.**
+**5.5 ✅ RESOLVED 2026-10-28 — the E2E suite was RED AT HEAD while CLAUDE.md said it was green. Fixed; see §5.5a for the fix.**
 Found running the gate for this change, and **it is not mine** — [VERIFIED by
 control: `git stash`, rebuild, re-run, and the same two tests fail identically
 at baseline with 0 modified files]. CLAUDE.md records *"138 pass / 0 fail / 24
@@ -357,14 +357,61 @@ is 0 on both iterations and the loop does nothing; the assertion
 `toHaveCount(1)` succeeds only because the **Desktop** run left a membership
 row for the same helper. It asserts nothing on that project.
 
-⛔ **Not fixed here, and not because it is small.** Minting a fresh token in
-`:92` and `:98` is not sufficient: `:98` asserts *"Still not a member"* via
-`getByText('Helping')).toHaveCount(0)`, and `E2E_HELPER_EMAIL` already holds an
-accepted membership from the other project by then. A correct fix needs
-per-project fixture identity (or a per-campaign assertion instead of a global
-one) and must also repair `:170`'s wrong-reason pass. That is a spec refactor
-in another journey's file, and it does not belong in the same commit as a
-review-gate fix.
+### 5.5a The fix
+
+**Gate 3's falsifier failed to falsify, which is what settled it.** Run with
+**Mobile Chrome alone**, the spec is **13 passed / 0 failed**. The two tests
+that fail when Desktop runs first pass when Mobile runs by itself, so the cause
+is the other project consuming the shared invitation and nothing else. Four
+independent methods agree:
+
+1. the spec — `:92`, `:98` and `:170` share `E2E_INVITE_TOKEN`; `:78` mints its
+   own;
+2. the fixture — `seed-data.ts:531` seeds **exactly one** live invitation, and
+   `playwright.config.ts:49,86-88` is `fullyParallel` with two projects behind
+   one `globalSetup`, so they share one database;
+3. the product — `invites.ts:265`, `describeInvite` returns `null` once
+   `acceptedAt` is set, which is precisely the *"cannot be used"* screen the
+   `element(s) not found` failures describe;
+4. execution — Mobile alone 13/13; both projects 2 failed; and the baseline
+   control (`git stash`, rebuild, re-run) failing identically with 0 modified
+   files.
+
+⚠️ **The fixture already stated the rule that was broken.** `seed-data.ts:588`:
+*"Each test that accepts therefore mints its own."* `:170` accepts and did not.
+
+So all three tests that need a LIVE invitation now mint one with
+`createE2EInvite`. The shared token stays on `:61` and `:71` alone — signed-out
+tests that assert the login redirect and the register link carry the token
+through, which is true whether or not the invitation is still live. A comment
+above `CAMPAIGN_ID` says so, because the shared constant now looks removable
+and is not.
+
+⚠️ **`createE2EInvite` invites a RANDOM address**, not the helper — the partial
+unique index permits one live row per `(campaign, email)`. That is fine and was
+checked rather than assumed: [VERIFIED] `acceptInvite` (`invites.ts:165-190`)
+looks the row up **by token hash alone** and binds `userId` to the signed-in
+caller, never to `invitedEmail`. So `:170`'s double-accept path is unchanged.
+
+⛔ **`:98`'s assertion was replaced, not just re-tokenised.** It read
+`getByText('Helping')).toHaveCount(0)` — a claim about the **whole account**,
+which any sibling test that accepts anything makes false, and which says
+nothing about whether the GET mutated **this** invitation. It passed only by
+running first. It now asserts the property itself, via a new
+`isInviteAccepted(token)` beside `createE2EInvite`.
+
+⚠️ **That helper's two uses are each other's control**: `:98` expects `false`
+and `:170` expects `true`, so a helper stuck on either answer fails one of
+them. Injections 4 and 5 below exist to prove exactly that.
+
+⚠️ And `:170` had been **passing for the wrong reason** on the second project
+(the `docs/104` class): the invitation was already used, so `button.count()`
+was 0 on both iterations and the loop did nothing — `toHaveCount(1)` succeeded
+only because the Desktop run had left a membership row for the same helper. It
+asserted nothing there. With its own token it now runs the loop on both.
+
+**Result: 164 passed / 0 failed / 24 skipped**, both projects, up from
+162/2/24. ⛔ No production code changed — this is entirely `e2e/`.
 
 **5.4 The sitemap was NOT given the same predicate, deliberately.**
 `sitemap.ts` selects `active|last_donor_zone|completed`, and none of those can
@@ -385,6 +432,41 @@ Nothing checks that an admin knows which box is which, and the dialog does not
 say that one of them is published.
 
 ---
+
+### 5.5b Gate 4 — and my first attempt at it was wrong
+
+⚠️ **The first injection run was three checks that could not fail, and I ran
+them before noticing.** Injections 1-3 each reverted ONE test to the shared
+invitation, and all three passed 26/26. That is not a silent check in the
+tests; it is a badly designed probe. **The defect needs a PAIR** - a consumer
+(`:170` accepting the shared token) *and* a reader (`:92`/`:98` needing it
+live). The fix removed that coupling, so restoring half of it restores
+nothing: revert only the consumer and no one reads the token afterwards;
+revert only a reader and no one consumes it.
+
+Re-done with the coupling restored:
+
+| # | injection | failed | |
+|---|---|---:|---|
+| 1 | reader `:92` alone back on the shared token | 0 | **void probe, not a passing fix** |
+| 2 | reader `:98` alone back on the shared token | 0 | **void probe** |
+| 3 | consumer `:170` alone back on the shared token | 0 | **void probe** |
+| 4 | `isInviteAccepted` always `false` | 1 | FIRED |
+| 5 | `isInviteAccepted` always `true` | 1 | FIRED |
+| 6 | consumer **and** reader `:92` | 1 | FIRED |
+| 7 | consumer **and** reader `:98` | 1 | FIRED |
+| 8 | **the original code**: consumer + both readers | **2** | FIRED |
+
+Row 8 is the one that matters: restoring the original coupling reproduces the
+**exact original symptom**, two failures, which is what ties the fix to the
+defect rather than to luck. Rows 4 and 5 are the `isInviteAccepted` mutual
+control - opposite expectations at its two call sites, so a helper stuck on
+either answer fails one. Baseline 26 passed; after the final restore, 26
+passed (verified byte-for-byte against a content snapshot).
+
+**The transferable lesson:** when a defect is an INTERACTION, a single-point
+injection is a check that cannot fail. Injecting one end of a coupling the fix
+has decoupled tests nothing at all.
 
 ## 6. Corrections to this session's own work
 
@@ -415,11 +497,103 @@ say that one of them is published.
 
 ---
 
+## 6a. Deployed — v115, 2026-10-28
+
+Owner authorised the deploy explicitly. `scripts/deploy.sh`, hermetic (no
+`--prerender`), matching the owner's own `deploy.ps1`, where `-Prerender` is an
+opt-in switch rather than the default.
+
+**Before** [VERIFIED]: v114, one machine `started`, 1/1 checks, idle 2h12m, so
+quiescent. **13 migrations applied against 13 journalled**, and the commit adds
+none (`git show --stat HEAD | grep -c migrations` = 0), so `fly.toml:227`'s
+`release_command` was a schema no-op — and it reported
+`release_command … completed successfully`.
+
+**After** [VERIFIED]: **v115**, image `deployment-01M60J4KSAFVVZTWAYTTPVP8BA`,
+machine `started`, 1/1 passing, `2026-10-28T06:16:40Z`. Deploy took 409s.
+
+| probe | v114 | v115 | |
+|---|---|---|---|
+| `active/antonio-rivera` | 200 | 200 | control |
+| `active/david-l-jones` | 200 | 200 | control |
+| `archived` (`docs/118` §9) | 200 | 200 | the closed notice still serves |
+| `under_review` ×2 | 404 | 404 | |
+| `/campaigns`, `/` | 200 | 200 | |
+| health | degraded (stripe) | degraded (stripe), payhero `ok` | unchanged |
+
+### 6a.1 ⚠️ Gate 4 on the production verification: it cannot fail
+
+Every probe answers identically before and after, so this proves
+**non-regression only** — it cannot prove the predicate is live. That is not an
+oversight; it is §3.3 restated. **No production row can discriminate v114 from
+v115**, because none is in the affected state: all 14 `active` and the 1
+`archived` row carry `published_at`, and the 9 `under_review` rows are excluded
+by status either way.
+
+What is actually established, and no more:
+
+- [VERIFIED] the image changed (`…GFSTGS` → `…PVP8BA`) and v115 is `complete`;
+- [VERIFIED] it was built from a clean tree at `0588c50` (the deploy printed
+  `tree clean: 0 changes`);
+- [VERIFIED] the predicate itself works, **by execution** — §2 method 4 and
+  §4.2, four rows with controls in both directions;
+- [VERIFIED] nothing regressed in production.
+
+⛔ The one check that WOULD discriminate is refusing a real campaign and
+reading its page, and that mutates a production row. Not done, and not to be
+done.
+
+**Rollback**, if ever needed: `flyctl deploy --app lastdonor --image
+registry.fly.io/lastdonor:deployment-01M60A6YJ0K1J9YCPBFZGFSTGS --depot=false
+--remote-only --yes` (v114's released image, so it is not garbage-collected).
+
+### 6a.3 The hermetic sitemap window, measured end to end
+
+The deploy was hermetic, so `/sitemap.xml` was baked with **0** campaign URLs
+and `revalidate = 3600` - the `docs/119` §2 window. It was measured rather
+than assumed, and the **cache header is the evidence, not the count**:
+
+```
+06:29:35Z  pre-window control   cache=HIT     campaigns=0    total=42
+07:18:28Z  read 1               cache=STALE   campaigns=0    total=42
+07:18:34Z  read 2               cache=HIT     campaigns=14   total=56
+07:18:39Z  read 3               cache=HIT     campaigns=14   total=56
+```
+
+Deployed 06:16:40Z, so the entry expired 07:16:40Z. The 06:29 control is
+`HIT` + 0: inside the window, serving the baked-empty copy. ⚠️ **The `STALE`
+at 07:18 is the finding**: it proves **no request had arrived in the whole
+preceding hour**, because any request after 07:16:40 would have left the entry
+regenerated and the read would have been `HIT` + 14.
+
+So `docs/119` §2's *"it repairs itself within the hour"* is right about the
+mechanism and misleading about the timing. **ISR regenerates on the next
+REQUEST, not on a clock.** For a route crawlers visit rarely, the empty copy
+can sit there indefinitely, and the unlucky visitor is the crawler itself -
+it gets the stale empty sitemap and merely schedules the refresh for whoever
+comes next. [VERIFIED] production is now back to 14 campaign URLs / 56 locs.
+
+⚠️ This also retro-explains the baseline: my very first probe at 05:58 read
+42/0 and a read 4s later read 56/14. That was v114's window (deployed
+03:58:43Z, expired 04:58:43Z) healing on MY request, an hour after expiry.
+I logged that one without capturing its header, so it was [INFERRED] then;
+this run captures the header and makes it [VERIFIED].
+
+### 6a.2 ⚠️ A health field misread, corrected
+
+My first probe truncated `/api/v1/health` at 220 characters, which cut through
+Stripe's `error` object, and I took the second `"error"` for PayHero's. Reading
+the whole body: `database ok`, **`stripe error`** (pre-existing and owner-only,
+`docs/125`), `payhero ok`, `redis ok`. Read the whole body before a field from
+it enters a summary.
+
+---
+
 ## 7. Not checked
 
-- The `e2e/` suite WAS run: **162 passed / 2 failed / 24 skipped**, and the 2
-  are pre-existing (§5.5, proven by a baseline control). Nothing in it
-  regressed. The fixture is also consistent with this change by construction —
+- The `e2e/` suite WAS run, and the 2 failures it surfaced were pre-existing
+  (§5.5, proven by a baseline control) and are now **fixed** (§5.5a):
+  **164 passed / 0 failed / 24 skipped** on both projects. Nothing regressed. The fixture is also consistent with this change by construction —
   every served fixture status carries a `publishedAt`, and the one
   `under_review` row is explicitly `publishedAt: null` with a comment saying it
   must stay that way.

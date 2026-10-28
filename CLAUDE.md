@@ -158,12 +158,11 @@ npm run typecheck      # tsc --noEmit
 npm run test:unit      # Vitest (7725 pass + 16 skipped, 265 files, as of 2026-10-28)
 npm run test:integration  # Vitest + a throwaway Postgres (301 tests, 31 files)
 npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
-                       #   ⛔ RED AT HEAD: 162 pass / 2 FAIL / 24 declared skips
-                       #   (was 138/0/24; both numbers were stale. The 2 are
-                       #    e2e-19 :92 and :98 on Mobile Chrome ONLY, from a
-                       #    single-use invitation the Desktop project consumes
-                       #    first - see docs/131 §5.5, which also records that
-                       #    e2e-19:170 then PASSES FOR THE WRONG REASON.)
+                       #   164 pass / 0 fail / 24 declared skips (2026-10-28)
+                       #   The "138/0/24" this file carried for days was STALE
+                       #   in both numbers, and the suite was RED: see
+                       #   docs/131 §5.5 for the single-use invitation two
+                       #   projects shared, and §5.5a for the fix.
                        #   In THIS sandbox: PW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
 npm run e2e:build      # seed THEN build — use this if you build the server by hand
 npm run db:generate    # safe since 2026-10-14 (docs/34): diffs the baseline snapshot
@@ -1805,6 +1804,29 @@ These exist for a reason; changing them has consequences beyond the local file.
   test alone. ⚠️ And `getBoundingClientRect()` ignores clipping, so a naive
   scan for elements past the viewport blames the table inside its own
   `overflow-x-auto` scroller - exclude anything with a clipping ancestor.
+
+- **An E2E test that needs a single-use fixture mints its own.** Added
+  2026-10-28, see `docs/131` §5.5. `playwright.config.ts` is `fullyParallel`
+  with **two Chromium projects behind one `globalSetup`**, so both run against
+  **one seeded database** - and `seed-data.ts` seeds exactly ONE live
+  collaborator invitation. Three tests shared it, one of them accepted it, and
+  the other two then rendered the *"invitation cannot be used"* screen on
+  whichever project ran second. Use **`createE2EInvite`**; the fixture's own
+  comment already said so (*"Each test that accepts therefore mints its own"*)
+  and the accepting test was the one that did not.
+
+  ⛔ **And do not assert a global when you mean a specific row.** The same
+  test checked *"a GET must not mutate"* with
+  `getByText('Helping')).toHaveCount(0)` - a claim about the **whole helper
+  account**, false the moment any sibling accepts anything, and silent about
+  the invitation actually under test. Ask the row: `isInviteAccepted(token)`.
+  Its two call sites expect opposite answers, so a broken helper fails one.
+
+  ⚠️ A test can pass for the wrong reason on the second project: with the
+  invitation already used, the double-accept loop did nothing and its
+  `toHaveCount(1)` succeeded only on the membership the FIRST project left
+  behind (`docs/104`'s class). Running one project alone is the cheap
+  falsifier for any cross-project fixture suspicion.
 
 - **ISR needs a shared cache handler** above one instance. 26 pages use
   `revalidate` and 36 files call `revalidatePath`/`revalidateTag`; without a

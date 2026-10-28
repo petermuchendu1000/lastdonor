@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import {
   createE2EInvite,
+  isInviteAccepted,
   E2E_EXPIRED_INVITE_TOKEN,
   E2E_FIXTURE_IDS,
   E2E_FIXTURE_PASSWORD,
@@ -40,6 +41,15 @@ import {
  */
 
 const CAMPAIGN_ID = E2E_FIXTURE_IDS.campaigns[1];
+
+/*
+  ⚠️ `E2E_INVITE_TOKEN` - the ONE live invitation the fixture seeds - is used
+  below by the two SIGNED-OUT tests only. They assert the login redirect and
+  the register link carry the token through, which is true whether or not the
+  invitation is still live, so they are immune to another project consuming
+  it. Every test that needs the invitation to RENDER or to be ACCEPTED mints
+  its own with `createE2EInvite`. `docs/131` §5.5.
+*/
 
 /** Sign in through the real form, the way the invitee does. */
 async function signIn(page: import('@playwright/test').Page, email: string) {
@@ -90,8 +100,18 @@ test.describe('the invitation link', () => {
   });
 
   test('⛔ says plainly that the money is not included', async ({ page }) => {
+    /*
+      ⛔ Mints its own. `describeInvite` returns null once an invitation is
+      accepted, so a test that needs the invitation COPY needs an unaccepted
+      invitation - and the seeded one is single use and shared by both
+      Playwright projects, which run against one database. The accepting test
+      below consumed it, so this rendered the "cannot be used" screen on
+      whichever project ran second and failed on `element(s) not found`.
+      `docs/131` §5.5.
+    */
+    const token = await createE2EInvite(CAMPAIGN_ID);
     await signIn(page, E2E_HELPER_EMAIL);
-    await page.goto(`/collaborate/accept?token=${E2E_INVITE_TOKEN}`);
+    await page.goto(`/collaborate/accept?token=${token}`);
     await expect(page.getByText(/will not be able to touch the money/i)).toBeVisible();
   });
 
@@ -101,13 +121,20 @@ test.describe('the invitation link', () => {
       them. If merely opening the page accepted, the membership would go to
       whichever machine opened the message first.
     */
+    const token = await createE2EInvite(CAMPAIGN_ID);
     await signIn(page, E2E_HELPER_EMAIL);
-    await page.goto(`/collaborate/accept?token=${E2E_INVITE_TOKEN}`);
+    await page.goto(`/collaborate/accept?token=${token}`);
 
     await expect(page.getByRole('button', { name: /accept and start helping/i })).toBeVisible();
-    // Still not a member: the dashboard must not list it yet.
-    await page.goto('/dashboard/campaigns');
-    await expect(page.getByText('Helping')).toHaveCount(0);
+
+    /*
+      ⛔ Ask THIS invitation, not the dashboard. The old assertion was
+      `getByText('Helping')).toHaveCount(0)` - a claim about the whole
+      account, which any sibling test that accepts anything makes false, and
+      which says nothing about whether the GET mutated this row. It passed
+      only by running first. `docs/131` §5.5.
+    */
+    expect(await isInviteAccepted(token), 'the GET accepted the invitation').toBe(false);
   });
 });
 
@@ -168,9 +195,22 @@ test.describe('accepting', () => {
   });
 
   test('accepting twice is success, not an error', async ({ page }) => {
+    /*
+      ⛔ Mints its own, which is `seed-data.ts`'s own stated rule - "Each test
+      that accepts therefore mints its own" - and this was the one accepting
+      test that did not. Consuming the SHARED invitation is what broke the two
+      read-only tests above on whichever project ran second.
+
+      ⚠️ `acceptInvite` looks the row up by token hash alone and binds
+      `userId` to the SIGNED-IN caller, never to `invitedEmail` (which
+      `createE2EInvite` randomises to dodge the per-(campaign,email) partial
+      unique index) - so the double-accept path this test is about is
+      unchanged.
+    */
+    const token = await createE2EInvite(CAMPAIGN_ID);
     await signIn(page, E2E_HELPER_EMAIL);
     for (let i = 0; i < 2; i++) {
-      await page.goto(`/collaborate/accept?token=${E2E_INVITE_TOKEN}`);
+      await page.goto(`/collaborate/accept?token=${token}`);
       const button = page.getByRole('button', { name: /accept and start helping/i });
       if (await button.count()) {
         await button.click();
@@ -180,6 +220,9 @@ test.describe('accepting', () => {
     await page.goto('/dashboard/campaigns');
     // Exactly one row, not two.
     await expect(page.getByText('Helping')).toHaveCount(1);
+    // The control on `isInviteAccepted`: its other use expects false, so a
+    // helper stuck on one answer fails one of the two.
+    expect(await isInviteAccepted(token), 'the invitation was not accepted').toBe(true);
   });
 });
 
