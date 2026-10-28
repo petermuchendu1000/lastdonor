@@ -573,6 +573,20 @@ can sit there indefinitely, and the unlucky visitor is the crawler itself -
 it gets the stale empty sitemap and merely schedules the refresh for whoever
 comes next. [VERIFIED] production is now back to 14 campaign URLs / 56 locs.
 
+✅ **REPLICATED on the next deploy (v116, `docs/132`), which is what makes
+this a mechanism rather than an anecdote.** Deployed 08:17:08Z hermetic, so
+the entry expired 09:17:08Z:
+
+```
+09:19:06Z  read 1  cache=STALE   campaigns=0    total=42
+09:19:11Z  read 2  cache=HIT     campaigns=14   total=56
+09:19:16Z  read 3  cache=HIT     campaigns=14   total=56
+```
+
+Identical shape, a different deploy, an hour of no traffic to that route
+again. Two independent observations of the same sequence, each with the
+pre-window `HIT`+0 control.
+
 ⚠️ This also retro-explains the baseline: my very first probe at 05:58 read
 42/0 and a read 4s later read 56/14. That was v114's window (deployed
 03:58:43Z, expired 04:58:43Z) healing on MY request, an hour after expiry.
