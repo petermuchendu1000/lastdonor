@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
 import type { Metadata } from 'next';
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 
@@ -22,6 +24,20 @@ export const metadata: Metadata = {
 const ROW_CAP = 200;
 
 export default async function AdminInstitutionsPage() {
+  /*
+    ⛔ The sidebar marks this page's group `adminOnly`, and until `docs/132`
+    that was the ONLY thing keeping an editor out - which is to say nothing
+    kept them out, because hiding a link does not gate a URL.
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`.
+    [VERIFIED in a browser: an editor was served this page, byte-identical to
+    the admin control.] `admin-nav-role.ratchet.test.ts` now derives this
+    requirement from the sidebar's own `adminOnly` flag.
+  */
+  const session = await auth();
+  if (session?.user?.role !== 'admin') {
+    redirect('/admin');
+  }
+
   const windowStart = new Date(Date.now() - VOUCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   /*

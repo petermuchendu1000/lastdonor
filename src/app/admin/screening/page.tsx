@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
 import Link from 'next/link';
 import { desc, eq, sql } from 'drizzle-orm';
 
@@ -69,6 +71,20 @@ interface ExtractedShape {
 }
 
 export default async function AdminScreeningPage() {
+  /*
+    ⛔ The sidebar marks this page's group `adminOnly`, and until `docs/132`
+    that was the ONLY thing keeping an editor out - which is to say nothing
+    kept them out, because hiding a link does not gate a URL.
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`.
+    [VERIFIED in a browser: an editor was served this page, byte-identical to
+    the admin control.] `admin-nav-role.ratchet.test.ts` now derives this
+    requirement from the sidebar's own `adminOnly` flag.
+  */
+  const session = await auth();
+  if (session?.user?.role !== 'admin') {
+    redirect('/admin');
+  }
+
   /*
     Two queries, one after the other. No request may issue more than three
     CONCURRENT database queries (docs/87, after seven pool wedges in a day),

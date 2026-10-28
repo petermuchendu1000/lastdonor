@@ -58,7 +58,23 @@ interface AdminDashboardProps {
   isAdmin: boolean;
 }
 
-export function AdminDashboard({ stats }: AdminDashboardProps) {
+/**
+ * ⛔ `isAdmin` is READ here, and it was not until `docs/132`.
+ *
+ * The page computed it, passed it, and this component destructured only
+ * `{ stats }` - one occurrence of the name in the whole file, the type
+ * declaration. So an editor, whom `src/app/admin/layout.tsx:30` admits and
+ * whose only Overview page this is, was shown donor NAMES against their gift
+ * AMOUNTS and the platform's money totals. [VERIFIED in a browser against an
+ * admin control.] Same shape as `docs/119`'s `hasCampaigns`, computed and
+ * discarded as `_hasCampaigns`.
+ *
+ * ⚠️ Hiding the section here is only HALF the fix and cannot be the whole of
+ * it: this file is `'use client'`, so anything in `stats` is serialized into
+ * the RSC payload whether or not it is rendered. The page narrows the object
+ * for a non-admin; this stops the empty table from implying "no donations".
+ */
+export function AdminDashboard({ stats, isAdmin }: AdminDashboardProps) {
   return (
     <div className="space-y-8">
       {/* CDS page header - productive heading-03 + body-01 subtitle */}
@@ -242,7 +258,8 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
         )}
       </section>
 
-      {/* CDS Data Table - Recent Donations */}
+      {/* CDS Data Table - Recent Donations. Admin only (`docs/132`). */}
+      {isAdmin && (
       <section>
         <h2 className="text-sm font-semibold">Recent donations</h2>
         {stats.recentDonations.length === 0 ? (
@@ -285,6 +302,7 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

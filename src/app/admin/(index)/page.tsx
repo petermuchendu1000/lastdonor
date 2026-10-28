@@ -187,5 +187,27 @@ export default async function AdminDashboardPage() {
   const isAdmin = session?.user?.role === 'admin';
   const stats = await getDashboardStats();
 
-  return <AdminDashboard stats={stats} isAdmin={isAdmin} />;
+  /*
+    ⛔ An EDITOR is served this page - `src/app/admin/layout.tsx:30` admits
+    them and Overview is not `adminOnly`, so this is their landing screen. It
+    is also the one place that pairs a donor's NAME with the SIZE of their
+    gift, plus the platform's money totals.
+
+    ⚠️ `AdminDashboard` is `'use client'`, so narrowing has to happen HERE: a
+    section hidden in JSX is still serialized into the RSC payload and readable
+    in the browser. Hiding it there is the second half (`docs/132`).
+
+    The campaign rows stay: `raisedAmount` is already public on the campaign
+    page, and the review queue is next to the editor's own work.
+  */
+  const visible = isAdmin
+    ? stats
+    : {
+        ...stats,
+        today: { ...stats.today, donationTotals: [] },
+        month: { ...stats.month, donationTotals: [] },
+        recentDonations: [],
+      };
+
+  return <AdminDashboard stats={visible} isAdmin={isAdmin} />;
 }

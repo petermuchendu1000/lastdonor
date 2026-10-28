@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
 import { getAICostSummary, getDailyCostTrend, getCostByPromptType } from '@/lib/monitoring/ai-cost-tracker';
 import { getSimulationQuality, getPipelineHealth } from '@/lib/monitoring/pipeline-health';
 import dynamic from 'next/dynamic';
@@ -13,6 +15,20 @@ export const metadata: Metadata = {
 };
 
 export default async function MonitoringPage() {
+  /*
+    ⛔ The sidebar marks this page's group `adminOnly`, and until `docs/132`
+    that was the ONLY thing keeping an editor out - which is to say nothing
+    kept them out, because hiding a link does not gate a URL.
+    `src/app/admin/layout.tsx:30` admits `editor` as well as `admin`.
+    [VERIFIED in a browser: an editor was served this page, byte-identical to
+    the admin control.] `admin-nav-role.ratchet.test.ts` now derives this
+    requirement from the sidebar's own `adminOnly` flag.
+  */
+  const session = await auth();
+  if (session?.user?.role !== 'admin') {
+    redirect('/admin');
+  }
+
   const [costSummary, costTrend, costByPromptType, simulationQuality, pipelineHealth] =
     await Promise.all([
       getAICostSummary(),

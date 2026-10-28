@@ -67,6 +67,15 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Finance & Users',
     collapsible: true,
+    /*
+      ⛔ All three pages below gate on `role !== 'admin'` and redirect to
+      `/admin` - `donations/page.tsx:17`, `donors/page.tsx:13`,
+      `users/page.tsx:17`. Without this flag an editor was shown all three and
+      bounced off all three, which is `docs/119`'s rule ("a tile is gated by
+      whether its target will serve the viewer") going unenforced on the admin
+      side. `docs/132`.
+    */
+    adminOnly: true,
     items: [
       { href: '/admin/donations', label: 'Donations', icon: CurrencyDollarIcon },
       { href: '/admin/donors', label: 'Donors', icon: HeartIcon },

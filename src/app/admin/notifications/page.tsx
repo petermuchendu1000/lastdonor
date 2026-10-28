@@ -12,7 +12,19 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminNotificationsPage() {
-  const session = await requireRole(['admin', 'editor']);
+  /*
+    ⛔ `['admin']`, not `['admin', 'editor']`. Its nav group is `adminOnly`, so
+    an editor was never shown this link and was served it anyway by URL - the
+    two statements contradicted each other (`docs/132`).
+
+    ⚠️ Resolved in the page's favour costing an editor NOTHING: this screen
+    reads `notifications WHERE user_id = <the caller>`, i.e. the caller's OWN
+    inbox, and `/notifications` serves that same `NotificationsClient` to any
+    signed-in user ([VERIFIED] `src/app/notifications/page.tsx:17-19` gates on
+    a session alone). So an editor keeps their notifications; they just read
+    them where everyone else does.
+  */
+  const session = await requireRole(['admin']);
   const userId = session.user?.id;
   if (!userId) redirect('/login');
 

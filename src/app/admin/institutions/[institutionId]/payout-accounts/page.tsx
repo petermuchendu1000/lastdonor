@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
 import { desc, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
@@ -30,6 +31,18 @@ export default async function PayoutAccountsPage({
 }: {
   params: Promise<{ institutionId: string }>;
 }) {
+  /*
+    ⛔ Gated for the same reason as its parent (`docs/132`), and this one holds
+    MORE: an institution's payout destinations. It is not in the sidebar, so
+    `admin-nav-role.ratchet.test.ts` does not require it - which is exactly why
+    it is written here deliberately rather than left to a rule that cannot see
+    it.
+  */
+  const session = await auth();
+  if (session?.user?.role !== 'admin') {
+    redirect('/admin');
+  }
+
   const { institutionId } = await params;
 
   const [institution] = await db
