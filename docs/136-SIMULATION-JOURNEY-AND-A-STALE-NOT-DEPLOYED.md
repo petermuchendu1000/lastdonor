@@ -336,3 +336,88 @@ probe works for cron routes and not for the admin surface**, because the
 middleware is default-deny and answers before routing. For admin routes the
 build's route table is the evidence. Both controls returning exactly what the
 real route returns is the only reason that was caught.
+
+---
+
+## 10. ⛔ OPEN: the blocker still fires when the scheduler is healthy
+
+§7 fixed the *remedy text*. It did not fix the *false alarm*, and reporting
+§7 as closing the item was wrong. Raised by the owner asking "are you sure"
+about the quoted sentence — a question worth more than the answer, because
+the screen really does say it.
+
+### 10.1 ⚠️ A correction to my own arithmetic, before the finding
+
+I first reported the blocker fires "roughly a third of the time", from **44 of
+123 intervals** exceeding the threshold. That is the fraction of *intervals*
+that are long, **not** the fraction of *time* the screen shows the blocker.
+Different statistics. Time-weighted — Σ(gap − 900s) over long gaps ÷ elapsed —
+the real figure is:
+
+```
+total_elapsed_s=85492  stale_seconds=34257  pct_of_TIME_stale=40.1
+```
+
+**40.1%** — 9.5 hours of the last 23.7. I understated it by using the wrong
+measure.
+
+### 10.2 The mechanism, [VERIFIED] at code level
+
+| Fact | Receipt |
+|---|---|
+| Threshold is 15 min | `simulation-readiness.ts:63`, `TICK_MINUTES(5) × 3` |
+| Renders when `now − lastRun >= 900_000`, live clock | `:132-133`, `:92-96` (`now: Date = new Date()`) |
+| Signal is `max(timestamp) WHERE event_type LIKE 'cron.%'` | `admin/simulation/page.tsx:101-104` |
+| `update-phases` writes its row **conditionally** | `update-phases/route.ts:67` — `if (updatesGenerated > 0 \|\| errors.length > 0)`; **22 rows against 288 dispatches** |
+| `screen-documents` writes nothing when idle | `route.ts:55-58`, deliberately (§4) |
+| The unconditional writers run every **30 min** | `ingest_news` 48/day, `publish_campaigns` 48/day |
+
+⛔ **The invariant is violated.** Staleness tolerance must exceed the longest
+gap a HEALTHY system produces: 15 min < **32.4 min** observed max.
+
+**Root cause:** the signal measures *"did a job do work"* and is used to answer
+*"is the scheduler alive"*. A healthy scheduler with nothing to do writes
+nothing.
+
+### 10.3 The model predicts the measurement
+
+`ingest-news` and `publish-campaigns` both write at ~:00 and ~:30 (11:30:06
+and 11:30:14 — 8 s apart, so one write *moment* per 30 min). A 1800 s gap
+against a 900 s threshold is 50% stale; `update_phases`' 22 extra writes/day
+break up some gaps, pulling it to 40.1%. An independent cross-check that the
+number is real and not an artefact of the window.
+
+### 10.4 Three falsifiers, none of which falsified
+
+1. *"Maybe the page feeds it something else."* — `page.tsx:230-232` passes
+   exactly that max, and `now` defaults to the live clock.
+2. *"Maybe the blocker is filtered before render."* —
+   `SimulationControlPanel.tsx:202,216` maps every blocker, no filter.
+3. *"Maybe caching blunts it."* — `admin/layout.tsx:24` is `force-dynamic`,
+   so every load recomputes.
+
+### 10.5 NOT FIXED — the options, and why this is the owner's
+
+Not a clear-cut bug fix but a trade-off, so it is recorded rather than
+chosen:
+
+- **(a) Derive the tolerance from real cadence** (~30 min → ~60 min window).
+  No new rows. A genuinely dead scheduler surfaces in an hour instead of 15
+  minutes — against a present signal that is wrong 40% of the time and so
+  detects nothing reliably. *Recommended.*
+- **(b) Heartbeat row every tick.** A true 15-minute signal, at ~288 audit
+  rows/day — precisely the noise `screen-documents`' own comment argues
+  against (§4).
+- **(c) Drop blocker 3 from this screen.** Arguably redundant here:
+  `simulate-donations` is absent from `CRON_JOBS`, so blocker 2 always fires
+  regardless. Costs the only in-product scheduler health signal.
+
+### 10.6 Queue depths at the same moment, for the record
+
+| Queue | Depth | Held by |
+|---|---|---|
+| campaigns `under_review` | **9** | an admin decision; nothing auto-publishes (`docs/78`/`79`) |
+| blog topics `pending` | **30** | `BLOG_PIPELINE_ENABLED` unset — was 28 in `docs/123`, so growing |
+| blog posts, all time | **0** | the pipeline has produced nothing, ever |
+| verification documents | 0 | nobody has uploaded one |
+| news items never campaigned | 6,293 | accumulated corpus; selection criteria NOT read |
