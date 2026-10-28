@@ -125,6 +125,22 @@ async function main() {
     nameMatchKind: 'indeterminate', nameMatchScore: 0, modelUsed: 'walk-fixture', latencyMs: 1234, pageCount: 1,
   });
 
+  /*
+    Put the document's campaign INTO the review queue.
+
+    `/admin/verification` filters on
+    `verification_status NOT IN ('unverified','verified')` and counts "pending
+    review" as `IN ('documents_uploaded','submitted_for_review')`. Every
+    campaign the E2E fixture seeds is the `unverified` default, so without
+    this the queue is empty and the walk measures a screen with nothing on it
+    - and the Approve / Reject controls, which are what grant the raise-cap
+    exemption and release money, never render at all.
+  */
+  await db
+    .update(schema.campaigns)
+    .set({ verificationStatus: 'submitted_for_review' })
+    .where(eq(schema.campaigns.id, c0.id));
+
   // ── news_items: /admin/news-feed
   await db.insert(schema.newsItems).values([
     { title: 'Walk fixture news item', url: 'https://example.invalid/news/1', source: 'Fixture Wire', summary: 'A seeded item so the feed is not empty.', relevanceScore: 72, publishedAt: new Date() },

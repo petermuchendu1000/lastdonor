@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { campaigns, donations, verificationDocuments, infoRequests, auditLogs, users } from '@/db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { campaigns, verificationDocuments, infoRequests, auditLogs, users } from '@/db/schema';
+import { releasableAmountSql } from '@/db/release-amount';
+import { eq, desc } from 'drizzle-orm';
 import { requireRole } from '@/lib/auth';
 import { adminVerificationReviewSchema } from '@/lib/validators/verification';
 import {
@@ -180,14 +181,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // satisfied: a partially-failed bulk refund zeroes raised_amount while
     // leaving some donations un-refunded, and an aborted transaction here
     // would leave verification un-recorded.
+    // ⚠️ The expression lives in `src/db/release-amount.ts` so a test can
+    // EXECUTE it. Nothing did until `docs/129`: the route test mocks `@/db`
+    // and re-implements the sum in JavaScript, so it checked the shape of the
+    // statement and its own arithmetic, never Postgres. Same move and same
+    // reason as `docs/107` and `docs/126`. The SQL is byte-identical.
     if (action === 'approve_t2') {
-      updateFields.totalReleasedAmount = sql`LEAST((
-        SELECT COALESCE(SUM(${donations.amount}), 0)::int
-        FROM ${donations}
-        WHERE ${donations.campaignId} = ${campaignId}
-          AND ${donations.source} = 'real'
-          AND ${donations.refunded} = false
-      ), ${campaigns.raisedAmount})`;
+      updateFields.totalReleasedAmount = releasableAmountSql(campaignId);
     }
 
     // The release and the status change are one transaction: a campaign must
