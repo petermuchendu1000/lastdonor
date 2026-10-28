@@ -171,6 +171,27 @@ That helper returned `true` for any file containing `role !== 'admin'`. But
 wrong in general — the shape that makes a rule agree with whatever it is shown.
 It now requires that the refusal does not also name `editor`.
 
+### 3.7 Two `docs/120` assertions pinned text, not the property
+
+Putting the role into the predicates turned two assertions in
+`campaign-publication-writers.ratchet.test.ts` red:
+
+```
+expect(detail).toMatch(/const canApprove = campaign\.status === 'under_review'/);
+expect(canCancel).toMatch(/^const canCancel = !\[/);
+```
+
+Both asserted the **spelling** of a line, so `isAdmin && ` broke them while
+the properties they exist to protect — *the approval control exists and is
+keyed on the queued status*, and *`under_review` sits inside the NEGATED list*
+— were untouched. Stale tests, not regressions (CLAUDE.md: *work out which one
+drifted before changing either*), and `docs/109`'s trap in miniature: pin
+today's text and an unrelated correct change has to edit the test to land.
+
+⚠️ **Loosening an assertion is a chance to make it vacuous**, so both were
+re-proven: deleting `canApprove`, re-keying it to `'draft'`, and making
+`under_review` cancellable each still fail exactly one test.
+
 ---
 
 ## 4. Verification
@@ -222,18 +243,61 @@ account promoted to `editor` for the run and restored after. Every editor
 assertion is paired with the same measurement taken as an admin, so the
 measurement can tell *gated* from *deleted*.
 
-⚠️ **NOT YET RUN at the time of this commit.** The first production build
-overlapped the injection runs in §4.2, which mutate `CampaignDetail.tsx`, so
-that artefact is void and a clean rebuild is in flight. The results go in this
-section when they exist; do not read this doc as reporting a browser
-verification until they do.
+⚠️ **The first production build was DISCARDED before it was measured.** It
+overlapped the injection runs in §4.2, which mutate `CampaignDetail.tsx` on
+disk, so the artefact could have contained injected source. A build that
+*might* have been polluted is not evidence — Gate 5 — so the walk ran against
+a clean rebuild on a settled tree.
 
-The harness is `scratchpad/walk133.js`, and the shape of it matters more than
-the numbers: 21 checks, of which **9 are controls taken as an admin** — if a
-button is absent for an editor, the same measurement must find it PRESENT for
-an admin, or the probe cannot tell *gated* from *deleted*. The donor-PII
-assertions read `page.content()`, which includes the RSC flight payload, not
-just the rendered text.
+The harness is `scratchpad/walk133.js`: 21 checks, of which **nine are the same
+measurement taken as an admin**. That pairing is the point — if a button is
+absent for an editor, the probe must find it PRESENT for an admin, or it cannot
+tell *gated* from *deleted*. The donor-identity assertions read
+`page.content()`, which includes the RSC flight payload, not just the rendered
+text.
+
+**21/21.**
+
+| | editor | admin (control) |
+|---|---|---|
+| sidebar | `Campaigns` ✓, `New Campaign` **absent** | both present |
+| row action menu | `View Details` only | `View Details`, `Edit`, `Change Status` |
+| `/admin/campaigns/[id]` (active, 1 donation) | `Add Update` only | `Add Update`, `Pause`, `Suspend`, `Cancel`, `Edit` |
+| `/admin/campaigns/[id]` (under_review) | `Add Update` only | `Add Update`, **`Approve and publish`**, `Suspend`, `Edit` |
+| donor name / email in the payload | **absent / absent** | present / present |
+| donor cell | "Admins only" | the name and the email |
+| vouch panel | absent | present |
+| `/admin/campaigns/new` | lands `/admin/campaigns` | lands `/admin/campaigns/new` |
+| `/admin/campaigns/[id]/edit` | lands `/admin/campaigns` | lands `…/edit` |
+| `…/updates/new` | **serves it** | serves it |
+
+⚠️ One reading needs stating so it is not mistaken for a miss: the
+`under_review` campaign reports no "Admins only" label for either role,
+because the E2E fixture gives it **zero donations**, so the donations table is
+empty and that cell never renders. The label is observed on the `active`
+campaign, which has one. A single screen could not have shown both.
+
+The helper account was promoted to `editor` for the run and restored to
+`donor` afterwards; both statements are echoed in the harness output.
+
+---
+
+### 4.4 Suites
+
+- `npm run lint` — clean (one pre-existing unused-arg warning, untouched)
+- `npm run typecheck` — clean
+- `npm run test:unit` — the run taken BEFORE the two stale docs/120
+  assertions were corrected was **2 failed / 7737 passed / 16 skipped** (both
+  failures are the stale assertions described in §3.7, and both are now
+  green: `campaign-publication-writers.ratchet.test.ts` is **17/17**, proven
+  still able to fail three ways). ⚠️ The confirming FULL-suite rerun was still
+  in flight when this was written, so the post-fix total is not stated here
+  rather than guessed — expect 7739, and read it from the run, not from this
+  line.
+- `npm run test:integration` — **301 passed**, 31 files, on a throwaway Postgres
+- `src/db/pool-fanout.ratchet.test.ts` — passes with `auth()` added to two
+  pages (the detail page's queries are all sequential, so its concurrency is
+  unchanged at 1)
 
 ---
 
