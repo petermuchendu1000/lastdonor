@@ -1,7 +1,16 @@
 # 106 — AI document pre-screening
 
 **Date:** 2026-10-24
-**Status:** built and gated; **not deployed**
+**Status:** ⚠️ **AMENDED 2026-10-28 — this said "not deployed" and that is no
+longer true.** It is DEPLOYED and SCHEDULED: `screen-documents` is in
+`CRON_JOBS` at `*/5 * * * *`, and [VERIFIED live against v118]
+`GET /api/v1/cron/screen-documents` answers **401** where a fabricated job
+name answers **404**, so the route is served. What is true is that it has
+never *done* anything: `verification_documents` holds **0 rows**, so every run
+takes the idle path at `route.ts:55-58` and returns without screening
+anything. ⛔ The distinction matters for a system that reads people's identity
+documents — "not deployed" reads as "cannot run", and the truth is that it
+will screen the first document anybody uploads. See `docs/136` §3.
 **Owner decision:** auto-approve clean documents (the alternative offered was
 advisory-only), Didit name first, rasterise PDFs
 **Read with:** `docs/81` (Didit, and the rule against unexercised provider
