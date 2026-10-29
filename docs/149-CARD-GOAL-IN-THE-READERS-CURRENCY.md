@@ -609,3 +609,40 @@ So instead:
   `a a[href*="exchangerate-api.com"]` has count **0**;
 - a third test asserts `a a` has count **0** on the page, so the regression is
   checked directly rather than as a side effect of a strict-mode violation.
+
+### 8.6 ✅ Verified live, paired across the two deploys
+
+Fix deployed as **v142** (459s, first attempt, 1/1 checks passing). The same
+probe run against v141 and then v142, from both locales:
+
+| at `/campaigns` and `/` | **v141** Nairobi | **v142** Nairobi | New York (control, both) |
+|---|---|---|---|
+| cards | 8 / 6 | 8 / 6 | 8 / 6 |
+| converted figures | 8 / 6 | **8 / 6** unchanged | 0 |
+| nested `<a>` inside `<a>` | **8 / 6** | **0 / 0** | 0 |
+| provider credits on the page | 8 / 6 | **1 / 1** | **0** |
+| card link accessible name | 211 chars | **174** | 127 |
+
+Three things to read off it:
+
+- **The conversions are unchanged** (8 and 6), so the fix removed the defect
+  and not the feature.
+- **Exactly one credit per page**, where there were eight.
+- ⚠️ **Zero credits from New York**, which is the §8.3 correction verified
+  rather than argued: a reader who sees no converted figure is not shown a
+  credit for a rate that was never used. The first version of `FxAttribution`
+  would have printed one here.
+
+The card's accessible name is 174 rather than back to 127, and that is
+deliberate: what remains is `"Goal is about Ksh 649,162 at the 2026-10-29
+rate"`, which is information about that card. `docs/102` is explicit that a
+money figure a reader cannot date is worse than none, so the date stays with
+the figure.
+
+⚠️ **One thing this deploy cost, stated rather than glossed:** at 17:17Z the
+PREVIOUS deploy's sitemap was still serving 0 campaign URLs — 55 minutes into
+a 3600s window, consistent with the prediction but not yet healed — and
+deploying again restarted that clock. The heal mechanism itself is observed in
+§7.5 on `/donate` (5m13s against `revalidate = 300`), which is the same
+mechanism with a shorter window. Two hermetic deploys in one hour is the real
+cost of not having a production `DATABASE_URL` in this session.
