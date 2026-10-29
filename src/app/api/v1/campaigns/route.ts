@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, ilike, gte, inArray } from 'drizzle-orm';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 import { createCampaignSchema } from '@/lib/validators/campaign';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { withApiHandler } from '@/lib/api-handler';
@@ -29,9 +30,22 @@ export const GET = withApiHandler(async (request, { requestId: _requestId }) => 
   const sortParam = searchParams.get('sort');
 
   // Build filters
+  /*
+    `status=completed` selects a MODE, not a status value: it is what
+    `/completed-campaigns` passes through `CampaignGrid`'s `extraParams` for
+    its "Load more" requests. So the mode's predicate must be the same one
+    that page's first query uses, which is `COMPLETED_STATUSES`.
+
+    ⛔ This was a hardcoded `eq(campaigns.status, 'completed')` - a THIRD
+    definition of completed, on the continuation path of the very page whose
+    disagreement with the `/campaigns` badge was docs/146. It agreed with the
+    other two only because the set happens to hold one value: adding a status
+    to the constant would have made page 1 and "Load more" list different
+    things, which is the reported defect one level down.
+  */
   const statusParam = searchParams.get('status');
   const statusFilter = statusParam === 'completed'
-    ? eq(campaigns.status, 'completed')
+    ? inArray(campaigns.status, [...COMPLETED_STATUSES])
     : or(eq(campaigns.status, 'active'), eq(campaigns.status, 'last_donor_zone'))!;
 
   const filterParts = [statusFilter];

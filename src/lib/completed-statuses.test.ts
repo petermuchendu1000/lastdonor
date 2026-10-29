@@ -235,6 +235,13 @@ describe('rule 4: the surfaces that count or list completed read the constant', 
     'app/completed-campaigns/page.tsx',
     'app/api/v1/stats/route.ts',
     'app/(home)/page.tsx',
+    /*
+      The LISTING API's `status=completed` branch. `/completed-campaigns`
+      passes that param through `CampaignGrid`'s `extraParams`, so this is the
+      continuation of that page's own list: a hardcoded predicate here means
+      page 1 and "Load more" can list different things.
+    */
+    'app/api/v1/campaigns/route.ts',
   ];
 
   it.each(SITES)('%s USES COMPLETED_STATUSES, not merely imports it', (rel) => {

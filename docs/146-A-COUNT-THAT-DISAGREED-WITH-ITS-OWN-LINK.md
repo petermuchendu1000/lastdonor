@@ -132,6 +132,27 @@ Two of the six are worse than the reported one:
 - **Site 5 is labelled "Campaigns Funded"** on the page whose entire job is
   trust. It called a 10%-funded test campaign *funded*.
 
+### 4.0a A seventh site: the page's own "Load more"
+
+Found after the first six, by asking where `/completed-campaigns` continues its
+list. `CampaignGrid` is handed `extraParams={{ status: 'completed' }}`, and
+`GET /api/v1/campaigns` answered that with a hardcoded
+`eq(campaigns.status, 'completed')` — a **third** definition of completed, on
+the continuation path of the very page whose disagreement with the badge
+started this.
+
+It agreed with the other two only because the set happens to hold exactly one
+value. Adding a status to `COMPLETED_STATUSES` would have made **page 1 and
+"Load more" list different things** — the reported defect one level down, and
+invisible until a visitor pressed the button. `status=completed` is a MODE, not
+a status value, so the mode's predicate is now the shared constant and the
+listing API is the fifth entry in rule 4's site list. Injection 9 (restoring
+the hardcoded `eq`) fails that row.
+
+⚠️ This landed one commit after the other six and is a **latent** fix: it
+changes no query result today, so it was left to ride the next deploy rather
+than taking a six-minute release of its own.
+
 Site 6 is a different shape: it is not a count, it is a claim about where a
 filter value is served. `/campaigns?status=archived` reported that `archived`
 was handled by `/completed-campaigns`, which has never listed it. It now falls
