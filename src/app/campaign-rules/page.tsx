@@ -60,7 +60,7 @@ export default function CampaignRulesPage() {
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
             <li>A specific fundraiser purpose and beneficiary.</li>
-            <li>A clear fundraising goal in U.S. dollars.</li>
+            <li>A clear fundraising goal, in the currency the campaign collects in.</li>
             <li>The organizer relationship to the beneficiary.</li>
             <li>A plain-language explanation of how funds will be used.</li>
             <li>Supporting documents or sources when the campaign makes factual claims.</li>

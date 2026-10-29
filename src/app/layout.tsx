@@ -24,9 +24,35 @@ const siteSchemaGraph = {
         height: 180,
       },
       description:
-        'LastDonor is a US fundraising site that takes 0% of what you raise. A person checks every campaign before it goes live, and campaigns show where the money went.',
+        'LastDonor is a fundraising site that takes 0% of what you raise, built first for people raising money in Africa, Asia and South America. A person checks every campaign before it goes live, and campaigns show where the money went.',
       foundingDate: '2024-01-01',
-      areaServed: { '@type': 'Country', name: 'United States' },
+      /*
+        ⛔ `areaServed` is DELIBERATELY ABSENT, and that is not an omission to
+        tidy up by listing regions.
+
+        It used to read `{ '@type': 'Country', name: 'United States' }`, which
+        was wrong in both directions: this platform is built first for Africa,
+        Asia and South America, and [VERIFIED 2026-10-29 by live probe] the
+        card rail answers **503 PAYMENTS_UNAVAILABLE** for every USD campaign,
+        so nobody in the United States can give at all. The only money that
+        has ever moved is KES over M-Pesa.
+
+        Replacing it with a list of six regions would be six machine-readable
+        claims that we serve places no gateway reaches. Listing only Kenya,
+        the one place that works, would say we do NOT serve the others — and
+        the United States, Canada and Europe are where the donors are expected
+        to come from.
+
+        Absent is the honest encoding, and `docs/76` already settled this
+        exact question for `sameAs`: *"`sameAs: []` is a claim about nothing,
+        and absent is the honest encoding of 'none yet'."* The regional
+        emphasis belongs in `description` and in human-facing copy, where it
+        is positioning rather than an assertion of coverage.
+
+        ⚠️ Restore an `areaServed` only when a gateway can actually settle in
+        the region being claimed. `CURRENCIES` (`src/lib/money/currencies.ts`)
+        is the list of currencies money can be taken in; it holds two.
+      */
       knowsAbout: [
         ...seoKeywords('core', 'campaigns', 'trust', 'medical', 'emergency', 'disaster', 'memorial'),
       ],

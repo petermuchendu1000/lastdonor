@@ -1,6 +1,31 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
+import { CURRENCIES, SUPPORTED_CURRENCY_CODES } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
+
+/**
+ * The per-transaction donation limits, DERIVED rather than written as prose.
+ *
+ * This list used to read "The minimum donation is $5.00 and the maximum is
+ * $100,000.00 per transaction" - correct for USD, and wrong for KES, whose
+ * real bounds are 5,000 and 25,000,000 minor units. Since `docs/118` §10 an
+ * organiser chooses the campaign's currency, so a single-currency sentence on
+ * a policy page is a statement that is false for every other currency.
+ *
+ * Derived from `CURRENCIES`, which is the set money can actually be collected
+ * in (`docs/103`: KNOWN is not COLLECTABLE), so a third collectable currency
+ * appears here the day it is added. `docs/136` §7's lesson: the one string
+ * written as prose is the one that goes stale.
+ */
+const DONATION_LIMITS = SUPPORTED_CURRENCY_CODES.map((code) => {
+  const def = CURRENCIES[code];
+  return {
+    code,
+    min: formatMoney(def.minDonationMinor, code, 'exact'),
+    max: formatMoney(def.maxDonationMinor, code, 'exact'),
+  };
+});
 
 export const metadata: Metadata = {
   title: 'Refund, Cancellation, and Dispute Policy',
@@ -45,9 +70,27 @@ export default function RefundPolicyPage() {
             Donation Payments
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
-            <li>Donations are charged in U.S. dollars.</li>
-            <li>The minimum donation is $5.00 and the maximum is $100,000.00 per transaction.</li>
-            <li>Stripe securely processes payment details. LastDonor does not store full card numbers.</li>
+            <li>
+              Donations are charged in the currency the campaign collects in. A
+              campaign has one currency, and the donation form states it before
+              you pay.
+            </li>
+            <li>
+              Per-transaction limits depend on that currency:{' '}
+              {DONATION_LIMITS.map((l, i) => (
+                <span key={l.code}>
+                  {i > 0 ? '; ' : ''}
+                  {l.code} {l.min} to {l.max}
+                </span>
+              ))}
+              .
+            </li>
+            <li>
+              Payment details are handled by the payment provider for that
+              currency, and LastDonor does not store full card numbers or
+              mobile money PINs. Card payments are processed by Stripe, and
+              M-Pesa payments by PayHero.
+            </li>
             <li>LastDonor charges 0% platform fees on fundraisers, and no processing fee is deducted from a donation.</li>
             <li>Donor names and donation amounts may appear publicly unless the donor selects anonymous.</li>
           </ul>
