@@ -333,6 +333,73 @@ not a cosmetic cost. **Use `--prerender` when the connection string is
 available.** And ⛔ never let that variable reach the integration or E2E
 suites, whose every file calls `clearDatabase()` in `beforeEach` (`docs/98`).
 
+### A.9c ✅ FIRST PRODUCTION RUN, 2026-10-29T20:00:06Z
+
+The prediction was written down BEFORE the row existed, which is the only way
+reading one is a test rather than a description:
+
+| field | predicted | recorded |
+|---|---|---|
+| `severity` | `info` | **`info`** |
+| `isLow` | false | **false** |
+| `balanceKes` | ~1855.4 | **1855.4** |
+| `collectionsRemaining` | 208 | **208** |
+| `emailed` | 0 | **0** |
+| `recipients` | 0 | **0** |
+| `emailSkippedReason` | null | **null** |
+
+```
+t=2026-10-29 20:00:06 | cron.payhero_float | payhero_wallet | info
+{"isLow": false, "emailed": 0, "balanceKes": 1855.4, "recipients": 0,
+ "isExhausted": false, "walletStatus": "PENDING", "walletCurrency": "KES",
+ "emailSkippedReason": null, "collectionsRemaining": 208}
+```
+
+⚠️ **`collectionsRemaining: 208` is also an independent check on the unit.**
+1855.4 / 8.9 = 208.47, so 208. Had the balance been scaled to minor units
+first, the figure would have been 20,847 - off by exactly the factor §A.4 is
+about. The row proves the arithmetic ran in major units against a real wallet.
+
+Verified three ways, each challenging the last:
+
+1. **Detection** - a watcher polling for the row, with a scheduler-alive
+   control (other `cron.%` rows in the preceding 12 minutes) so that silence
+   would have been attributable to this job rather than ambiguous.
+2. **A direct full-row read**, which is where the table above comes from.
+3. ⛔ **The TIMING SIGNATURE**, which is the one that rules out an ad-hoc
+   call. The row sits in the SAME Worker tick as two siblings -
+   `cron.publish_campaigns` at 20:00:07 and `cron.ingest_news` at 20:00:28 -
+   and every `cron.update_phases` row over the preceding three hours lands at
+   :05 to :08 past its tick. Plus exclusion: the route requires `CRON_SECRET`,
+   which this session does not hold, and has no UI, so a 200 and a row can
+   only have come from something that holds it.
+
+So the whole chain is proven by execution: Worker dispatched → route
+authenticated → PayHero wallet read → verdict computed in major units → audit
+row written.
+
+⚠️ **AND A FOURTH METHOD WAS VOID, reported rather than dropped.** I tried to
+read the Worker's own observability log (`docs/136` §4.1's method) and got **0
+events in 20 minutes**. That is not evidence: the CONTROL - the same query over
+a three-hour window spanning the Worker deploy and ~36 `*/5` ticks - also
+returned **0**, so the QUERY is broken, not the Worker. I wrote the payload
+without re-reading `docs/136`'s exact shape. A probe that cannot see its
+subject reports the same thing as a subject that is absent (`docs/135` §5).
+
+### A.9d ✅ A SECOND MEASUREMENT OF THE DRAIN RATE, which corroborates §A.5
+
+§A.5's cadence arithmetic rests on ONE measurement, and this session produced a
+second by accident: the wallet read **2,027.6** at about 16:40Z and **1,855.4**
+at 19:58Z - 172.2 KES over roughly 3.3 hours, i.e. **~52 KES/hour**, against
+the ~55 of `docs/147` §11.3.
+
+⚠️ My first reading of those two numbers was that the rate had DOUBLED, which
+would have broken the invariant (at 115 KES/hour the threshold gives 4.3 hours
+and the cooldown is 6). Computing the interval instead of estimating it gave 52
+and the invariant holds comfortably. Recorded because the wrong conclusion was
+one arithmetic step away, and because the rate now rests on two independent
+observations rather than one.
+
 ## What is NOT verified
 
 - **Not deployed at the time of writing.** A new cron needs TWO deploys in
