@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/db';
 import { campaigns, blogPosts } from '@/db/schema';
-import { and, eq, isNotNull, or, desc, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, desc, sql } from 'drizzle-orm';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 import Link from 'next/link';
 import Image from 'next/image';
 import { HeroSection } from '@/components/homepage/HeroSection';
@@ -92,12 +93,8 @@ async function getHomepageData() {
           verificationStatus: campaigns.verificationStatus,
         })
         .from(campaigns)
-        .where(
-          or(
-            eq(campaigns.status, 'active'),
-            eq(campaigns.status, 'last_donor_zone'),
-          ),
-        )
+        // ⛔ A LISTING, so the platform's general fund is excluded (docs/147).
+        .where(listedCampaignFilter())
         .orderBy(desc(campaigns.raisedAmount))
         .limit(6),
 
@@ -135,15 +132,7 @@ async function getHomepageData() {
           count: sql<number>`COUNT(*)`,
         })
         .from(campaigns)
-        .where(
-          and(
-            or(
-              eq(campaigns.status, 'active'),
-              eq(campaigns.status, 'last_donor_zone'),
-            ),
-            isNotNull(campaigns.publishedAt),
-          ),
-        )
+        .where(and(listedCampaignFilter(), isNotNull(campaigns.publishedAt)))
         .groupBy(campaigns.category),
     ]);
 

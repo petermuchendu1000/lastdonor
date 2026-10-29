@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { seoKeywords } from '@/lib/seo/keywords';
 import { organiserJourneyOutline } from '@/lib/organiser-journey';
@@ -212,6 +213,12 @@ export default function HowItWorksPage() {
             ))}
           </dl>
         </section>
+
+        {/*
+          The page that explains the review is where "who pays for the
+          review" belongs (docs/147).
+        */}
+        <GeneralFundCta className="mt-16" />
 
         <div className="mt-16 rounded-xl bg-muted/30 p-8 text-center">
           <h2 className="font-display text-2xl font-bold text-foreground">

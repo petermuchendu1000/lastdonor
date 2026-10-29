@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, or, desc } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
@@ -82,13 +83,9 @@ export default async function CategoryPage({ params }: PageProps) {
     })
     .from(campaigns)
     .where(
-      and(
-        eq(campaigns.category, categorySlug),
-        or(
-          eq(campaigns.status, 'active'),
-          eq(campaigns.status, 'last_donor_zone'),
-        ),
-      ),
+      // ⛔ A LISTING (docs/147): the general fund is not an appeal, and it
+      // carries a category like any other row.
+      and(eq(campaigns.category, categorySlug), listedCampaignFilter()),
     )
     .orderBy(desc(campaigns.raisedAmount))
     .limit(PAGE_SIZE);

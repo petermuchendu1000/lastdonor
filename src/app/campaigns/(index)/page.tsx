@@ -9,10 +9,12 @@ import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { CampaignFilters } from '../filters';
 import { FilterNotice } from '../filter-notice';
 import { Pagination } from '@/components/campaign/Pagination';
+import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { paginationModel, parsePageParam } from '@/lib/pagination';
 import { campaignsPageHref, resolveBrowseParams } from '../browse-params';
 import { campaignSearchCondition } from '@/lib/campaign-search';
 import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
 
@@ -156,13 +158,15 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
 
   const categoryContent = categoryFilter ? getCategoryContent(categoryFilter) : null;
 
-  // Build query conditions
-  const statusFilter = or(
-    eq(campaigns.status, 'active'),
-    eq(campaigns.status, 'last_donor_zone'),
-  )!;
+  /*
+    Build query conditions.
 
-  const filterParts = [statusFilter];
+    ⛔ `listedCampaignFilter()`, not the raw status pair: this is a LISTING, so
+    the platform's own general fund is excluded. It holds a listed status
+    because that is the only way `payhero/initiate` will take a donation for
+    it, and it is not an appeal for a named person. See `docs/147`.
+  */
+  const filterParts = [listedCampaignFilter()];
 
   if (categoryFilter) {
     filterParts.push(eq(campaigns.category, categoryFilter));
@@ -267,7 +271,15 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
     */
     db
       .select({
-        active: sql<number>`count(*) FILTER (WHERE ${campaigns.status} IN ('active','last_donor_zone'))::int`,
+        /*
+          ⛔ The SAME predicate the rows query uses, for the reason `docs/146`
+          established: the predicate that COUNTS a group must be the predicate
+          that LISTS it. The tab said "Active 14" over a list of 14; with the
+          general fund holding a listed status, the raw pair would have said
+          15. Interpolating a condition into a `sql` template is the shape the
+          `completed` line beside it already uses.
+        */
+        active: sql<number>`count(*) FILTER (WHERE ${listedCampaignFilter()})::int`,
         // ⛔ The SAME set `/completed-campaigns` lists. This counted
         // `IN ('completed','archived')` and linked to a page listing only
         // `completed`, so the tab read "Completed 1" over an empty page.
@@ -503,6 +515,14 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
           links jump between pages.
         */}
         <Pagination model={pagination} hrefForPage={pageHref} />
+
+        {/*
+          AFTER the listing and its pagination, deliberately. `docs/71`
+          measured 486px of chrome before the first card on this route and
+          cut it; a general-fund band above the grid would spend that budget
+          again on something the visitor did not come for.
+        */}
+        <GeneralFundCta className="mt-12" />
 
         <section className="mt-12 border-t border-border pt-10" aria-labelledby="campaigns-faq">
           <h2 id="campaigns-faq" className="font-display text-2xl font-bold text-foreground">

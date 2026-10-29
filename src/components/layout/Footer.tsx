@@ -21,6 +21,14 @@ const LINK_GROUPS = [
       { label: 'Campaigns', href: '/campaigns' },
       { label: 'Compare Platforms', href: '/compare' },
       { label: 'Completed Campaigns', href: '/completed-campaigns' },
+      /*
+       * The general fund, in the one navigation a crawler can see (docs/143).
+       * `/donate` had exactly three UI links - two inside the navbar, which
+       * mount only when a menu opens on mobile, and one on `/transparency` -
+       * so the page that collects for the platform itself was close to
+       * invisible. See docs/147.
+       */
+      { label: 'Donate to the General Fund', href: '/donate' },
       { label: 'How It Works', href: '/how-it-works' },
       { label: 'Newsletter', href: '/newsletter' },
       { label: 'Share Your Story', href: '/share-your-story' },

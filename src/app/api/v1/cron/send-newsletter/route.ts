@@ -6,6 +6,7 @@ import {
   auditLogs,
 } from '@/db/schema';
 import { eq, isNull, desc, sql } from 'drizzle-orm';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 import { buildGenerateNewsletterPrompt } from '@/lib/ai/prompts/generate-newsletter';
 import { callAI } from '@/lib/ai/call-ai';
 import { resend } from '@/lib/resend';
@@ -70,7 +71,9 @@ export async function GET(request: NextRequest) {
     const [featuredCampaign] = await db
       .select()
       .from(campaigns)
-      .where(eq(campaigns.status, 'active'))
+      // ⛔ A LISTING, and the most consequential one: this row is featured to
+      // every subscriber. The general fund is not an appeal (docs/147).
+      .where(listedCampaignFilter())
       .orderBy(desc(campaigns.donorCount))
       .limit(1);
 

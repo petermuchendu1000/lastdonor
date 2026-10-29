@@ -10,6 +10,7 @@ import { auth } from '@/lib/auth';
 import { logError } from '@/lib/errors';
 import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 import { mintShareLink, shareUrl } from '@/lib/share-links';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import { DonatePageClient } from './client';
 
 interface PageProps {
@@ -31,6 +32,13 @@ async function getDonatableCampaign(slug: string) {
       goalAmount: campaigns.goalAmount,
       donorCount: campaigns.donorCount,
       status: campaigns.status,
+      /*
+        For the back link only, and added to a select that already runs
+        (`docs/87`, `docs/131`). `/campaigns/[slug]` requires this column, so
+        a link built from the slug alone can 404 on a campaign this route
+        serves.
+      */
+      publishedAt: campaigns.publishedAt,
       currency: campaigns.currency,
     })
     .from(campaigns)
@@ -162,12 +170,27 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
     }
   }
 
+  /*
+    The back link, resolved once and handed down. `publicCampaignPath` returns
+    null when there is no public page, and the client renders the browse
+    listing instead of a slug-shaped 404 (`docs/118`, `docs/147`).
+  */
+  const campaignPath = publicCampaignPath({
+    slug: campaign.slug,
+    status: campaign.status,
+    publishedAt: campaign.publishedAt,
+  });
+  const backTo = campaignPath
+    ? { href: campaignPath, label: 'Back to campaign' }
+    : null;
+
   return (
     <DonatePageClient
       attributedShareUrl={attributedShareUrl}
       campaignId={campaign.id}
       campaignSlug={campaign.slug}
       campaignTitle={campaign.title}
+      backTo={backTo}
       raisedAmount={campaign.raisedAmount}
       goalAmount={campaign.goalAmount}
       donorCount={campaign.donorCount}

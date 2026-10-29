@@ -2,6 +2,8 @@ import type { MetadataRoute } from 'next';
 import { db } from '@/db';
 import { campaigns, blogPosts } from '@/db/schema';
 import { eq, inArray } from 'drizzle-orm';
+import { and, notInArray } from 'drizzle-orm';
+import { PLATFORM_FUND_CAMPAIGN_IDS } from '@/db/public-campaigns';
 import { ALL_CATEGORY_SLUGS } from '@/lib/category-content';
 
 const BASE_URL = 'https://lastdonor.org';
@@ -230,10 +232,24 @@ async function campaignSitemap(): Promise<{
     })
     .from(campaigns)
     .where(
-      inArray(campaigns.status, [
-        ...LIVE_SITEMAP_STATUSES,
-        ...CLOSED_SITEMAP_STATUSES,
-      ]),
+      and(
+        inArray(campaigns.status, [
+          ...LIVE_SITEMAP_STATUSES,
+          ...CLOSED_SITEMAP_STATUSES,
+        ]),
+        /*
+          ⛔ The platform's own general fund is NOT advertised as a campaign
+          URL (`docs/147`). It holds a live status because that is the only
+          way `payhero/initiate` will collect for it, and this query filters
+          on STATUS ALONE - so without this it would submit
+          `/campaigns/<its slug>` to Google while the page itself requires
+          `published_at IS NOT NULL` (`docs/131`) and answers 404.
+
+          `/donate` is already advertised here as a static route, which is the
+          URL that fund actually has.
+        */
+        notInArray(campaigns.id, [...PLATFORM_FUND_CAMPAIGN_IDS]),
+      ),
     );
 
   // Only LIVE campaigns feed the listing and category dates: those pages

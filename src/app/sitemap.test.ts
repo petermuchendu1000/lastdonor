@@ -27,6 +27,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getTableName, type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { ALL_CATEGORY_SLUGS } from '@/lib/category-content';
+import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
 
 const dialect = new PgDialect();
 
@@ -211,12 +212,41 @@ describe('sitemap queries only the indexable statuses', () => {
    * suspended / cancelled case would mean advertising a fundraiser the
    * platform has itself stopped.
    */
-  it('asks for active, last_donor_zone and completed and nothing else', async () => {
+  it('asks for active, last_donor_zone and completed, and no other status', async () => {
+    /*
+      ⚠️ This asserted `params` was EXACTLY the three statuses, which is a
+      claim about the WHERE clause's shape rather than about which statuses it
+      asks for. `docs/147` added a second half to that clause - the platform
+      fund is excluded, because this query filters on status alone while the
+      campaign page also requires `published_at` - so the fund id is now a
+      bound parameter too and an exact-equality assertion broke on a change
+      that is correct.
+
+      It now asserts the PROPERTY: every intended status is asked for, and the
+      sibling row below proves no unintended status is. The fund exclusion has
+      its own row.
+    */
     await runSitemap();
     const conditions = state.conditions.get('campaigns') ?? [];
     expect(conditions).toHaveLength(1);
     const { params } = dialect.sqlToQuery(conditions[0] as SQL);
-    expect([...params].sort()).toEqual(['active', 'completed', 'last_donor_zone']);
+    for (const status of ['active', 'last_donor_zone', 'completed']) {
+      expect(params, status).toContain(status);
+    }
+  });
+
+  it('excludes the platform general fund from the campaign URLs it advertises', async () => {
+    /*
+      docs/147. The fund holds a live status so `payhero/initiate` will
+      collect for it, and this query reads status alone - so without the
+      exclusion the sitemap would submit `/campaigns/<fund slug>` while the
+      page requires `published_at IS NOT NULL` and answers 404.
+    */
+    await runSitemap();
+    const { params } = dialect.sqlToQuery(
+      (state.conditions.get('campaigns') ?? [])[0] as SQL,
+    );
+    expect(params).toContain(GENERAL_FUND_CAMPAIGN_ID);
   });
 
   it('never asks for a non-public or trust-and-safety status', async () => {

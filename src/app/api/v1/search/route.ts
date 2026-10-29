@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { campaigns, blogPosts } from '@/db/schema';
 import { eq, and, or, desc, ilike } from 'drizzle-orm';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 import { withApiHandler } from '@/lib/api-handler';
 import { isValidCategory } from '@/lib/api-helpers';
 import { apiError } from '@/lib/errors';
@@ -24,10 +25,9 @@ export const GET = withApiHandler(async (request, { requestId }) => {
   const escapedQuery = rawQuery.replace(/[%_\\]/g, '\\$&');
   const pattern = `%${escapedQuery}%`;
 
-  const campaignStatusFilter = or(
-    eq(campaigns.status, 'active'),
-    eq(campaigns.status, 'last_donor_zone'),
-  )!;
+  // ⛔ A LISTING: searching for "fund" must not surface the platform's own
+  // general fund among people's appeals (docs/147).
+  const campaignStatusFilter = listedCampaignFilter();
 
   const campaignTextFilter = or(
     ilike(campaigns.title, pattern),

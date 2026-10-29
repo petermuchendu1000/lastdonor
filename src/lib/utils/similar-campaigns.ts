@@ -12,7 +12,8 @@
 
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, ne, or, sql, desc } from 'drizzle-orm';
+import { eq, and, ne, sql, desc } from 'drizzle-orm';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 import type { CampaignCategory } from '@/types';
 
 export interface SimilarCampaign {
@@ -58,10 +59,15 @@ export async function findSimilarCampaigns(params: {
     ne(campaigns.id, excludeId),
     eq(campaigns.simulationFlag, false),
     eq(campaigns.verificationStatus, 'fully_verified'),
-    or(
-      eq(campaigns.status, 'active'),
-      eq(campaigns.status, 'last_donor_zone'),
-    ),
+    /*
+      ⛔ A LISTING (docs/147): these rows are suggested to a donor whose
+      campaign was cancelled, so the platform's own general fund must not be
+      among them. The `fully_verified` requirement above happens to exclude it
+      today - the fund is `unverified` - but that is a coincidence of the
+      trust rule, not a decision about what a listing contains, and the
+      coincidence disappears the day anybody verifies it.
+    */
+    listedCampaignFilter(),
   ];
 
   const results: SimilarCampaign[] = [];

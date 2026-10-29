@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
 import { eq, and, desc, asc, ilike, or, inArray } from 'drizzle-orm';
@@ -247,6 +248,8 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
           </Link>
         }
       />
+      <GeneralFundCta className="mt-12" />
+
       <section className="mt-12 border-t border-border pt-10" aria-labelledby="completed-faq">
         <h2 id="completed-faq" className="font-display text-2xl font-bold text-foreground">
           Completed Campaign FAQ

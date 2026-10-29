@@ -21,12 +21,14 @@ import { MpesaDonationForm } from './MpesaDonationForm';
 
 const CAMPAIGN_ID = '11111111-1111-1111-1111-111111111111';
 
-function renderForm() {
+const BACK_TO_CAMPAIGN = { href: '/campaigns/help-wanjiku', label: 'Back to campaign' };
+
+function renderForm(backTo: { href: string; label: string } | null = BACK_TO_CAMPAIGN) {
   return render(
     <MpesaDonationForm
       campaignId={CAMPAIGN_ID}
       campaignTitle="Help Wanjiku"
-      campaignSlug="help-wanjiku"
+      backTo={backTo}
       currency="KES"
     />,
   );

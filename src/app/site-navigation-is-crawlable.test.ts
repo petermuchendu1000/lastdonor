@@ -111,10 +111,29 @@ describe('every SiteNavigationElement is reachable without JavaScript', () => {
     expect(VISIBLE.has(path)).toBe(true);
   });
 
-  it('/donate is satisfied by the navbar main bar, not the footer', () => {
-    // Proves the union is doing real work in both directions - the rule is
-    // not "everything must be in the footer".
+  it('the navbar main bar contributes paths the footer does not', () => {
+    /*
+      Proves the union is doing real work in both directions - the rule is not
+      "everything must be in the footer".
+
+      ⚠️ This used to assert `/donate` was in the navbar and NOT in the
+      footer. `docs/147` put a "Donate to the General Fund" link in the
+      footer's Platform group deliberately, because the footer is the only
+      crawler-visible navigation and `/donate` had three UI links, two of them
+      inside menus that mount on click. So `/donate` is now in both, and
+      [VERIFIED by computing the sets] NO claimed path is navbar-only any
+      more.
+
+      The control therefore moves to the home link, which the navbar carries
+      and `LINK_GROUPS` does not. Its force is unchanged: it is a claim about
+      the EXTRACTOR - that navbar main-bar hrefs are really being read - and
+      it still fails if that extractor returns nothing.
+    */
+    expect(NAV.paths).toContain('/');
+    expect(FOOTER_PATHS).not.toContain('/');
+
+    // And the navbar CTA itself is still found, which is what makes the
+    // footer link an addition rather than a replacement.
     expect(NAV.paths).toContain('/donate');
-    expect(FOOTER_PATHS).not.toContain('/donate');
   });
 });

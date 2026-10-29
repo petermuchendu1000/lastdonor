@@ -17,6 +17,18 @@ interface DonatePageClientProps {
   campaignId: string;
   campaignSlug: string;
   campaignTitle: string;
+  /**
+   * Where the two "Back to campaign" controls point, or `null` when this
+   * campaign has no public page.
+   *
+   * ⛔ Both used to build `` `/campaigns/${campaignSlug}` `` by hand, which is
+   * what `docs/118` forbids: `/campaigns/[slug]` requires
+   * `published_at IS NOT NULL` (`docs/131`), and this route only requires a
+   * live STATUS - `docs/120` §5 records the route combination that produced a
+   * live campaign with a null stamp. The page resolves it with
+   * `publicCampaignPath` and hands down the answer.
+   */
+  backTo: { href: string; label: string } | null;
   raisedAmount: number;
   goalAmount: number;
   donorCount: number;
@@ -64,6 +76,7 @@ export function DonatePageClient({
   campaignId,
   campaignSlug,
   campaignTitle,
+  backTo,
   raisedAmount,
   goalAmount,
   donorCount,
@@ -157,11 +170,11 @@ export function DonatePageClient({
       <nav className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-6 py-3">
           <Link
-            href={`/campaigns/${campaignSlug}`}
+            href={backTo?.href ?? '/campaigns'}
             className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-primary"
           >
             <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
-            Back to campaign
+            {backTo?.label ?? 'Browse campaigns'}
           </Link>
           <span className="font-display text-base font-bold tracking-tight text-foreground">
             Last<span className="text-primary">Donor</span>
@@ -249,7 +262,7 @@ export function DonatePageClient({
               <MpesaDonationForm
                 campaignId={campaignId}
                 campaignTitle={campaignTitle}
-                campaignSlug={campaignSlug}
+                backTo={backTo}
                 currency={currency}
                 onDonationComplete={() => router.refresh()}
               />

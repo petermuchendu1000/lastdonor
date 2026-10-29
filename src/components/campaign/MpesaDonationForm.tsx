@@ -26,7 +26,23 @@ type Phase = 'form' | 'waiting' | 'succeeded' | 'failed';
 interface Props {
   campaignId: string;
   campaignTitle: string;
-  campaignSlug: string;
+  /**
+   * Where "Back to …" goes when the payment finishes, or `null` when there is
+   * nowhere to go back to.
+   *
+   * ⛔ This replaced a `campaignSlug` prop that two sites interpolated as
+   * `` `/campaigns/${campaignSlug}` ``, which is the hand-written campaign
+   * link `docs/118` forbids. It became load-bearing with `docs/147`: the
+   * platform's general fund collects through this form and has **no public
+   * campaign page**, so that template literal would have handed a donor a
+   * 404 immediately after taking their money - the worst possible moment for
+   * one.
+   *
+   * The CALLER decides, because the caller is what holds `status` and
+   * `published_at` and can ask `publicCampaignPath`. A component's job is not
+   * to decide what is publicly visible.
+   */
+  backTo: { href: string; label: string } | null;
   /** ISO 4217. The campaign decides it; this form only collects in it. */
   currency: string;
   onDonationComplete?: () => void;
@@ -52,7 +68,7 @@ function presetsFor(currency: string): number[] {
 export function MpesaDonationForm({
   campaignId,
   campaignTitle,
-  campaignSlug,
+  backTo,
   currency,
   onDonationComplete,
 }: Props) {
@@ -257,11 +273,16 @@ export function MpesaDonationForm({
         )}
 
         <div className="mt-6">
+          {/*
+            There is always a way out of this screen. With no campaign page to
+            return to (the general fund, `docs/147`), the browse listing is
+            the honest destination - never a link built from a slug.
+          */}
           <Link
-            href={`/campaigns/${campaignSlug}`}
+            href={backTo?.href ?? '/campaigns'}
             className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
           >
-            Back to campaign
+            {backTo?.label ?? 'Browse campaigns'}
           </Link>
         </div>
       </div>
@@ -286,12 +307,14 @@ export function MpesaDonationForm({
         </p>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <Link
-            href={`/campaigns/${campaignSlug}`}
-            className="btn-press inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-          >
-            Back to campaign
-          </Link>
+          {backTo && (
+            <Link
+              href={backTo.href}
+              className="btn-press inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            >
+              {backTo.label}
+            </Link>
+          )}
           <Link
             href="/campaigns"
             className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"

@@ -1,5 +1,7 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { DonationForm } from '@/components/campaign/DonationForm';
+import { MpesaDonationForm } from '@/components/campaign/MpesaDonationForm';
+import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
@@ -15,6 +17,20 @@ import Link from 'next/link';
  * page tally in docs/26 section 5.
  */
 export const revalidate = 300;
+
+/** What the donor types into the form, and what the receipt will say. */
+const GENERAL_FUND_TITLE = 'the LastDonor general fund';
+
+/**
+ * How to name each rail to a donor.
+ *
+ * Keyed by `CurrencyDefinition['gateway']`, so `tsc` names this map the day a
+ * third gateway is added rather than letting it render `undefined`.
+ */
+const RAIL_WORDS: Record<'stripe' | 'payhero', string> = {
+  stripe: 'card',
+  payhero: 'M-Pesa',
+};
 
 /**
  * Does the general fund campaign actually exist, and will the donation API
@@ -32,10 +48,20 @@ export const revalidate = 300;
  * API still refuses, the two have drifted apart and that is a bug in one of
  * them, not a state the donor can be shown.
  */
-async function generalFundIsDonatable(): Promise<boolean> {
+/**
+ * The general fund row, when it exists and can take money.
+ *
+ * ⚠️ It returns the **currency** now, not a boolean (`docs/147`). The rail is
+ * not a property of this page: `USD` is collected by Stripe and `KES` by
+ * M-Pesa, and the fund's own row decides which. A page that hardcoded one
+ * rail is how `/donate` came to tell donors *"Donations are processed in U.S.
+ * dollars by Stripe"* while the only rail this platform can actually collect
+ * on is M-Pesa.
+ */
+async function generalFund(): Promise<{ currency: string } | null> {
   try {
     const [row] = await db
-      .select({ id: campaigns.id })
+      .select({ currency: campaigns.currency })
       .from(campaigns)
       .where(
         and(
@@ -48,12 +74,12 @@ async function generalFundIsDonatable(): Promise<boolean> {
       )
       .limit(1);
 
-    return Boolean(row);
+    return row ?? null;
   } catch {
     // A database fault is not evidence that the fund is missing, but it is
     // also not evidence that a donation would work. Fail closed: the
     // explanatory state points at campaigns that definitely can take money.
-    return false;
+    return null;
   }
 }
 
@@ -79,7 +105,7 @@ export const metadata: Metadata = {
 };
 
 export default async function DonatePage() {
-  const fundAcceptsDonations = await generalFundIsDonatable();
+  const fund = await generalFund();
 
   const faqs = [
     {
@@ -150,7 +176,18 @@ export default async function DonatePage() {
           the platform work behind those fundraisers.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Donations are processed in U.S. dollars by Stripe. LastDonor does not
+          {/*
+            ⛔ DERIVED, never written. This sentence said "Donations are
+            processed in U.S. dollars by Stripe" - and the fund is collected
+            in shillings over M-Pesa, which is the only rail that works
+            (`docs/147`). A hardcoded rail is `docs/136` §7's defect in a
+            different costume: prose that becomes false the day the thing it
+            describes changes.
+          */}
+          {fund && isSupportedCurrency(fund.currency)
+            ? `We take general fund donations in ${getCurrency(fund.currency).code}, paid by ${RAIL_WORDS[getCurrency(fund.currency).gateway]}.`
+            : 'LastDonor accepts donations only.'}{' '}
+          LastDonor does not
           sell or ship physical goods. See the{' '}
           <Link href="/refund-policy" className="text-primary underline underline-offset-4">
             Refund Policy
@@ -162,9 +199,34 @@ export default async function DonatePage() {
           before giving.
         </p>
 
-        {fundAcceptsDonations ? (
+        {fund && isSupportedCurrency(fund.currency) ? (
           <div className="mt-8 rounded-xl border border-border bg-card p-6">
-            <DonationForm campaignId={GENERAL_FUND_CAMPAIGN_ID} campaignTitle="General Fund" />
+            {/*
+              The fund's currency chooses the rail, exactly as
+              `campaigns/[slug]/donate/client.tsx` does for a campaign: Stripe
+              cannot collect KES and M-Pesa cannot collect USD, and
+              `payhero/initiate` / `create-checkout` each refuse the other's
+              currency outright. Offering one form for both would show a donor
+              a payment method that cannot complete.
+
+              ⛔ `backTo` is `null` on purpose: the general fund has no public
+              campaign page, so there is nothing to go "back" to. Passing a
+              slug here would have handed a donor a 404 the instant their
+              money left their phone (`docs/118`, `docs/147`).
+            */}
+            {getCurrency(fund.currency).gateway === 'payhero' ? (
+              <MpesaDonationForm
+                campaignId={GENERAL_FUND_CAMPAIGN_ID}
+                campaignTitle={GENERAL_FUND_TITLE}
+                backTo={null}
+                currency={fund.currency}
+              />
+            ) : (
+              <DonationForm
+                campaignId={GENERAL_FUND_CAMPAIGN_ID}
+                campaignTitle={GENERAL_FUND_TITLE}
+              />
+            )}
           </div>
         ) : (
           /* No donation form is shown when there is nothing behind it. A form

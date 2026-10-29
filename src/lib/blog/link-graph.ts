@@ -7,6 +7,7 @@
 import { db } from '@/db';
 import { blogPosts, campaigns, campaignCategoryEnum } from '@/db/schema';
 import { eq, desc, and, ne } from 'drizzle-orm';
+import { listedCampaignFilter } from '@/db/public-campaigns';
 
 export interface LinkSuggestion {
   href: string;
@@ -30,7 +31,8 @@ export async function getInternalLinkSuggestions(params: {
     .from(campaigns)
     .where(
       and(
-        eq(campaigns.status, 'active'),
+        // ⛔ A LISTING: these become in-article links (docs/147).
+        listedCampaignFilter(),
         eq(campaigns.category, params.causeCategory as (typeof campaignCategoryEnum.enumValues)[number]),
       ),
     )
