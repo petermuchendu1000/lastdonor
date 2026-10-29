@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
 import { sql, eq, and, inArray } from 'drizzle-orm';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 
 export const revalidate = 300;
 
@@ -18,7 +19,16 @@ export async function GET() {
     const [completed] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(campaigns)
-      .where(inArray(campaigns.status, ['completed', 'archived']));
+      /*
+        ⛔ `COMPLETED_STATUSES`, not `['completed','archived']`. This is a
+        PUBLIC response, and with the old set it published
+        `campaignsCompleted: 1` beside `peopleSupported: 0` - one
+        completed campaign that supported nobody, in a single payload.
+        [VERIFIED live before the fix.] The one archived row is a PayHero
+        test campaign that reached a tenth of its goal and has no
+        `completed_at`. See docs/146.
+      */
+      .where(inArray(campaigns.status, [...COMPLETED_STATUSES]));
 
     const [active] = await db
       .select({ count: sql<number>`count(*)::int` })

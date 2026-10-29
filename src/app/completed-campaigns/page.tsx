@@ -2,10 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, desc, asc, ilike, or } from 'drizzle-orm';
+import { eq, and, desc, asc, ilike, or, inArray } from 'drizzle-orm';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CompletedCampaignFilters } from './filters';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 import type { CampaignCategory } from '@/types';
 
 /*
@@ -74,7 +75,14 @@ const faqs = [
   {
     question: 'What is a completed campaign?',
     answer:
-      'A completed campaign is a fundraiser that reached its goal or was archived after completion. Completed campaign pages help donors review outcomes and impact updates.',
+      /*
+        ⛔ "or was archived after completion" was removed (docs/146). This page
+        has never listed archived campaigns, so that clause described a set its
+        own query excludes - and `archived` is also what a DELETED campaign
+        holds, so the sentence promised outcomes for campaigns that completed
+        nothing. The copy now describes exactly what the list contains.
+      */
+      'A completed campaign is a fundraiser that reached its goal. Completed campaign pages help donors review outcomes and impact updates.',
   },
   {
     question: 'Can I browse completed medical or emergency fundraisers?',
@@ -103,7 +111,10 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
   const locationFilter = typeof params.location === 'string' ? params.location.trim().slice(0, 100) : '';
 
   // Build query conditions
-  const filterParts = [eq(campaigns.status, 'completed')];
+  // ⛔ The SAME set the `/campaigns` tab counts (docs/146). Keep these two
+  // reading one constant: the badge counted `completed + archived` and this
+  // listed `completed`, so it advertised 1 over an empty page.
+  const filterParts = [inArray(campaigns.status, [...COMPLETED_STATUSES])];
 
   if (categoryFilter) {
     filterParts.push(eq(campaigns.category, categoryFilter));

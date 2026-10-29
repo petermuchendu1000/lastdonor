@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { db } from '@/db';
 import { campaigns, donations } from '@/db/schema';
-import { sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Money } from '@/components/ui/Money';
 import { platformRaisedByCurrency } from '@/lib/platform-totals.server';
@@ -50,7 +51,16 @@ async function getTransparencyData() {
 
   const [campaignStats] = await db
     .select({
-      completed: sql<number>`COUNT(CASE WHEN ${campaigns.status} IN ('completed', 'archived') THEN 1 END)`,
+      /*
+        ⛔ Labelled "Campaigns Funded" at :99. Counting `archived` here
+        called the PayHero test campaign - KES 100.00 against a KES
+        1,000.00 goal, and `completed_at` NULL - a funded campaign, on
+        the page whose entire job is trust. An
+        archived campaign is a CLOSED one, and `draft -> archived` is a
+        legal transition, so the set includes campaigns that raised
+        nothing. See docs/146.
+      */
+      completed: sql<number>`COUNT(CASE WHEN ${inArray(campaigns.status, [...COMPLETED_STATUSES])} THEN 1 END)`,
       active: sql<number>`COUNT(CASE WHEN ${campaigns.status} IN ('active', 'last_donor_zone') THEN 1 END)`,
     })
     .from(campaigns);

@@ -35,6 +35,47 @@
  * Google reports. Serving a page and advertising it are separate decisions.
  */
 
+/**
+ * Which statuses mean a campaign FINISHED SUCCESSFULLY.
+ *
+ * ── ⛔ WHY `archived` IS NOT IN THIS LIST ───────────────────────────────────
+ *
+ * `/campaigns` rendered a tab reading **"Completed 1"** that linked to
+ * `/completed-campaigns`, which showed **nothing** - reported from production
+ * and [VERIFIED live: the badge carried "1", the destination served 0 campaign
+ * links and its empty state]. The badge counted
+ * `status IN ('completed','archived')` while the page it linked listed
+ * `status = 'completed'`.
+ *
+ * `archived` is NOT a synonym for completed. It is what a CLOSED campaign
+ * holds, and `ALLOWED_TRANSITIONS` permits `draft -> archived` while BOTH
+ * delete routes implement deletion AS archiving
+ * (`user-campaigns/[id]/route.ts:254`, `campaigns/[slug]/route.ts:221`). So
+ * the set includes campaigns that were deleted having completed nothing.
+ * [VERIFIED] production's only archived row is the PayHero test campaign
+ * (`docs/92`): it raised **KES 100.00 of a KES 1,000.00 goal** (10,000 of
+ * 100,000 minor units) and its `completed_at` is NULL.
+ *
+ * ⚠️ A campaign CAN legitimately go `completed -> archived`, so the right
+ * answer for such a row is not obvious. `completed_at` DOES record "was ever
+ * completed" - it has exactly two writers, both of which mean genuine
+ * completion (`payment-service.ts:268` when a donation crosses the goal, and
+ * `admin/campaigns/[campaignId]/route.ts:146` when an admin moves a campaign
+ * to `completed`) - so counting that column instead was a real option and was
+ * rejected: it would make `/completed-campaigns` LIST closed campaigns too,
+ * which is a product decision about a public page, not a fix for a count that
+ * disagreed with its own link. [VERIFIED in production: 24 campaigns, 0 with
+ * `completed_at` set, 0 with `status = 'completed'`] so it would change
+ * nothing today either way. Counting only `completed` under-claims rather
+ * than over-claiming a success on behalf of a real person.
+ *
+ * ⛔ **The invariant: the predicate that COUNTS a group must be the predicate
+ * that LISTS it.** A count rendered as a link is a promise about what is
+ * behind the link. `completed-statuses.test.ts` derives both ends from source
+ * and fails the build if they drift apart again.
+ */
+export const COMPLETED_STATUSES = ['completed'] as const;
+
 /** Statuses for which the public campaign page returns a page, not a 404. */
 export const PUBLICLY_VIEWABLE_STATUSES = [
   'active',

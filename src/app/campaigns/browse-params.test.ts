@@ -90,8 +90,20 @@ describe('resolveBrowseParams', () => {
       expect(result.unapplied).toEqual([]);
     });
 
-    it('flags status=archived the same way', () => {
-      expect(resolveBrowseParams({ status: 'archived' }).completedRequested).toBe(true);
+    /*
+      ⛔ CORRECTED 2026-10-29 (docs/146). This used to assert
+      `completedRequested === true` for `archived`, i.e. that
+      `/campaigns?status=archived` should tell the visitor that value is
+      served by `/completed-campaigns`. That page has NEVER listed archived
+      campaigns, so the old assertion pinned a statement the product could not
+      honour - the test drifted, not the code. `archived` is a real status
+      that neither page lists, which is exactly what the "not applied" notice
+      is for (`docs/45`).
+    */
+    it('reports status=archived as NOT applied, because no page lists it', () => {
+      const result = resolveBrowseParams({ status: 'archived' });
+      expect(result.completedRequested).toBe(false);
+      expect(result.unapplied).toEqual([{ key: 'status', value: 'archived' }]);
     });
 
     it('reports an unrecognized status', () => {

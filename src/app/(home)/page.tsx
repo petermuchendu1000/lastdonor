@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/db';
 import { campaigns, donations, blogPosts } from '@/db/schema';
-import { and, eq, isNotNull, or, desc, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, desc, sql } from 'drizzle-orm';
 import Link from 'next/link';
 import Image from 'next/image';
 import { HeroSection } from '@/components/homepage/HeroSection';
@@ -16,6 +16,7 @@ import { AnimateOnScroll } from '@/components/AnimateOnScroll';
 import { HomepageFAQ } from '@/components/homepage/HomepageFAQ';
 import { seoKeywords } from '@/lib/seo/keywords';
 import { selectShowcaseCategories } from '@/lib/homepage-categories';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 
 export const metadata: Metadata = {
   title: 'LastDonor - Reviewed Crowdfunding with 0% Platform Fees',
@@ -135,7 +136,11 @@ async function getHomepageData() {
     // Completed campaigns, and the people they supported, in one scan
     db
       .select({
-        completed: sql<number>`COUNT(*) FILTER (WHERE ${campaigns.status} IN ('completed','archived'))`,
+        // ⛔ One definition of completed, shared with the `/campaigns` tab,
+        // `/completed-campaigns` and `/api/v1/stats` (docs/146). The
+        // sibling `supported` below has always used `completed` alone, so
+        // this query carried two definitions at once.
+        completed: sql<number>`COUNT(*) FILTER (WHERE ${inArray(campaigns.status, [...COMPLETED_STATUSES])})`,
         supported: sql<number>`COUNT(DISTINCT ${campaigns.subjectName}) FILTER (WHERE ${campaigns.status} = 'completed')`,
       })
       .from(campaigns),

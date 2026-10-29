@@ -13,6 +13,7 @@
  */
 import { CAMPAIGN_CATEGORIES } from '@/lib/categories';
 import type { CampaignCategory } from '@/types';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 
 /** Every query param `/campaigns` understands, in canonical URL order. */
 export const BROWSE_PARAM_KEYS = [
@@ -37,8 +38,17 @@ export const DEFAULT_SORT: SortOption = 'most_funded';
 /** Statuses this page lists. `status` is accepted but is a no-op for these. */
 const ACTIVE_STATUSES = ['active', 'last_donor_zone'] as const;
 
-/** Real statuses that exist but are served by `/completed-campaigns`. */
-const COMPLETED_STATUSES = ['completed', 'archived'] as const;
+/**
+ * Real statuses that exist but are served by `/completed-campaigns`.
+ *
+ * ⛔ This is the SHARED constant, not a local copy. It used to read
+ * `['completed', 'archived']`, so `/campaigns?status=archived` told the
+ * visitor that value was served by `/completed-campaigns` - a page that has
+ * never listed archived campaigns. `archived` now falls through to the
+ * "not applied" notice instead, which is `docs/45`'s rule and is true.
+ * See `docs/146`.
+ */
+const SERVED_BY_COMPLETED_PAGE = COMPLETED_STATUSES;
 
 /** `Disaster Relief` -> `disaster-relief` */
 function slugifyLabel(label: string): string {
@@ -130,7 +140,7 @@ export function resolveBrowseParams(
   }
 
   const rawStatus = first(raw.status).trim().toLowerCase();
-  const completedRequested = (COMPLETED_STATUSES as readonly string[]).includes(rawStatus);
+  const completedRequested = (SERVED_BY_COMPLETED_PAGE as readonly string[]).includes(rawStatus);
   if (
     rawStatus &&
     !completedRequested &&

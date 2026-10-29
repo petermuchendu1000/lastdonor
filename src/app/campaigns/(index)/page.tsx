@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ShieldCheckIcon } from '@heroicons/react/24/solid';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
+import { eq, and, inArray, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { CampaignFilters } from '../filters';
@@ -12,6 +12,7 @@ import { Pagination } from '@/components/campaign/Pagination';
 import { paginationModel, parsePageParam } from '@/lib/pagination';
 import { campaignsPageHref, resolveBrowseParams } from '../browse-params';
 import { campaignSearchCondition } from '@/lib/campaign-search';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
 
@@ -267,7 +268,11 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
     db
       .select({
         active: sql<number>`count(*) FILTER (WHERE ${campaigns.status} IN ('active','last_donor_zone'))::int`,
-        completed: sql<number>`count(*) FILTER (WHERE ${campaigns.status} IN ('completed','archived'))::int`,
+        // ⛔ The SAME set `/completed-campaigns` lists. This counted
+        // `IN ('completed','archived')` and linked to a page listing only
+        // `completed`, so the tab read "Completed 1" over an empty page.
+        // See docs/146.
+        completed: sql<number>`count(*) FILTER (WHERE ${inArray(campaigns.status, [...COMPLETED_STATUSES])})::int`,
       })
       .from(campaigns),
     filtersActive
