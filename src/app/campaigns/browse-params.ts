@@ -171,6 +171,45 @@ export function campaignsHref(values: Partial<Record<BrowseParamKey, string>>): 
   return qs ? `/campaigns?${qs}` : '/campaigns';
 }
 
+/**
+ * The pagination param.
+ *
+ * ⛔ Deliberately NOT in `BROWSE_PARAM_KEYS`. That list is what `campaignsHref`
+ * carries between FILTER links, and a filter change must reset to page 1 -
+ * otherwise changing the category from page 4 lands you past the end of a
+ * one-page result. It is also what `/search` forwards, which has no pagination
+ * of its own. Pagination is positional, not a filter.
+ */
+export const PAGE_PARAM = 'page';
+
+/**
+ * Build the URL for one page of the CURRENT listing.
+ *
+ * ⚠️ It reads the RAW params, not the resolved ones, so a value the listing
+ * could not apply (`?category=nonsense`) survives the hop. `docs/45`'s rule is
+ * that an unapplied value is reported rather than dropped; if pagination
+ * dropped it, the "not applied" notice would vanish on page 2 and the visitor
+ * would silently be shown a different result set than page 1. Keys outside
+ * `BROWSE_PARAM_KEYS` are still discarded, so the URL stays canonical.
+ *
+ * ⛔ Page 1 carries NO `page` param, so the first page of every sequence is the
+ * bare URL and `/campaigns` and `/campaigns?page=1` are never two addresses for
+ * one document.
+ */
+export function campaignsPageHref(
+  raw: Record<string, string | string[] | undefined>,
+  page: number,
+): string {
+  const search = new URLSearchParams();
+  for (const key of BROWSE_PARAM_KEYS) {
+    const value = first(raw[key]).trim();
+    if (value !== '') search.set(key, value);
+  }
+  if (page > 1) search.set(PAGE_PARAM, String(page));
+  const qs = search.toString();
+  return qs ? `/campaigns?${qs}` : '/campaigns';
+}
+
 /** Human label for a param, used in the "not applied" notice. */
 export const PARAM_LABELS: Readonly<Record<UnappliedParam['key'], string>> = Object.freeze({
   category: 'category',

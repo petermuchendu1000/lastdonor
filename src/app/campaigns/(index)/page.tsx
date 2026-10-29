@@ -8,13 +8,50 @@ import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { CampaignFilters } from '../filters';
 import { FilterNotice } from '../filter-notice';
-import { resolveBrowseParams } from '../browse-params';
+import { Pagination } from '@/components/campaign/Pagination';
+import { paginationModel, parsePageParam } from '@/lib/pagination';
+import { campaignsPageHref, resolveBrowseParams } from '../browse-params';
 import { campaignSearchCondition } from '@/lib/campaign-search';
 import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
 
-export const metadata: Metadata = {
-  title: 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns',
+/*
+  ⛔ `generateMetadata`, not a static `metadata` object, and the reason is the
+  canonical.
+
+  This route used to export a static object whose `alternates.canonical` was
+  the literal `https://lastdonor.org/campaigns`. Every URL under it therefore
+  declared itself to BE page one - so once pagination exists, page two would
+  assert it is the same document as page one, which is simply false: it holds
+  different campaigns. [VERIFIED live before the change: `/campaigns?page=2`
+  answered `index, follow` with `canonical: https://lastdonor.org/campaigns`.]
+
+  ⚠️ The title differs per page too. Two indexable URLs sharing one title is a
+  duplicate-title report in Search Console, and the suffix is the cheapest
+  thing that makes each page's title true.
+
+  ⚠️ FILTERED URLs keep canonicalising to `/campaigns`, exactly as before. That
+  was the behaviour of the static object and changing it is a separate
+  decision about whether a filtered listing deserves its own indexed URL.
+*/
+const BASE_TITLE = 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns';
+
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const params = await searchParams;
+  const page = parsePageParam(params.page);
+  // `campaignsPageHref` drops the param entirely for page 1, so page one of
+  // every sequence stays the bare URL.
+  const canonical = `https://lastdonor.org${campaignsPageHref(params, page)}`;
+
+  return {
+    ...metadata,
+    title: page > 1 ? `${BASE_TITLE} (Page ${page})` : BASE_TITLE,
+    alternates: { canonical },
+  };
+}
+
+const metadata: Metadata = {
+  title: BASE_TITLE,
   description:
     'Real people who need help with medical bills, a disaster, or a family emergency. A person has checked every campaign. Every campaign is reviewed before publication. 0% platform fees.',
   keywords: seoKeywords('campaigns', 'medical', 'emergency', 'disaster', 'memorial', 'family', 'nonprofit', 'trust'),
@@ -67,6 +104,13 @@ interface PageProps {
     location?: string;
     close_to_target?: string;
     status?: string;
+    /**
+     * 1-based page number. Absent means page 1.
+     *
+     * ⛔ Deliberately not in `BROWSE_PARAM_KEYS` - see `PAGE_PARAM` in
+     * `browse-params.ts`. A filter change must reset to page 1.
+     */
+    page?: string;
   }>;
 }
 
@@ -151,6 +195,19 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
 
   const conditions = and(...filterParts)!;
 
+  /*
+    The offset is derived from the REQUESTED page alone, so it is known before
+    any query runs - which is what lets the rows query carry it.
+
+    ⚠️ This is the load-bearing consequence of not clamping: a clamped page
+    depends on the total, the total comes from a query in the same
+    `Promise.all`, and a clamp would therefore need either a second round trip
+    or a fourth concurrent query. `paginationModel` is built AFTER the rows
+    arrive, and `pagination.offset` is asserted equal to this value.
+  */
+  const requestedPage = parsePageParam(params.page);
+  const offset = (requestedPage - 1) * PAGE_SIZE;
+
   // Build order - always include a tiebreaker (id) so offset pagination is deterministic
   const primaryOrder = (() => {
     switch (sort) {
@@ -191,7 +248,14 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
       })
       .from(campaigns)
       .where(conditions)
+      /*
+        `asc(campaigns.id)` is not decoration: without a total order, two rows
+        with equal `raisedAmount` can swap between the page-1 and page-2
+        queries, so a campaign is shown twice or skipped entirely. It was
+        already here, and offset pagination is what makes it load-bearing.
+      */
       .orderBy(primaryOrder, asc(campaigns.id))
+      .offset(offset)
       .limit(PAGE_SIZE + 1),
     /*
       docs/87 amendment 5. The tab counts were three separate scans of
@@ -217,7 +281,24 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
 
   const hasMore = results.length > PAGE_SIZE;
   const displayedCampaigns = hasMore ? results.slice(0, PAGE_SIZE) : results;
-  const nextCursor = hasMore ? String(PAGE_SIZE) : null;
+  /*
+    ⛔ `offset + PAGE_SIZE`, never the bare `PAGE_SIZE` this used to be.
+
+    `CampaignGrid` passes this to the listing API as `cursor`, which
+    `parsePagination` reads as an absolute OFFSET (`api-helpers.ts:47-49`).
+    While the page could only ever be page one, a constant `12` was correct by
+    coincidence. On page 2 it would ask the API for rows 12-24 - the rows
+    already on screen - and `CampaignGrid`'s id dedupe (`:78-80`) would drop
+    every one of them, so "Load More" would spin and append nothing.
+  */
+  const nextCursor = hasMore ? String(offset + PAGE_SIZE) : null;
+
+  const pagination = paginationModel({
+    total: matchedCount,
+    pageSize: PAGE_SIZE,
+    requestedPage,
+  });
+  const pageHref = (n: number) => campaignsPageHref(params, n);
   const faqSchema = {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
@@ -376,9 +457,29 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
           searchQuery={searchQuery}
           locationFilter={locationFilter}
           closeToTarget={closeToTarget}
-          emptyMessage={filtersActive ? 'No campaigns match these filters.' : undefined}
+          /*
+            ⛔ Past the end gets its OWN message, checked before the filter
+            one. The stock empty state reads "No active campaigns at the
+            moment. Check back soon." - which on `?page=99` of a two-page
+            listing blames the platform for the visitor's own URL, the exact
+            defect `docs/45` was written about.
+          */
+          emptyMessage={
+            pagination.beyondEnd
+              ? `There is no page ${pagination.page}. This listing has ${pagination.totalPages} ${pagination.totalPages === 1 ? 'page' : 'pages'}.`
+              : filtersActive
+                ? 'No campaigns match these filters.'
+                : undefined
+          }
           emptyAction={
-            filtersActive ? (
+            pagination.beyondEnd ? (
+              <Link
+                href={pageHref(1)}
+                className="mt-4 inline-block rounded-full border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+              >
+                Go to the first page
+              </Link>
+            ) : filtersActive ? (
               <Link
                 href="/campaigns"
                 className="mt-4 inline-block rounded-full border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
@@ -388,6 +489,15 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
             ) : undefined
           }
         />
+
+        {/*
+          Crawlable pagination. The "Load More" button inside `CampaignGrid`
+          stays: the instruction was to ADD a crawlable path, and removing a
+          working control is not part of that. The two compose once the cursor
+          above is offset-aware - Load More extends the current page, these
+          links jump between pages.
+        */}
+        <Pagination model={pagination} hrefForPage={pageHref} />
 
         <section className="mt-12 border-t border-border pt-10" aria-labelledby="campaigns-faq">
           <h2 id="campaigns-faq" className="font-display text-2xl font-bold text-foreground">

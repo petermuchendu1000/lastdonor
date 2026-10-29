@@ -21,7 +21,7 @@ import { render, screen } from '@testing-library/react';
 /*  active) the filtered count.                                       */
 /* ------------------------------------------------------------------ */
 
-const state = vi.hoisted(() => ({ queue: [] as unknown[][] }));
+const state = vi.hoisted(() => ({ queue: [] as unknown[][], offsets: [] as number[] }));
 
 vi.mock('@/db', () => {
   const chain = () => {
@@ -30,6 +30,17 @@ vi.mock('@/db', () => {
       from: () => self,
       where: () => self,
       orderBy: () => self,
+      // `offset` arrived with crawlable pagination (docs/145). A mock chain is
+      // a hand-written list of the builder methods the page happens to call
+      // today, so adding one to the query breaks it with
+      // `self.offset is not a function` - and that is the ONLY thing this mock
+      // can tell you about the query. It cannot evaluate the offset, which is
+      // why the slice arithmetic is proven against a real Postgres instead
+      // (docs/124, docs/130).
+      offset: (n: number) => {
+        state.offsets.push(n);
+        return self;
+      },
       limit: () => self,
       then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
         Promise.resolve(rows).then(resolve, reject),
@@ -108,6 +119,7 @@ function pageText(): string {
 
 beforeEach(() => {
   state.queue = [];
+  state.offsets = [];
 });
 
 /* ------------------------------------------------------------------ */
@@ -233,5 +245,113 @@ describe('/campaigns header copy', () => {
     await renderPage({});
 
     expect(screen.getByText('Each one reviewed before going live')).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Crawlable pagination (docs/145)                                    */
+/*                                                                    */
+/*  The listing applied NO offset: ?page=1, ?page=2 and ?page=99 all   */
+/*  returned the same twelve rows, and the only "more" control was a   */
+/*  <button>, so nothing past the first page existed in any HTML a     */
+/*  crawler could read.                                               */
+/*                                                                    */
+/*  ⚠️ These drive the REAL page component. The db mock records the    */
+/*  offset the query asks for - which is all a mock can prove here.    */
+/*  That the offset actually partitions the rows is executed against a */
+/*  real Postgres in `pagination.integration.test.ts` (docs/124).      */
+/* ------------------------------------------------------------------ */
+describe('/campaigns pagination', () => {
+  it('asks the database for a DIFFERENT slice on page 2', async () => {
+    // The symptom, at the only place a unit test can see it. Against the
+    // original code there is no `.offset()` call at all, so `offsets` is empty.
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({ page: '2' });
+
+    expect(state.offsets).toContain(12);
+  });
+
+  it('asks for offset 0 on page 1, and on a URL with no page param', async () => {
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({ page: '1' });
+    expect(state.offsets).toContain(0);
+
+    state.offsets = [];
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({});
+    expect(state.offsets).toContain(0);
+  });
+
+  it('renders page links as real anchors, not buttons', async () => {
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({});
+
+    const nav = screen.getByRole('navigation', { name: 'Campaign listing pages' });
+    const next = screen.getByRole('link', { name: 'Next' });
+    expect(nav).toBeInTheDocument();
+    expect(next).toHaveAttribute('href', '/campaigns?page=2');
+    expect(screen.getByRole('link', { name: 'Page 2' })).toHaveAttribute(
+      'href',
+      '/campaigns?page=2',
+    );
+  });
+
+  it('page 1 is the bare URL, never ?page=1', async () => {
+    // Two addresses for one document is the duplicate this avoids.
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({ page: '2' });
+
+    expect(screen.getByRole('link', { name: 'Previous' })).toHaveAttribute('href', '/campaigns');
+    expect(screen.getByRole('link', { name: 'Page 1' })).toHaveAttribute('href', '/campaigns');
+  });
+
+  it('carries the active filters across pages', async () => {
+    mockDb({ rows: TWELVE, active: 40, matched: 30 });
+    await renderPage({ category: 'medical', sort: 'newest', page: '2' });
+
+    const next = screen.getByRole('link', { name: 'Next' });
+    expect(next.getAttribute('href')).toContain('category=medical');
+    expect(next.getAttribute('href')).toContain('sort=newest');
+    expect(next.getAttribute('href')).toContain('page=3');
+  });
+
+  it('renders NO pagination when everything fits on one page', async () => {
+    // Control: without this, a rule that merely looks for a nav could be
+    // satisfied by rendering the strip unconditionally.
+    mockDb({ rows: TWELVE.slice(0, 5), active: 5 });
+    await renderPage({});
+
+    expect(screen.queryByRole('navigation', { name: 'Campaign listing pages' })).toBeNull();
+  });
+
+  it('the current page is marked, and is not a link to itself', async () => {
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({ page: '2' });
+
+    expect(screen.queryByRole('link', { name: 'Page 2' })).toBeNull();
+    expect(screen.getByText('2', { selector: '[aria-current="page"]' })).toBeInTheDocument();
+  });
+
+  it('past the end, blames the URL and not the platform', async () => {
+    // docs/45's defect class: the stock empty state reads "No active
+    // campaigns at the moment. Check back soon." while 14 campaigns exist.
+    mockDb({ rows: [], active: 14 });
+    await renderPage({ page: '99' });
+
+    expect(pageText()).toContain('There is no page 99');
+    expect(pageText()).toContain('This listing has 2 pages');
+    expect(pageText()).not.toContain('No active campaigns at the moment');
+    expect(screen.getByRole('link', { name: 'Go to the first page' })).toHaveAttribute(
+      'href',
+      '/campaigns',
+    );
+  });
+
+  it('a junk page param is treated as page 1 rather than erroring', async () => {
+    mockDb({ rows: TWELVE, active: 14 });
+    await renderPage({ page: 'not-a-number' });
+
+    expect(state.offsets).toContain(0);
+    expect(pageText()).not.toContain('There is no page');
   });
 });

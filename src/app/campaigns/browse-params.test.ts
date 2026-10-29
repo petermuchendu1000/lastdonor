@@ -14,6 +14,8 @@ import {
   resolveBrowseParams,
   resolveCategory,
   campaignsHref,
+  campaignsPageHref,
+  PAGE_PARAM,
   CATEGORY_ALIASES,
   BROWSE_PARAM_KEYS,
   DEFAULT_SORT,
@@ -162,5 +164,75 @@ describe('campaignsHref', () => {
     expect(search.get('close_to_target')).toBe('1');
     expect(search.get('status')).toBe('active');
     expect([...search.keys()]).toHaveLength(BROWSE_PARAM_KEYS.length);
+  });
+});
+
+/**
+ * Pagination URLs (docs/145).
+ *
+ * `page` is positional, not a filter, and the distinction is load-bearing:
+ * `campaignsHref` is what FILTER links are built from and what `/search`
+ * forwards, so a `page` in `BROWSE_PARAM_KEYS` would carry page 4 across a
+ * category change and land the visitor past the end of a one-page result.
+ */
+describe('campaignsPageHref', () => {
+  it('⛔ page is NOT a browse param', () => {
+    // The whole reason there are two builders.
+    expect(BROWSE_PARAM_KEYS as readonly string[]).not.toContain(PAGE_PARAM);
+  });
+
+  it('a filter link drops any page, so changing a filter resets to page 1', () => {
+    // campaignsHref only knows BROWSE_PARAM_KEYS, so this is true by
+    // construction - asserted because the obvious "improvement" is to teach
+    // it about pages.
+    expect(campaignsHref({ category: 'medical' })).toBe('/campaigns?category=medical');
+  });
+
+  it('page 1 is the bare URL, never ?page=1', () => {
+    // Otherwise /campaigns and /campaigns?page=1 are two addresses for one
+    // document.
+    expect(campaignsPageHref({}, 1)).toBe('/campaigns');
+    expect(campaignsPageHref({ category: 'medical' }, 1)).toBe('/campaigns?category=medical');
+  });
+
+  it('page 2 and beyond carry the param', () => {
+    expect(campaignsPageHref({}, 2)).toBe('/campaigns?page=2');
+    expect(campaignsPageHref({}, 17)).toBe('/campaigns?page=17');
+  });
+
+  it('preserves every active filter across the hop', () => {
+    const href = campaignsPageHref(
+      { q: 'house fire', category: 'medical', location: 'Memphis', sort: 'newest', close_to_target: '1' },
+      3,
+    );
+    const search = new URLSearchParams(href.split('?')[1]);
+    expect(search.get('q')).toBe('house fire');
+    expect(search.get('category')).toBe('medical');
+    expect(search.get('location')).toBe('Memphis');
+    expect(search.get('sort')).toBe('newest');
+    expect(search.get('close_to_target')).toBe('1');
+    expect(search.get('page')).toBe('3');
+  });
+
+  it('⚠️ preserves a value the listing could NOT apply', () => {
+    // docs/45: an unapplied value is reported, not dropped. If pagination
+    // dropped it, the "not applied" notice would vanish on page 2 and the
+    // visitor would silently see a different result set.
+    expect(campaignsPageHref({ category: 'nonsense' }, 2)).toContain('category=nonsense');
+  });
+
+  it('discards keys outside the canonical set, so the URL cannot sprawl', () => {
+    const href = campaignsPageHref({ utm_source: 'x', category: 'medical' }, 2);
+    expect(href).not.toContain('utm_source');
+    expect(href).toContain('category=medical');
+  });
+
+  it('reads the first value of a repeated param', () => {
+    expect(campaignsPageHref({ category: ['medical', 'memorial'] }, 2)).toContain('category=medical');
+  });
+
+  it('puts page last, so the stable part of the URL is the prefix', () => {
+    const href = campaignsPageHref({ q: 'fire', category: 'medical' }, 2);
+    expect(href.endsWith('page=2')).toBe(true);
   });
 });

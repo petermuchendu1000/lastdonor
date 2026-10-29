@@ -191,10 +191,26 @@ measurement, so I diagnosed it before interpreting anything.
 
 ⚠️ **Precisely what this does and does not mean.** Those campaigns are **not
 undiscoverable**: all 14 are in the sitemap, which is how a search engine finds
-them. What they have is **no crawler-visible internal link**, so they receive
-no internal link signal, and a link-following AI fetcher never reaches them.
-Today that is 2 of 14; the unlinked fraction grows with every campaign
-published.
+them.
+
+⛔ **CORRECTION, 2026-10-29 (docs/145).** This section went on to say they have
+*"no crawler-visible internal link … a link-following AI fetcher never reaches
+them."* **That was WRONG, and I should have tested the category path before
+writing it.** [VERIFIED by fetching every category page] all 14 live
+campaigns - including both of the ones absent from `/campaigns`
+(`harold-jennings`, `tuan-nguyen`) - **are** linked from their own category
+page, and since `docs/144` every category holding a campaign is linked from
+the homepage. So the full path `/` → category grid → category page → campaign
+reaches all of them today, and the number of unreachable campaigns is **0**,
+not 2.
+
+The defect A-026 names is real and is **latent**: the ceiling is the same on
+both routes (`/campaigns` and the category page are both `PAGE_SIZE = 12`, and
+the category page's "View all" link points back at `/campaigns?category=X`,
+which has that same cap), so it bites the moment any ONE category exceeds 12
+campaigns - or when more than 8 categories hold campaigns, because
+`MAX_SHOWCASE_CARDS` is 8. Fixed for `/campaigns` by `docs/145`; the category
+page is still uncovered.
 
 **Not fixed** — the remedies (server-rendering the full set, real paginated
 `?page=` URLs with `rel=next`, or a crawlable archive) are design decisions
