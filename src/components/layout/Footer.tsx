@@ -8,6 +8,16 @@ const LINK_GROUPS = [
   {
     title: 'Platform',
     links: [
+      /*
+       * `/about` is here because the footer is the only CRAWLER-VISIBLE
+       * navigation on this site. `Navbar.tsx`'s `ABOUT_ITEMS` does list it,
+       * but inside a Radix `DropdownMenuContent` (and a `useState` mobile
+       * menu), which mount only when opened - so the link never appeared in
+       * the server-rendered HTML and `/about` had ZERO inbound internal
+       * links across all 56 sitemap URLs, while the Organization `@graph`
+       * advertised it as a `SiteNavigationElement`. See docs/143.
+       */
+      { label: 'About LastDonor', href: '/about' },
       { label: 'Campaigns', href: '/campaigns' },
       { label: 'Compare Platforms', href: '/compare' },
       { label: 'Completed Campaigns', href: '/completed-campaigns' },
