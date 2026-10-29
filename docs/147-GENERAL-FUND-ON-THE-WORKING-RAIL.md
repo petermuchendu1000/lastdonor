@@ -296,6 +296,11 @@ somebody verifies it; `docs/101` states that relationship deliberately
 
 ### 9.2 The M-Pesa rail accepts it - four probes, none of which pushes
 
+⚠️ **Superseded in strength by §11**, which settled a real KES 50 payment
+through this page. These four remain the record of what was known *before* any
+phone rang, and the two controls are still the only evidence about the rails
+each currency is refused on.
+
 Each stops at a check **before** PayHero is contacted, so no STK push rang a
 real phone:
 
@@ -349,13 +354,15 @@ since `docs/92`, and a fund-specific variant is a product call.
 
 ## 10. What is NOT verified
 
-- Rollback, if ever needed:
-  `DELETE FROM campaigns WHERE id = 'd7fcb01f-468a-49e1-848f-bee7377a35ea'`,
-  safe only while `donations` has no row referencing it (the composite FK).
-- **No real M-Pesa donation has been taken through `/donate`.** The rail is
-  proven by `docs/92`'s two live KES donations and by the form and route being
-  the same ones they used — not by a payment through this page. An STK push
-  rings a real phone and costs a real fee, so it is the owner's to run.
+- ⛔ Rollback is **no longer available**: §11 booked a real donation against
+  this campaign, so the composite FK refuses the delete. It was
+  `DELETE FROM campaigns WHERE id = 'd7fcb01f-468a-49e1-848f-bee7377a35ea'`
+  while `donations` held no row referencing it.
+- ~~**No real M-Pesa donation has been taken through `/donate`.**~~
+  **SUPERSEDED by §11** (2026-10-29): one has, for KES 50, and the whole chain
+  including the emailed receipt is verified. The original wording is kept
+  because the reason it was written — *"an STK push rings a real phone and
+  costs a real fee, so it is the owner's to run"* — is still the rule.
 - **The raise cap was not exercised** against the fund (§6.1): the 409 path is
   `checkRaiseCap`'s, covered by its own tests, not re-run here.
 - **The newsletter and blog link-graph exclusions** are verified by the query
@@ -364,3 +371,182 @@ since `docs/92`, and a fund-specific variant is a product call.
   measured today.
 - **`/donate`'s own OG card and metadata** were not re-examined for the
   currency change.
+
+---
+
+## 11. ✅ THE FIRST REAL DONATION — and it took three attempts, not one
+
+Owner-authorised live test, 2026-10-29, to the owner's own M-Pesa number.
+Supersedes §10's second bullet and strengthens §9.2.
+
+```
+2026-10-29T10:07:30Z
+external_reference  LD-c727e560-c5c6-4fdd-948f-237b6c45fcf1
+M-Pesa receipt      UJTJGBVDLI          KES 50 from 0713572703
+donation            1ae2ed71-99e9-4e03-ab7d-d890f6c611c0
+```
+
+**[VERIFIED seven ways, each able to have produced the worse answer]:**
+
+| # | method | result |
+|---|---|---|
+| 1 | `payhero_payment_requests` | `succeeded`, `provider_reference = UJTJGBVDLI`, `donation_id` set, `settled_at 10:07:30.151Z` |
+| 2 | `donations` | `amount 5000`, `currency KES`, `provider payhero`, `stripe_payment_id payhero_UJTJGBVDLI`, `source real`, `refunded false` |
+| 3 | the fund row | `raised_amount 0 -> 5000`, `donor_count 0 -> 1`, `seed_donation_count 0` |
+| 4 | `audit_logs` | exactly one `donation.recorded`, `phase: first_believers` |
+| 5 | PayHero's `transaction-status` | `status SUCCESS`, `third_party_reference UJTJGBVDLI`, `external_reference LD-c727e560-…` |
+| 6 | PayHero's `/api/v2/transactions` | `inbound_payment +50 from 0713572703` **under our `LD-` namespace**, with its paired `service_charge -8.9` |
+| 7 | the donor's inbox | the receipt arrived (owner-confirmed) — the one link no query from here can see |
+
+Method 6 also re-confirms `docs/92`'s correction of PayHero's published fee
+table: **8.9 on a 50 collection is 17.8% absorbed at the floor.**
+
+**Two things were exercised for the first time with real money:**
+
+- **`backTo = null`.** The fund has no public page, so the success state took
+  the null branch. The slug-interpolated link §4.1 removed would have handed
+  the donor a **404 the instant their money left their phone**. That defect was
+  found by reading; this is the first time the replacement ran against a real
+  payment.
+- **A receipt in KES**, through `donationReceiptEmail` with
+  `normaliseCurrencyCode(charge.currency)` — the `docs/125` family of defects
+  (a shilling gift receipted with a `$`) could not have been caught any other
+  way, because the platform had never emailed a receipt for a KES donation
+  into the general fund.
+
+### 11.1 The first two attempts FAILED, and nothing was charged
+
+| # | time | amount | PayHero | Safaricom `CheckoutRequestID` | outcome |
+|---|---|---|---|---|---|
+| 1 | 09:50:13Z | KES 100 | `59e6-…21225424` | `ws_CO_29102026125015426713572703` | **FAILED** at 09:50:22 (8.6s) |
+| 2 | 09:57:35Z | KES 50 | `d178-…1844668` | `ws_CO_29102026125740754713572703` | **FAILED** at 09:57:58 (23s) |
+| 3 | 10:07:04Z | KES 50 | `54ca-…23885271` | — | **SUCCESS** at 10:07:30 |
+
+The owner reports **no prompt reached the handset** on attempt 1.
+
+**[VERIFIED four ways that neither attempt charged anything]:** no M-Pesa
+receipt (`payment_reference: ""` and `provider_reference` absent),
+`donation_id` NULL, 0 rows in `donations`, and — the cleanest — **no
+`service_charge` row for either**. Every one of the 15 successful collections
+on this account that morning carries a paired `-8.9` fee debit; ours carry
+none, and neither PayHero reference appears anywhere in
+`/api/v2/transactions`. A `grep` for `LD-` across that window returns **0**.
+
+**What the failures proved about the platform**, which is why they were worth
+having: the route accepted the request, the cap cleared, the phone normalised
+to the same `msisdn_sent=0713572703` both successes used, PayHero accepted,
+Safaricom issued a real `ws_CO_…` checkout, **PayHero's own reference was
+persisted** (without which the payment would have been unverifiable —
+`docs/92`), the **status poll settled it with no callback**, and the
+donor-facing copy said *"Nothing has been charged"*, which was true.
+
+### 11.2 PayHero reports no reason for a failure, and the control proves it
+
+Confirms `docs/92` §491 by execution rather than by reading. A failure body is
+exactly:
+
+```
+{success, merchant, phone_number, amount, payment_reference,
+ third_party_reference, status, reference, CheckoutRequestID, external_reference}
+```
+
+There is **no reason, description or result-code field**. So
+`payhero-settlement.ts:145`'s flat `'PayHero reported the payment as FAILED.'`
+discards nothing, and its comment — *"inventing a reason we cannot observe
+would be worse"* — is accurate. **Control:** the SUCCESS body returns two
+*extra* keys (`provider_reference`, `third_party_reference`) that failures
+simply omit; so the shape does vary with the outcome, and a reason is still
+absent.
+
+⚠️ **`CheckoutRequestID` is `""` in PayHero's record of the SUCCESS too.** A
+hypothesis that its emptiness marked an undelivered prompt was killed by that
+control. Our own `checkout_request_id` column holds the real `ws_CO_…` from
+the *initiate* response, and all four attempts have one — so Safaricom
+accepted every push, including both failures.
+
+### 11.3 ⛔ THE FEE FLOAT IS AN UNMONITORED SINGLE POINT OF FAILURE
+
+Not fixed. Owner decision on the threshold and the surface.
+
+```
+2026-10-21 (docs/92) ...  2248.0 -> 2239.1   after the first KES 50 collection
+2026-10-29 07:05:48 ....   342.5
+2026-10-29 09:55:31 ....   200.7   (attempt 1 had failed at 09:50)
+2026-10-29 09:59:15 ....   182.9
+2026-10-29 10:05:01 ....  2182.9   wallet_top_up +2000, by the owner
+2026-10-29 10:07:35 ....  2165.1   after our KES 50 and its 8.9 fee
+```
+
+`wallet_status` reads **`PENDING`** throughout, including on every successful
+collection, so that value is not a health signal either.
+
+**The float is drained by the other company on the same account.** Fifteen
+successful collections between 07:05 and 09:59 — none of them ours, all with
+plain-UUID external references — burned **159.6 shillings in 2h53m** at
+8.9–22.9 each. `docs/92` already called this *"an operational ceiling on
+collecting at all"*; what is new is that it was observed at **182.9**, roughly
+twenty collections from zero.
+
+⛔ **When it reaches zero, LastDonor cannot take a donation — and because
+PayHero supplies no reason (§11.2), the symptom is indistinguishable from
+attempts 1 and 2**: a prompt that never arrives and a failure with no
+explanation anywhere in our data. Nothing in this codebase reads
+`getWalletBalance`, which exists and is marked *diagnostics only*.
+
+Recommended, **not built**: a floor check in `/api/v1/health`. It needs a
+decision on the threshold, and it reports on a wallet shared with BETWOIN LTD,
+whose fee burn sets the rate — so the number is a business call, not an
+engineering one.
+
+### 11.4 ⚠️ Why the cause of the two failures is [UNKNOWN], and the experiment is confounded
+
+**Two variables changed between attempt 2 and attempt 3**: the float was
+topped up (+2,000), and the owner was attending the handset. So the success
+attributes to neither.
+
+An earlier draft of this analysis asserted *"the float is ruled out"*. That was
+wrong to state as a conclusion, and both candidates have counter-evidence:
+
+- **Against the float:** the other company collected successfully **15 times
+  that morning at balances of 182.9–342.9** — at and below the balances at
+  which both of ours failed. A hard float gate would have failed theirs too.
+  ⚠️ Unless their collections were customers paying the paybill directly
+  rather than STK pushes, which `/api/v2/transactions` cannot distinguish —
+  both appear as `inbound_payment`. So this counter-evidence is strong only if
+  theirs were pushes, and that is **[UNKNOWN]**.
+- **Against "the phone was simply unattended":** the owner reports no prompt
+  arrived at all on attempt 1, and an unanswered prompt expires in ~60s rather
+  than failing in 8.6s.
+
+Recorded rather than resolved. There is no way to see inside Safaricom from
+here, and the honest position is that the rail now works end to end and the
+two failures have no established cause.
+
+### 11.5 ⚠️ A probe that read settlement off the page's own marketing copy
+
+The browser harness broke out of its poll loop on
+`/Thank you|succeeded|payment went through|did not go through|cancelled|failed/i`
+against `document.body.innerText` — and `/donate`'s **own FAQ** contains
+*"Monthly donations can be **cancelled** before the next billing date"*. So it
+reported `settled at 13s` **twice**, both times off static copy, and closed
+the browser mid-payment.
+
+Harmless only because the server settles independently of the browser and the
+database is authoritative — which is why every outcome in §11 is read from
+production and from PayHero, never from the page. **A detector whose pattern
+can match the page's own words reports settlement on a page that never
+settled**, and it reports it identically whether the payment succeeded,
+failed, or is still pending. Same family as `docs/146` §5.2 and `docs/135` §5:
+the paired control is what exposes it, and here the control was the database.
+
+### 11.6 Credentials: production is on this PayHero account, proven not assumed
+
+The owner supplied the PayHero credentials mid-session, which answered *"are
+you sure you're using PayHero?"* by execution: querying
+`/api/v2/transaction-status` with **those** credentials returns
+`external_reference: "LD-4197eb49-464c-4ae2-adc5-752e0ba17328"` and
+`merchant: "muchs"` — our own production reference, minted by the live app
+minutes earlier. So the supplied credentials and the ones in the Fly image
+resolve the same account (**12038**), on the same channel (**12226**, the
+National Bank paybill `547700` / `7719580265`, `is_active: true`, the only
+channel on the account).
