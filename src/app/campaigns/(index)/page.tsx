@@ -14,7 +14,7 @@ import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
 
 export const metadata: Metadata = {
-  title: 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns | LastDonor',
+  title: 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns',
   description:
     'Real people who need help with medical bills, a disaster, or a family emergency. A person has checked every campaign. Every campaign is reviewed before publication. 0% platform fees.',
   keywords: seoKeywords('campaigns', 'medical', 'emergency', 'disaster', 'memorial', 'family', 'nonprofit', 'trust'),

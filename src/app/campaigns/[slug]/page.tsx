@@ -208,7 +208,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   // below decides the status code; metadata only has to stay renderable.
   if (lookup.status === 'unavailable') {
     return {
-      title: 'Campaign temporarily unavailable | LastDonor.org',
+      title: 'Campaign temporarily unavailable',
       robots: { index: false, follow: false },
     };
   }
@@ -238,7 +238,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   });
 
   return {
-    title: `${campaign.title} | LastDonor.org`,
+    title: campaign.title,
     description,
     keywords: [
       campaign.title,

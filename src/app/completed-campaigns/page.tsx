@@ -29,7 +29,7 @@ import type { CampaignCategory } from '@/types';
 */
 
 export const metadata: Metadata = {
-  title: 'Completed Campaigns | LastDonor.org',
+  title: 'Completed Campaigns',
   description:
     'Campaigns that reached their goal. See what the money paid for.',
   keywords: seoKeywords('campaigns', 'trust', 'medical', 'emergency', 'memorial', 'family'),

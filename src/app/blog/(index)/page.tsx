@@ -26,7 +26,7 @@ import { seoKeywords } from '@/lib/seo/keywords';
 */
 
 export const metadata: Metadata = {
-  title: 'Campaign Stories & Impact Updates | LastDonor',
+  title: 'Campaign Stories & Impact Updates',
   description:
     'Real stories from reviewed LastDonor campaigns. See who received help, how funds were used, and what happened next. Impact reports from medical, emergency, and family fundraising campaigns.',
   keywords: seoKeywords('trust', 'campaigns', 'medical', 'emergency', 'memorial', 'family'),

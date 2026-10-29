@@ -57,7 +57,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 
   return {
-    title: `Donate to ${campaign.title} | LastDonor.org`,
+    title: `Donate to ${campaign.title}`,
     /*
       `formatMoney`, not the USD-hardcoded helper, and not `<Money>`: this is
       a META DESCRIPTION, so it must be a string. A KES campaign was

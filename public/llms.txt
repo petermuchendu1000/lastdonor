@@ -10,9 +10,8 @@ LastDonor is a transparent fundraising platform where individuals and families i
 
 - Platform type: Reviewed crowdfunding / online fundraising
 - Platform fees: 0% (zero platform fees)
-- Payment processing: Standard Stripe fees only (~2.9% + 30 cents)
 - Review: All campaigns are reviewed before publishing
-- Transparency: Donors receive impact updates with receipts and photos
+- Transparency: an organiser can publish an impact update showing how the money was used
 - Founded: 2024
 - Jurisdiction: United States
 - Domain: https://lastdonor.org

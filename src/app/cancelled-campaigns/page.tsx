@@ -11,7 +11,7 @@ import type { CampaignCategory } from '@/types';
 export const revalidate = 300; // 5 minutes
 
 export const metadata: Metadata = {
-  title: 'Removed Campaigns | LastDonor.org',
+  title: 'Removed Campaigns',
   description:
     'Transparency report: campaigns that were reviewed and removed from the platform, with reasons. We take donor trust seriously.',
   alternates: { canonical: 'https://lastdonor.org/cancelled-campaigns' },

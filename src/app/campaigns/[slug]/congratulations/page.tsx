@@ -8,7 +8,7 @@ import { hasPublicPage } from '@/lib/campaign-visibility';
 import { CongratulationsClient } from './client';
 
 export const metadata: Metadata = {
-  title: 'Your Campaign Is Live! | LastDonor.org',
+  title: 'Your Campaign Is Live!',
   robots: { index: false },
 };
 

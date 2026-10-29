@@ -25,7 +25,7 @@ import { AcceptInviteClient } from '@/components/collaborators/AcceptInviteClien
  * render; shipping the mail first would have been that defect on purpose.
  */
 export const metadata: Metadata = {
-  title: 'Accept an invitation | LastDonor',
+  title: 'Accept an invitation',
   // An invitation link is private; keep it out of the index.
   robots: { index: false, follow: false },
 };

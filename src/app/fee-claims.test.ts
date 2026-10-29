@@ -195,6 +195,36 @@ describe('no user-facing surface quotes a processing rate', () => {
     expect(offenders).toEqual([]);
   });
 
+  /**
+   * The same rules over the SERVED TEXT SURFACES in `public/`.
+   *
+   * This scope is the fix, not an extra: the rules above say "absent from
+   * `src/`", and `public/llms.txt` - the one file written specifically to hand
+   * facts to AI assistants - sat one directory outside the sweep carrying
+   * "Payment processing: Standard Stripe fees only (~2.9% + 30 cents)".
+   * Both RATE_PATTERNS matched it while all 14 tests here were green
+   * (docs/142). Same shape as `EMAIL_SOURCE_FILES` in docs/123 §4: the list
+   * was the defect.
+   */
+  const PUBLIC_DIR = join(SRC, '..', 'public');
+  const PUBLIC_TEXT = readdirSync(PUBLIC_DIR)
+    .filter((e) => /\.(txt|md)$/.test(e))
+    .map((e) => join(PUBLIC_DIR, e));
+
+  it('finds public text surfaces to scan at all', () => {
+    // Anti-vacuity: without this, deleting llms.txt would satisfy every rule
+    // below by leaving nothing to test.
+    expect(PUBLIC_TEXT.length).toBeGreaterThan(0);
+    expect(PUBLIC_TEXT.some((f) => f.endsWith('llms.txt'))).toBe(true);
+  });
+
+  it.each(RATE_PATTERNS)('%s is absent from public/ text surfaces', (_label, pattern) => {
+    const offenders = PUBLIC_TEXT.filter((f) => pattern.test(readFileSync(f, 'utf8'))).map((f) =>
+      f.slice(PUBLIC_DIR.length + 1),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it('and what replaced it is still true: the platform takes 0% and deducts nothing', () => {
     // A positive assertion, so the rules above cannot be satisfied by
     // deleting the fee disclosure altogether.
