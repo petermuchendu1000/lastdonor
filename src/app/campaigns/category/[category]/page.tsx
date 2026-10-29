@@ -7,6 +7,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { listedCampaignFilter } from '@/db/public-campaigns';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
+import { FxAttribution } from '@/components/money/FxAttribution';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { getCategoryContent, ALL_CATEGORY_SLUGS } from '@/lib/category-content';
 import { categorySeoKeywords } from '@/lib/seo/keywords';
@@ -167,6 +168,7 @@ export default async function CategoryPage({ params }: PageProps) {
         </h2>
 
         {results.length > 0 ? (
+        <>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {results.map((campaign) => (
             <CampaignCard
@@ -185,6 +187,16 @@ export default async function CategoryPage({ params }: PageProps) {
             />
           ))}
         </div>
+        {/*
+          The rate provider's credit, once for this grid, outside every
+          anchor. See the note in `CampaignCard` for why a card cannot carry
+          its own.
+        */}
+        <FxAttribution
+          snapshot={fxSnapshot}
+          fromCurrencies={results.map((c) => c.currency)}
+        />
+        </>
       ) : (
         <div className="rounded-lg border border-border bg-card p-12 text-center">
           <p className="text-lg text-muted-foreground">

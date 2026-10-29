@@ -37,6 +37,14 @@ const GOAL_USD = '$10,000';
   phrase below is rendered by nothing else on the page.
 */
 const APPROX_MARKER = /at the \d{4}-\d{2}-\d{2} rate/;
+/*
+  The campaign's OWN goal figure.
+
+  Scoped rather than page-wide because the similar-campaigns cards at the
+  bottom of this page convert their goals too, so a page-wide locator for the
+  approximate marker resolves to several elements.
+*/
+const GOAL_FIGURE = '[data-fx-figure="campaign-goal"]';
 const EXPECT_UGX = 'UGX 37,000,000';
 const EXPECT_KES = 'Ksh 1,298,479';
 const EXPECT_NGN = 'NGN 16,000,000';
@@ -56,17 +64,47 @@ test.describe('timezone decides, and beats the language tag', () => {
 
     // The detection result. The language says America; the timezone says
     // Kampala; the timezone wins.
-    await expect(page.getByText(EXPECT_UGX, { exact: false })).toBeVisible();
+    await expect(page.locator(GOAL_FIGURE)).toContainText(EXPECT_UGX);
     // Marked approximate and dated, which is the component's promise.
-    await expect(page.getByText(APPROX_MARKER)).toBeVisible();
+    await expect(page.locator(GOAL_FIGURE).getByText(APPROX_MARKER)).toBeVisible();
   });
 
   test('the figure carries the required provider attribution', async ({ page }) => {
     await page.goto(CAMPAIGN);
-    await expect(page.getByText(EXPECT_UGX, { exact: false })).toBeVisible();
+    await expect(page.locator(GOAL_FIGURE)).toContainText(EXPECT_UGX);
+    /*
+      ONE credit on the page, and it is not inside a card's link.
+
+      This page also lists similar campaigns, whose cards convert their own
+      goals - and `CampaignCard` wraps its whole body in a single `<Link>`, so
+      a per-card credit was an `<a>` inside an `<a>`. Measured live on v141
+      from Nairobi: 8 nested anchors on `/campaigns`, 0 from New York as the
+      control, and the card link's accessible name grew 127 -> 211 characters
+      ending with the provider's name. The cards now pass `hideAttribution`
+      and the credit is rendered once per surface.
+
+      So `toHaveCount(1)` is the assertion, not `.first()`: the count is what
+      catches a card reintroducing its own, and `docs/99` §8 records
+      `.first()` as how these tests came to pass for the wrong reason.
+    */
     const link = page.getByRole('link', { name: /ExchangeRate-API/i });
+    await expect(link).toHaveCount(1);
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', 'https://www.exchangerate-api.com');
+    // And it must not sit inside another anchor.
+    await expect(page.locator('a a[href*="exchangerate-api.com"]')).toHaveCount(0);
+  });
+
+  test('⛔ no card renders an anchor inside its own link', async ({ page }) => {
+    /*
+      The regression this file caught, asserted directly rather than as a
+      side effect of a strict-mode violation. `a a` is invalid HTML; here it
+      was created by React AFTER mount, so the parser never normalised it and
+      the DOM really was nested.
+    */
+    await page.goto(CAMPAIGN);
+    await expect(page.locator(GOAL_FIGURE)).toContainText(EXPECT_UGX);
+    await expect(page.locator('a a')).toHaveCount(0);
   });
 });
 

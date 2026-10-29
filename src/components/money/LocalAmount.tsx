@@ -28,9 +28,8 @@
  * Display only. See the boundary note in `src/lib/money/fx-convert.ts`.
  */
 
-import { useEffect, useState } from 'react';
 import { ApproxMoney } from './ApproxMoney';
-import { detectLocale, type DetectedLocale } from '@/lib/geo/detect-country';
+import { useDetectedLocale } from './use-detected-locale';
 import type { FxSnapshot } from '@/lib/money/fx-providers';
 
 type LocalAmountProps = {
@@ -48,6 +47,18 @@ type LocalAmountProps = {
   className?: string;
   /** Printed before the figure, and omitted whenever the figure is. */
   label?: string;
+  /**
+   * Suppress the provider credit on THIS figure.
+   *
+   * ⛔ Not a styling choice, and not a way to tidy the page: the credit is a
+   * LICENCE TERM (`FX_ATTRIBUTION`, `fx-providers.ts` §TERMS). Set it only
+   * where the figure sits inside an `<a>` - `ApproxMoney` renders the credit
+   * as a link, and a link inside a link is invalid HTML whose accessible name
+   * swallows the credit - AND the page renders `<FxAttribution>` once
+   * somewhere outside every anchor. `card-local-currency.test.ts` checks that
+   * pairing, because unpaired this is a silent licence breach.
+   */
+  hideAttribution?: boolean;
 };
 
 export function LocalAmount({
@@ -57,25 +68,15 @@ export function LocalAmount({
   snapshot,
   className,
   label,
+  hideAttribution,
 }: LocalAmountProps) {
-  const [detected, setDetected] = useState<DetectedLocale | null>(null);
-
-  useEffect(() => {
-    let timeZone: string | null = null;
-    try {
-      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
-    } catch {
-      // A browser that cannot report its zone is not an error worth showing.
-      timeZone = null;
-    }
-    const languageTags = Array.isArray(navigator.languages)
-      ? [...navigator.languages]
-      : navigator.language
-        ? [navigator.language]
-        : [];
-
-    setDetected(detectLocale({ timeZone, languageTags }));
-  }, []);
+  /*
+    Shared with `FxAttribution`, which has to render exactly when a figure
+    here does. It used to be an effect inline in this component; copying it
+    into the second consumer is the `docs/99` §8 defect (two components, one
+    global, two copies).
+  */
+  const detected = useDetectedLocale();
 
   /*
     Converting a currency into itself tells the reader nothing, so a visitor
@@ -99,6 +100,7 @@ export function LocalAmount({
       snapshot={snapshot}
       className={className}
       label={label}
+      hideAttribution={hideAttribution}
     />
   );
 }

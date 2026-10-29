@@ -61,6 +61,8 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
     matters. They are listed here because `importsFx` matches the module path
     as raw text, so even `import type { FxSnapshot }` trips it.
   */
+  'src/components/money/FxAttribution.tsx':
+    'the page-level provider credit; renders a link and no figure at all',
   'src/components/campaign/CampaignCard.tsx':
     'takes the snapshot as a prop and hands it to LocalAmount for the goal',
   'src/components/campaign/CampaignGrid.tsx':

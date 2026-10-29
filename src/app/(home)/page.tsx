@@ -13,6 +13,7 @@ import { HowItWorks } from '@/components/homepage/HowItWorks';
 import { CategoryShowcase } from '@/components/homepage/CategoryShowcase';
 import { WhereYourMoneyGoes } from '@/components/homepage/WhereYourMoneyGoes';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
+import { FxAttribution } from '@/components/money/FxAttribution';
 
 import { AnimateOnScroll } from '@/components/AnimateOnScroll';
 import { HomepageFAQ } from '@/components/homepage/HomepageFAQ';
@@ -284,6 +285,16 @@ export default async function Home() {
                 </div>
               ))}
             </div>
+            {/*
+              The rate provider's credit, once for this grid. Every card
+              suppresses its own, because a card body is one `<Link>` and the
+              credit is an `<a>` - see the note in `CampaignCard`. It is a
+              licence term, so it has to appear outside every anchor.
+            */}
+            <FxAttribution
+              snapshot={data.fxSnapshot}
+              fromCurrencies={data.activeCampaigns.map((c) => c.currency)}
+            />
             <AnimateOnScroll className="mt-8">
               <Link
                 href="/campaigns"

@@ -635,7 +635,16 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                 leaving "Goal is" followed by empty space on every USD
                 campaign. See the note in `ApproxMoney`.
               */}
-              <p className="mt-2">
+              {/*
+                `data-fx-figure` marks THIS figure - the campaign's own goal -
+                so a test can assert on it without matching the similar
+                campaigns' cards further down the page, which convert too.
+                Added 2026-10-29: without it `e2e/local-currency-e2e.spec.ts`
+                hit a strict-mode violation the moment cards began converting,
+                and the tempting repair was `.first()`, which `docs/99` records
+                as the way those tests came to pass for the wrong reason.
+              */}
+              <p className="mt-2" data-fx-figure="campaign-goal">
                 <LocalAmount
                   label="Goal is"
                   minor={campaign.goalAmount}

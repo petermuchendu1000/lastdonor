@@ -4,6 +4,7 @@ import { useState, useCallback, type ReactNode } from 'react';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 import type { CampaignCategory } from '@/types';
 import type { FxSnapshot } from '@/lib/money/fx-providers';
+import { FxAttribution } from '@/components/money/FxAttribution';
 
 interface CampaignData {
   id: string;
@@ -160,6 +161,24 @@ export function CampaignGrid({
           </button>
         </div>
       )}
+
+      {/*
+        The provider credit, ONCE for the whole grid.
+
+        Every card suppresses its own (`CampaignCard`: the card body is one
+        `<Link>`, and the credit is an `<a>`, so per-card credits were anchors
+        inside anchors - measured live on v141, 8 of them on `/campaigns`).
+        The credit is a licence term, so it has to land somewhere outside every
+        anchor, and here is the one place that covers both this component's
+        surfaces and the cards it appends in the browser after Load more.
+
+        It renders nothing without a snapshot, so a page whose figures all
+        refused to convert does not claim a rate was used.
+      */}
+      <FxAttribution
+        snapshot={fxSnapshot ?? null}
+        fromCurrencies={campaigns.map((c) => c.currency)}
+      />
     </>
   );
 }

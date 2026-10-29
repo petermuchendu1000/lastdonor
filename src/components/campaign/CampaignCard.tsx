@@ -218,6 +218,22 @@ export function CampaignCard({
               snapshot={fxSnapshot ?? null}
               label="Goal is"
               className="mt-1 block font-sans text-xs text-muted-foreground"
+              /*
+                ⛔ LOAD-BEARING, and not a styling decision. Everything from
+                line 89 down sits inside ONE `<Link>`, and `ApproxMoney`
+                renders the provider credit as an `<a>` - so leaving it on
+                here puts an anchor inside an anchor. Measured live on v141
+                from `Africa/Nairobi`, with New York as the control: 8 nested
+                `<a>` on `/campaigns` against 0, and the card link's
+                accessible name grew 127 -> 211 characters, ending with the
+                provider credit, so a screen reader read it out on every card.
+
+                The credit is a LICENCE TERM, so it is not dropped: the
+                surfaces that pass `fxSnapshot` render `<FxAttribution>` once,
+                outside every anchor, and `card-local-currency.test.ts` checks
+                that pairing in both directions.
+              */
+              hideAttribution
             />
 
             {/*
