@@ -44,6 +44,7 @@ import {
   verificationConsequenceEmail,
   campaignRefusedEmail,
   collaboratorInviteEmail,
+  payHeroFloatLowAdminEmail,
   verificationDocumentsAdminEmail,
   verificationApprovedCreatorEmail,
   verificationRejectedCreatorEmail,
@@ -181,8 +182,21 @@ export async function createAndEmail(p: {
   }
 }
 
-/** Send an email to an address without creating an in-app notification. */
-async function sendEmailOnly(p: { to: string; subject: string; html: string }) {
+/**
+ * Send an email to an address without creating an in-app notification.
+ *
+ * ⚠️ Returns whether Resend ACCEPTED it, added 2026-10-29. Every existing
+ * caller ignores the value and is unaffected; it exists because
+ * `notifyAdminsPayHeroFloatLow` records a count on an audit row, and "emailed:
+ * 2" when both sends failed would be a false statement in the one place
+ * somebody would later go to find out whether they were warned.
+ *
+ * ⛔ It applies NO suppression, which is correct for transactional mail and is
+ * the hazard `docs/140` PART A names: the thing to get right is the COPY, not
+ * the mechanism. An operational alert to an administrator about the platform's
+ * own wallet is transactional by any reading.
+ */
+async function sendEmailOnly(p: { to: string; subject: string; html: string }): Promise<boolean> {
   try {
     const { error: sendError } = await retryWithBackoff(
       () => resend.emails.send({ from: FROM_ADDRESS, to: p.to, subject: p.subject, html: p.html }),
@@ -191,10 +205,53 @@ async function sendEmailOnly(p: { to: string; subject: string; html: string }) {
     );
     if (sendError) {
       console.error(`[notifications] Resend API error for ${p.to}:`, sendError);
+      return false;
     }
+    return true;
   } catch (err) {
     console.error(`[notifications] Failed to send email to ${p.to}:`, err);
+    return false;
   }
+}
+
+/**
+ * Warn the administrators that PayHero's fee float is running out.
+ *
+ * ⛔ EMAIL ONLY, no in-app notification, and that is a decision rather than an
+ * omission: every value in `NotificationType` is campaign, donor or
+ * verification shaped, so an operational alert has no honest type, and minting
+ * a new pgEnum value means a migration against a live money database for a
+ * cron's convenience. `docs/139` reached for `campaign_milestone` in a
+ * comparable spot and had to explain itself; this one has nothing to reach for.
+ *
+ * ⚠️ Deliberately NOT suppressible. It is addressed to administrators about
+ * the platform's own wallet, not to a donor or an organiser, and the condition
+ * it reports stops M-Pesa donations entirely.
+ *
+ * Returns both numbers so the caller's audit row can say how many people were
+ * addressed AND how many sends Resend accepted - which differ when the key is
+ * missing or the API is down, exactly when somebody will later ask why they
+ * were not told.
+ */
+export async function notifyAdminsPayHeroFloatLow(p: {
+  balanceKes: number;
+  collectionsRemaining: number;
+  isExhausted: boolean;
+}): Promise<{ recipients: number; emailed: number }> {
+  const admins = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.role, 'admin'));
+
+  const content = payHeroFloatLowAdminEmail(p);
+
+  let emailed = 0;
+  for (const admin of admins) {
+    const ok = await sendEmailOnly({ to: admin.email, ...content });
+    if (ok) emailed += 1;
+  }
+
+  return { recipients: admins.length, emailed };
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────

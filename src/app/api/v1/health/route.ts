@@ -4,19 +4,16 @@ import { sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { pingRedis } from '@/lib/locks';
 import { getWalletBalance, isPayHeroConfigured } from '@/lib/payhero';
+import { assessFloat } from '@/lib/payhero-float';
 
-/**
- * What PayHero actually charges this account per collection, in KES.
- *
- * Measured, not read off the published fee table: `GET /api/transaction_fees`
- * advertises KES 6 for the 50-499 band, and the real charge on a KES 50
- * collection was KES 8.9 - the same as on two earlier KES 200 collections, so
- * it is flat rather than tiered. docs/92.
- */
-const PAYHERO_FEE_PER_COLLECTION = 8.9;
-
-/** Report a low float while there is still time to top it up. */
-const LOW_FLOAT_COLLECTIONS = 25;
+/*
+  The fee, the threshold and the verdict all moved to
+  `src/lib/payhero-float.ts` so that `cron/payhero-float` evaluates the SAME
+  question - this route could detect a low float and could not tell anybody,
+  and a second copy of the threshold in the cron would have been a threshold
+  that drifts (`docs/146`, `docs/138`). The owner raised the line from 25
+  collections (KES 222.50) to KES 500 on 2026-10-29.
+*/
 
 export const dynamic = 'force-dynamic';
 
@@ -109,10 +106,10 @@ export async function GET() {
   } else {
     try {
       const wallet = await getWalletBalance();
-      const collectionsRemaining = Math.floor(wallet.availableBalance / PAYHERO_FEE_PER_COLLECTION);
+      const { collectionsRemaining, isLow } = assessFloat(wallet.availableBalance);
 
       checks.payhero =
-        collectionsRemaining >= LOW_FLOAT_COLLECTIONS
+        !isLow
           ? { status: 'ok', latencyMs: Date.now() - payheroStart }
           : {
               status: 'error',
@@ -123,7 +120,7 @@ export async function GET() {
                 'before M-Pesa donations start failing). Top up the service wallet.',
             };
 
-      if (collectionsRemaining < LOW_FLOAT_COLLECTIONS) {
+      if (isLow) {
         console.error(
           `[health] PayHero fee float is low: ~${collectionsRemaining} collections remaining.`,
         );

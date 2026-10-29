@@ -145,6 +145,31 @@ export const CRON_JOBS: readonly CronJob[] = [
     isDue: ({ minute, hour }) => minute === 0 && hour === 9,
   },
   {
+    /*
+      PayHero's fee float, hourly.
+
+      The CHECK already existed in `/api/v1/health`, which could detect a low
+      float and could not tell anybody - it reached whoever fetched the
+      endpoint, plus a console line in Fly's log buffer, and [VERIFIED]
+      `fly.toml:289` points Fly's own probe at `/api/v1/live` instead, so
+      nothing escalated. This job evaluates the same predicate
+      (`src/lib/payhero-float.ts`, read by both) and emails the
+      administrators.
+
+      Hourly, not daily, and the cadence follows from the arithmetic rather
+      than from taste: the warn threshold is KES 500, the fee is a flat KES
+      8.9, and the one drain rate ever measured is ~55 KES/hour (159.6 in
+      2h53m on 2026-10-29, almost all of it the other company's traffic on the
+      shared wallet - docs/147 §11.3). That is about nine hours from the
+      threshold to empty, so a daily job could sleep through the entire
+      window. Email volume is governed by LOW_FLOAT_EMAIL_COOLDOWN_HOURS, not
+      by this cadence.
+    */
+    job: 'payhero-float',
+    cron: '0 * * * *',
+    isDue: ({ minute }) => minute === 0,
+  },
+  {
     job: 'blog-topics',
     cron: '0 6 * * *',
     isDue: ({ minute, hour }) => minute === 0 && hour === 6,

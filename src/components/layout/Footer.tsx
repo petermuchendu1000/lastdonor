@@ -120,9 +120,31 @@ export function Footer() {
               (#99a1af) is 6.83:1 and is the smallest step that passes.
               Measured with axe, see docs/99.
             */}
+            {/*
+              ⛔ NO COUNTRY LINE. Owner decision, 2026-10-29.
+
+              This block read `LastDonor.org / United States /
+              contact@lastdonor.org` - a country with no street, which is not
+              an address but a claim about where we operate, and the last
+              `United States` assertion left in user-facing copy after
+              `docs/148` removed `areaServed` from the Organization graph.
+
+              Same principle as that removal and as `docs/76`'s `sameAs`:
+              ABSENT ASSERTS NOTHING, while a country on its own asserts a
+              jurisdiction the platform has not established - `/terms` has no
+              governing-law clause at all (`company-claims.test.ts`).
+
+              ⚠️ This is NOT the CAN-SPAM postal address. That is
+              `MAILING_POSTAL_ADDRESS`, read only by `email-shell.ts:222` from
+              the environment, still unset, and still the reason the
+              newsletter cron refuses to send (`docs/123`, `docs/135`). A real
+              address belongs there; it does not arrive by putting a country
+              here. `src/app/company-claims.test.ts` fails the build if a bare
+              country line comes back, and relaxes the moment a street line
+              accompanies it.
+            */}
             <p className="mt-4 text-xs leading-relaxed text-gray-400">
               LastDonor.org<br />
-              United States<br />
               contact@lastdonor.org
             </p>
 

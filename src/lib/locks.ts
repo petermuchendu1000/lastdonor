@@ -222,6 +222,7 @@ export type CronJobName =
   | 'blog-topics'
   | 'fetch-news'
   | 'ingest-news'
+  | 'payhero-float'
   | 'publish-campaigns'
   | 'reconcile'
   | 'refresh-fx-rates'
@@ -312,6 +313,14 @@ export const CRON_LOCKS: Record<CronJobName, CronLockSpec> = {
     'same provider calls twice and hold two database connections across a ' +
     '30-second HTTP call each, against a pool of 5 (docs/87). Skipping costs ' +
     'five minutes of latency on a queue that has never had an item in it.',
+  ),
+  'payhero-float': spec(
+    'payhero-float', 60, 'skip',
+    'Reads PayHero\'s wallet balance, writes one audit row and possibly one ' +
+    'email per administrator. Fails CLOSED: two overlapping runs would send ' +
+    'the same low-float alert twice, and the cost of a skipped run is one ' +
+    'hour of delay on a threshold that leaves roughly nine hours of runway ' +
+    '(docs/147 §11.3). It moves no money and the wallet read is a GET.',
   ),
   'refresh-fx-rates': spec(
     'refresh-fx-rates', 60, 'skip',

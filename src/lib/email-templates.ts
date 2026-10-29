@@ -9,7 +9,7 @@
  * - Max width: 600px
  */
 
-import { formatMoney } from '@/lib/money/format';
+import { formatMoney, majorToMinor } from '@/lib/money/format';
 import { renderEmail, emailButton, escapeHtml } from './email-shell';
 
 const BASE_URL = process.env.NEXTAUTH_URL || 'https://lastdonor.org';
@@ -1154,6 +1154,63 @@ export function identityResubmissionEmail(p: {
 /**
  * Notify admins that a campaign creator has submitted verification documents for review.
  */
+/**
+ * Tell the administrators the PayHero fee float is running out.
+ *
+ * ⛔ WHY THIS MATTERS ENOUGH TO EMAIL ABOUT: the float pays PayHero's flat fee
+ * per collection, so at zero LastDonor cannot take an M-Pesa donation at all -
+ * and [VERIFIED by execution, `docs/147` §11.2] PayHero reports NO failure
+ * reason, so the symptom is indistinguishable from the two unexplained
+ * failures of 2026-10-29. The wallet is also shared with BETWOIN LTD, whose
+ * collections drain it too, so it can empty without this platform doing
+ * anything.
+ *
+ * ⚠️ It states a COUNT and a balance, both of which are our own operational
+ * figures, and quotes no turnaround time for a top-up - that is a person's
+ * job, not a promise this template can make.
+ */
+export function payHeroFloatLowAdminEmail(p: {
+  balanceKes: number;
+  collectionsRemaining: number;
+  isExhausted: boolean;
+}) {
+  /*
+    ⛔ `majorToMinor`, NOT `* 100`. CLAUDE.md (`docs/118` §10) forbids the
+    literal, and the reason applies here even though KES happens to be a
+    two-decimal currency: PayHero reports a MAJOR-unit decimal, `formatMoney`
+    takes MINOR units, and a hardcoded 100 is the `docs/114` defect that is
+    right by coincidence for USD and KES and 100x wrong for UGX, RWF, XOF and
+    XAF. The helper reads each currency's own exponent.
+  */
+  const money = formatMoney(majorToMinor(p.balanceKes, 'KES'), 'KES');
+  return {
+    subject: p.isExhausted
+      ? '[Admin] M-Pesa donations are failing: the fee float is empty'
+      : `[Admin] Top up the M-Pesa fee float (${money} left)`,
+    html: wrap(
+      `
+      <h1 style="color: #0F766E; font-size: 24px; margin: 0 0 16px;font-family:Georgia, 'Times New Roman', Times, serif;line-height:1.2;">${
+        p.isExhausted ? 'The M-Pesa fee float is empty' : 'The M-Pesa fee float is low'
+      }</h1>
+      ${
+        p.isExhausted
+          ? `<p>People cannot give over M-Pesa right now. Each gift needs a small fee paid from our PayHero wallet, and that wallet is empty.</p>`
+          : `<p>Each gift over M-Pesa needs a small fee paid from our PayHero wallet. That wallet is getting low.</p>`
+      }
+      <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+        <tr><td style="padding: 8px 0; color: #666; width: 170px;">Left in the wallet</td><td style="padding: 8px 0; font-weight: 600;">${money}</td></tr>
+        <tr><td style="padding: 8px 0; color: #666;">Gifts it can still pay for</td><td style="padding: 8px 0;">about ${p.collectionsRemaining}</td></tr>
+      </table>
+      <p>Please add money to the PayHero wallet. We share it with another company, so it can run out fast.</p>
+      <p>When it runs out, PayHero gives no reason for the failure. A gift just does not arrive.</p>
+    `,
+      p.isExhausted
+        ? 'People cannot give over M-Pesa right now.'
+        : 'Please add money to the PayHero wallet.',
+    ),
+  };
+}
+
 export function verificationDocumentsAdminEmail(p: {
   campaignTitle: string;
   creatorName: string;

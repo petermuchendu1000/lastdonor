@@ -182,9 +182,16 @@ export default function PrivacyPage() {
             . For physical mail requests, contact us by email so we can provide
             the current mailing details.
           </p>
+          {/*
+            ⛔ NO COUNTRY LINE. Owner decision, 2026-10-29. Same reasoning as
+            the footer block: a country with no street is a jurisdiction claim,
+            not an address, and `/terms` establishes no governing law. The
+            sentence directly above already tells the reader to email for the
+            current mailing details, which is what we can actually substantiate
+            - so the country line was adding a claim and no information.
+          */}
           <address className="mt-3 not-italic text-sm leading-relaxed text-muted-foreground">
             LastDonor.org<br />
-            United States<br />
             privacy@lastdonor.org
           </address>
         </section>

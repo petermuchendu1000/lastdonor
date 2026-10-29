@@ -25,6 +25,10 @@ const LAYOUT = readFileSync(join(SRC, 'app/layout.tsx'), 'utf8');
 const LLMS = readFileSync(join(ROOT, 'public/llms.txt'), 'utf8');
 const TERMS = readFileSync(join(SRC, 'app/terms/page.tsx'), 'utf8');
 
+// The 254 ISO country codes `docs/103` generated. Used to DERIVE country
+// names rather than hand-listing them; see the last describe block.
+import { COUNTRY_CURRENCY } from '@/lib/geo/country-currency.generated';
+
 /**
  * The domain's registration date, [VERIFIED 2026-10-29] from the `.org` RDAP
  * service (`rdap.publicinterestregistry.org`): `registration =
@@ -122,6 +126,131 @@ describe('no surface claims a jurisdiction the terms do not establish', () => {
     ] as const) {
       expect(src, `${name} must not claim a UK entity`).not.toMatch(
         /United Kingdom|\bUK (company|entity|registered)|Companies House/i,
+      );
+    }
+  });
+});
+
+describe('no surface publishes a country as if it were an address', () => {
+  /*
+    The footer and `/privacy` published:
+
+        LastDonor.org
+        United States
+        contact@lastdonor.org
+
+    A country with no street is not an address. It is a claim about where the
+    platform operates, and after `docs/148` removed `areaServed` from the
+    Organization graph it was the LAST `United States` assertion left in
+    user-facing copy. Owner decision 2026-10-29: remove it, on the same
+    principle `docs/148` and `docs/76` already applied - absent asserts
+    nothing, while a bare country asserts a jurisdiction `/terms` does not
+    establish (the rule above proves it does not).
+
+    ⚠️ It also added no information: `/privacy` tells the reader, one sentence
+    above, to email for the current mailing details.
+
+    ⛔ THIS IS NOT THE CAN-SPAM ADDRESS. That is `MAILING_POSTAL_ADDRESS`,
+    [VERIFIED] read only by `src/lib/email-shell.ts:222` from the environment,
+    nothing to do with these two blocks, and still unset - which is why the
+    newsletter cron refuses to send (`docs/123`, `docs/135`). A real address
+    belongs there, and putting a country here never made one exist.
+
+    ── WHY THE COUNTRY LIST IS DERIVED ──────────────────────────────────────
+
+    A hand-written list of countries is the shape this codebase keeps getting
+    burned by (`docs/119`, `docs/124`, `docs/144`, `docs/146`, `docs/147`): it
+    is only as good as whoever remembered to extend it, and it would catch
+    "United States" while missing "Kenya". So the names come from the 254 ISO
+    codes `docs/103` generated, resolved through `Intl.DisplayNames` - the
+    same ICU data a human typing a country name would be reproducing.
+
+    ⚠️ ICU does not produce every form a person might type, so the few
+    abbreviations it cannot generate are added explicitly and labelled as
+    such. That is a supplement to a derived list, not a substitute for one.
+  */
+  const CONTACT_SURFACES = [
+    ['Footer.tsx', readFileSync(join(SRC, 'components/layout/Footer.tsx'), 'utf8')],
+    ['privacy/page.tsx', readFileSync(join(SRC, 'app/privacy/page.tsx'), 'utf8')],
+  ] as const;
+
+  const COUNTRY_NAMES: Set<string> = (() => {
+    const names = new Set<string>();
+    const dn = new Intl.DisplayNames(['en'], { type: 'region' });
+    for (const code of Object.keys(COUNTRY_CURRENCY)) {
+      const name = dn.of(code);
+      if (name && name !== code) names.add(name);
+    }
+    // Forms ICU will not emit. Explicit, and few, on purpose.
+    for (const extra of ['USA', 'U.S.A.', 'U.S.', 'US', 'UK', 'U.K.', 'England', 'Britain']) {
+      names.add(extra);
+    }
+    return names;
+  })();
+
+  it('derived the country names at all (guards a vacuous pass)', () => {
+    // Without this, an empty set would make every rule below trivially pass.
+    expect(COUNTRY_NAMES.size).toBeGreaterThan(200);
+    expect(COUNTRY_NAMES.has('United States')).toBe(true);
+    expect(COUNTRY_NAMES.has('Kenya')).toBe(true);
+    expect(COUNTRY_NAMES.has('United Kingdom')).toBe(true);
+  });
+
+  /**
+   * The contact block: from the brand line to the end of its element. Scoped
+   * rather than whole-file, because `/privacy` legitimately discusses
+   * international transfers in prose and the footer carries unrelated copy.
+   */
+  function contactBlock(src: string): string | null {
+    const i = src.indexOf('LastDonor.org<br />');
+    if (i === -1) return null;
+    const end = src.indexOf('</', i);
+    return end === -1 ? src.slice(i) : src.slice(i, end);
+  }
+
+  it('finds a contact block in both surfaces (guards a vacuous pass)', () => {
+    for (const [name, src] of CONTACT_SURFACES) {
+      expect(contactBlock(src), `${name} has no contact block to check`).not.toBeNull();
+    }
+  });
+
+  it('publishes no bare country line in either contact block', () => {
+    for (const [name, src] of CONTACT_SURFACES) {
+      const block = contactBlock(src)!;
+      /*
+        AUTO-RELAXING, deliberately: a block that also carries a street line -
+        anything with a digit in it, which a street number or a postcode has
+        and a bare country name does not - is a real address, and naming the
+        country in it is then correct rather than a claim standing in for one.
+        So supplying a real address makes this rule stop applying instead of
+        having to be edited.
+      */
+      const hasStreetLine = /\d/.test(block);
+      if (hasStreetLine) continue;
+
+      const lines = block
+        .split(/<br\s*\/?>|\n/)
+        .map((l) => l.replace(/<[^>]*>/g, '').trim())
+        .filter(Boolean);
+
+      const offenders = lines.filter((l) => COUNTRY_NAMES.has(l));
+      expect(
+        offenders,
+        `${name}: a country name on its own line is a jurisdiction claim, not an address. ` +
+          `Add a street address (then this rule relaxes), or leave it out.`,
+      ).toEqual([]);
+    }
+  });
+
+  it('still publishes a way to reach a human in both blocks', () => {
+    /*
+      The control. Without it, deleting both contact blocks entirely would
+      satisfy every rule above - and a privacy page with no contact route is
+      worse than one naming a country.
+    */
+    for (const [name, src] of CONTACT_SURFACES) {
+      expect(contactBlock(src)!, `${name} must still carry an email address`).toMatch(
+        /@lastdonor\.org/,
       );
     }
   });
