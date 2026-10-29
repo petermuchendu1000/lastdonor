@@ -22,9 +22,14 @@ export type { IconProps, IconSize } from './createIcon';
 export * from './brand';
 
 import {
+  AcademicCapIcon as HiAcademicCap,
   ArrowPathIcon as HiArrowPath,
   ArrowTopRightOnSquareIcon as HiExternal,
   BellIcon as HiBell,
+  BoltIcon as HiBolt,
+  BriefcaseIcon as HiBriefcase,
+  BuildingLibraryIcon as HiBuildingLibrary,
+  CalendarDaysIcon as HiCalendarDays,
   CheckIcon as HiCheck,
   CheckCircleIcon as HiCheckCircle,
   ChevronDownIcon as HiChevronDown,
@@ -37,14 +42,28 @@ import {
   ExclamationCircleIcon as HiExclamationCircle,
   ExclamationTriangleIcon as HiWarning,
   EyeIcon as HiEye,
+  FireIcon as HiFire,
+  FlagIcon as HiFlag,
+  GiftIcon as HiGift,
+  GlobeAmericasIcon as HiGlobeAmericas,
+  HandRaisedIcon as HiHandRaised,
   HeartIcon as HiHeart,
+  HomeIcon as HiHome,
   InformationCircleIcon as HiInfo,
+  LifebuoyIcon as HiLifebuoy,
   MagnifyingGlassIcon as HiSearch,
   MapPinIcon as HiMapPin,
+  PaintBrushIcon as HiPaintBrush,
+  PaperAirplaneIcon as HiPaperAirplane,
   PencilSquareIcon as HiEdit,
   PlusIcon as HiPlus,
+  ShieldCheckIcon as HiShieldCheck,
+  ShoppingBagIcon as HiShoppingBag,
   SparklesIcon as HiSparkles,
+  StarIcon as HiStar,
+  TagIcon as HiTag,
   TrashIcon as HiTrash,
+  TrophyIcon as HiTrophy,
   UserGroupIcon as HiUserGroup,
   XMarkIcon as HiX,
   XCircleIcon as HiXCircle,
@@ -77,8 +96,13 @@ function wrap(displayName: string, Hero: ComponentType<SVGProps<SVGSVGElement>>)
   return Wrapped;
 }
 
+export const AcademicCapIcon = wrap('AcademicCapIcon', HiAcademicCap);
 export const ArrowPathIcon = wrap('ArrowPathIcon', HiArrowPath);
 export const BellIcon = wrap('BellIcon', HiBell);
+export const BoltIcon = wrap('BoltIcon', HiBolt);
+export const BriefcaseIcon = wrap('BriefcaseIcon', HiBriefcase);
+export const BuildingLibraryIcon = wrap('BuildingLibraryIcon', HiBuildingLibrary);
+export const CalendarDaysIcon = wrap('CalendarDaysIcon', HiCalendarDays);
 export const CheckCircleIcon = wrap('CheckCircleIcon', HiCheckCircle);
 export const CheckIcon = wrap('CheckIcon', HiCheck);
 export const ChevronDownIcon = wrap('ChevronDownIcon', HiChevronDown);
@@ -92,13 +116,27 @@ export const EnvelopeIcon = wrap('EnvelopeIcon', HiEnvelope);
 export const ErrorCircleIcon = wrap('ErrorCircleIcon', HiExclamationCircle);
 export const ExternalLinkIcon = wrap('ExternalLinkIcon', HiExternal);
 export const EyeIcon = wrap('EyeIcon', HiEye);
+export const FireIcon = wrap('FireIcon', HiFire);
+export const FlagIcon = wrap('FlagIcon', HiFlag);
+export const GiftIcon = wrap('GiftIcon', HiGift);
+export const GlobeAmericasIcon = wrap('GlobeAmericasIcon', HiGlobeAmericas);
+export const HandRaisedIcon = wrap('HandRaisedIcon', HiHandRaised);
 export const HeartIcon = wrap('HeartIcon', HiHeart);
+export const HomeIcon = wrap('HomeIcon', HiHome);
 export const InfoIcon = wrap('InfoIcon', HiInfo);
+export const LifebuoyIcon = wrap('LifebuoyIcon', HiLifebuoy);
 export const MapPinIcon = wrap('MapPinIcon', HiMapPin);
+export const PaintBrushIcon = wrap('PaintBrushIcon', HiPaintBrush);
+export const PaperAirplaneIcon = wrap('PaperAirplaneIcon', HiPaperAirplane);
 export const PlusIcon = wrap('PlusIcon', HiPlus);
 export const SearchIcon = wrap('SearchIcon', HiSearch);
+export const ShieldCheckIcon = wrap('ShieldCheckIcon', HiShieldCheck);
+export const ShoppingBagIcon = wrap('ShoppingBagIcon', HiShoppingBag);
 export const SparklesIcon = wrap('SparklesIcon', HiSparkles);
+export const StarIcon = wrap('StarIcon', HiStar);
+export const TagIcon = wrap('TagIcon', HiTag);
 export const TrashIcon = wrap('TrashIcon', HiTrash);
+export const TrophyIcon = wrap('TrophyIcon', HiTrophy);
 export const UserGroupIcon = wrap('UserGroupIcon', HiUserGroup);
 export const WarningIcon = wrap('WarningIcon', HiWarning);
 export const XCircleIcon = wrap('XCircleIcon', HiXCircle);

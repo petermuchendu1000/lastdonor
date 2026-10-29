@@ -1,35 +1,28 @@
 import Link from 'next/link';
-import {
-  HeartIcon,
-  BoltIcon,
-  FireIcon,
-  AcademicCapIcon,
-  HomeIcon,
-  UserGroupIcon,
-  ShieldCheckIcon,
-  ExclamationTriangleIcon,
-} from '@heroicons/react/24/outline';
-import type { CampaignCategory } from '@/types';
+import type { ShowcaseCategory } from '@/lib/homepage-categories';
 
-type CategoryItem = {
-  slug: CampaignCategory;
-  label: string;
-  description: string;
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
-};
+/**
+ * The homepage's category grid.
+ *
+ * ⛔ `categories` is REQUIRED and comes from the database. It used to be a
+ * hand-curated array of eight declared in this file, and `docs/143` §4
+ * measured the drift: two of the eight held no campaigns at all while
+ * `military` - tied for the most on the platform - was linked from nowhere on
+ * the site. This component is the only place in the repo that links
+ * `/campaigns/category/*`, so that list WAS the internal link graph for 23
+ * URLs. The selection now lives in `src/lib/homepage-categories.ts`, where it
+ * can be executed by a test.
+ *
+ * ⛔ An empty list renders NOTHING, deliberately. The section's whole job is
+ * to route a visitor to campaigns that exist; with none live, a heading
+ * reading "Find a Cause You Care About" above eight doors onto empty rooms is
+ * worse than no section. This is a real state, not a hypothetical one -
+ * `docs/79` moved every automated campaign into the review queue and
+ * `/campaigns` was empty for a day.
+ */
+export function CategoryShowcase({ categories }: { categories: ShowcaseCategory[] }) {
+  if (categories.length === 0) return null;
 
-const TOP_CATEGORIES: CategoryItem[] = [
-  { slug: 'medical', label: 'Medical', description: 'Bills, surgery, treatment', icon: HeartIcon },
-  { slug: 'emergency', label: 'Emergency', description: 'Urgent help after crisis', icon: BoltIcon },
-  { slug: 'memorial', label: 'Memorial', description: 'Funeral and grief support', icon: FireIcon },
-  { slug: 'disaster', label: 'Disaster Relief', description: 'Fires, floods, storms', icon: ExclamationTriangleIcon },
-  { slug: 'family', label: 'Family', description: 'Housing and daily needs', icon: HomeIcon },
-  { slug: 'veterans', label: 'Veterans', description: 'Military family support', icon: ShieldCheckIcon },
-  { slug: 'education', label: 'Education', description: 'Tuition and school costs', icon: AcademicCapIcon },
-  { slug: 'community', label: 'Community', description: 'Local projects and care', icon: UserGroupIcon },
-];
-
-export function CategoryShowcase() {
   return (
     <section className="bg-surface-teal py-16 sm:py-20 lg:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -71,16 +64,21 @@ export function CategoryShowcase() {
           See docs/60.
         */}
         <div className="mt-8 grid grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-4 lg:gap-5">
-          {TOP_CATEGORIES.map(({ slug, label, description, icon: Icon }) => (
+          {categories.map(({ slug, label, gloss, Icon }) => (
             <Link
               key={slug}
               href={`/campaigns/category/${slug}`}
               className="group flex h-full flex-col rounded-[10px] border border-border/70 bg-card px-4 py-4 shadow-elevation-1 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-elevation-2 sm:px-5 sm:py-5"
             >
+              {/*
+                Through the icon layer since 2026-10-29, not `@heroicons`
+                directly: `size="lg"` is the 24px step this card already used
+                as `h-6 w-6`, and the stroke is now the system's 1.75 rather
+                than a local 1.6. See docs/70.
+              */}
               <Icon
-                className="h-6 w-6 text-primary/70 transition-colors duration-200 group-hover:text-primary"
-                strokeWidth={1.6}
-                aria-hidden="true"
+                size="lg"
+                className="text-primary/70 transition-colors duration-200 group-hover:text-primary"
               />
               <span className="mt-3 font-display text-[16px] font-bold leading-tight tracking-tight text-card-foreground sm:mt-4 sm:text-[18px]">
                 {label}
@@ -91,7 +89,7 @@ export function CategoryShowcase() {
                 a third line on every one of eight cards.
               */}
               <span className="mt-1.5 hidden text-[14px] leading-relaxed text-muted-foreground sm:block">
-                {description}
+                {gloss}
               </span>
               {/*
                 No "Browse ->" line. The card IS the link, so that span was a

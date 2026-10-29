@@ -168,8 +168,11 @@ describe('migration ratchet', () => {
   const files = walk(SRC);
 
   it('no NEW file imports heroicons directly', () => {
+    // 80 -> 79 on 2026-10-29: `CategoryShowcase` was migrated while its grid
+    // was made data-driven, which needed 19 more wraps in this layer anyway.
+    // See docs/144.
     const offenders = files.filter((f) => readFileSync(f, 'utf8').includes('@heroicons/react'));
-    expect(offenders.length).toBeLessThanOrEqual(80);
+    expect(offenders.length).toBeLessThanOrEqual(79);
   });
 
   it('no NEW file hand-rolls an inline svg', () => {

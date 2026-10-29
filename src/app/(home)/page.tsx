@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/db';
 import { campaigns, donations, blogPosts } from '@/db/schema';
-import { eq, or, desc, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, or, desc, sql } from 'drizzle-orm';
 import Link from 'next/link';
 import Image from 'next/image';
 import { HeroSection } from '@/components/homepage/HeroSection';
@@ -15,6 +15,7 @@ import { CampaignCard } from '@/components/campaign/CampaignCard';
 import { AnimateOnScroll } from '@/components/AnimateOnScroll';
 import { HomepageFAQ } from '@/components/homepage/HomepageFAQ';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { selectShowcaseCategories } from '@/lib/homepage-categories';
 
 export const metadata: Metadata = {
   title: 'LastDonor - Reviewed Crowdfunding with 0% Platform Fees',
@@ -114,7 +115,7 @@ async function getHomepageData() {
 
     ]);
 
-  const [latestPosts, campaignTotals] = await Promise.all([
+  const [latestPosts, campaignTotals, categoryCounts] = await Promise.all([
     // Latest published blog posts
     db
       .select({
@@ -138,11 +139,47 @@ async function getHomepageData() {
         supported: sql<number>`COUNT(DISTINCT ${campaigns.subjectName}) FILTER (WHERE ${campaigns.status} = 'completed')`,
       })
       .from(campaigns),
+
+    /*
+      Live campaigns per category, for the showcase grid (docs/144).
+
+      ⚠️ `publishedAt IS NOT NULL` is STRICTER than the category page's own
+      filter, which is status-only. That asymmetry is deliberate and is the
+      safe direction: this count is a SUBSET of what that page would list, so
+      the grid can under-promote a category but can never put a card in front
+      of a visitor whose page then says "No active campaigns right now". It is
+      also the `docs/131` predicate - `published_at` is the record that a
+      person approved publication, and a status allowlist cannot answer that.
+    */
+    db
+      .select({
+        category: campaigns.category,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(campaigns)
+      .where(
+        and(
+          or(
+            eq(campaigns.status, 'active'),
+            eq(campaigns.status, 'last_donor_zone'),
+          ),
+          isNotNull(campaigns.publishedAt),
+        ),
+      )
+      .groupBy(campaigns.category),
   ]);
 
   return {
     featuredCampaign: featuredCampaigns[0] ?? null,
     activeCampaigns,
+    /*
+      ⛔ The RAW tally, not the rendered cards. `getHomepageData` is wrapped
+      in `unstable_cache`, which serializes what it returns, and a
+      `ShowcaseCategory` carries an icon COMPONENT. Selecting here would put a
+      function through a cache that cannot hold one. `selectShowcaseCategories`
+      is pure and runs per render instead, which costs nothing.
+    */
+    categoryCounts,
 
     totalDonors: Number(stats[0]?.totalDonors ?? 0),
     campaignsCompleted: Number(campaignTotals[0]?.completed ?? 0),
@@ -298,7 +335,7 @@ export default async function Home() {
       */}
       <HowItWorks />
       <WhereYourMoneyGoes />
-      <CategoryShowcase />
+      <CategoryShowcase categories={selectShowcaseCategories(data.categoryCounts)} />
 
       {/* Blog Preview */}
       {data.latestPosts.length > 0 && (
