@@ -25,7 +25,21 @@ const siteSchemaGraph = {
       },
       description:
         'LastDonor is a fundraising site that takes 0% of what you raise, built first for people raising money in Africa, Asia and South America. A person checks every campaign before it goes live, and campaigns show where the money went.',
-      foundingDate: '2024-01-01',
+      /*
+        Owner-stated, 2026-10-29. It read `'2024-01-01'` until then, on an
+        entity whose domain [VERIFIED by `.org` RDAP] was registered
+        `2026-03-20T05:45:57.643Z` - a founding date two years before the
+        domain existed, in a machine-readable surface search engines
+        republish. `docs/142` found it and correctly left it as [UNKNOWN],
+        because it is a fact only the owner holds.
+
+        ⚠️ A BARE YEAR, deliberately. ISO 8601 allows it and schema.org's
+        `Date` accepts it, and the owner said "2026" - not a month, not a day.
+        Writing `2026-03-20` would be the domain's registration masquerading
+        as the company's founding, which is a more precise claim than anyone
+        has substantiated. Narrow it only when somebody knows the date.
+      */
+      foundingDate: '2026',
       /*
         ⛔ `areaServed` is DELIBERATELY ABSENT, and that is not an omission to
         tidy up by listing regions.

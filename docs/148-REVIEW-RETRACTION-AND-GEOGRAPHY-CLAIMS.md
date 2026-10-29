@@ -240,24 +240,58 @@ Gate: lint clean but for one pre-existing warning, typecheck clean,
 
 ## What is NOT done
 
-⛔ **Three legal/factual claims, left for the owner.** Each is a statement
-about the company, which is not an engineering call:
+⛔ **ONE legal claim still open.** Two of the three were answered by the owner
+on 2026-10-29 and are recorded in §B.5 below.
 
-1. **The published postal address.** `components/layout/Footer.tsx:124-126`
-   and `app/privacy/page.tsx:186-188` both print *"LastDonor.org / United
-   States / <email>"* — a country with no street. On a site now positioned for
-   Africa, Asia and South America, with a UK registration **planned**, what
-   should this say? ⛔ A planned registration is not a fact and must not be
-   published as one (CLAUDE.md).
-2. **`public/llms.txt:16` — "Jurisdiction: United States".** [VERIFIED] this
-   is the **only** jurisdiction claim in the product: `/terms` contains zero
-   governing-law, jurisdiction or arbitration mentions. If no entity is
-   registered anywhere yet, the honest fix is to remove the line, not relocate
-   it.
-3. **`layout.tsx:28` — `foundingDate: '2024-01-01'`.** [VERIFIED by `.org`
-   RDAP, independently of `docs/142`: `registration =
-   2026-03-20T05:45:57.643Z`]. `docs/142` already recorded this as **[UNKNOWN]
-   — a fact only the owner holds**, so it is still not changed.
+1. ⛔ **STILL OPEN — the published postal address.**
+   `components/layout/Footer.tsx:124-126` and `app/privacy/page.tsx:186-188`
+   both print *"LastDonor.org / United States / <email>"* — a country with no
+   street. On a site now positioned for Africa, Asia and South America, with a
+   UK registration **planned**, what should this say? ⛔ A planned
+   registration is not a fact and must not be published as one (CLAUDE.md).
+   The owner did not answer this, so both lines are **untouched**.
+
+## B.5 The two company facts the owner settled (2026-10-29)
+
+**`foundingDate` is `'2026'`, and `- Founded: 2026` in `llms.txt`.** It read
+**2024** in both, on an entity whose domain [VERIFIED by `.org` RDAP,
+independently of `docs/142`] was registered **2026-03-20T05:45:57.643Z** — a
+founding date two years before the domain existed, in two surfaces search
+engines and AI crawlers republish and no human reads.
+
+⚠️ **A bare year, deliberately.** ISO 8601 allows it and schema.org's `Date`
+accepts it. Writing `2026-03-20` would publish the *domain's registration* as
+the *company's founding* — a more precise claim than anyone has
+substantiated. Narrow it when somebody knows the date.
+
+**`- Jurisdiction: United States` is REMOVED from `public/llms.txt`.**
+[VERIFIED] it was the **only** jurisdiction claim in the entire product:
+`/terms` contains no governing-law clause, no jurisdiction and no arbitration
+provision. Removed rather than relocated, because there is no second
+jurisdiction to relocate it to.
+
+### B.5.1 The check, and why it is not about the year
+
+`src/app/company-claims.test.ts`, 7 tests. The year is the least interesting
+part; the rules encode three properties nothing was enforcing:
+
+1. **Two surfaces asserting one fact must agree.** They drifted *together*
+   here, and nothing would have caught them drifting apart.
+2. **A founding year may not predate the domain registration.** A FLOOR, not a
+   pin — it does not say which year is right, so the owner can correct it
+   without touching the rule. 2024 fails; 2026 and later pass.
+3. **No jurisdiction claim while `/terms` establishes none.** It DERIVES both
+   ends and relaxes on its own: state a governing law in `/terms` and the
+   `llms.txt` line becomes legal again (`docs/127`'s shape). A fourth rule
+   forbids a **United Kingdom** claim in either surface, because the intention
+   is now written down, and that is exactly when somebody adds it to a page.
+
+**All 9 injections fire**, sha256-verified restore after each — including
+row 1 (the real production state, `foundingDate: '2024-01-01'`), row 3 (the
+two surfaces disagreeing at 2026 vs 2027), three controls that delete a claim
+rather than correct it, and **row 9, the premise tripwire**: giving `/terms` a
+governing-law clause fails the premise assertion, so somebody re-reads this
+decision instead of the rule quietly relaxing.
 
 ⛔ **Converting USD to local currency at STK-push time** (owner's instruction,
 not yet designed) collides with two ADRs and is in `docs/149`'s territory, not

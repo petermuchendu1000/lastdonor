@@ -12,8 +12,7 @@ LastDonor is a transparent fundraising platform where individuals and families i
 - Platform fees: 0% (zero platform fees)
 - Review: All campaigns are reviewed before publishing
 - Transparency: an organiser can publish an impact update showing how the money was used
-- Founded: 2024
-- Jurisdiction: United States
+- Founded: 2026
 - Domain: https://lastdonor.org
 - Canonical host: https://lastdonor.org
 - Private areas: admin, API, login, registration, dashboard, and profile pages are not public citation sources
