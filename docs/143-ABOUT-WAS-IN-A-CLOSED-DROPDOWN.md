@@ -162,7 +162,48 @@ not an audit's side effect.
 
 ---
 
-## 5. Not checked
+## 5. ⛔ A-026, found while VERIFYING this fix: the listing has no crawlable pagination
+
+The post-deploy link graph confirmed `/about` had left the orphan set — and the
+count stayed at **16**, because **`/campaigns/tuan-nguyen` joined it with 0
+inbound** where it had 2 before. Per Gate 5 an anomalous sample voids the
+measurement, so I diagnosed it before interpreting anything.
+
+[VERIFIED] `tuan-nguyen` is `active` with `published_at` set, and it appears in
+**neither** `/` nor `/campaigns` server HTML. The cause:
+
+- `/campaigns` server-renders **12** distinct campaign links; **14** are live
+  and published.
+- `/` renders **6**, stable across two consecutive fetches — including
+  `harold-jennings`, which `/campaigns` omits.
+- So the first page is a moving window: my earlier "2 inbound" and today's "0"
+  are both valid samples of a set that shifts as campaigns are published.
+  **Campaign-page inbound counts are not a stable measurement**, and the
+  `docs/142` figures for individual campaign slugs should be read that way.
+
+**Verified three independent ways that there is no crawler path to the rest:**
+
+1. No `rel="next"` or `rel="prev"` link tag anywhere in the document.
+2. No `href` containing `page=` in the body; "Load more" is enclosed by a
+   **`<button>`**, not an `<a>`.
+3. **`?page=2` returns the same 12 campaigns as `?page=1`** — the parameter is
+   not honoured server-side at all.
+
+⚠️ **Precisely what this does and does not mean.** Those campaigns are **not
+undiscoverable**: all 14 are in the sitemap, which is how a search engine finds
+them. What they have is **no crawler-visible internal link**, so they receive
+no internal link signal, and a link-following AI fetcher never reaches them.
+Today that is 2 of 14; the unlinked fraction grows with every campaign
+published.
+
+**Not fixed** — the remedies (server-rendering the full set, real paginated
+`?page=` URLs with `rel=next`, or a crawlable archive) are design decisions
+about the listing, and `docs/71` already tuned that page's chrome budget. It
+belongs with §4's category decision.
+
+---
+
+## 6. Not checked
 
 - Whether the footer link renders in a **browser** at mobile width — the
   `columns-2` layout (`docs/69`) now balances 7 Platform links instead of 6,
