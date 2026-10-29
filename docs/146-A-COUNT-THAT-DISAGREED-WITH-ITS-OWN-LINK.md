@@ -433,6 +433,54 @@ such a URL, so the exposure is a crawler probing parameters; Google would most
 likely classify it a soft 404 itself. Recorded rather than fixed, because the
 fix is a concurrency decision on the busiest public route.
 
+### 9.1a The second deploy (v134), and the capacity failure is not rare
+
+§4.0b and §4.0a shipped in a second release, which hit the **same** failure:
+image built and pushed (`deployment-01M639V0Y0EPAY2NXTWXEBMNG7`), release
+aborted on `no capacity available in arn`, then once more on the first retry,
+and succeeded on the second — **v132 and v133 `failed`, v134 complete**, machine
+version 134, 1/1 checks. So across two deploys the release-command machine
+failed to launch **four** times out of six attempts. Each failure costs about a
+minute and leaves production untouched.
+
+⚠️ `fly machine list` shows **one** machine throughout, so no orphaned
+release-command machine is holding the capacity — there is nothing of ours to
+clean up, and retrying is the only lever on this side. Changing the region is a
+topology decision and was not taken.
+
+Live at v134: `/campaigns` 12 cards and no status nav; the homepage **6
+campaign cards and 8 category cards**, zero console errors — the dead-query
+removal is invisible, as §4.0b's paired local render predicted; all six
+assertions in §9.1 still pass.
+
+### 9.1b The build's `EMAXCONNSESSION` reads, and `/donate`
+
+This build logged **two** `[build] database read failed … (EMAXCONNSESSION)
+max clients reached in session mode` lines (the first logged one). The log does
+not name the route, so **which routes they hit is [UNKNOWN]** — but all seven
+baked routes (`docs/119` §2) were read twice afterwards and every one is
+consistent with the database: sitemap 14 campaign URLs (`HIT`, `HIT`), blog
+sitemap 0 (correct — `docs/123`, zero posts ever), `/transparency` real
+figures, `/last-donor-wall` and `/cancelled-campaigns` empty (0 completed, 0
+cancelled rows), `/campaigns/category/medical` 3 links. The five-minute routes
+answered `STALE` then `HIT`, which is `docs/119`'s healing behaviour observed
+again.
+
+⛔ **And a pre-existing finding `/donate` surfaced, reported not fixed.** That
+page serves *"not accepting donations"* and renders no form. That reads exactly
+like the empty-prerender symptom CLAUDE.md warns about, and it is **not**:
+[VERIFIED from production] `GENERAL_FUND_CAMPAIGN_ID`
+(`d7fcb01f-468a-49e1-848f-bee7377a35ea`) matches **0 rows** — the general fund
+campaign has never existed — so `generalFundIsDonatable()` is correctly
+returning false and the page is doing precisely what `docs/42` designed it to
+do rather than showing a form that would 500.
+
+⚠️ I had **no pre-deploy baseline for `/donate`**, which is the `docs/119`
+lesson I had just quoted; the question was settled from the database instead,
+which is the stronger method and the one I should have reached for first.
+Creating that row is a production write on a money path, so it is an owner
+decision (Gate 8), not an audit's side effect.
+
 ### 9.3 And `docs/144` verified live, with a control
 
 All **8** promoted categories list at least one campaign — community 1,
