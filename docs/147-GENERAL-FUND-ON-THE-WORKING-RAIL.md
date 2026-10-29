@@ -1,7 +1,7 @@
 # 147 — The general fund, on the rail that works
 
 **Date:** 2026-10-29
-**Status:** Code shipped and verified; the production row is the last step.
+**Status:** ✅ LIVE (v140, 2026-10-29). The fund exists and the M-Pesa rail accepts it; see §9.
 **Owner decision:** option **B** of `docs/146` §9.1b — *"wire it with payhero"*,
 plus general-fund CTAs across the pages.
 
@@ -265,13 +265,93 @@ npm run test:integration  315 passed (33 files)
 
 ---
 
-## 9. What is NOT verified
+## 9. ✅ LIVE: v140, and the row
 
-- **No production row exists yet as this doc is written.** The insert is the
-  last step, deliberately **after** the exclusions are deployed, so the fund
-  is never listed for even a minute. Rollback:
+Deployed as **v140** (machine version 140, 1/1 checks, `payhero: ok`). The
+exclusions shipped **first** and were confirmed serving - the CTA present on
+`/campaigns` and `/how-it-works`, and *"U.S. dollars by Stripe"* absent - and
+only then was the row inserted, so the fund was never listed for a minute.
+
+⚠️ **Seven release attempts failed across the three deploys of 2026-10-29**:
+`no capacity available in arn` six times and **`insufficient memory available
+to fulfill request`** once, which is a second wording for the same thing. An
+aborted release leaves production untouched (`docs/146` §9.1a), and the retry
+loop's transient-failure match now covers both.
+
+### 9.1 The row, read back after the insert
+
+```
+id=d7fcb01f-468a-49e1-848f-bee7377a35ea | slug=lastdonor-general-fund
+status=active | currency=KES | goal_amount=10000000 | published_at=None
+verification_status=unverified | category=charity | subject_name=LastDonor
+created_at=2026-10-29 09:19:35Z
+```
+
+A pre-flight refused to run unless the row was absent (`n=0`), so the script
+could not double-insert. `goal_amount` is `CURRENCIES.KES.minGoalMinor` -
+KES 100,000, this project's own floor for a KES campaign. ⚠️ Note that the
+raise cap is **half** that floor, so the fund cannot reach its own goal before
+somebody verifies it; `docs/101` states that relationship deliberately
+("the floor is 2x the pre-verification cap").
+
+### 9.2 The M-Pesa rail accepts it - four probes, none of which pushes
+
+Each stops at a check **before** PayHero is contacted, so no STK push rang a
+real phone:
+
+| probe | result |
+|---|---|
+| the fund, valid KES amount, deliberately invalid phone | **400 `VALIDATION_ERROR`** on `phone` - so it cleared the campaign lookup, the currency, the gateway, the amount AND the cap |
+| the fund, KES 60,000 (over the cap) | **409 `CAP_EXCEEDED`**: *"can accept up to Ksh 50,000.00 before the organiser's ID is checked"* |
+| **control**: a USD campaign on the M-Pesa route | **400 `WRONG_PAYMENT_RAIL`**: *"collected in USD, which is paid by card"* |
+| **control**: the fund on the CARD route | **400 `WRONG_PAYMENT_RAIL`**: *"collected in KES, which is paid by mobile money"* |
+
+That last control is the whole reason `/donate` had to stop rendering the card
+form: `create-checkout` refuses this fund outright. The first probe answered
+**404** twenty minutes earlier, which is the before-and-after.
+
+### 9.3 The exclusions, against the live row
+
+0 fund cards on `/campaigns` page 1, page 2 or the homepage; **12 + 2 = 14**
+campaigns across both pages, unchanged from the pre-insert baseline;
+`?q=general` returns 0 campaigns; the listing API returns 0; the sitemap's 14
+campaign URLs do not include it.
+
+### 9.4 Two things this doc had listed as unverified, now checked
+
+- **`/campaigns/lastdonor-general-fund` answers 404** (its `published_at` is
+  NULL - `docs/131`'s guard), with a real campaign 200 as the control. That is
+  the designed state, and it is why `backTo` is `null`.
+- **Its share card answers 200 `image/jpeg`, 38KB** - no 502. `probeHeroSrc`
+  rendered the designed fallback for the webp hero rather than throwing
+  mid-stream (`docs/112` §7), verified rather than assumed.
+
+### 9.5 ⚠️ `/donate` took 5 minutes to change, and that is the ISR window
+
+The first five reads after the insert answered `x-nextjs-cache: HIT` on the
+**pre-insert** body, then one `STALE`, then `HIT` with the form. `revalidate`
+is 300 and stale-while-revalidate serves the stale copy once while scheduling
+the refresh - `docs/119`'s rule, met exactly. **A single read after a data
+change on this page proves nothing.**
+
+Final state, live, desktop and 390px: `input#mpesa-phone` present, the Ksh
+50/100/200/500/1,000/2,000 ladder, a submit button, zero console errors, and
+the "not accepting donations" notice gone.
+
+⚠️ One cosmetic observation, not changed: the shared form renders a fee ledger
+reading *"Your donation / LastDonor platform fee / Total charged today"*, all
+`Ksh 0.00` before an amount is typed (present in the HTML, not visible in the
+rendered text). On a page whose recipient **is** LastDonor, "LastDonor platform
+fee" is an odd line even at zero. It is the campaign form's copy, unchanged
+since `docs/92`, and a fund-specific variant is a product call.
+
+---
+
+## 10. What is NOT verified
+
+- Rollback, if ever needed:
   `DELETE FROM campaigns WHERE id = 'd7fcb01f-468a-49e1-848f-bee7377a35ea'`,
-  safe while `donations` has none.
+  safe only while `donations` has no row referencing it (the composite FK).
 - **No real M-Pesa donation has been taken through `/donate`.** The rail is
   proven by `docs/92`'s two live KES donations and by the form and route being
   the same ones they used — not by a payment through this page. An STK push
