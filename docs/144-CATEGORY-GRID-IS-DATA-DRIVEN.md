@@ -195,6 +195,43 @@ shapes — not one rule with a weak injection.
 
 ---
 
+## 5.5 ✅ DEPLOYED (v128, 2026-10-29) and verified live
+
+Every figure below has a **pre-deploy baseline** taken against v127, per
+`docs/119`'s lesson that an assertion with no baseline is not a measurement.
+
+| | v127 (before) | v128 (after) |
+|---|---|---|
+| Grid slugs | community, disaster, **education**, emergency, **family**, medical, memorial, veterans | medical, **military**, emergency, veterans, community, disaster, **essential-needs**, memorial |
+| Cards · height | 8 · 640px / 790px | 8 · **640px / 790px** |
+| Sitemap | 56 URLs · **23** category · 14 campaign | 56 URLs · **23** category · 14 campaign |
+
+Measured on the live site: `href="/campaigns/category/military"` and
+`…/essential-needs` are now present in the **server-rendered homepage HTML**
+(the point of the change — a crawler sees them without JavaScript), while
+`family` and `education` are at **0 occurrences**. The sitemap was read
+**twice** (stale-while-revalidate, `docs/119`).
+
+✅ And the link now leads somewhere: `/campaigns/category/military` serves
+**3 campaign links and no empty state**, where the two categories it replaced
+rendered *"No active campaigns right now."* `/campaigns/category/family` still
+answers **200** — unpromoted is not unserved — with `/campaigns/category`
+still **404** as the control.
+
+Release: v128, machine started, 1/1 checks passing, 355s. Health reads
+`degraded` on **Stripe alone** (`database`, `payhero`, `redis` all ok), which
+is the pre-existing `docs/72`/`docs/125` blocker and not this change.
+
+⚠️ **The deploy surfaced a failure mode `docs/119` did not cover** and that
+doc is amended at §2a: `--prerender` was passed with a real `DATABASE_URL` and
+**2 of 8 build reads still failed**, with `(EMAXCONNSESSION) … pool_size: 15`
+rather than a timeout. Neither sitemap was among them (the end-of-deploy report
+read 14), and all four 5-minute routes render live figures on two consecutive
+requests — but **which two routes failed is [UNKNOWN]**, because the fail-soft
+does not name its caller.
+
+---
+
 ## 6. ⛔ Still open
 
 - **A-026 (`docs/143` §5): the listing has no crawlable pagination.**

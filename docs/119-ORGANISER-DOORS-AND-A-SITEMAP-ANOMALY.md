@@ -88,6 +88,45 @@ wedge of docs/37, docs/52 and docs/87. It is recorded here because anybody who
 greps a deploy log for *"pool may be wedged"* will meet it and reach for the
 wrong doc.
 
+### 2a. ⚠️ AMENDMENT 2026-10-29: `--prerender` can fail PARTIALLY, and that is a different failure
+
+Observed on the v128 deploy (`docs/144`). The flag was passed and
+`DATABASE_URL` was set, and **2 of the 8 reads still failed** — not with a
+timeout, but with:
+
+```
+[build] database read failed, pre-rendering as empty; the route will render on
+demand once the schema exists: (EMAXCONNSESSION) max clients reached in session
+mode - max clients are limited to pool_size: 15
+```
+
+Both landed between *"Generating static pages (105/141)"* and *(141/141)*, so
+this is **Supavisor's session-mode ceiling reached under the build's own
+concurrency**, not the hermetic branch above. The distinction matters because
+the two look identical in a `grep` for `database read failed`:
+
+| | hermetic (§2) | partial (here) |
+|---|---|---|
+| Cause | no `DATABASE_URL` at all | session-mode pool exhausted |
+| Reads that fail | **all 8** | **some** (2 of 8) |
+| Error text | `exceeded 15000ms … pool may be wedged` | `(EMAXCONNSESSION) … pool_size: 15` |
+
+⚠️ **So the end-of-deploy sitemap count is necessary and not sufficient.** It
+read **14** on this deploy, which proves only that `sitemap.ts` was not one of
+the two — it says nothing about the other baked routes. [VERIFIED after v128]
+all four 5-minute routes rendered money figures on two consecutive requests,
+so nothing shipped visibly empty; **which two routes actually failed is
+[UNKNOWN]**, because the fail-soft does not name the route it fired in. That
+is the cheap fix if this recurs: have `build-phase.ts` log its caller.
+
+⚠️ And the warning flyctl prints at the end — `DNS verification failed:
+expected 1 AAAA records for lastdonor.fly.dev., got 0` — is **not** caused by
+the deploy and does not affect cron. [VERIFIED] that host has an A record and
+no AAAA, and the `docs/104` §5.1a probe still discriminates over IPv4:
+`update-phases` answers **401** against a fabricated job's **404**. Whether an
+AAAA ever existed is [UNKNOWN]; what is verified is that the cron Worker's
+target still resolves and serves.
+
 **3. The build's own route table bounds the blast radius — and it is seven
 routes, not the twenty-four** that `scripts/deploy.sh:18-22` and the
 `Dockerfile` note both quote. That figure is the count of routes *exporting*
