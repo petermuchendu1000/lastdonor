@@ -282,6 +282,57 @@ than having to be edited.
 
 ---
 
+## A.9 Deployed, and the deployment record
+
+Two deploys in order, per CLAUDE.md, because
+`workers/cron/src/index.ts` bundles `dueJobs` at `wrangler deploy` time:
+
+1. **App → v143** (430s, first attempt, 1/1 checks passing). The route then
+   answered **401** where it had answered **404**, with a fabricated job name
+   still 404 as the control and `refresh-fx-rates` 401 as the positive one -
+   the `docs/104` §5.1a method, which works for cron routes because the
+   middleware serves them and `verifyCronAuth` refuses them. A wrong bearer
+   also 401s, which distinguishes the auth path from mere routing.
+2. **Worker** (`wrangler deploy`, 7.01 KiB, one `*/5` trigger as always).
+   Verified by reading the **deployed bundle** back over the Cloudflare API
+   (`docs/136` §4.1's method) rather than trusting the upload: 13 jobs,
+   `payhero-float` present, and `simulate-donations` still absent - with
+   comments stripped first, because `docs/136` found that job's only
+   occurrence in the bundle was inside a comment.
+
+### A.9a ⚠️ EXACTLY ONE ADMINISTRATOR EXISTS
+
+[VERIFIED in production] `users` holds **1 admin** and 8 donors, all with
+email addresses. So the alert has exactly one recipient. It is not zero - the
+route's "no administrator accounts exist" branch will not be taken - but one
+wrong address or one unread mailbox and nobody is told. `docs/120` §5 recorded
+the same shape for the review notification, where a single administrator
+submitting a campaign notified nobody at all.
+
+⚠️ The production Resend key is the one that matters here and is NOT the key
+in this session's credentials, which `docs/92` found Resend rejects.
+`docs/73` verified production's own key works and that every email it has ever
+sent was delivered; this job's send path has not been exercised against it,
+because the float is above the threshold.
+
+### A.9b ⚠️ A CORRECTION ABOUT `--prerender`, WHICH COST THREE DEPLOYS
+
+I asserted twice, in this session, that `--prerender` was impossible because
+"there is no production `DATABASE_URL`". That was wrong: the credential was
+available the whole time under a different name, and I repeated my own earlier
+note instead of listing what I actually held.
+
+The cost is measurable and was paid three times on 2026-10-29 (v141, v142,
+v143): each hermetic deploy blanked `/donate` for about four to five minutes -
+[VERIFIED: blank at 16:26:14Z, M-Pesa field back at 16:27:45Z, and again
+healed at 19:20:27Z after a 19:16:25Z deploy - matching `revalidate = 300`] -
+and dropped both sitemaps to zero campaign URLs for up to an hour.
+
+⛔ `/donate` is the page that collects real money (`docs/147` §11), so this is
+not a cosmetic cost. **Use `--prerender` when the connection string is
+available.** And ⛔ never let that variable reach the integration or E2E
+suites, whose every file calls `clearDatabase()` in `beforeEach` (`docs/98`).
+
 ## What is NOT verified
 
 - **Not deployed at the time of writing.** A new cron needs TWO deploys in
