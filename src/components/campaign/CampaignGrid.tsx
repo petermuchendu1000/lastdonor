@@ -3,6 +3,7 @@
 import { useState, useCallback, type ReactNode } from 'react';
 import { CampaignCard } from '@/components/campaign/CampaignCard';
 import type { CampaignCategory } from '@/types';
+import type { FxSnapshot } from '@/lib/money/fx-providers';
 
 interface CampaignData {
   id: string;
@@ -36,6 +37,19 @@ interface CampaignGridProps {
   emptyMessage?: string;
   /** Extra node rendered below the empty message */
   emptyAction?: ReactNode;
+  /**
+   * Today's exchange rates, handed to every card INCLUDING the ones this
+   * component appends in the browser.
+   *
+   * ⛔ That is the whole reason it is here. "Load more" fetches rows from the
+   * listing API and builds cards client-side (`docs/145`), so a converted
+   * figure rendered on the server would have covered page 1 and silently not
+   * page 2 - the shape `docs/115` already found once on this component, when
+   * appended cards rendered every amount in dollars.
+   *
+   * Display only (`docs/102`).
+   */
+  fxSnapshot?: FxSnapshot | null;
 }
 
 export function CampaignGrid({
@@ -50,6 +64,7 @@ export function CampaignGrid({
   extraParams,
   emptyMessage,
   emptyAction,
+  fxSnapshot,
 }: CampaignGridProps) {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [cursor, setCursor] = useState(initialCursor);
@@ -118,6 +133,7 @@ export function CampaignGrid({
             currency={campaign.currency}
             goalAmount={campaign.goalAmount}
             donorCount={campaign.donorCount}
+            fxSnapshot={fxSnapshot}
           />
         ))}
       </div>

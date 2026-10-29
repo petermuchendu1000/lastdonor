@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
 import { Money } from '@/components/ui/Money';
+import { LocalAmount } from '@/components/money/LocalAmount';
+import type { FxSnapshot } from '@/lib/money/fx-providers';
 
 
 interface CampaignCardProps {
@@ -24,6 +26,21 @@ interface CampaignCardProps {
   currency: string;
   goalAmount: number;
   donorCount?: number;
+  /**
+   * Today's exchange rates, for showing the goal in the READER's currency.
+   *
+   * ⛔ DISPLAY ONLY, and optional on purpose. Omit it and the card renders no
+   * approximate figure at all - never a wrong one - which is also what
+   * happens when the snapshot is missing (before the first `refresh-fx-rates`
+   * run, or in a build with no `DATABASE_URL`, `docs/119`) or older than
+   * `MAX_FX_AGE_HOURS` (`docs/102` makes staleness a REFUSAL).
+   *
+   * ⚠️ It is a PROP rather than a server-rendered node because `CampaignGrid`
+   * appends cards in the BROWSER after a "Load more" fetch (`docs/145`), and
+   * nothing built on the server can reach those. A node slot would have
+   * converted page 1 and silently not page 2.
+   */
+  fxSnapshot?: FxSnapshot | null;
 }
 
 export function CampaignCard({
@@ -37,6 +54,7 @@ export function CampaignCard({
   currency,
   goalAmount,
   donorCount,
+  fxSnapshot,
 }: CampaignCardProps) {
   /*
    * Hide "for <name>" when the title already names the subject. Matching on
@@ -170,6 +188,37 @@ export function CampaignCard({
                 </span>
               </div>
             )}
+
+            {/*
+              The goal in the READER's own currency, once per card and after
+              the branch above so it appears in both the funded and unfunded
+              shapes.
+
+              The GOAL and not the raised figure, deliberately. It is the
+              number that tells a reader how big the appeal is, and
+              [VERIFIED from production 2026-10-29] every live campaign has
+              `raised_amount = 0`, so converting both would double the
+              approximate figures on a twelve-card grid to say the same
+              nothing twice.
+
+              ⚠️ `fallbackCurrency` matches `campaigns/[slug]/page.tsx`: a
+              non-USD appeal falls back to USD, which a diaspora reader can
+              interpret, and a USD appeal falls back to NOTHING rather than
+              converting USD into USD. The browser's own detection
+              (`docs/103`) replaces either once it resolves, which is how a
+              Kenyan reading a dollar appeal gets shillings.
+
+              Display only - never stored, never summed, never decides
+              anything. See the boundary note in `src/lib/money/fx-convert.ts`.
+            */}
+            <LocalAmount
+              minor={goalAmount}
+              fromCurrency={currency}
+              fallbackCurrency={currency === 'USD' ? null : 'USD'}
+              snapshot={fxSnapshot ?? null}
+              label="Goal is"
+              className="mt-1 block font-sans text-xs text-muted-foreground"
+            />
 
             {/*
               The bar is drawn only once there is progress to draw.

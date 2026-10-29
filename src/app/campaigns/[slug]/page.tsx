@@ -834,6 +834,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
                   currency={rc.currency}
                   goalAmount={rc.goalAmount}
                   donorCount={rc.donorCount}
+                  fxSnapshot={fxSnapshot}
                 />
               ))}
             </div>

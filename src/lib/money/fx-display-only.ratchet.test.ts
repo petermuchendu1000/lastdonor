@@ -47,6 +47,29 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/components/money/LocalAmount.tsx': 'detects the viewer currency and delegates to ApproxMoney',
   'src/app/api/v1/cron/refresh-fx-rates/route.ts': 'the refresh job',
   'src/app/campaigns/[slug]/page.tsx': 'reads the snapshot to pass to ApproxMoney',
+
+  /*
+    Added 2026-10-29. The converter had been wired to ONE figure - the goal on
+    `campaigns/[slug]`- while the cards a visitor actually browses carried no
+    local equivalent at all. These entries are the honest cost of showing it
+    on the listing surfaces, and this comment is the "on purpose" the header
+    of this file asks for.
+
+    ⚠️ Every one of them only PASSES A SNAPSHOT THROUGH to `LocalAmount`.
+    None calls `convertMinor`, and none appears in `MONEY_WRITE_SIGNALS` - the
+    second rule below is what actually checks that, and it is the rule that
+    matters. They are listed here because `importsFx` matches the module path
+    as raw text, so even `import type { FxSnapshot }` trips it.
+  */
+  'src/components/campaign/CampaignCard.tsx':
+    'takes the snapshot as a prop and hands it to LocalAmount for the goal',
+  'src/components/campaign/CampaignGrid.tsx':
+    'passes the snapshot to cards it appends in the browser after Load more',
+  'src/app/(home)/page.tsx': 'reads the snapshot inside its cached data function, for the card grid',
+  'src/app/campaigns/(index)/page.tsx': 'reads the snapshot to pass to CampaignGrid',
+  'src/app/completed-campaigns/page.tsx': 'reads the snapshot to pass to CampaignGrid',
+  'src/app/campaigns/category/[category]/page.tsx':
+    'reads the snapshot to pass to its CampaignCards',
 };
 
 /**

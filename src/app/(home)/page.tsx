@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
+import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import { db } from '@/db';
 import { campaigns, blogPosts } from '@/db/schema';
 import { and, eq, isNotNull, desc, sql } from 'drizzle-orm';
@@ -136,8 +137,28 @@ async function getHomepageData() {
         .groupBy(campaigns.category),
     ]);
 
+  /*
+    The exchange-rate snapshot, read SEQUENTIALLY after the batch above and
+    never inside it. `src/db/pool-fanout.ratchet.test.ts` caps an entry point
+    at three CONCURRENT queries against a pool of five (`docs/87`), and that
+    batch already is three.
+
+    ⚠️ It is read INSIDE the cached function on purpose. This is the busiest
+    public route, and `unstable_cache` holds it for 300s, so the rates cost
+    one query per five minutes rather than one per visitor.
+
+    `docs/144` warns that this cache SERIALIZES what it returns - which is
+    why the category CARDS cannot go through it, since one carries an icon
+    component. An `FxSnapshot` is plain JSON ([VERIFIED] 2,769 bytes in
+    `site_settings`), so it holds perfectly well. Staleness is bounded twice:
+    by this 300s window, and by `docs/102` refusing any rate over
+    `MAX_FX_AGE_HOURS`.
+  */
+  const fxSnapshot = await readFxSnapshot();
+
   return {
     activeCampaigns,
+    fxSnapshot,
     /*
       ⛔ The RAW tally, not the rendered cards. `getHomepageData` is wrapped
       in `unstable_cache`, which serializes what it returns, and a
@@ -258,6 +279,7 @@ export default async function Home() {
                 currency={c.currency}
                     goalAmount={c.goalAmount}
                     donorCount={c.donorCount}
+                    fxSnapshot={data.fxSnapshot}
                   />
                 </div>
               ))}

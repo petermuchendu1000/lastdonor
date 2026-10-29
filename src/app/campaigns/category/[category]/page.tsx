@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import { notFound } from 'next/navigation';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
@@ -130,6 +131,21 @@ export default async function CategoryPage({ params }: PageProps) {
     })),
   };
 
+
+  /*
+    The exchange-rate snapshot, read SEQUENTIALLY and never inside a
+    `Promise.all`. `src/db/pool-fanout.ratchet.test.ts` caps an entry point at
+    three CONCURRENT queries against a pool of five, and a fourth in parallel
+    is how `/admin/settings` came to take 15 seconds and leave wedged
+    backends (`docs/87`).
+
+    `null` is a normal outcome, not an error: before the first
+    `refresh-fx-rates` run, and in a build with no `DATABASE_URL`
+    (`docs/119`), there is no snapshot and the cards render no approximate
+    figure - never a wrong one.
+  */
+  const fxSnapshot = await readFxSnapshot();
+
   return (
     <>
       <script
@@ -165,6 +181,7 @@ export default async function CategoryPage({ params }: PageProps) {
               raisedAmount={campaign.raisedAmount}
               goalAmount={campaign.goalAmount}
               donorCount={campaign.donorCount}
+              fxSnapshot={fxSnapshot}
             />
           ))}
         </div>
