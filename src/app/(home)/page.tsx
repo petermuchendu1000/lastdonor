@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/db';
-import { campaigns, donations, blogPosts } from '@/db/schema';
-import { and, eq, inArray, isNotNull, or, desc, sql } from 'drizzle-orm';
+import { campaigns, blogPosts } from '@/db/schema';
+import { and, eq, isNotNull, or, desc, sql } from 'drizzle-orm';
 import Link from 'next/link';
 import Image from 'next/image';
 import { HeroSection } from '@/components/homepage/HeroSection';
@@ -16,7 +16,6 @@ import { AnimateOnScroll } from '@/components/AnimateOnScroll';
 import { HomepageFAQ } from '@/components/homepage/HomepageFAQ';
 import { seoKeywords } from '@/lib/seo/keywords';
 import { selectShowcaseCategories } from '@/lib/homepage-categories';
-import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 
 export const metadata: Metadata = {
   title: 'LastDonor - Reviewed Crowdfunding with 0% Platform Fees',
@@ -51,34 +50,30 @@ export const dynamic = 'force-dynamic';
 async function getHomepageData() {
   /*
     docs/87 amendment 5. This was six concurrent queries on the busiest
-    public route, against a pool of five. Split into two batches of
-    three, and the two campaign counts merged into one scan.
-  */
-  const [featuredCampaigns, activeCampaigns, stats] =
-    await Promise.all([
-      // Featured campaign: most recently published active
-      db
-        .select({
-          slug: campaigns.slug,
-          title: campaigns.title,
-          heroImageUrl: campaigns.heroImageUrl,
-          subjectName: campaigns.subjectName,
-          campaignOrganizer: sql<string | undefined>`${campaigns.campaignOrganizer}::text`,
-          category: campaigns.category,
-          raisedAmount: campaigns.raisedAmount,
-          currency: campaigns.currency,
-          goalAmount: campaigns.goalAmount,
-        })
-        .from(campaigns)
-        .where(
-          or(
-            eq(campaigns.status, 'active'),
-            eq(campaigns.status, 'last_donor_zone'),
-          ),
-        )
-        .orderBy(desc(campaigns.publishedAt))
-        .limit(1),
+    public route, against a pool of five: split into two batches of three,
+    and the two campaign counts merged into one scan.
 
+    ── ⛔ THREE OF THOSE SIX FED NOTHING (docs/146 §4.0b) ──────────────────
+
+    Found while verifying the docs/146 deploy. [VERIFIED] `data` is read in
+    exactly three places - `activeCampaigns`, `categoryCounts`,
+    `latestPosts` - and this function has exactly one caller, so
+    `featuredCampaign`, `totalDonors`, `campaignsCompleted` and
+    `peopleSupported` were computed, cached and discarded.
+
+    `docs/51` removed `ImpactCounter` (which rendered the three figures) and
+    the hero stopped reading a featured row; the queries behind them stayed.
+    The `docs/119` `_hasCampaigns` shape, three times over, in the one file
+    whose own comment above records that its fan-out was already a problem -
+    including a `COUNT(DISTINCT donor_email)` scan of `donations`.
+
+    So: one batch of three, which is the `docs/87` cap exactly, and one
+    round trip instead of two. If a counter comes back, add its query WITH
+    its renderer, and read `COMPLETED_STATUSES` for anything called
+    "completed" (`docs/146`).
+  */
+  const [activeCampaigns, latestPosts, categoryCounts] =
+    await Promise.all([
       // Active campaigns for grid (top 6 by total donations)
       db
         .select({
@@ -106,76 +101,53 @@ async function getHomepageData() {
         .orderBy(desc(campaigns.raisedAmount))
         .limit(6),
 
-      // Aggregate platform stats
+      // Latest published blog posts
       db
         .select({
-
-          totalDonors: sql<number>`COALESCE(COUNT(DISTINCT CASE WHEN ${donations.source} = 'real' THEN ${donations.donorEmail} END), 0)`,
+          slug: blogPosts.slug,
+          title: blogPosts.title,
+          excerpt: blogPosts.excerpt,
+          coverImageUrl: blogPosts.coverImageUrl,
+          authorName: blogPosts.authorName,
+          category: blogPosts.category,
+          publishedAt: blogPosts.publishedAt,
         })
-        .from(donations),
+        .from(blogPosts)
+        .where(eq(blogPosts.published, true))
+        .orderBy(desc(blogPosts.publishedAt))
+        .limit(3),
 
+      /*
+        Live campaigns per category, for the showcase grid (docs/144).
+
+        ⚠️ `publishedAt IS NOT NULL` is STRICTER than the category page's own
+        filter, which is status-only. That asymmetry is deliberate and is the
+        safe direction: this count is a SUBSET of what that page would list,
+        so the grid can under-promote a category but can never put a card in
+        front of a visitor whose page then says "No active campaigns right
+        now". It is also the `docs/131` predicate - `published_at` is the
+        record that a person approved publication, and a status allowlist
+        cannot answer that.
+      */
+      db
+        .select({
+          category: campaigns.category,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(campaigns)
+        .where(
+          and(
+            or(
+              eq(campaigns.status, 'active'),
+              eq(campaigns.status, 'last_donor_zone'),
+            ),
+            isNotNull(campaigns.publishedAt),
+          ),
+        )
+        .groupBy(campaigns.category),
     ]);
 
-  const [latestPosts, campaignTotals, categoryCounts] = await Promise.all([
-    // Latest published blog posts
-    db
-      .select({
-        slug: blogPosts.slug,
-        title: blogPosts.title,
-        excerpt: blogPosts.excerpt,
-        coverImageUrl: blogPosts.coverImageUrl,
-        authorName: blogPosts.authorName,
-        category: blogPosts.category,
-        publishedAt: blogPosts.publishedAt,
-      })
-      .from(blogPosts)
-      .where(eq(blogPosts.published, true))
-      .orderBy(desc(blogPosts.publishedAt))
-      .limit(3),
-
-    // Completed campaigns, and the people they supported, in one scan
-    db
-      .select({
-        // ⛔ One definition of completed, shared with the `/campaigns` tab,
-        // `/completed-campaigns` and `/api/v1/stats` (docs/146). The
-        // sibling `supported` below has always used `completed` alone, so
-        // this query carried two definitions at once.
-        completed: sql<number>`COUNT(*) FILTER (WHERE ${inArray(campaigns.status, [...COMPLETED_STATUSES])})`,
-        supported: sql<number>`COUNT(DISTINCT ${campaigns.subjectName}) FILTER (WHERE ${campaigns.status} = 'completed')`,
-      })
-      .from(campaigns),
-
-    /*
-      Live campaigns per category, for the showcase grid (docs/144).
-
-      ⚠️ `publishedAt IS NOT NULL` is STRICTER than the category page's own
-      filter, which is status-only. That asymmetry is deliberate and is the
-      safe direction: this count is a SUBSET of what that page would list, so
-      the grid can under-promote a category but can never put a card in front
-      of a visitor whose page then says "No active campaigns right now". It is
-      also the `docs/131` predicate - `published_at` is the record that a
-      person approved publication, and a status allowlist cannot answer that.
-    */
-    db
-      .select({
-        category: campaigns.category,
-        count: sql<number>`COUNT(*)`,
-      })
-      .from(campaigns)
-      .where(
-        and(
-          or(
-            eq(campaigns.status, 'active'),
-            eq(campaigns.status, 'last_donor_zone'),
-          ),
-          isNotNull(campaigns.publishedAt),
-        ),
-      )
-      .groupBy(campaigns.category),
-  ]);
-
   return {
-    featuredCampaign: featuredCampaigns[0] ?? null,
     activeCampaigns,
     /*
       ⛔ The RAW tally, not the rendered cards. `getHomepageData` is wrapped
@@ -185,10 +157,6 @@ async function getHomepageData() {
       is pure and runs per render instead, which costs nothing.
     */
     categoryCounts,
-
-    totalDonors: Number(stats[0]?.totalDonors ?? 0),
-    campaignsCompleted: Number(campaignTotals[0]?.completed ?? 0),
-    peopleSupported: Number(campaignTotals[0]?.supported ?? 0),
     latestPosts,
   };
 }

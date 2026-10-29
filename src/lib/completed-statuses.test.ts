@@ -234,7 +234,15 @@ describe('rule 4: the surfaces that count or list completed read the constant', 
     'app/campaigns/(index)/page.tsx',
     'app/completed-campaigns/page.tsx',
     'app/api/v1/stats/route.ts',
-    'app/(home)/page.tsx',
+    /*
+      ⚠️ `app/(home)/page.tsx` was the fourth site and is GONE, not exempted
+      (docs/146 §4.0b). Verifying the deploy found that its `completed` tally
+      was read by nothing - `docs/51` removed `ImpactCounter` and left the
+      query behind - so the fix was to delete the query, not to make it read
+      the constant. A site list must shrink when a surface disappears;
+      leaving it here would have failed the build for the right reason and
+      sent the next reader looking for a tally that no longer exists.
+    */
     /*
       The LISTING API's `status=completed` branch. `/completed-campaigns`
       passes that param through `CampaignGrid`'s `extraParams`, so this is the

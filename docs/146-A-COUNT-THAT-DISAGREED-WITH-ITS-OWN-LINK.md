@@ -121,7 +121,7 @@ question *"what else decides for itself what completed means?"*
 | 1 | `/campaigns` tab badge | `count(*) FILTER (WHERE status IN ('completed','archived'))` | `COMPLETED_STATUSES` |
 | 2 | `/completed-campaigns` listing | `eq(status,'completed')` (the other end) | `COMPLETED_STATUSES` |
 | 3 | `/api/v1/stats` `campaignsCompleted` — **public** | `inArray(status,['completed','archived'])`, beside a sibling using `'completed'` | `COMPLETED_STATUSES` |
-| 4 | `/` homepage `completed` tile | `COUNT(*) FILTER (… IN ('completed','archived'))`, beside `supported` using `'completed'` | `COMPLETED_STATUSES` |
+| 4 | `/` homepage `completed` tile | `COUNT(*) FILTER (… IN ('completed','archived'))`, beside `supported` using `'completed'` | **query deleted** — nothing read it (§4.0b) |
 | 5 | `/transparency` **"Campaigns Funded"** | `COUNT(CASE WHEN … IN ('completed','archived') …)` | `COMPLETED_STATUSES` |
 | 6 | `browse-params.ts` local `COMPLETED_STATUSES` | `['completed','archived']` — told a visitor `?status=archived` is *served by* `/completed-campaigns` | reads the shared constant |
 
@@ -152,6 +152,57 @@ the hardcoded `eq`) fails that row.
 ⚠️ This landed one commit after the other six and is a **latent** fix: it
 changes no query result today, so it was left to ride the next deploy rather
 than taking a six-minute release of its own.
+
+### 4.0b And site 4 turned out to feed nothing at all
+
+Found while verifying the deploy, by checking the homepage figure live and
+discovering there was no figure to check: `ImpactCounter` renders
+**"Campaigns Funded"** from `campaignsCompleted`, and [VERIFIED] `docs/51`
+removed that component from the homepage — *"it advertised the absence it was
+meant to dispel"* — leaving the query behind.
+
+Asking what the homepage actually reads:
+
+```
+$ grep -o "data\.[a-zA-Z]*" src/app/(home)/page.tsx | sort | uniq -c
+      2 data.activeCampaigns
+      1 data.categoryCounts
+      2 data.latestPosts
+```
+
+`getCachedHomepageData` has exactly **one** caller, so `featuredCampaign`,
+`totalDonors`, `campaignsCompleted` and `peopleSupported` were being computed,
+cached and discarded — **three of the six queries** on the busiest public
+route, one of them a `COUNT(DISTINCT donor_email)` scan of `donations`. The
+file's own comment records that this fan-out was already a problem
+(`docs/87` amendment 5, *"six concurrent queries ... against a pool of five"*),
+so half of what it was split into two batches to survive was dead work.
+
+This is the `docs/119` `_hasCampaigns` shape — a query whose result is thrown
+away — three times over. The three dead queries are deleted and the remaining
+three run as **one** batch, which is the `docs/87` cap exactly and one round
+trip instead of two. The figures are derived from source, not measured at the
+database.
+
+⚠️ **Site 4 is therefore GONE from rule 4's list, not exempted.** A site list
+must shrink when a surface disappears: leaving `app/(home)/page.tsx` in it
+would have failed the build for the right reason while sending the next reader
+to look for a tally that no longer exists.
+
+Proven behaviour-preserving by a **paired** render against one fixture with the
+Next cache cleared both times: **6 campaign cards, 1 category card, innerText
+3,813 characters — identical before and after**, no page errors.
+
+⚠️ And that measurement was **void twice** before it was valid, each time for a
+different reason, and both read as a broken homepage:
+
+1. The integration suite had **truncated the fixture database** between the
+   seed and the probe (every file calls `clearDatabase()` in `beforeEach`), so
+   the page correctly rendered nothing.
+2. After re-seeding, `getHomepageData` is wrapped in `unstable_cache` with
+   `revalidate: 300`, which was still **serving the empty result** — `docs/144`
+   §5.2 word for word, met again. Only `rm -rf .next/cache` and a restart
+   produced a real reading.
 
 Site 6 is a different shape: it is not a count, it is a claim about where a
 filter value is served. `/campaigns?status=archived` reported that `archived`
@@ -307,7 +358,93 @@ deltas are exactly the two new files (15 unit + 6 integration).
 
 ---
 
-## 9. What was NOT checked
+## 9. The deploy, and what production says now
+
+⛔ **The first release attempt FAILED, twice, and not because of this change.**
+The image built and pushed
+(`deployment-01M6384RGQT688PQR2WEBHEV0S`), then:
+
+```
+Running lastdonor release_command: /usr/local/bin/release-migrate
+✖ Failed: error running release_command machine: error creating a
+  release_command machine: failed to launch VM: no capacity available in arn
+Error: release command failed - aborting deployment
+```
+
+`fly.toml:227` sets `release_command = release-migrate` (`docs/116` §8.4: **a
+deploy does run migrations**), which needs a fresh ephemeral machine, and
+Stockholm had no capacity. [VERIFIED after both failures] production was still
+**v128**, one machine, health check passing — **an aborted release changes
+nothing**, which is what makes retrying safe. `fly releases` records them as
+v129 and v130 `failed`.
+
+⚠️ Retrying does **not** need a rebuild: the image is already in the registry,
+so `fly deploy --image <that tag>` skips the six-minute build and goes straight
+to the release. That also keeps the database URL off the command line, since
+`--prerender`'s build secret is only needed while building. It succeeded on the
+first retry: **v131**, machine version 131, 1/1 checks passing.
+
+### 9.1 Live verification (v131)
+
+| | baseline (v128) | now (v131) |
+|---|---|---|
+| `/api/v1/stats` `campaignsCompleted` | **1** | **0** |
+| `/api/v1/stats` `campaignsActive` (control) | 14 | 14 |
+| `/campaigns` `nav[aria-label="Campaign status"]` | present | **absent** |
+| `/campaigns` campaign cards (control) | 12 | 12 |
+| `/transparency` "Campaigns Funded" | **1** | **0** |
+| `/transparency` "Campaigns Live Now" (control) | 14 | 14 |
+| `/completed-campaigns` cards (control) | 0 | 0 |
+| sitemap campaign URLs / total | 14 / 56 | 14 / 56 |
+
+The sitemap was read **twice** (`docs/119`: stale-while-revalidate means one
+request reads as a failure) — `x-nextjs-cache: HIT` both times, 14 campaign
+URLs, so the one build-time `EMAXCONNSESSION` read failure did not land on
+either sitemap. ⚠️ **Which route it did land on is [UNKNOWN]**: the build log
+prints the failure without naming the route, and `/transparency` (a 5-minute
+baked route) answers with real figures, so if it was baked empty it has already
+healed.
+
+⚠️ **One of my verification controls FAILED and the control was the bug.** It
+reported `/campaigns` serving **0** campaign cards. The subject was fine — 12
+cards, `initialHasMore: true`, `initialCursor: "12"` in the RSC payload — and
+the probe was `grep -c 'href="/campaigns/'` nested inside a `"$( … )"`, where
+the pattern's own `"` closed the outer string. **Third broken probe of this
+change**, after §5.2 and §4.0b's two void renders.
+
+### 9.2 Bonus: `docs/145` reached production for the first time
+
+That commit was pushed and never deployed, so this image carries it. Verified
+live: page 1 holds **12** campaigns and `?page=2` holds **2**, with **0**
+overlap; `tuan-nguyen` — the campaign `docs/143` §5 found orphaned — is on page
+2 with a crawlable link; `rel="next"` on page 1 and `rel="prev"` on page 2;
+canonicals self-reference (`/campaigns` and `/campaigns?page=2`); and
+`?page=99` answers **200** reading *"There is no page 99. This listing has 2
+pages."*
+
+⛔ **A finding against my own `docs/145` work, reported not fixed:**
+`/campaigns?page=99` is served **`index, follow`** with a self-referencing
+canonical of `?page=99`, so an out-of-range page is an indexable empty page.
+The right answer is `noindex, follow` when the requested page is beyond the
+end — but `generateMetadata` runs no query and cannot know the total without
+adding one, which is the **fourth concurrent query** `docs/145` §3 declined on
+`docs/87` grounds. `page=` appears **0** times in the sitemap and nothing links
+such a URL, so the exposure is a crawler probing parameters; Google would most
+likely classify it a soft 404 itself. Recorded rather than fixed, because the
+fix is a concurrency decision on the busiest public route.
+
+### 9.3 And `docs/144` verified live, with a control
+
+All **8** promoted categories list at least one campaign — community 1,
+disaster 1, emergency 2, essential-needs 1, medical 3, memorial 1, military 3,
+veterans 2, which is 14, every live campaign — while the two categories it
+de-promoted, `family` and `education`, list **0**. `military` (tied for the most
+campaigns on the platform) and `essential-needs` are linked from the homepage
+for the first time.
+
+---
+
+## 10. What was NOT checked
 
 - **No E2E run.** The E2E fixture seeds no `archived` campaign, so the suite
   cannot see this class; the browser verification in §5.1 was done by hand
@@ -323,3 +460,10 @@ deltas are exactly the two new files (15 unit + 6 integration).
   the admin tiles. Not examined.
 - **Nothing retracts the archived row.** It is the PayHero test campaign and
   stays archived; it simply stops being counted as a success.
+- **The out-of-range page's `robots` meta is left as it is** (§9.2), and the
+  `EMAXCONNSESSION` route is unidentified (§9.1).
+- **The query reduction in §4.0b is derived from source, not measured at the
+  database.** `pg_stat_statements` is not enabled on the throwaway Postgres and
+  the claim is syntactic (six query builders became three).
+- **`campaigns.completed_at` has no writer ratchet**, as §2.2 depends on it
+  having two. Recorded, not built.
