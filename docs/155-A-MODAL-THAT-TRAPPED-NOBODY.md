@@ -293,6 +293,66 @@ Before it becomes a build gate it needs a false-positive check on the 23.
 
 ---
 
+## 8. ⛔ `scripts/deploy.sh` reported a FAILED deploy as finished
+
+Found by this work's own deploy failing.
+
+**[VERIFIED]** v159 aborted with
+`408: failed to launch VM` creating the `release_command` machine, leaving
+production on v158. `scripts/deploy.sh` then printed:
+
+```
+deploy finished in 380s
+sitemap: 8 campaign URL(s) at https://lastdonor.org/sitemap.xml
+```
+
+and **exited 0**. Four lines above sat
+`Error: release command failed - aborting deployment`, but the last two lines
+of the run read exactly like a success, and the exit status agreed with them.
+Only `flyctl releases` showed the truth.
+
+⚠️ `set -euo pipefail` is at `deploy.sh:31`, so the script should have aborted
+at the failing command. It did not, which means flyctl exited **0** in that
+invocation — while a direct `flyctl deploy --image` on the same failure
+returned **1**. That inconsistency is **[INFERRED]** from the control flow
+rather than observed directly, and it is precisely why the fix does **not**
+rely on the exit code.
+
+### 8.1 The fix
+
+`deploy.sh` now captures flyctl's status *and* asks Fly what the latest
+release's STATUS is, and refuses to report success unless it is `complete` —
+printing the flyctl code, the release, the live machine version, and the
+retry-the-pushed-image recipe. CLAUDE.md's own rule (*"'the deploy ran'
+requires reading the deploy result AND the live version"*) applied to the
+script that does the reporting.
+
+Proven able to give both answers: the parser reads `v161 complete` from the
+live app and `v160 failed` from the real failed output, and the branch refuses
+on the second.
+
+⚠️ The failure PATH itself is exercised only through that parser, not by
+re-triggering a 408 — a capacity error is not something I can summon.
+
+### 8.2 ⚠️ A CLAIM IN CLAUDE.md IS NARROWED
+
+It says *"**every single failure** left a machine in
+`fly_app_release_command` stuck in state `created`"*. Across the three
+failures here (v159, v160, and the first `--image` retry)
+`flyctl machine list` reported **0** such machines each time. So that
+"every" is too strong: orphans accumulate **sometimes**. Causation was
+already marked [UNKNOWN] there; the frequency now is too. The retry loop
+clears them when present, which costs nothing either way.
+
+### 8.3 What made the retry work is not known
+
+Attempt 1 of the orphan-clearing loop succeeded immediately, with **0**
+orphans to clear — so the clearing cannot be what helped, and the difference
+between that attempt and the two failures before it is **[UNKNOWN]**.
+Capacity, most likely, which nothing here can verify.
+
+---
+
 ## 7. What was NOT checked
 
 - **No screen reader was run.** Every claim here is about focus, keys and the
@@ -306,9 +366,18 @@ Before it becomes a build gate it needs a false-positive check on the 23.
   reported **`tr[role]=0` on all three pages**, because the fixture has no
   withdrawals and no audit rows, so those rows never rendered. A faithful
   fixture would settle it.
-- The media-picker dialog was fixed by the same hook but measured only
-  indirectly: the browser walk exercised the **edit** dialog. Its unit
-  coverage is the hook's.
+- ✅ **The media-picker dialog is now verified ON PRODUCTION** (v158), which
+  is the stronger half: the wizard is reachable without signing in, so the
+  dialog was opened, focus landed inside on "Upload a photo", Escape closed
+  it, and focus returned to the opener — with the Radix sheet passing in the
+  same run as the control.
+- ⛔ **The §6 accessible-name fix is NOT verified on production.** Those are
+  admin pages; `/admin/campaigns` answers **307** without a session, and the
+  labels are in code-split admin chunks that the homepage does not load (a
+  scan of its 27 chunks found none of the three strings). It is verified on a
+  local production build by two independent methods, before and after, and
+  that is all. Reaching production's admin screens needs the owner's
+  credentials.
 - Focus **visibility** (is there a visible ring?) was not measured — only
   focus location.
 - `/admin` was reached as an admin; an editor's keyboard path was not walked.

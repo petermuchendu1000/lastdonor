@@ -69,8 +69,53 @@ fi
 
 echo "deploying ${APP}..."
 start=$(date +%s)
-flyctl "${ARGS[@]}" "${EXTRA[@]+"${EXTRA[@]}"}"
-echo "deploy finished in $(( $(date +%s) - start ))s"
+rc=0
+flyctl "${ARGS[@]}" "${EXTRA[@]+"${EXTRA[@]}"}" || rc=$?
+elapsed=$(( $(date +%s) - start ))
+
+# ---------------------------------------------------------------------------
+# Do not report success without checking. Added 2026-10-30, docs/155 §8.
+#
+# [VERIFIED] this script printed "deploy finished in 380s" and a populated
+# sitemap report, and exited 0, on a deploy whose release had FAILED with
+# `408: failed to launch VM` creating the release_command machine - leaving
+# production on the PREVIOUS version. The log said
+# `Error: release command failed - aborting deployment` about four lines
+# above, and the two lines after it read exactly like success.
+#
+# `set -euo pipefail` is in force at the top of this file, so flyctl must have
+# exited 0 in that invocation - a direct `flyctl deploy --image` on the same
+# failure returned 1. That inconsistency is the reason this check does not
+# rely on the exit code: it asks Fly what the latest release's STATUS is.
+# CLAUDE.md's own rule - "'the deploy ran' requires reading the deploy result
+# AND the live version" - applied to the script that reports it.
+# ---------------------------------------------------------------------------
+release_status() {
+  flyctl releases --app "$APP" 2>/dev/null \
+    | awk 'NR>1 && $1 ~ /^v[0-9]+$/ { print $1, $3; exit }'
+}
+
+latest="$(release_status || true)"
+version="${latest%% *}"
+status="${latest#* }"
+
+if [ "$rc" -ne 0 ] || [ "$status" != "complete" ]; then
+  echo "" >&2
+  echo "DEPLOY DID NOT LAND after ${elapsed}s." >&2
+  echo "  flyctl exit code : ${rc}" >&2
+  echo "  latest release   : ${version:-unknown} ${status:-unknown}" >&2
+  flyctl status --app "$APP" 2>/dev/null | awk '/^ app /{ print "  live machine     : version " $5 }' >&2
+  echo "" >&2
+  echo "  An aborted release leaves production on the PREVIOUS version, which" >&2
+  echo "  stays healthy (docs/146 §9). Retry the image that was already pushed:" >&2
+  echo "    flyctl deploy --app ${APP} --image <registry tag from the log above>" >&2
+  echo "  and clear any orphaned release machine first:" >&2
+  echo "    flyctl machine list --app ${APP} | grep fly_app_release_command" >&2
+  echo "" >&2
+  exit 1
+fi
+
+echo "deploy finished in ${elapsed}s - release ${version} ${status}"
 
 # ---------------------------------------------------------------------------
 # Say what this deploy just published to crawlers.

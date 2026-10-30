@@ -327,7 +327,16 @@ call `flyctl deploy`. There is no lint, no typecheck, no test, no dirty-tree
 check, no branch check and no health read. It is a flag wrapper, and the
 reasons it exists are `--depot=false` and the proxy CA, not safety. **If you
 deploy with it, you are the gate** — run
-`npm run lint && npm run typecheck && npm run test:unit` yourself first. Either
+`npm run lint && npm run typecheck && npm run test:unit` yourself first.
+⛔ **And until 2026-10-30 it reported a FAILED deploy as finished** (`docs/155`
+§8): on a release that aborted with `408: failed to launch VM`, leaving
+production on the previous version, it printed `deploy finished in 380s` plus a
+populated sitemap report and **exited 0**, four lines below flyctl's own
+`Error: release command failed`. It now reads the latest release's STATUS from
+Fly and refuses to report success unless it is `complete`. **Do not take its
+word for a deploy landing without that check being present** — and never infer
+success from the exit code alone, which was 0 on that failure while a direct
+`flyctl deploy --image` on the same failure returned 1. Either
 script needs `fly auth login` or an **org-scoped** `FLY_API_TOKEN` — a builder-
 or deploy-scoped token cannot see the app — and takes roughly 6 minutes
 (measured: 364s for v109).
@@ -383,9 +392,13 @@ stays live and healthy and `fly releases` records the attempt as `failed`.
 half of that was wrong.** This line used to end *"and `fly machine list` shows
 no orphaned release machine holding capacity"*. Across **nine** failed release
 attempts in one day — three wordings, `408` launching the VM,
-`deadline_exceeded`, and `machine failed to start` — **every single failure
-left a machine in `fly_app_release_command` stuck in state `created`**, and
-seven were destroyed by hand. Always check:
+`deadline_exceeded`, and `machine failed to start` — **a failure often leaves a
+machine in `fly_app_release_command` stuck in state `created`**, and seven were
+destroyed by hand. ⚠️ **NARROWED 2026-10-30 (`docs/155` §8.2): this used to say
+"every single failure".** Across three more failures that day (v159, v160 and an
+`--image` retry) `fly machine list` reported **0** such machines each time, so
+"every" was too strong — they accumulate *sometimes*. Clearing them costs
+nothing, so always check:
 
 ```
 fly machine list --app lastdonor | grep fly_app_release_command
