@@ -213,25 +213,83 @@ end.
 
 ---
 
-## 6. Reported, NOT fixed — the next pass
+## 6. ✅ Seven nameless admin controls — found, verified three ways, fixed
 
-axe (WCAG 2.1 AA) on the admin screens with keyboard-activated rows found
-**seven critical "control with no accessible name" violations**:
+Running axe (WCAG 2.1 AA) over the admin screens with keyboard-activated rows
+turned up **seven critical "control with no accessible name" violations**.
+This is `docs/134`'s class — icon-only admin controls named by `aria-label` —
+with the label **missing**.
 
 | page | violation | nodes | what they are |
 |---|---|---|---|
-| `/admin/campaigns` | `button-name` | **5** | the per-row action menu triggers (`aria-haspopup="menu"`) |
-| `/admin/campaigns` | `select-name` | **1** | a filter `<select>` |
-| `/admin/audit-log` | `button-name` | **1** | a Radix Select trigger (`role="combobox"`) |
+| `/admin/campaigns` | `button-name` | **5** | the per-row action menu triggers |
+| `/admin/campaigns` | `select-name` | **1** | the category filter `<select>` |
+| `/admin/audit-log` | `button-name` | **1** | the event-filter Select trigger |
 
-A screen-reader user hears "button" five times on `/admin/campaigns` with no
-indication of what any of them opens. This is `docs/134`'s class — icon-only
-admin controls named by `aria-label` — with the label **missing**. Verified by
-axe only so far, not yet three ways, and not fixed: it is a coherent finding
-set of its own and half-doing it alongside this would be worse than naming it.
+### 6.1 [VERIFIED] three ways
+
+1. **axe**: the counts above.
+2. **Source**: `CampaignsList.tsx:380` is a `DropdownMenuTrigger` wrapping a
+   `<Button>` whose only child is `<EllipsisVerticalIcon>`, and `docs/70`
+   makes icons `aria-hidden` — so there was no name to compute. `:303`'s
+   `<select>` had no `aria-label`. `AuditLogViewer.tsx:127`'s trigger had only
+   a `<SelectValue>`.
+3. **Playwright's own accessible-name computation** (`ariaSnapshot`),
+   independent of axe: **6 nameless** interactive nodes on `/admin/campaigns`
+   and **1** on `/admin/audit-log` — against **55** and **44** *named* nodes
+   on the same pages, which is the control proving names were being resolved.
+
+### 6.2 ⚠️ The audit-log one is the instructive case
+
+That trigger renders the visible text "All events" and was still **nameless**.
+For `role="combobox"` the contents are the VALUE, not the label, and the
+`placeholder` only shows while empty. A control can read perfectly on screen
+and be anonymous to a screen reader.
+
+### 6.3 The fix, and why the labels say what they say
+
+Three `aria-label`s. The row menus are named **per row**
+(`Actions for ${c.title}`) rather than "Actions" — five identically named
+buttons would be only marginally better than five nameless ones, since the one
+thing the user needs is which row they are on.
+
+**[VERIFIED after]** axe: `button-name` and `select-name` gone,
+`/admin/audit-log` at **0 violations**. Playwright: **0 nameless** on both
+pages, named counts 55→57 and 44→45.
+
+### 6.4 ⛔ AND A SWEEP, enumerated and NOT done
+
+The same detection run across all of `src/components/admin/` finds **23 more
+unnamed controls** — 4 `<select>`s and 19 `DropdownMenuTrigger`/`SelectTrigger`s
+— on pages this pass never loaded:
+
+```
+selects   CampaignVouches:289  PayoutAccountsPanel:141,156  TrustedInstitutions:373
+triggers  BlogEditor:139  BlogPostsList:113  BulkEmailDashboard:441
+          DonationsList:121,134  DonorProfileEditor:123  DonorSegmentation:247
+          GovernancePanel:275  InfoRequestsDashboard:169,248
+          InteractionTimeline:144  NewsFeedMonitor:142,155  PipelineMonitor:557
+          RefundBatchDashboard:195  RelationshipsList:145  TopicQueueList:130
+          UsersList:364  VerificationQueue:122
+```
+
+A name can legitimately come from three places — `aria-label`/`aria-labelledby`,
+an `id` paired with a `<Label htmlFor>`, or real text content — and the
+detector accepts all three (10 triggers and 6 selects pass it today).
+
+⛔ **No ratchet was added, deliberately.** With 23 offenders a general rule
+either fails the build or needs 23 exceptions, and an allowlist of 23 is the
+hole `docs/152` is about. The honest move is the sweep: name all 23, then the
+rule lands with nothing to except. Each label needs a decision about what that
+control actually filters, which is why it is a pass of its own rather than a
+bolt-on.
+
+⚠️ The detector is validated only in the negative direction so far (it accepts
+16 named controls and flagged exactly the 7 that two other methods confirmed).
+Before it becomes a build gate it needs a false-positive check on the 23.
 
 `color-contrast` also reports 4 nodes on `/admin/payouts` and 4 on
-`/admin/campaigns`; not this journey's subject and not investigated.
+`/admin/campaigns` — not this journey's subject and not investigated.
 
 ---
 

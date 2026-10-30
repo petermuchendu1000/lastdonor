@@ -124,7 +124,13 @@ export function AuditLogViewer({
           />
         </div>
         <Select value={eventFilter} onValueChange={setEventFilter}>
-          <SelectTrigger className="w-56 bg-background">
+          {/*
+            ⚠️ The visible text was never the problem: this trigger renders
+            "All events" and still had no accessible NAME, because for
+            `role="combobox"` the contents are the VALUE, not the label
+            (`docs/155` §6). The placeholder is only shown while empty.
+          */}
+          <SelectTrigger className="w-56 bg-background" aria-label="Filter by event type">
             <SelectValue placeholder="Filter by event type" />
           </SelectTrigger>
           <SelectContent>

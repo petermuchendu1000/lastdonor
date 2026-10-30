@@ -301,6 +301,7 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns, isAdmin
           />
         </div>
         <select
+          aria-label="Filter campaigns by category"
           value={categoryFilter ?? ''}
           onChange={(e) => { setCategoryFilter(e.target.value || null); setPage(1); }}
           className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none transition-colors duration-100 focus:border-primary focus:ring-2 focus:ring-ring"
@@ -378,7 +379,24 @@ export function CampaignsList({ campaigns, statusCounts, totalCampaigns, isAdmin
                       <td className="px-2 py-3 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            {/*
+                              ⛔ Named per ROW, not just "Actions". This button's
+                              only child is an icon, and `docs/70` makes icons
+                              `aria-hidden`, so it had NO accessible name at all -
+                              [VERIFIED three ways, `docs/155` §6: axe
+                              `button-name` x5, no label in source, and
+                              Playwright's own name computation reporting five
+                              nameless buttons against 55 named ones on the same
+                              page]. A screen-reader user heard "button" five
+                              times with nothing to tell the rows apart, which is
+                              why the campaign title is in the name.
+                            */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              aria-label={`Actions for ${c.title}`}
+                            >
                               <EllipsisVerticalIcon className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
