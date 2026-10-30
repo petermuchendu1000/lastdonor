@@ -221,6 +221,77 @@ const INITIAL: FormData = {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * One validation message, marked so the form can find it again.
+ *
+ * ── WHY THIS EXISTS (`docs/153`) ────────────────────────────────────────────
+ *
+ * `goNext` and `handlePreviewLaunch` both read `if (!validateStep(…)) return;`
+ * - a bare return. `validateStep` sets the errors, React renders them beside
+ * their fields, and nothing moves the person to them. The action bar is
+ * pinned to the bottom of the viewport, so the person is ALWAYS at the end of
+ * the page when they press it, and on the review screen the page is 2,093px
+ * against an 844px viewport.
+ *
+ * [VERIFIED by execution] pressing "Preview & submit" with no cover photo
+ * rendered "A campaign photo is required" at y=386 while the visible band was
+ * 1249..2093 - **863px above the top of the screen** - with no toast, no
+ * scroll and no modal. The page looked identical. And the wizard INVITES that
+ * state: screen 3 offers "Skip for now" (`:2349`), whose own validation
+ * comment says *"no required fields; photo is validated at Review"*.
+ *
+ * ⛔ `data-field-error` is what `revealFirstError` searches for. A class-based
+ * search was rejected: `text-red-500` is also worn by a non-error button
+ * (`:2084`), so it would match something that is not a validation message -
+ * the kind of selector that matches both the fixed and the broken version.
+ *
+ * ⚠️ `role="alert"` is not decoration here. These messages appear AFTER the
+ * press, so without a live region a screen-reader user is told nothing at
+ * all - the same silence, by a different route.
+ */
+function FieldError({
+  field,
+  className = 'text-sm text-red-500',
+  children,
+}: {
+  field: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <p id={`${field}-error`} data-field-error={field} role="alert" className={className}>
+      {children}
+    </p>
+  );
+}
+
+/**
+ * Put the first validation message on screen, and the caret in its field.
+ *
+ * Picks by smallest viewport `top`, not by key order. `FormErrors` is a
+ * `Partial<Record<string, string>>`, so its key order is insertion order and
+ * has no relationship to where the fields sit on screen - and the point of
+ * this function is to move someone to the message they can act on first.
+ * Reading position asks the page rather than trusting that correspondence.
+ */
+function revealFirstError() {
+  const nodes = Array.from(document.querySelectorAll<HTMLElement>('[data-field-error]'));
+  if (nodes.length === 0) return;
+  const first = nodes.reduce((a, b) =>
+    a.getBoundingClientRect().top <= b.getBoundingClientRect().top ? a : b,
+  );
+  first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  /*
+    Focus the control the message describes where one exists. Several of these
+    fields are a radiogroup or an upload area rather than a single input, so a
+    missing id is normal and the scroll alone is the fallback.
+  */
+  const control = document.getElementById(first.dataset.fieldError ?? '');
+  if (control && typeof (control as HTMLElement).focus === 'function') {
+    (control as HTMLElement).focus({ preventScroll: true });
+  }
+}
+
 function storyCharMessage(len: number): { text: string; color: string } {
   if (len === 0) return { text: '', color: '' };
   if (len < 200)
@@ -503,7 +574,23 @@ export function ShareYourStoryForm() {
     }
 
     setErrors(errs);
-    return Object.keys(errs).length === 0;
+    const ok = Object.keys(errs).length === 0;
+    /*
+      ⛔ The refusal has to be visible, and this is the only place both
+      callers pass through (`goNext` and `handlePreviewLaunch` each do a bare
+      `if (!validateStep(…)) return;`). Putting it here covers all six
+      screens; putting it in the callers would have been two chances to
+      forget, and `docs/153` is about exactly one of them being silent.
+
+      After paint, not during: React has not rendered the messages at the
+      moment `setErrors` is called, so a synchronous query finds nothing. Two
+      frames, because the first lands before the commit paints on mobile
+      Chromium.
+    */
+    if (!ok) {
+      requestAnimationFrame(() => requestAnimationFrame(revealFirstError));
+    }
+    return ok;
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────
@@ -935,7 +1022,7 @@ export function ShareYourStoryForm() {
                 nearest thing above these buttons, so the question is asked
                 once.
               */}
-              {errors.fundraisingFor && <p className="text-sm text-red-500">{errors.fundraisingFor}</p>}
+              {errors.fundraisingFor && <FieldError field="fundraisingFor">{errors.fundraisingFor}</FieldError>}
               {/*
                 `onKeyDown` + the roving `tabIndex` below are what make
                 `role="radiogroup"` true rather than decorative: a radio
@@ -1032,7 +1119,7 @@ export function ShareYourStoryForm() {
                       aria-invalid={!!errors.subjectName}
                       aria-describedby={errors.subjectName ? 'subjectName-error' : undefined}
                     />
-                    {errors.subjectName && <p id="subjectName-error" className="text-sm text-red-500">{errors.subjectName}</p>}
+                    {errors.subjectName && <FieldError field="subjectName">{errors.subjectName}</FieldError>}
                   </div>
 
                   <div className="space-y-4">
@@ -1077,7 +1164,7 @@ export function ShareYourStoryForm() {
                       })}
                     </div>
                     {errors.beneficiaryRelation && (
-                      <p className="text-sm text-red-500">{errors.beneficiaryRelation}</p>
+                      <FieldError field="beneficiaryRelation">{errors.beneficiaryRelation}</FieldError>
                     )}
                   </div>
                 </>
@@ -1148,7 +1235,7 @@ export function ShareYourStoryForm() {
                     ))}
                   </select>
                 </div>
-                {errors.goalAmount && <p id="goalAmount-error" className="text-sm text-red-500">{errors.goalAmount}</p>}
+                {errors.goalAmount && <FieldError field="goalAmount">{errors.goalAmount}</FieldError>}
                 {/*
                   This hint used to read: "Fundraisers like yours typically
                   aim to raise $5,000", with "Fundraisers like yours"
@@ -1523,7 +1610,7 @@ export function ShareYourStoryForm() {
                   aria-invalid={!!errors.subjectHometown}
                   aria-describedby={errors.subjectHometown ? 'subjectHometown-error' : undefined}
                 />
-                {errors.subjectHometown && <p id="subjectHometown-error" className="text-sm text-red-500">{errors.subjectHometown}</p>}
+                {errors.subjectHometown && <FieldError field="subjectHometown">{errors.subjectHometown}</FieldError>}
               </div>
 
               <div className="space-y-4">
@@ -1569,7 +1656,7 @@ export function ShareYourStoryForm() {
                     );
                   })}
                 </div>
-                {errors.category && <p className="text-sm text-red-500">{errors.category}</p>}
+                {errors.category && <FieldError field="category">{errors.category}</FieldError>}
               </div>
             </div>
           )}
@@ -1607,7 +1694,7 @@ export function ShareYourStoryForm() {
                     <span className="text-amber-500">{20 - form.title.trim().length} more needed</span>
                   )}
                 </div>
-                {errors.title && <p id="title-error" className="text-sm text-red-500">{errors.title}</p>}
+                {errors.title && <FieldError field="title">{errors.title}</FieldError>}
               </div>
 
               <div className="space-y-4">
@@ -1657,7 +1744,7 @@ export function ShareYourStoryForm() {
                   <span className="text-muted-foreground">{storyLen.toLocaleString()} / 10,000 characters</span>
                   {storyMsg.text && <span className={storyMsg.color}>{storyMsg.text}</span>}
                 </div>
-                {errors.story && <p className="text-sm text-red-500">{errors.story}</p>}
+                {errors.story && <FieldError field="story">{errors.story}</FieldError>}
               </div>
             </div>
           )}
@@ -1728,7 +1815,7 @@ export function ShareYourStoryForm() {
                   </button>
                 )}
                 {errors.heroImageUrl && (
-                  <p className="px-6 py-2 text-sm text-red-500">{errors.heroImageUrl}</p>
+                  <FieldError field="heroImageUrl" className="px-6 py-2 text-sm text-red-500">{errors.heroImageUrl}</FieldError>
                 )}
                 {/* YouTube video preview in review */}
                 {form.youtubeUrl && (() => {
@@ -1756,7 +1843,7 @@ export function ShareYourStoryForm() {
                   ) : null;
                 })()}
                 {errors.youtubeUrl && (
-                  <p className="px-6 py-2 text-sm text-red-500">{errors.youtubeUrl}</p>
+                  <FieldError field="youtubeUrl" className="px-6 py-2 text-sm text-red-500">{errors.youtubeUrl}</FieldError>
                 )}
 
                 <div className="space-y-6 p-8">
@@ -1764,7 +1851,7 @@ export function ShareYourStoryForm() {
                     <div>
                       <p className="text-sm text-muted-foreground">Title</p>
                       <h3 className="mt-1 font-display text-xl font-bold text-foreground">{form.title || <span className="text-muted-foreground italic">No title</span>}</h3>
-                      {errors.title && <p className="mt-1 text-sm text-red-500">{errors.title}</p>}
+                      {errors.title && <FieldError field="title" className="mt-1 text-sm text-red-500">{errors.title}</FieldError>}
                     </div>
                     <button
                       type="button"
@@ -1784,7 +1871,7 @@ export function ShareYourStoryForm() {
                             ? (session?.user?.name || 'You')
                             : form.subjectName}
                         </p>
-                        {errors.subjectName && <p className="mt-1 text-sm text-red-500">{errors.subjectName}</p>}
+                        {errors.subjectName && <FieldError field="subjectName" className="mt-1 text-sm text-red-500">{errors.subjectName}</FieldError>}
                       </div>
                       {form.fundraisingFor !== 'yourself' && (
                         <button
@@ -1800,7 +1887,7 @@ export function ShareYourStoryForm() {
                       <div>
                         <p className="text-sm text-muted-foreground">Location</p>
                         <p className="mt-1 text-base font-medium text-foreground">{form.subjectHometown}</p>
-                        {errors.subjectHometown && <p className="mt-1 text-sm text-red-500">{errors.subjectHometown}</p>}
+                        {errors.subjectHometown && <FieldError field="subjectHometown" className="mt-1 text-sm text-red-500">{errors.subjectHometown}</FieldError>}
                       </div>
                       <button
                         type="button"
@@ -1816,7 +1903,7 @@ export function ShareYourStoryForm() {
                         <p className="mt-1 text-base font-medium text-foreground">
                           {CATEGORIES.find((c) => c.value === form.category)?.label}
                         </p>
-                        {errors.category && <p className="mt-1 text-sm text-red-500">{errors.category}</p>}
+                        {errors.category && <FieldError field="category" className="mt-1 text-sm text-red-500">{errors.category}</FieldError>}
                       </div>
                       <button
                         type="button"
@@ -1838,7 +1925,7 @@ export function ShareYourStoryForm() {
                         <p className="mt-1 text-base font-medium text-foreground">
                           {formatMoney(majorToMinor(goalDollars, form.currency), form.currency, 'whole')}
                         </p>
-                        {errors.goalAmount && <p className="mt-1 text-sm text-red-500">{errors.goalAmount}</p>}
+                        {errors.goalAmount && <FieldError field="goalAmount" className="mt-1 text-sm text-red-500">{errors.goalAmount}</FieldError>}
                       </div>
                       <button
                         type="button"
@@ -1855,7 +1942,7 @@ export function ShareYourStoryForm() {
                           <p className="mt-1 text-base font-medium text-foreground">
                             {RELATIONS.find((r) => r.value === form.beneficiaryRelation)?.label}
                           </p>
-                          {errors.beneficiaryRelation && <p className="mt-1 text-sm text-red-500">{errors.beneficiaryRelation}</p>}
+                          {errors.beneficiaryRelation && <FieldError field="beneficiaryRelation" className="mt-1 text-sm text-red-500">{errors.beneficiaryRelation}</FieldError>}
                         </div>
                         <button
                           type="button"
@@ -1882,7 +1969,7 @@ export function ShareYourStoryForm() {
                     <div className="mt-2 max-h-60 overflow-y-auto text-base leading-relaxed text-foreground whitespace-pre-wrap">
                       {form.story}
                     </div>
-                    {errors.story && <p className="mt-1 text-sm text-red-500">{errors.story}</p>}
+                    {errors.story && <FieldError field="story" className="mt-1 text-sm text-red-500">{errors.story}</FieldError>}
                   </div>
                 </div>
               </div>
