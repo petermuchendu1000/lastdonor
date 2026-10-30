@@ -123,6 +123,21 @@ below it. Nothing on screen says anything happened.
 ⚠️ **The control proves the probe could see the other answer**: the same press
 on screen 1 (1,380px) put its message at y=197, `inViewport: true`.
 
+### 3.2a The class is not one screen, and that is measured too
+
+The review screen is the worst case, not the only one. Screen 5 (*Title and
+story*), driven the same way with the title left empty:
+
+```
+page=1562px  viewport=844px   scrolled to the button: scrollY 718 (band 718..1562)
+"Title must be at least 20 characters (0/20)"  at y=401   -> 317px ABOVE the band
+```
+
+So the blast radius is measured on two screens rather than one plus an
+inference. Screens 1–3 are short enough (1,380px, button at ~792px) that their
+messages land in view on their own, which is exactly why this was easy to
+miss: the defect only appears once a screen grows past roughly two viewports.
+
 ### 3.3 And the wizard INVITES the state
 
 Screen 3 offers **"Skip for now"** (`:2349-2355`), which calls `goNext`, and
@@ -249,7 +264,12 @@ Counting cannot be defeated by any of the four failures above.
   announced.
 - The wizard was never driven to a **successful** submission, so the created
   campaign, its redirect (`docs/109`) and the submission email were not
-  exercised on this pass.
+  exercised on this pass. The reason is concrete rather than an omission:
+  `handleSubmit` POSTs the photo to `/api/v1/campaign-photos` first
+  (`:641-653`), which reaches Supabase storage, and this sandbox has no
+  storage credentials — the same wall `docs/130` met. Supplying production's
+  would mean writing a test photo into production storage, which is a
+  production write and not an audit's to make.
 - Screens were measured at 390px only; no tablet width.
 - The five hand-rolled `role="radiogroup"`s `docs/99` reports in this file
   were not re-tested for arrow-key behaviour here.
