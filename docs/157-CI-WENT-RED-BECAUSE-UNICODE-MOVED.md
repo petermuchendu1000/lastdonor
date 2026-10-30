@@ -173,12 +173,34 @@ first test rather than during one, so the symptom is a webServer start failure.
 `docs/136` §8 exercised institutions and vouches, so a row is not hypothetical.
 Left alone because it is the E2E fixture's cleanup list, not this change's.
 
-## 8. What was NOT checked
+## 8. ✅ Verified on the runner that broke it
 
-- **The fix has not run on a CLDR-48 runtime.** It is proven by simulation
-  against values fetched from CLDR, and by 11 injections — not by a green
-  runner. That is the next thing to do, and it is the one claim here that is
-  [INFERRED] rather than [VERIFIED].
+Dispatched after pushing (run 41055329834, `claude/adoring-bell-7aka3l`):
+**all eight jobs green**, which is the first fully green pipeline since the
+runner image moved.
+
+| job | result |
+|---|---|
+| lint-and-typecheck, security-audit | success |
+| unit-tests | **8189 passed / 16 skipped**, 290 files — **0** `world-currencies` failures |
+| build | success |
+| integration-tests | 326 passed (34 files) |
+| e2e-tests (Desktop Chrome) | 83 passed / 12 skipped |
+| e2e-tests (Mobile Chrome) | 83 passed / 12 skipped, **0 flaky** |
+| ci-complete | success |
+
+The unit count is **identical to the local run**, so the five codes are
+passing rather than skipped, and the divergence branch really did execute on a
+CLDR-48 ICU. That settles §4's one open claim: the fix is [VERIFIED] on the
+runtime it was written for, not only by simulation.
+
+⚠️ `docs/156`'s change is also verified on a runner by this run — its
+`build`, `integration-tests` and `e2e-tests` had all been gated off by this
+very failure, so the E2E axe legs had never seen it. 166 passed / 0 failed is
+the check `docs/145` §4 exists for (two accessibility regressions that only
+the E2E axe run caught).
+
+## 9. What was NOT checked
 - Which ICU version CI actually carries is **[INFERRED] from the five codes
   matching @48 exactly**; the runner log does not print `process.versions.icu`.
   A newer release that happens to agree with @48 on these five would read the

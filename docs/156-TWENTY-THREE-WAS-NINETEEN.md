@@ -238,6 +238,16 @@ Gate: lint clean (one pre-existing unrelated warning), typecheck clean, unit
 
 ⚠️ Measured against HEAD rather than inferred: HEAD is **8165 / 289 files**, so
 this change is **+13 tests, +1 file** — exactly the new ratchet.
+
+✅ **Verified on a runner** (run 41055329834, after `docs/157` unblocked the
+pipeline): all eight jobs green — unit 8189, integration 326, E2E **83 + 83
+passed / 24 skipped / 0 flaky**. ⚠️ Worth stating because the first dispatch of
+this change got **no** E2E coverage at all: `unit-tests` was already red on
+`main` for the unrelated reason `docs/157` describes, and `ci-complete` gated
+`build`, `integration-tests` and `e2e-tests` off. So the axe legs had not seen
+this change until `docs/157` landed — and the axe legs are precisely what
+`docs/145` §4 exists for, where two accessibility regressions I had introduced
+were caught by nothing else.
 ⚠️ CLAUDE.md quoted **8066 / 280**, stale by 99 tests and 9 files from
 `docs/154` and `docs/155`. That file's own instruction is *"measure before
 quoting it"*, and the stale number is the reason it says so.
