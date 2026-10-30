@@ -156,6 +156,31 @@ walk is reported as what it measured, not what it was named.
 **from the old server** — `docs/144` §5.2 exactly. Every restart since confirms
 the port is free *before* starting.
 
+### 6.2 ✅ Live on production as v164
+
+Deployed 2026-10-30 after CI went green on all eight jobs (both E2E legs
+included), because this is money code. `release v164 complete` on the first
+attempt, live machine on 164, 1/1 passing, 0 orphaned release machines; `/`,
+`/campaigns` and `/donate` all 200 against their pre-deploy baseline, and the
+sitemap carried **8** campaign URLs on two consecutive reads — matching the
+deploy script's own report, so `--prerender` did its job (`docs/119`).
+
+The changed route was then smoke-tested live, with probes that cannot move
+money:
+
+| probe | result |
+|---|---|
+| invalid phone | **400** `VALIDATION_ERROR` field `phone` |
+| amount above the cap | **409** `CAP_EXCEEDED` — *"This campaign can take Ksh 49,950.00 more for now…"* |
+
+⚠️ Only the second is worth much, and the distinction matters: a 400 on `phone`
+fires at the schema parse (`:94`), **before** the campaign lookup (`:102`), so
+it proves the route is alive and validating and nothing more. The cap check
+(`:172`) fires **after** campaign, currency, rail and bounds and **before** the
+gateway call (`:243`), so the 409 is what establishes the whole KES path is
+healthy on the new image. Its figure also reconciles with the real KES 50
+collected in `docs/147` §11.
+
 ## 7. The guard
 
 `src/app/api/v1/donations/payment-outcome-claims.test.ts`. ⚠️ **Derived at both
