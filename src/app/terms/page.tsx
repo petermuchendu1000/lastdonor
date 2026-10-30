@@ -1,6 +1,31 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
+import { CURRENCIES, SUPPORTED_CURRENCY_CODES } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
+
+/**
+ * Per-currency donation limits, derived rather than written out.
+ *
+ * ⛔ This section used to say "The minimum donation amount is $5.00 USD. The
+ * maximum is $100,000.00 USD per transaction." - a single-currency claim on a
+ * platform where an organiser picks the campaign's currency (`docs/118` §10)
+ * and where every donation ever taken was in shillings. `docs/148` §B derived
+ * three such sites and `docs/152` found this fourth one; the sibling claim on
+ * `/refund-policy` was already derived, so the two pages disagreed about the
+ * same fact.
+ *
+ * Reads `CURRENCIES`, the set money can actually be COLLECTED in (`docs/103`:
+ * known is not collectable), so a third rail appears here the day it is added.
+ */
+const DONATION_LIMITS = SUPPORTED_CURRENCY_CODES.map((code) => {
+  const def = CURRENCIES[code];
+  return {
+    code,
+    min: formatMoney(def.minDonationMinor, code, 'exact'),
+    max: formatMoney(def.maxDonationMinor, code, 'exact'),
+  };
+});
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -65,12 +90,18 @@ export default function TermsPage() {
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-6">
             <li>
-              All donations are processed by Stripe and are final upon
-              completion.
+              Donations are final once they complete. Card donations are
+              processed by Stripe, and M-Pesa donations by PayHero.
             </li>
             <li>
-              The minimum donation amount is $5.00 USD. The maximum is
-              $100,000.00 USD per transaction.
+              Per-transaction limits depend on the campaign&rsquo;s currency:{' '}
+              {DONATION_LIMITS.map((l, i) => (
+                <span key={l.code}>
+                  {i > 0 ? '; ' : ''}
+                  {l.code} {l.min} to {l.max}
+                </span>
+              ))}
+              .
             </li>
             <li>
               LastDonor.org is finalizing its federal tax-exempt status and EIN

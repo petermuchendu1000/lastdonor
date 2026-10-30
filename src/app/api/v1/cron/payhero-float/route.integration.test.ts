@@ -126,7 +126,7 @@ describe('cron/payhero-float, against a real database', () => {
     await seedAdmin('ops2@example.test');
     walletBalance = 10;
 
-    const { body } = await callRoute();
+    await callRoute();
     expect(sent.sort()).toEqual(['ops1@example.test', 'ops2@example.test']);
     const row = await latestRow();
     /*

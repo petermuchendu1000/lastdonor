@@ -44,7 +44,18 @@ export default function FundReleasePolicyPage() {
             Payment Processing
           </h2>
           <ul className="mt-3 list-disc space-y-2 pl-6 leading-relaxed">
-            <li>Stripe processes donations and handles card, wallet, subscription, and settlement mechanics.</li>
+            {/*
+              ⛔ This said "Stripe processes donations and handles card,
+              wallet, subscription, and settlement mechanics" - one collection
+              rail, on a platform where every donation ever taken went over
+              M-Pesa (`docs/152`). The PAYOUT bullets below still name Stripe
+              alone and are CORRECT to: `createTransfer` has exactly one
+              caller and `withdraw/route.ts:223` refuses any currency but
+              `PLATFORM_PAYOUT_CURRENCY`, so Stripe really is the only way
+              money leaves (`docs/121`). Collection and payout are different
+              questions and only one of them has two answers.
+            */}
+            <li>Card donations are processed by Stripe, which handles card, wallet, subscription, and settlement mechanics. M-Pesa donations are processed by PayHero.</li>
             <li>LastDonor records donation details needed for donor support, campaign progress, fraud prevention, and compliance.</li>
             <li>LastDonor charges 0% platform fees on fundraisers, and no processing fee is deducted from a donation or from a payout.</li>
           </ul>

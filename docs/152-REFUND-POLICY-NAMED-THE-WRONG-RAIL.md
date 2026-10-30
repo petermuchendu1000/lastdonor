@@ -215,6 +215,109 @@ harness now refuses to score a row whose file did not change.
 
 ---
 
+## 4a. The sweep — §6 was acted on, and it found three more
+
+§6 below originally listed the sibling policy pages as *not swept*. They were
+swept immediately afterwards, because they share the same
+`PROCESSOR_NAME_ALLOWED` exemption and therefore the same hole. **Four
+instances of one rule is a sweep, not a fourth assertion** (`docs/110` §9.2).
+
+### 4a.1 ⛔ Three more surfaces credited Stripe with all collection
+
+| Surface | What it said | Live? |
+|---|---|---|
+| `/terms` | *"**All** donations are processed by Stripe and are final upon completion."* | yes |
+| `/fund-release-policy` | *"Stripe processes donations and handles card, wallet, subscription, and settlement mechanics."* | yes |
+| `/privacy` | *"Payment processing is handled **entirely** by Stripe…"* and a sharing list naming Stripe, not PayHero | yes |
+
+All three fetched from production and confirmed served verbatim.
+
+### 4a.2 ⚠️ And several Stripe-only mentions are CORRECT — the rule must not touch them
+
+| Surface | Claim | Verdict |
+|---|---|---|
+| `/fund-release-policy` | "Stripe Connect onboarding and payout eligibility" | **correct** |
+| `/fund-release-policy` | "through Stripe-connected payout rails" | **correct** |
+| `/campaign-verification-policy` | "Bank or payout verification through Stripe Connect" | **correct** |
+| `/refund-policy` | "If a dispute is opened through a bank or card issuer, Stripe and…" | **correct** |
+
+[VERIFIED] **Stripe really is the only way money LEAVES**: `createTransfer`
+has exactly one caller, it lives in `@/lib/stripe-connect`, and
+`withdraw/route.ts:223` refuses any currency but `PLATFORM_PAYOUT_CURRENCY`
+(`docs/121` §4). **Collection and payout are different questions and only one
+of them has two answers.** A rule that fired on these would be satisfied by
+naming PayHero beside Stripe in a paragraph about card chargebacks — which
+M-Pesa does not have — making the page worse.
+
+### 4a.3 ⛔ `/terms` also carried a fourth single-currency bounds claim
+
+> "The minimum donation amount is **$5.00 USD**. The maximum is **$100,000.00
+> USD** per transaction."
+
+`/refund-policy` had already derived the same fact from `CURRENCIES`
+(`docs/148` §B fixed three such sites) — so **two policy pages disagreed about
+the same number**, one derived and one not. `/terms` now derives it too.
+
+### 4a.4 ⛔ `/privacy` disclosed a company that receives nothing, and omitted two facts
+
+**(a) "Vercel: For application hosting."** [VERIFIED three ways] production
+answers `server: Fly/366e4bf88`, `via: 2 fly.io` and a `fly-request-id` with
+no Vercel header at all; `fly.toml` is the deploy target while `vercel.json`
+is the inert file `docs/65` proved never ran; and this codebase's own comments
+say `VERCEL_ENV` is *"UNSET on Fly"*, which is why `/api/v1/health` reports
+`commit: 'local'`. **Disclosing a recipient that receives nothing is as wrong
+as omitting one that does**, and this policy did both at once — PayHero, which
+receives every donor's phone number, was absent from the same list.
+
+**(b) The donor's phone number was not disclosed as collected.** The
+"Donation information" bullet listed *"Donor name, email, location, donation
+amount, and optional message"*. [VERIFIED from the schema]
+`payhero_payment_requests.phone_e164` and `.msisdn_sent` are both
+`.notNull()`; [VERIFIED in production] **5 rows, all 5 carrying both, oldest
+2026-10-21**. It is the most identifying thing an M-Pesa donor hands over, it
+is indexed for the abuse guard (`docs/92`), and the policy did not say it was
+kept.
+
+### 4a.5 The sweep's guard
+
+`src/app/collection-rails.test.ts` reads every public page and component
+(admin and dashboard excluded — `docs/110` §4's two-vocabularies rule) and
+matches a **collection phrase**, never a processor name, so the correct
+payout and dispute copy of §4a.2 is invisible to it.
+
+⚠️ **The qualifier must precede the claim, and that is not a detail.** A
+sentence may narrow itself to one rail (*"Stripe: For **card** payment
+processing"*). But *"Stripe processes donations and handles **card**, wallet,
+subscription, and settlement mechanics"* contains the word *card* trailing, in
+a list of mechanics — an anywhere-in-the-sentence test passes the live defect.
+That was a real hole in the first draft, found by injecting the production
+sentence and watching it not fire.
+
+⚠️ **A heading is not a sentence, and an inline tag is not a boundary.** The
+first run reported *correct* copy as a defect: `<h2>Payment Processing</h2>`
+carries no full stop, so it merged with the bullet beneath it and the match
+landed on the heading, with nothing before it to narrow anything. Replacing
+*every* tag with a stop is worse — it would split `<strong>Stripe:</strong>
+For card payment processing`, leaving a claim that names nobody and is
+skipped, which is exactly the line that was wrong. Only block-level closers
+terminate a sentence.
+
+⚠️ **Row 5 exposed a hole in my own rule, and the mutation had applied.**
+"The privacy policy names every gateway" was tested against the **whole
+page**, so deleting the PayHero entry from the sharing list did not fire — the
+name survived in the security paragraph. **A page that mentions a processor in
+passing has not disclosed it as a recipient**, which is the entire distinction
+that section draws. The rule is now scoped to the sharing list itself.
+
+**10 injections, all behaving** — the three live sentences, the Vercel entry,
+the dropped PayHero recipient, the dropped phone disclosure, a deleted
+qualifier, a single-gateway `CURRENCIES`, a broken corpus glob, and a
+must-PASS comment quoting every bad sentence. sha256-verified restore after
+every row, and each row asserts its own anchor matched exactly once before
+it is scored.
+
+---
+
 ## 5. Reported, NOT fixed
 
 - ⛔ **An admin can cancel a campaign and leave M-Pesa donors untold
@@ -233,11 +336,20 @@ harness now refuses to score a row whose file did not change.
 
 ## 6. What was NOT checked
 
-- Whether `/terms`, `/fund-release-policy` or `/campaign-verification-policy`
-  carry the same single-rail assumption. They are in the same allowlist and
-  the same exemption applies to them. **Not swept** — if a third instance
-  turns up, the rule here should become a sweep over all of them
-  (`docs/110` §9.2: three instances of one rule is a sweep).
+- ~~Whether the sibling policy pages carry the same assumption.~~ ✅ **Done —
+  see §4a.** Three more instances found and fixed, and the rule became a sweep.
+- ⛔ **The rest of the `/privacy` sharing list was NOT audited.** Fixing Vercel
+  and PayHero corrected two demonstrable errors; it did not verify the list is
+  now complete. Integrated third parties absent from it include **Cloudflare**
+  (proxies traffic — `docs/105`), **Sentry** (`docs/38`), **Didit** (receives
+  government identity documents — `docs/81`), **Africa's Talking** (receives
+  phone numbers — `docs/84`) and **OpenRouter** (`docs/106`). Whether each
+  receives personal data, and how a legal disclosure list should read, is an
+  **owner decision** — not an audit's to rewrite wholesale. Recorded here
+  rather than half-fixed.
+- ⛔ **No retention period is stated for the stored donor phone number.** The
+  collection is now disclosed; how long it is kept is not, and nothing purges
+  it. Same shape as `docs/140` PART B's finding about `actor_ip`.
 - The page was not re-read in a browser at 390px after the change; the copy is
   longer by one sentence, which costs vertical height on a phone.
 - No screen reader was run on it.

@@ -54,9 +54,12 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>Donation information:</strong> Donor name, email,
-              location, donation amount, and optional message. Payment details
-              (credit card numbers) are processed directly by Stripe and never
-              stored on our servers.
+              location, donation amount, and optional message. If you pay by
+              M-Pesa we also keep the phone number you paid from, so we can
+              match the payment and stop the same number being used to send
+              unwanted payment requests. We never hold your card number or
+              your mobile money PIN: those go straight to the payment
+              provider.
             </li>
             <li>
               <strong>Newsletter subscriptions:</strong> Email address and
@@ -105,8 +108,27 @@ export default function PrivacyPage() {
             platform work:
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-6">
+            {/*
+              ⛔ This list named **Vercel** for application hosting and omitted
+              **PayHero** entirely. [VERIFIED three ways, `docs/152`]
+              production answers `server: Fly/…`, `via: 2 fly.io` and a
+              `fly-request-id` with no Vercel header at all; `fly.toml` is the
+              deploy target while `vercel.json` is the inert file `docs/65`
+              proved never ran; and this codebase's own comments say
+              `VERCEL_ENV` is "UNSET on Fly". So the policy disclosed sharing
+              with a company that hosts nothing here, while leaving out the one
+              that receives every donor's PHONE NUMBER and the full donation
+              amount - the only rail that has ever taken money (`docs/92`).
+
+              ⚠️ Other integrated third parties are deliberately NOT added here
+              on this pass; which of them receive personal data is a disclosure
+              question for the owner, and `docs/152` §5 lists them.
+            */}
             <li>
-              <strong>Stripe:</strong> For payment processing
+              <strong>Stripe:</strong> For card payment processing
+            </li>
+            <li>
+              <strong>PayHero:</strong> For M-Pesa payment processing
             </li>
             <li>
               <strong>Resend:</strong> For transactional emails
@@ -115,7 +137,7 @@ export default function PrivacyPage() {
               <strong>Supabase:</strong> For database hosting
             </li>
             <li>
-              <strong>Vercel:</strong> For application hosting
+              <strong>Fly.io:</strong> For application hosting
             </li>
           </ul>
         </section>
@@ -162,8 +184,11 @@ export default function PrivacyPage() {
           <p className="mt-3">
             We implement industry-standard security measures including
             encrypted connections (TLS), bcrypt password hashing, role-based
-            access control, and regular security audits. Payment processing is
-            handled entirely by Stripe, a PCI DSS Level 1 certified provider.
+            access control, and regular security audits. Payments are handled
+            by the payment provider for that currency, so we never hold your
+            card number or your mobile money PIN: card payments go to Stripe,
+            a PCI DSS Level 1 certified provider, and M-Pesa payments to
+            PayHero.
           </p>
         </section>
 
