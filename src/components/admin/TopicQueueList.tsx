@@ -372,7 +372,7 @@ export function TopicQueueList({ topics: initialTopics, counts, isAdmin }: Topic
 
         {categories.length > 0 && (
           <Select value={categoryFilter} onValueChange={updateFilter(setCategoryFilter)}>
-            <SelectTrigger className="h-8 w-[160px] text-xs">
+            <SelectTrigger className="h-8 w-[160px] text-xs" aria-label="Filter topics by category">
               <SelectValue placeholder="Category" />
             </SelectTrigger>
             <SelectContent>

@@ -259,6 +259,27 @@ pages, named counts 55→57 and 44→45.
 
 ### 6.4 ⛔ AND A SWEEP, enumerated and NOT done
 
+> ✅ **RESOLVED 2026-10-30 by `docs/156`** — and ⚠️ **AMENDED BY IT in three
+> ways, so read that doc rather than the figures below.**
+>
+> 1. **It was 19, not 23.** All four native `<select>`s listed here were
+>    ALREADY NAMED, by a wrapping `<label>` — three of them through a local
+>    `<Field label>` component. [VERIFIED in a browser.] The false-positive
+>    check this section demanded is exactly what caught it, and a ratchet
+>    shipped on this count would have required an `aria-label` that OVERRIDES
+>    a visible label: a WCAG 2.5.3 failure with every test green.
+> 2. **The line numbers below are wrong.** The scanner that produced them
+>    replaced each comment with a single space, collapsing multi-line comments
+>    and shifting every number after the first one. The FILE NAMES are right.
+> 3. The detector knew three naming mechanisms and there are **four**, and it
+>    applied text content to both trigger types — where text names a
+>    `DropdownMenuTrigger` and not a `SelectTrigger`, which is §6's own
+>    finding, unencoded by the detector written in the same turn.
+>
+> The gate now exists as `src/components/ui/control-names.ratchet.test.ts`,
+> covers all of `src/` (not just admin — there was exactly ONE offender
+> outside it), and has **no allowlist**.
+
 The same detection run across all of `src/components/admin/` finds **23 more
 unnamed controls** — 4 `<select>`s and 19 `DropdownMenuTrigger`/`SelectTrigger`s
 — on pages this pass never loaded:

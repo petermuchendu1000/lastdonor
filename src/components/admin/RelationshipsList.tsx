@@ -140,9 +140,9 @@ export function RelationshipsList({ userId }: RelationshipsListProps) {
           <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/30 p-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Relationship Type</Label>
+                <Label htmlFor="relationship-type">Relationship Type</Label>
                 <Select value={formType} onValueChange={setFormType}>
-                  <SelectTrigger>
+                  <SelectTrigger id="relationship-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

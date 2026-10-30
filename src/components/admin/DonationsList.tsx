@@ -266,7 +266,7 @@ export function DonationsList({ initialDonations, stats, totalsByCurrency, campa
 
         {campaignOptions.length > 0 && (
           <Select value={campaignFilter} onValueChange={updateFilter(setCampaignFilter)}>
-            <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectTrigger className="h-8 w-[180px] text-xs" aria-label="Filter donations by campaign">
               <SelectValue placeholder="Campaign" />
             </SelectTrigger>
             <SelectContent>
@@ -279,7 +279,7 @@ export function DonationsList({ initialDonations, stats, totalsByCurrency, campa
         )}
 
         <Select value={refundedFilter} onValueChange={updateFilter(setRefundedFilter)}>
-          <SelectTrigger className="h-8 w-[120px] text-xs">
+          <SelectTrigger className="h-8 w-[120px] text-xs" aria-label="Filter donations by refund status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>

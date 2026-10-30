@@ -136,7 +136,7 @@ export function BlogEditor({ mode, postId, defaultValues }: BlogEditorProps) {
               defaultValue={defaultValues?.category ?? 'news'}
               onValueChange={(v) => setValue('category', v as CreateBlogPostInput['category'])}
             >
-              <SelectTrigger>
+              <SelectTrigger id="category">
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent>

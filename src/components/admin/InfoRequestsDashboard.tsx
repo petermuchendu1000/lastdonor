@@ -166,7 +166,7 @@ export function InfoRequestsDashboard() {
             setPagination((p) => ({ ...p, page: 1 }));
           }}
         >
-          <SelectTrigger className="w-40 bg-background">
+          <SelectTrigger className="w-40 bg-background" aria-label="Filter information requests by status">
             <SelectValue placeholder="All" />
           </SelectTrigger>
           <SelectContent>
@@ -248,7 +248,12 @@ export function InfoRequestsDashboard() {
                       {req.status !== 'closed' && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" disabled={actionLoading === req.id}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={actionLoading === req.id}
+                              aria-label={`Actions for ${req.campaignTitle}`}
+                            >
                               <EllipsisVerticalIcon className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>

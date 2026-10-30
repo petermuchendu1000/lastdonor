@@ -272,7 +272,7 @@ export function GovernancePanel({ campaigns: initial, totalCampaigns }: Governan
           />
         </div>
         <Select value={filter} onValueChange={(v) => updateFilter(() => setFilter(v))}>
-          <SelectTrigger className="w-44 bg-background">
+          <SelectTrigger className="w-44 bg-background" aria-label="Filter campaigns by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>

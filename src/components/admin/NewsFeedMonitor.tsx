@@ -304,7 +304,7 @@ export function NewsFeedMonitor({ items, sources, categories, counts, isAdmin }:
 
         {/* Source filter */}
         <Select value={sourceFilter} onValueChange={updateFilter(setSourceFilter)}>
-          <SelectTrigger className="h-8 w-[160px] text-xs">
+          <SelectTrigger className="h-8 w-[160px] text-xs" aria-label="Filter news items by source">
             <SelectValue placeholder="Source" />
           </SelectTrigger>
           <SelectContent>
@@ -317,7 +317,7 @@ export function NewsFeedMonitor({ items, sources, categories, counts, isAdmin }:
 
         {/* Category filter */}
         <Select value={categoryFilter} onValueChange={updateFilter(setCategoryFilter)}>
-          <SelectTrigger className="h-8 w-[160px] text-xs">
+          <SelectTrigger className="h-8 w-[160px] text-xs" aria-label="Filter news items by category">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>

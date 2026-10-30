@@ -276,9 +276,9 @@ export function DonorSegmentation() {
               </p>
             </div>
             <div>
-              <Label>Donor Type</Label>
+              <Label htmlFor="segment-donor-type">Donor Type</Label>
               <Select value={donorType} onValueChange={setDonorType}>
-                <SelectTrigger>
+                <SelectTrigger id="segment-donor-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

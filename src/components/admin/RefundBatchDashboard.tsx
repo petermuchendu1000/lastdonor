@@ -197,7 +197,7 @@ export function RefundBatchDashboard() {
           />
         </div>
         <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPagination((p) => ({ ...p, page: 1 })); }}>
-          <SelectTrigger className="w-40 bg-background">
+          <SelectTrigger className="w-40 bg-background" aria-label="Filter refund batches by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>

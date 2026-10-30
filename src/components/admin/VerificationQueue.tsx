@@ -373,7 +373,7 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
           />
         </div>
         <Select value={statusFilter} onValueChange={(v) => updateFilter(() => setStatusFilter(v))}>
-          <SelectTrigger className="w-48 bg-background">
+          <SelectTrigger className="w-48 bg-background" aria-label="Filter verification queue by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>

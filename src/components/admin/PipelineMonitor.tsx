@@ -554,7 +554,10 @@ function ReviewQueueSection({
                       }
                       disabled={saving === item.id}
                     >
-                      <SelectTrigger className="w-40">
+                      <SelectTrigger
+                        className="w-40"
+                        aria-label={`Override category for ${item.title}`}
+                      >
                         <SelectValue placeholder="Override..." />
                       </SelectTrigger>
                       <SelectContent>

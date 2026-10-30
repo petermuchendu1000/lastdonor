@@ -187,7 +187,7 @@ export function NotificationsClient({
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>Show</span>
             <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
-              <SelectTrigger className="h-8 w-[70px]">
+              <SelectTrigger className="h-8 w-[70px]" aria-label="Show entries per page">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

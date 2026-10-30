@@ -139,9 +139,9 @@ export function InteractionTimeline({ userId }: InteractionTimelineProps) {
           <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/30 p-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Type</Label>
+                <Label htmlFor="interaction-type">Type</Label>
                 <Select value={formType} onValueChange={(v) => setFormType(v as InteractionType)}>
-                  <SelectTrigger>
+                  <SelectTrigger id="interaction-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

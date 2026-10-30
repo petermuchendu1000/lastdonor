@@ -115,12 +115,12 @@ export function DonorProfileEditor({ userId, initialData }: DonorProfileEditorPr
               />
             </div>
             <div>
-              <Label>Donor Type</Label>
+              <Label htmlFor="donor-type">Donor Type</Label>
               <Select
                 value={draft.donorType}
                 onValueChange={(v) => setDraft({ ...draft, donorType: v as DonorType })}
               >
-                <SelectTrigger>
+                <SelectTrigger id="donor-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
