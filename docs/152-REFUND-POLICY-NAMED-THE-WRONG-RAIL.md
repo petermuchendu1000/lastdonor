@@ -334,6 +334,23 @@ it is scored.
   the design rather than present availability, and `docs/148` had just
   corrected it; rewriting it again on this pass would reopen an owner call.
 
+## 5a. Swept and found CLEAN
+
+Recorded because a clean sweep is a result, and because the next person
+should not have to repeat it.
+
+- **`public/llms.txt`** — no processor or collection claim at all. Checked
+  specifically because `docs/142` §3 found a banned fee claim in exactly this
+  file, for exactly the reason that the sweep guarding it says *"absent from
+  `src/`"* and `public/` is one directory outside that. The hole is not
+  reopened here.
+- **Outgoing email** (`email-templates.ts`, `email-adaptive.ts`,
+  `email-shell.ts`) — no single-rail collection claim. `docs/94` had already
+  removed *"two Stripe-specific lines on a platform whose live rail is
+  PayHero"*, and nothing has crept back.
+- **The payout surfaces of §4a.2** — checked and deliberately left alone, with
+  the reason verified rather than assumed.
+
 ## 6. What was NOT checked
 
 - ~~Whether the sibling policy pages carry the same assumption.~~ ✅ **Done —
