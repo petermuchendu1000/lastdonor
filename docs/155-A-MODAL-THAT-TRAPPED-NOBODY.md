@@ -355,6 +355,21 @@ on the second.
 ⚠️ The failure PATH itself is exercised only through that parser, not by
 re-triggering a 408 — a capacity error is not something I can summon.
 
+> ✅ **EXERCISED FOR REAL 2026-10-30, by a 408 I did not have to summon.**
+> The `docs/156`/`docs/157` deploy hit exactly this: `release command failed …
+> failed to launch VM: request returned non-2xx status: 408`. The script
+> printed **`latest release : v162 failed`** plus the retry recipe, exited
+> **1**, and did NOT print `deploy finished` — the defect it was written for
+> would have reported success four lines below flyctl's own error. Production
+> stayed on **v161, 1/1 passing, site 200** throughout, confirming the
+> untouched-on-abort claim again.
+>
+> One orphaned `fly_app_release_command` machine in state `created` was left
+> behind and destroyed; the retry of the **already-pushed image** then
+> succeeded on its first attempt (`release_command … completed successfully`),
+> landing **v163**. So §8.2's narrowing holds in both directions: orphans
+> accumulate *sometimes*, and this time there was one.
+
 ### 8.2 ⚠️ A CLAIM IN CLAUDE.md IS NARROWED
 
 It says *"**every single failure** left a machine in
