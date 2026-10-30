@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { CURRENCIES, SUPPORTED_CURRENCY_CODES } from '@/lib/money/currencies';
 import { formatMoney } from '@/lib/money/format';
+import { termsVersionLabel } from '@/lib/campaign-consent';
 
 /**
  * Per-currency donation limits, derived rather than written out.
@@ -54,8 +55,16 @@ export default function TermsPage() {
       <h1 className="mt-6 font-display text-4xl font-bold text-foreground">
         Terms of Service
       </h1>
+      {/*
+        ⛔ DERIVED from `TERMS_VERSION`, not written out. This line said
+        "April 1, 2026" while the constant that every consent record attests
+        to said 2026-10-25, and the page had been materially edited since
+        both. `docs/113` §10.2 asked whoever edits the terms to bump the
+        constant by hand; `docs/152` is the turn where that step was skipped
+        by somebody who had just read the warning.
+      */}
       <p className="mt-2 text-sm text-muted-foreground">
-        Last updated: April 1, 2026
+        Last updated: {termsVersionLabel()}
       </p>
 
       <p className="mt-4 text-muted-foreground leading-relaxed">

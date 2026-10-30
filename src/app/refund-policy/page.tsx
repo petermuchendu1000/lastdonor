@@ -55,7 +55,7 @@ export default function RefundPolicyPage() {
         Refund, Cancellation, and Dispute Policy
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Last updated: April 27, 2026
+        Last updated: October 30, 2026
       </p>
       <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
         LastDonor accepts donations, not purchases of goods or services. There

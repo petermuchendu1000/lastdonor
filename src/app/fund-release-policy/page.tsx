@@ -30,7 +30,7 @@ export default function FundReleasePolicyPage() {
         Fund Release Policy
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Last updated: April 27, 2026
+        Last updated: October 30, 2026
       </p>
       <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
         This page explains how donation funds move from checkout to campaign

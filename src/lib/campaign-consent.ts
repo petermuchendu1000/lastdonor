@@ -39,13 +39,33 @@ import type { BeneficiaryRelation } from '@/lib/validators/user-campaign';
 /**
  * Which version of the terms the notice refers to.
  *
- * ⚠️ Nothing enforces bumping this when `/terms` changes - it is a human
- * step, and a stale value is worse than none because it would attest to the
- * wrong document. Whoever edits the terms page bumps this in the same
- * commit. A date is used rather than a number so the value is meaningful on
- * its own in an audit.
+ * A date rather than a number, so the value is meaningful on its own in an
+ * audit.
+ *
+ * ⚠️ `docs/113` §10.2 said *"nothing enforces bumping this when `/terms`
+ * changes - it is a human step"*, and `docs/152` is what happened next: the
+ * terms page was edited and this constant was not bumped, in the same turn,
+ * by somebody who had read that warning. A human step that is only written
+ * down is a step that gets skipped.
+ *
+ * So `/terms` now RENDERS its "Last updated" line from this value. The two
+ * are one fact, the page cannot disagree with what the consent record
+ * attests to, and the only thing left to remember is this constant.
  */
-export const TERMS_VERSION = '2026-10-25';
+export const TERMS_VERSION = '2026-10-30';
+
+/** `TERMS_VERSION` as the terms page prints it, e.g. "October 30, 2026". */
+export function termsVersionLabel(): string {
+  // Parsed as UTC on purpose: a bare `new Date('2026-10-30')` is UTC
+  // midnight, which renders as the PREVIOUS day in any negative offset.
+  const [y, m, d] = TERMS_VERSION.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
 
 /**
  * Does this campaign need the beneficiary's say-so?

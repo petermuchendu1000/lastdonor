@@ -334,6 +334,55 @@ it is scored.
   the design rather than present availability, and `docs/148` had just
   corrected it; rewriting it again on this pass would reopen an owner call.
 
+## 4b. ⛔ A defect I introduced in this turn, caught by looking at a screenshot
+
+The verification screenshot of `/refund-policy` at 390px showed the fix
+working — and, above it, **"Last updated: April 27, 2026"** on a policy that
+had just been changed. Pulling that thread found something worse one page
+over.
+
+`consentRecord` stamps **`TERMS_VERSION`** onto every campaign submission, so
+that constant is this platform's answer to *"which document did this organiser
+actually agree to"*. `docs/113` §10.2 had recorded the hazard in prose:
+
+> ⚠️ Bump `TERMS_VERSION` in the same commit that edits `/terms` — nothing
+> enforces it, and a stale value attests to the wrong document.
+
+**In the same turn that warning was read, `/terms` was edited and the constant
+was not bumped.** And there were already two answers before I touched it: the
+constant said `2026-10-25` while the page's own line said **April 1, 2026** —
+six months stale, and the visible half was the wrong one.
+
+A human step that is only written down is a step that gets skipped.
+
+**The fix makes them one fact.** `/terms` now renders `termsVersionLabel()`,
+so the page cannot be the stale half; the only thing left to remember is the
+constant itself, which now has one meaning instead of two. `TERMS_VERSION` is
+`2026-10-30`, and the three sibling pages changed today carry that date.
+
+⚠️ **`campaign-rules` and `campaign-verification-policy` still say April 27,
+2026** and are deliberately untouched — they were not edited today, and
+back-dating or forward-dating a policy nobody changed would be the same class
+of false statement in the other direction.
+
+### 4b.1 The guard, and what it cannot do
+
+`src/lib/terms-version.test.ts`. ⛔ It **cannot** tell whether somebody bumped
+the constant when they should have — that needs git history, and a rule built
+on history would fire on every unrelated commit touching the file. What it can
+do is stop the page being a second, drifting answer: it fails if `/terms`
+carries any hardcoded date, and fails if a sibling policy is stamped later
+than `TERMS_VERSION`.
+
+⚠️ **The UTC trap is pinned, because the naive one-liner has it.**
+`new Date('2026-10-30')` is UTC midnight, so `toLocaleDateString` in any
+negative offset renders **October 29** — the terms page would claim a date one
+day earlier than the record attests to. Injection row 6 reproduces exactly
+that and fires.
+
+**7 injections, all behaving**, including row 1 restoring the real production
+state and a must-PASS comment quoting a hardcoded date.
+
 ## 5a. Swept and found CLEAN
 
 Recorded because a clean sweep is a result, and because the next person
