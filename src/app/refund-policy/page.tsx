@@ -138,8 +138,29 @@ export default function RefundPolicyPage() {
             within 30 days of the donation when possible. Include the donor
             email address, donation date, campaign name, amount, and a short
             explanation. We usually review refund requests within 5 business
-            days. If approved, the refund is submitted through Stripe and may
-            take 5 to 10 business days to appear on the original payment method.
+            days.
+          </p>
+          {/*
+            ⛔ This paragraph used to read "the refund is submitted through
+            Stripe and may take 5 to 10 business days to appear on the original
+            payment method" — one return path, named for a rail that has never
+            refunded anybody here. [VERIFIED three ways, `docs/152`] the refund
+            route calls NO gateway for a non-Stripe provider and answers
+            `manualRefundRequired: true`; all three donations this platform has
+            ever taken are `payhero`; and production served that sentence. The
+            same file already named both rails correctly 50 lines above.
+
+            ⛔ No turnaround is quoted for the M-Pesa return, deliberately
+            (`docs/78`). A person sends it back, and the platform cannot
+            promise when that lands.
+          */}
+          <p className="mt-3 leading-relaxed">
+            If we approve it, the money goes back the way it came. A card
+            donation is refunded through Stripe, and can take 5 to 10 business
+            days to show up on the card. An M-Pesa donation is sent back by a
+            person on our team, because the mobile money provider gives us no
+            way to do it automatically. We email you as soon as we start it. We
+            do not promise a date for it to arrive.
           </p>
         </section>
 
