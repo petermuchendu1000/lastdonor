@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { onRadioGroupKeyDown, rovingTabIndex } from '@/lib/radio-group-keys';
+import { useModalKeyboard } from '@/hooks/useModalKeyboard';
 import { FundraiserPreviewModal } from './FundraiserPreviewModal';
 import { requiresBeneficiaryConsent } from '@/lib/campaign-consent';
 
@@ -334,24 +335,20 @@ function extractYouTubeId(url: string): string | null {
   }
 }
 
-// ─── Focus trap helper for inline dialogs ───────────────────────────────────
-const FOCUSABLE = 'a[href], button:not([disabled]), textarea, input:not([disabled]), select, [tabindex]:not([tabindex="-1"])';
+/*
+  ─── The focus trap used to live here, and it was DEAD CODE ─────────────────
 
-function trapFocus(e: React.KeyboardEvent<HTMLDivElement>) {
-  if (e.key !== 'Tab') return;
-  const container = e.currentTarget.querySelector<HTMLElement>('[role="dialog"] > div') ?? e.currentTarget;
-  const focusable = container.querySelectorAll<HTMLElement>(FOCUSABLE);
-  if (focusable.length === 0) return;
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (e.shiftKey && document.activeElement === first) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && document.activeElement === last) {
-    e.preventDefault();
-    first.focus();
-  }
-}
+  `trapFocus` was a React `onKeyDown` on the OVERLAY, so it only ever saw
+  keydowns bubbling up from inside the dialog - and nothing moved focus inside
+  when a dialog opened, so it never ran once. [VERIFIED by execution,
+  `docs/155`: 27 Tab presses with the Edit-category dialog open, focus never
+  inside; the focused control was painted UNDERNEATH the overlay.] Escape did
+  nothing either, because this file had no Escape handler at all.
+
+  Replaced by `useModalKeyboard`, which binds at the DOCUMENT - the only level
+  at which Escape can work from wherever focus happens to be - and which also
+  moves focus in and restores it on close.
+*/
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -371,8 +368,34 @@ export function ShareYourStoryForm() {
   const [ytInput, setYtInput] = useState('');
   const [ytError, setYtError] = useState('');
   const [editField, setEditField] = useState<EditField>(null);
+  /*
+    The CONTENT box of each dialog, not the overlay. `useModalKeyboard` moves
+    focus into it, contains Tab within it, and closes on Escape - none of
+    which this form did (`docs/155`).
+  */
+  const mediaDialogRef = useRef<HTMLDivElement>(null);
+  const editDialogRef = useRef<HTMLDivElement>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingGalleryFiles, setPendingGalleryFiles] = useState<File[]>([]);
+
+  /*
+    ⚠️ `useCallback`, not an inline arrow. `useModalKeyboard`'s effect depends
+    on `onClose`, so a fresh function each render would tear down and re-run it
+    on every render - which would drag focus back to the first control while
+    somebody was typing.
+  */
+  const closeMediaDialog = useCallback(() => setMediaDialog('closed'), []);
+  const closeEditField = useCallback(() => setEditField(null), []);
+  useModalKeyboard({
+    open: mediaDialog !== 'closed',
+    contentRef: mediaDialogRef,
+    onClose: closeMediaDialog,
+  });
+  useModalKeyboard({
+    open: editField !== null,
+    contentRef: editDialogRef,
+    onClose: closeEditField,
+  });
   const blobUrlRef = useRef<string | null>(null);
   const galleryBlobUrlsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1452,12 +1475,12 @@ export function ShareYourStoryForm() {
                 <div
                   className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
                   onClick={() => setMediaDialog('closed')}
-                  onKeyDown={trapFocus}
                   role="dialog"
                   aria-modal="true"
                   aria-label={mediaDialog === 'picker' ? 'Choose media type' : 'Add YouTube video'}
                 >
                   <div
+                    ref={mediaDialogRef}
                     className="relative mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -2052,12 +2075,12 @@ export function ShareYourStoryForm() {
                 <div
                   className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
                   onClick={() => setEditField(null)}
-                  onKeyDown={trapFocus}
                   role="dialog"
                   aria-modal="true"
                   aria-label={`Edit ${editField}`}
                 >
                   <div
+                    ref={editDialogRef}
                     className={`relative mx-4 w-full rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900 ${editField === 'story' ? 'max-w-2xl' : 'max-w-lg'}`}
                     onClick={(e) => e.stopPropagation()}
                   >

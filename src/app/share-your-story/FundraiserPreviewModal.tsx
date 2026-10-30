@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef } from 'react';
+import { useModalKeyboard } from '@/hooks/useModalKeyboard';
 import Image from 'next/image';
 import { CATEGORY_LABELS } from '@/lib/categories';
 import type { CampaignCategory } from '@/types';
@@ -39,50 +40,20 @@ export function FundraiserPreviewModal({
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Trap focus and handle Escape
-  useEffect(() => {
-    const container = contentRef.current;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !launching) {
-        onClose();
-        return;
-      }
-      if (e.key === 'Tab' && container) {
-        const focusable = container.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea, input:not([disabled]), select, [tabindex]:not([tabindex="-1"])',
-        );
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown);
-    document.body.style.overflow = 'hidden';
-
-    // Move focus into the dialog
-    if (container) {
-      const firstFocusable = container.querySelector<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input:not([disabled]), select, [tabindex]:not([tabindex="-1"])',
-      );
-      firstFocusable?.focus();
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-      previouslyFocused?.focus();
-    };
-  }, [onClose, launching]);
+  /*
+    ⛔ This effect used to live here, inline, and it was the ONLY correct modal
+    keyboard implementation in the product - the wizard's two hand-rolled
+    dialogs one file away had none of it (`docs/155`). Lifted into
+    `useModalKeyboard` so there is one decider instead of one correct copy and
+    two absent ones. `canClose: !launching` is why that option exists: Escape
+    must not dismiss this dialog mid-submit.
+  */
+  useModalKeyboard({
+    open: true,
+    contentRef: contentRef,
+    onClose,
+    canClose: !launching,
+  });
 
   const categoryLabel =
     CATEGORY_LABELS[data.category as CampaignCategory] ?? data.category;
