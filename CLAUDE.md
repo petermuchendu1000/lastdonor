@@ -375,9 +375,28 @@ migrations as a `release_command`, which needs a fresh ephemeral machine, and
 **4 of 6 launch attempts across two deploys failed with `no capacity available
 in arn`** — nothing to do with the change being deployed. [VERIFIED after every
 failure] **an aborted release leaves production untouched**: the old version
-stays live and healthy, `fly releases` records the attempt as `failed`, and
-`fly machine list` shows no orphaned release machine holding capacity. So
-retry, and retry **the pushed image** —
+stays live and healthy and `fly releases` records the attempt as `failed`.
+
+⛔ **CORRECTION, 2026-10-30 (`docs/153`): the "no orphaned release machine"
+half of that was wrong.** This line used to end *"and `fly machine list` shows
+no orphaned release machine holding capacity"*. Across **nine** failed release
+attempts in one day — three wordings, `408` launching the VM,
+`deadline_exceeded`, and `machine failed to start` — **every single failure
+left a machine in `fly_app_release_command` stuck in state `created`**, and
+seven were destroyed by hand. Always check:
+
+```
+fly machine list --app lastdonor | grep fly_app_release_command
+fly machine destroy <id> --app lastdonor --force     # state `created`, holds no data
+```
+
+⚠️ Whether those orphans **cause** the next `408` is **[UNKNOWN]** and
+deliberately not claimed — they hold a slot in the same region that the next
+attempt needs, which is suggestive and not evidence. What is verified is that
+they accumulate, and that clearing them before each retry is cheap. The app
+machine is a different process group (`app`) and is never the one to destroy.
+
+So retry, and retry **the pushed image** —
 `fly deploy --app lastdonor --image registry.fly.io/lastdonor:deployment-…`
 (the tag is in the deploy log) skips the six-minute build and keeps the
 database URL off the command line, since `--prerender`'s build secret is only
