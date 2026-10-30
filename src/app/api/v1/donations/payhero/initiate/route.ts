@@ -288,7 +288,19 @@ export async function POST(request: NextRequest) {
         .update(payheroPaymentRequests)
         .set({
           status: 'failed',
-          failureReason: `Initiation failed (${kind}).`,
+          /*
+            ⚠️ `unknown` is recorded as what it is. The row still carries
+            `status: 'failed'` because nothing can resolve it either way - no
+            PayHero reference was ever recorded, so `settlePayHeroRequest`
+            answers `unverifiable` by its own design - and changing the enum
+            on a live money table buys nothing today (`docs/129`'s reasoning).
+            But the REASON must not claim a failure nobody observed.
+          */
+          failureReason:
+            kind === 'unknown'
+              ? 'Initiation outcome UNKNOWN: no response from PayHero. A collection may exist ' +
+                'and cannot be verified - no PayHero reference was recorded.'
+              : `Initiation failed (${kind}).`,
           settledAt: new Date(),
         })
         .where(eq(payheroPaymentRequests.id, row.id));
@@ -297,7 +309,9 @@ export async function POST(request: NextRequest) {
         eventType: 'donation.payhero_initiate_failed',
         targetType: 'campaign',
         targetId: campaign.id,
-        severity: kind === 'configuration' ? 'error' : 'warning',
+        // An unknown outcome on a money path is an operator's problem too: it
+        // is the only case where a collection may exist that we cannot see.
+        severity: kind === 'configuration' || kind === 'unknown' ? 'error' : 'warning',
         details: {
           externalReference,
           kind,
@@ -332,11 +346,33 @@ export async function POST(request: NextRequest) {
       logError(error, { requestId, route: 'payhero/initiate#push' });
 
       if (kind === 'transient') {
+        // PayHero ANSWERED (5xx or 429), so it had the request and did not act
+        // on it. "Nothing has been charged" is substantiated here.
         return fail(
           503,
           'PAYMENTS_UNAVAILABLE',
           'We could not reach M-Pesa just now and nothing has been charged. Please try again ' +
             'in a moment.',
+        );
+      }
+
+      if (kind === 'unknown') {
+        /*
+          NO response arrived. The push reaches Safaricom synchronously and we
+          gave up after 20s, so the request may have got there and raised a
+          prompt we never heard about. We must not say nothing was charged, and
+          we must not invite a blind retry - that is how somebody pays twice.
+
+          `docs/121`'s rule, on the way in: the unknown branch is the one where
+          the money may actually have moved.
+        */
+        return fail(
+          503,
+          'PAYMENT_OUTCOME_UNKNOWN',
+          'We lost contact with M-Pesa while starting your payment, so we cannot tell you ' +
+            'whether it went through. Check your M-Pesa messages first. If you were charged, ' +
+            'email support@lastdonor.org and we will sort it out. Please do not send it again ' +
+            'until you have checked.',
         );
       }
 

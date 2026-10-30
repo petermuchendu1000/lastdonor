@@ -83,6 +83,16 @@ export function MpesaDonationForm({
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [phase, setPhase] = useState<Phase>('form');
   const [error, setError] = useState<string | null>(null);
+  /*
+    ⛔ An unknown outcome latches the pay button shut until the donor says they
+    have checked. The server's message on that branch ends "Please do not send
+    it again until you have checked" - and the walk in `docs/158` measured the
+    pay button still enabled directly beneath it, so the product gave an
+    instruction and offered the opposite in the same viewport. A blind retry
+    there is how somebody pays twice.
+  */
+  const [outcomeUnknown, setOutcomeUnknown] = useState(false);
+  const [checkedMessages, setCheckedMessages] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [reference, setReference] = useState<string | null>(null);
   const [maskedPhone, setMaskedPhone] = useState<string | null>(null);
@@ -107,7 +117,11 @@ export function MpesaDonationForm({
     def != null && amountMinor >= def.minDonationMinor && amountMinor <= def.maxDonationMinor;
 
   const canSubmit =
-    phase === 'form' && withinBounds && phone.trim().length >= 7 && donorEmail.includes('@');
+    phase === 'form' &&
+    withinBounds &&
+    phone.trim().length >= 7 &&
+    donorEmail.includes('@') &&
+    (!outcomeUnknown || checkedMessages);
 
   // ── Polling ───────────────────────────────────────────────────────────────
   const poll = useCallback(async () => {
@@ -187,8 +201,14 @@ export function MpesaDonationForm({
       const body = await res.json();
 
       if (!res.ok || !body?.ok) {
+        if (body?.error?.code === 'PAYMENT_OUTCOME_UNKNOWN') {
+          setOutcomeUnknown(true);
+          setCheckedMessages(false);
+        }
         setError(
           body?.error?.message ??
+            // Only reached when the server sent no message of its own, which
+            // means it did not reach the gateway either.
             'We could not start that payment and nothing has been charged.',
         );
         submitting.current = false;
@@ -545,6 +565,24 @@ export function MpesaDonationForm({
         <p className="rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
           {error}
         </p>
+      ) : null}
+
+      {outcomeUnknown ? (
+        /*
+          A native checkbox wrapped in its own label, so it is named without an
+          `aria-label` that could drift from the visible words (`docs/156`).
+        */
+        <label className="flex items-start gap-3 rounded-xl bg-muted/40 px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            checked={checkedMessages}
+            onChange={(e) => setCheckedMessages(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0"
+          />
+          <span>
+            I checked my M-Pesa messages and no money left my account. I want to try again.
+          </span>
+        </label>
       ) : null}
 
       <button

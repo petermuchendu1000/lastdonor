@@ -374,3 +374,69 @@ describe('outcomes', () => {
     );
   });
 });
+
+// ─── The unknown outcome: the one refusal that must not invite a retry ──────
+
+describe('an unknown payment outcome latches the pay button', () => {
+  /*
+    `docs/158`. The server answers PAYMENT_OUTCOME_UNKNOWN when the gateway
+    never replied, and its message ends "Please do not send it again until you
+    have checked" - while the refusal walk measured the pay button still
+    ENABLED directly beneath it. An instruction and its opposite in one
+    viewport, and a blind retry there is how somebody pays twice.
+  */
+  function refusal(code: string, message: string) {
+    return { ok: false, status: 503, json: async () => ({ ok: false, error: { code, message } }) };
+  }
+
+  const UNKNOWN_MESSAGE =
+    'We lost contact with M-Pesa while starting your payment, so we cannot tell you whether ' +
+    'it went through. Please do not send it again until you have checked.';
+
+  it('⛔ disables the pay button and asks the donor to confirm first', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(refusal('PAYMENT_OUTCOME_UNKNOWN', UNKNOWN_MESSAGE));
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/cannot tell you whether/i);
+    expect(screen.getByRole('button', { name: /Send M-Pesa request/i })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /checked my M-Pesa messages/i })).toBeInTheDocument();
+  });
+
+  it('re-enables it only once they say they checked', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(refusal('PAYMENT_OUTCOME_UNKNOWN', UNKNOWN_MESSAGE));
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+    await user.click(screen.getByRole('checkbox', { name: /checked my M-Pesa messages/i }));
+
+    expect(screen.getByRole('button', { name: /Send M-Pesa request/i })).toBeEnabled();
+  });
+
+  it('⚠️ ANTI-VACUITY: another refusal does NOT latch it', async () => {
+    /*
+      Without this the rule is satisfied by latching on every error, which
+      would put a confirmation in front of donors whose money we know was
+      never touched - the cap refusal, for one, is decided before the gateway
+      is called at all.
+    */
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(
+      refusal(
+        'CAP_EXCEEDED',
+        'This campaign can accept up to Ksh 50,000.00 before the organiser’s ID is ' +
+          'checked. Nothing has been charged.',
+      ),
+    );
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/up to Ksh 50,000/i);
+    expect(screen.getByRole('button', { name: /Send M-Pesa request/i })).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: /checked my M-Pesa messages/i })).toBeNull();
+  });
+});

@@ -74,6 +74,19 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
       'Card payments are unavailable right now. This is a problem on our side, not with ' +
       'your card, and nothing has been charged.',
   },
+  PAYMENT_OUTCOME_UNKNOWN: {
+    status: 503,
+    /*
+      ⛔ This is the one payment message that must NOT say nothing has been
+      charged, because on this branch the gateway never answered and we do not
+      know. Telling somebody their money is safe when we cannot see it is the
+      `docs/121` mistake in the other direction.
+    */
+    message:
+      'We lost contact with the payment service and cannot tell whether you were charged. ' +
+      'Please check your messages from your bank or mobile money app before trying again, ' +
+      'and email support@lastdonor.org if money left your account.',
+  },
   CURRENCY_UNSUPPORTED: {
     status: 503,
     message:

@@ -13,6 +13,7 @@ import {
   PayHeroApiError,
   PayHeroNotConfiguredError,
   classifyInitiationFailure,
+  PayHeroRequestNotSentError,
   configuredChannelId,
   getTransactionStatus,
   getWalletBalance,
@@ -350,8 +351,53 @@ describe('classifyInitiationFailure', () => {
     expect(classifyInitiationFailure(new PayHeroApiError(429, 'slow down'))).toBe('transient');
   });
 
-  it('classifies a timeout as transient', () => {
-    expect(classifyInitiationFailure(new Error('The operation was aborted'))).toBe('transient');
+  /*
+    ⛔ This used to assert `transient`, and that assertion was the defect, not
+    a description of one. `transient` means PayHero ANSWERED and declined to
+    act, which is what licenses the route to tell a donor "nothing has been
+    charged". A timeout is the opposite: no response at all, on a call that
+    reaches Safaricom synchronously behind a 20s deadline, so the request may
+    have arrived and raised a prompt. `docs/121` settled the same question for
+    withdrawals - the unknown branch is the one where the money may have moved.
+
+    The property that matters is the DISTINCTION, so both halves are asserted
+    together: a rule that only checked the timeout would be satisfied by
+    classifying everything as unknown, which would make the honest message the
+    only message and tell donors we might have charged them when we know we
+    did not.
+  */
+  it('⛔ separates "no response" from "the gateway said no"', () => {
+    // No response: we cannot know. Timeout, DNS, TLS, socket reset.
+    expect(classifyInitiationFailure(new Error('The operation was aborted'))).toBe('unknown');
+    expect(classifyInitiationFailure(new TypeError('fetch failed'))).toBe('unknown');
+
+    // The control: PayHero answered, so it had the request and did not act.
+    expect(classifyInitiationFailure(new PayHeroApiError(502, 'bad gateway'))).toBe('transient');
+    expect(classifyInitiationFailure(new PayHeroApiError(429, 'slow down'))).toBe('transient');
+  });
+
+  it('⛔ a request our OWN guards refused to send is NOT an unknown outcome', () => {
+    /*
+      The mirror of the defect above, and it was live for one commit: these
+      guards threw a bare `Error`, so they landed on the fallback and told the
+      donor we might have charged them for a request that never left.
+      [VERIFIED by execution in a lab: an http callback URL produced
+      `kind=unknown` with `providerMessage: "callbackUrl must be https."`]
+
+      Nothing was dispatched, so "nothing has been charged" is substantiated -
+      which is what `configuration` licenses.
+    */
+    expect(
+      classifyInitiationFailure(new PayHeroRequestNotSentError('callbackUrl must be https.')),
+    ).toBe('configuration');
+    expect(
+      classifyInitiationFailure(
+        new PayHeroRequestNotSentError('Unusable phone number; refusing to spend an STK request on it.'),
+      ),
+    ).toBe('configuration');
+
+    // The control: a genuine no-response is still unknown.
+    expect(classifyInitiationFailure(new Error('The operation was aborted'))).toBe('unknown');
   });
 
   it('classifies another 4xx as a rejection of this request', () => {

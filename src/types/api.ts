@@ -26,6 +26,19 @@ export interface ApiError {
       */
       | 'PAYMENTS_UNAVAILABLE'
       /*
+        ⛔ The gateway never answered, so the platform does NOT know whether
+        the donor was charged. Distinct from PAYMENTS_UNAVAILABLE, which means
+        the gateway answered and declined to act: there, "nothing has been
+        charged" is substantiated, and here it is not.
+
+        The M-Pesa push reaches Safaricom synchronously behind a 20s client
+        deadline, so a request that arrived can have raised a prompt on the
+        handset while we were giving up on it. 503, and the copy must tell the
+        donor to check their own M-Pesa messages rather than retry blind -
+        `docs/121`'s unknown-outcome rule, on the way in instead of out.
+      */
+      | 'PAYMENT_OUTCOME_UNKNOWN'
+      /*
         The campaign is denominated in a currency the platform has no rail
         for. 503, like PAYMENTS_UNAVAILABLE: the donor can do nothing about
         it and a retry cannot succeed until an operator enables the currency

@@ -114,6 +114,26 @@ export const LASTDONOR_REFERENCE_PREFIX = 'LD-';
 /** M-Pesa is the only provider this client requests. */
 const PROVIDER_MPESA = 'm-pesa';
 
+/**
+ * Our OWN pre-flight guards refused to send the request.
+ *
+ * ⛔ This exists to keep such a refusal out of `unknown`. Every condition that
+ * raises it is checked BEFORE `fetch`, so nothing reached PayHero and
+ * "nothing has been charged" is substantiated - whereas `unknown` means no
+ * response came back and we genuinely cannot say. Without this class these
+ * guards threw a bare `Error`, landed on the classifier's fallback, and told
+ * the donor we might have charged them for a request that never left the
+ * building. [VERIFIED by execution: a lab callback URL on http produced
+ * exactly that - `kind=unknown`, `providerMessage: "callbackUrl must be
+ * https."`]
+ */
+export class PayHeroRequestNotSentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PayHeroRequestNotSentError';
+  }
+}
+
 export class PayHeroNotConfiguredError extends Error {
   constructor() {
     super(
@@ -338,10 +358,32 @@ export interface StkPushAccepted {
  * `configuration` is the class `docs/72` was about: a fault only an operator
  * can fix, which must never be presented to a donor as "try again".
  */
-export type InitiationFailureKind = 'configuration' | 'rejected' | 'transient';
+/**
+ * Why an STK push initiation failed.
+ *
+ * ⛔ `unknown` is NOT a flavour of `transient`, and separating them is the
+ * whole point. `transient` means **PayHero answered** (a 5xx or a 429), so it
+ * had the request and did not act on it. `unknown` means **no response
+ * arrived at all** - a timeout, DNS, TLS or a socket reset - and the push call
+ * reaches Safaricom synchronously with a 20s client deadline, so a request
+ * that got there can have raised a prompt on the donor's handset while we were
+ * giving up on it.
+ *
+ * That difference is a claim about somebody's money. `docs/121` settled the
+ * same question on the way out: *"'your withdrawal failed' there is a claim it
+ * cannot substantiate, and it is the one case where the money may actually
+ * have moved."* This is that rule on the way in.
+ */
+export type InitiationFailureKind =
+  | 'configuration'
+  | 'rejected'
+  | 'transient'
+  | 'unknown';
 
 export function classifyInitiationFailure(error: unknown): InitiationFailureKind {
   if (error instanceof PayHeroNotConfiguredError) return 'configuration';
+  // Our own guard refused to send it, so nothing was dispatched. NOT `unknown`.
+  if (error instanceof PayHeroRequestNotSentError) return 'configuration';
 
   if (error instanceof PayHeroApiError) {
     if (error.status === 401 || error.status === 403) return 'configuration';
@@ -368,8 +410,12 @@ export function classifyInitiationFailure(error: unknown): InitiationFailureKind
     return 'rejected';
   }
 
-  // Timeout, DNS, TLS, socket reset.
-  return 'transient';
+  /*
+    Timeout, DNS, TLS, socket reset - i.e. NO response. We do not know whether
+    PayHero received the request, so we must not tell the donor their money is
+    untouched. See the type above.
+  */
+  return 'unknown';
 }
 
 /**
@@ -389,7 +435,7 @@ export async function initiateStkPush(req: StkPushRequest): Promise<StkPushAccep
 
   const currency = getCurrency(req.currency);
   if (currency.gateway !== 'payhero') {
-    throw new Error(
+    throw new PayHeroRequestNotSentError(
       `PayHero does not collect ${currency.code}; refusing to initiate. ` +
         'Currency-to-gateway routing is in src/lib/money/currencies.ts.',
     );
@@ -399,16 +445,16 @@ export async function initiateStkPush(req: StkPushRequest): Promise<StkPushAccep
     // Guards the isolation boundary at the only place a reference is minted
     // onto the wire. A reference without our prefix could not be told apart
     // from BETWOIN's traffic on the callback.
-    throw new Error(
+    throw new PayHeroRequestNotSentError(
       `external_reference must start with ${LASTDONOR_REFERENCE_PREFIX}; refusing to initiate.`,
     );
   }
 
   if (!Number.isInteger(req.amountMinor)) {
-    throw new Error('amountMinor must be an integer number of minor units.');
+    throw new PayHeroRequestNotSentError('amountMinor must be an integer number of minor units.');
   }
   if (req.amountMinor < currency.minDonationMinor || req.amountMinor > currency.maxDonationMinor) {
-    throw new Error(
+    throw new PayHeroRequestNotSentError(
       `amountMinor ${req.amountMinor} is outside the ${currency.code} bounds ` +
         `${currency.minDonationMinor}–${currency.maxDonationMinor}.`,
     );
@@ -424,7 +470,7 @@ export async function initiateStkPush(req: StkPushRequest): Promise<StkPushAccep
   */
   const minorPerMajor = 10 ** currency.exponent;
   if (req.amountMinor % minorPerMajor !== 0) {
-    throw new Error(
+    throw new PayHeroRequestNotSentError(
       `PayHero accepts whole ${currency.code} only; ${req.amountMinor} minor units is a fraction.`,
     );
   }
@@ -432,20 +478,20 @@ export async function initiateStkPush(req: StkPushRequest): Promise<StkPushAccep
 
   const msisdn = toPayHeroMsisdn(req.phone);
   if (!msisdn) {
-    throw new Error('Unusable phone number; refusing to spend an STK request on it.');
+    throw new PayHeroRequestNotSentError('Unusable phone number; refusing to spend an STK request on it.');
   }
 
   let callback: URL;
   try {
     callback = new URL(req.callbackUrl);
   } catch {
-    throw new Error('callbackUrl is not a valid URL.');
+    throw new PayHeroRequestNotSentError('callbackUrl is not a valid URL.');
   }
   if (callback.protocol !== 'https:') {
     // PayHero posts the outcome here. Over http it is readable and
     // rewritable in transit, and the route treats the body as a hint anyway,
     // but there is no reason to accept it.
-    throw new Error('callbackUrl must be https.');
+    throw new PayHeroRequestNotSentError('callbackUrl must be https.');
   }
 
   const data = (await call(
