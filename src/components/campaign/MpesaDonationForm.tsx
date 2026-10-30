@@ -440,6 +440,20 @@ export function MpesaDonationForm({
           type="tel"
           inputMode="tel"
           autoComplete="tel"
+          /*
+            `required` because `canSubmit` (`:109`) will not let this form be
+            submitted without it. Measured on production at 390px: choosing an
+            amount and typing a number left the button reading "Send M-Pesa
+            request for Ksh 100.00" and DISABLED, with nothing saying what was
+            missing - and assistive technology was told the field was optional.
+
+            ⚠️ It changes no behaviour and no pixel: this component contains no
+            `<form>` element and the pay button is `type="button"`, so native
+            validation never runs, and no `:invalid`/`:required` rule exists in
+            the stylesheets. It is the accessibility tree only, which is
+            exactly the thing that was wrong.
+          */
+          required
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           className="mt-1 w-full rounded-xl border border-border bg-background px-4 py-3 text-base text-foreground"
@@ -473,6 +487,14 @@ export function MpesaDonationForm({
             id="mpesa-email"
             type="email"
             autoComplete="email"
+            /*
+              Required, and it is the one that actually bit: the label beside
+              it reads "Your name (optional)" while this one reads plain
+              "Email", so the contrast implies required to a sighted reader -
+              and `required` was absent, so a screen reader was told the
+              opposite. `canSubmit` demands `donorEmail.includes('@')`.
+            */
+            required
             value={donorEmail}
             onChange={(e) => setDonorEmail(e.target.value)}
             className="mt-1 w-full rounded-xl border border-border bg-background px-4 py-3 text-base text-foreground"
