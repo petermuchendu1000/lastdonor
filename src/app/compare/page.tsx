@@ -129,7 +129,7 @@ export default function ComparePage() {
           <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
             Compare the things that actually affect trust
           </h2>
-          <div className="mt-8 overflow-x-auto rounded-xl border border-border bg-card">
+          <div className="mt-8 relative overflow-x-auto rounded-xl border border-border bg-card">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-border bg-muted/60">
                 <tr>

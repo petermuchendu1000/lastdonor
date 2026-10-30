@@ -38,6 +38,12 @@ interface Withdrawal {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  /*
+    Resolved on the server from `status` + `published_at` (`docs/131`). The
+    donation history on the sibling screen has been gated since `docs/109`;
+    this withdrawal list never was. `docs/154`.
+  */
+  campaignHref: string | null;
   /** The campaign's currency - a withdrawal is in the money it came from. */
   currency: string;
   amount: number;
@@ -610,12 +616,16 @@ export default function FinancesClient({
                   className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 flex-1 space-y-1">
-                    <Link
-                      href={`/campaigns/${w.campaignSlug}`}
-                      className="text-sm font-semibold text-foreground hover:text-primary"
-                    >
-                      {w.campaignTitle}
-                    </Link>
+                    {w.campaignHref ? (
+                      <Link
+                        href={w.campaignHref}
+                        className="text-sm font-semibold text-foreground hover:text-primary"
+                      >
+                        {w.campaignTitle}
+                      </Link>
+                    ) : (
+                      <p className="text-sm font-semibold text-foreground">{w.campaignTitle}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       Requested {formatDate(w.requestedAt)}
                       {w.processedAt && ` · Processed ${formatDate(w.processedAt)}`}

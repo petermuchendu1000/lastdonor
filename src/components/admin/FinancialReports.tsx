@@ -234,7 +234,7 @@ export function FinancialReports({
             Category Breakdown
           </h2>
           <div className="mt-3 overflow-hidden rounded-lg border">
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/40">
@@ -274,7 +274,7 @@ export function FinancialReports({
           Monthly Breakdown
         </h2>
         <div className="mt-3 overflow-hidden rounded-lg border">
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
@@ -309,7 +309,7 @@ export function FinancialReports({
           Top Campaigns by Revenue
         </h2>
         <div className="mt-3 overflow-hidden rounded-lg border">
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">

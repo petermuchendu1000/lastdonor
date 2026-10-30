@@ -8,6 +8,7 @@ import { eq, sql, desc, and, or } from 'drizzle-orm';
 import { Money } from '@/components/ui/Money';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -28,6 +29,13 @@ export default async function SupportedCampaignsPage() {
       title: campaigns.title,
       slug: campaigns.slug,
       status: campaigns.status,
+      /*
+        Selected because both links below are GATED on it (`docs/131`:
+        publication is what `published_at` answers, not the status). Added to
+        a select and a GROUP BY that already run - never a new query
+        (`docs/87`).
+      */
+      publishedAt: campaigns.publishedAt,
       category: campaigns.category,
       goalAmount: campaigns.goalAmount,
       raisedAmount: campaigns.raisedAmount,
@@ -53,6 +61,7 @@ export default async function SupportedCampaignsPage() {
       campaigns.title,
       campaigns.slug,
       campaigns.status,
+      campaigns.publishedAt,
       campaigns.category,
       campaigns.goalAmount,
       campaigns.raisedAmount,
@@ -83,6 +92,21 @@ export default async function SupportedCampaignsPage() {
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {supported.map((c) => {
             const pct = c.goalAmount > 0 ? Math.min(100, Math.round((c.raisedAmount / c.goalAmount) * 100)) : 0;
+            /*
+              ⛔ A campaign you have donated to can stop having a public page
+              after you gave - it is `docs/118` §2.5's rot, from the donor's
+              side. Both links on this card pointed at `/campaigns/<slug>`
+              unconditionally. [VERIFIED by execution: 2 visible anchors to an
+              `under_review` campaign, both 404.] The title falls back to plain
+              text and the "Donate Again" button is withheld, because a control
+              that can only fail is worse than none (`docs/119`) - and the
+              status badge directly below already says why.
+            */
+            const publicHref = publicCampaignPath({
+              slug: c.slug,
+              status: c.status,
+              publishedAt: c.publishedAt,
+            });
             return (
               <Card key={c.campaignId} className="overflow-hidden">
                 <CardContent className="p-0">
@@ -99,12 +123,16 @@ export default async function SupportedCampaignsPage() {
                     </div>
                   )}
                   <div className="p-4">
-                    <Link
-                      href={`/campaigns/${c.slug}`}
-                      className="font-medium text-brand-teal hover:underline"
-                    >
-                      {c.title}
-                    </Link>
+                    {publicHref ? (
+                      <Link
+                        href={publicHref}
+                        className="font-medium text-brand-teal hover:underline"
+                      >
+                        {c.title}
+                      </Link>
+                    ) : (
+                      <p className="font-medium text-foreground">{c.title}</p>
+                    )}
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant={c.status === 'active' || c.status === 'last_donor_zone' ? 'default' : 'secondary'} className="text-xs">
                         {c.status === 'last_donor_zone' ? 'Last Donor Zone' : c.status}
@@ -139,12 +167,14 @@ export default async function SupportedCampaignsPage() {
                         <p className="text-sm font-semibold text-foreground">{c.donationCount}</p>
                       </div>
                     </div>
-                    <Link
-                      href={`/campaigns/${c.slug}`}
-                      className="mt-3 block rounded-md bg-primary px-3 py-1.5 text-center text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
-                      Donate Again
-                    </Link>
+                    {publicHref && (
+                      <Link
+                        href={publicHref}
+                        className="mt-3 block rounded-md bg-primary px-3 py-1.5 text-center text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                      >
+                        Donate Again
+                      </Link>
+                    )}
                   </div>
                 </CardContent>
               </Card>

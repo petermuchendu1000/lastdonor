@@ -84,7 +84,7 @@ export default async function CampaignDonorsPage({ params }: { params: Promise<{
           </CardContent>
         </Card>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-lg border">
+        <div className="mt-6 relative overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Money } from '@/components/ui/Money';
 import { CampaignHeroImage } from '@/components/campaign/CampaignHeroImage';
-import { hasPublicPage } from '@/lib/campaign-visibility';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import { NextStepRow } from '@/components/dashboard/NextStepRow';
 import { campaignStatusLabel } from '@/lib/campaign-labels';
 import { Badge } from '@/components/ui/badge';
@@ -119,6 +119,11 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
           </Card>
         ) : (
           filtered.map((c) => {
+            const publicHref = publicCampaignPath({
+              slug: c.slug,
+              status: c.status,
+              publishedAt: c.publishedAt,
+            });
             const pct = c.goalAmount > 0 ? Math.min(100, Math.round((c.raisedAmount / c.goalAmount) * 100)) : 0;
             return (
               <Card key={c.id}>
@@ -279,9 +284,9 @@ export function CampaignsListClient({ campaigns }: { campaigns: Campaign[] }) {
                       still `under_review` clicked "View" on their own
                       dashboard and got a 404 (docs/109).
                     */}
-                    {hasPublicPage({ status: c.status, publishedAt: c.publishedAt }) && (
+                    {publicHref && (
                       <Link
-                        href={`/campaigns/${c.slug}`}
+                        href={publicHref}
                         className="ml-auto rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
                         View

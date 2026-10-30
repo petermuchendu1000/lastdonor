@@ -12,6 +12,13 @@ interface Subscription {
   campaignSlug: string;
   campaignTitle: string;
   campaignStatus: string;
+  /*
+    Resolved on the server from `status` + `published_at` (`docs/131`). Both
+    links below are gated on it: a campaign you subscribed to can stop having
+    a public page after you subscribed (`docs/118` §2.5), and an ungated link
+    then hands you a 404.
+  */
+  campaignHref: string | null;
   campaignHeroImageUrl: string;
   campaignRaisedFormatted: string;
   campaignGoalFormatted: string;
@@ -83,23 +90,39 @@ export function SubscriptionsClient({ email, initialSubscriptions }: Subscriptio
             key={sub.id}
             className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:bg-muted/30"
           >
-            <Link href={`/campaigns/${sub.campaignSlug}`} className="shrink-0">
+            {sub.campaignHref ? (
+              <Link href={sub.campaignHref} className="shrink-0">
+                <Image
+                  src={sub.campaignHeroImageUrl}
+                  alt={sub.campaignTitle}
+                  width={80}
+                  height={52}
+                  className="h-[52px] w-[80px] rounded-lg object-cover"
+                />
+              </Link>
+            ) : (
               <Image
                 src={sub.campaignHeroImageUrl}
                 alt={sub.campaignTitle}
                 width={80}
                 height={52}
-                className="h-[52px] w-[80px] rounded-lg object-cover"
+                className="h-[52px] w-[80px] shrink-0 rounded-lg object-cover"
               />
-            </Link>
+            )}
 
             <div className="min-w-0 flex-1">
-              <Link
-                href={`/campaigns/${sub.campaignSlug}`}
-                className="block truncate text-sm font-semibold text-foreground hover:text-primary"
-              >
-                {sub.campaignTitle}
-              </Link>
+              {sub.campaignHref ? (
+                <Link
+                  href={sub.campaignHref}
+                  className="block truncate text-sm font-semibold text-foreground hover:text-primary"
+                >
+                  {sub.campaignTitle}
+                </Link>
+              ) : (
+                <p className="block truncate text-sm font-semibold text-foreground">
+                  {sub.campaignTitle}
+                </p>
+              )}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={cn('border-0 text-[11px]', status.className)}>
                   {status.label}

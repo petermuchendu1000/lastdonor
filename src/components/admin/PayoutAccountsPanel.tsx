@@ -240,7 +240,7 @@ export function PayoutAccountsPanel({
       )}
 
       <div className="rounded-xl border border-border">
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>

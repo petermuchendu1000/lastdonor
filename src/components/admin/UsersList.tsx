@@ -302,7 +302,7 @@ export function UsersList({ initialUsers, roleBreakdown, totalUsers }: UsersList
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="relative overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">

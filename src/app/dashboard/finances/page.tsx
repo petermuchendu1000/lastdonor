@@ -5,7 +5,7 @@ import { donations, campaigns } from '@/db/schema';
 import { eq, desc, and, or } from 'drizzle-orm';
 import { Money } from '@/components/ui/Money';
 import { donorTotalsByCurrency } from '@/lib/donor-totals.server';
-import { hasPublicPage } from '@/lib/campaign-visibility';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import { formatDate } from '@/lib/utils/dates';
 import { PhaseBadge } from '@/components/campaign/PhaseBadge';
 import {
@@ -97,7 +97,7 @@ export default async function DonationHistoryPage() {
           </p>
         </div>
       ) : (
-        <div className="mt-4 overflow-x-auto rounded-xl border border-[#E5E7EB] bg-white dark:border-white/10 dark:bg-white/5">
+        <div className="mt-4 relative overflow-x-auto rounded-xl border border-[#E5E7EB] bg-white dark:border-white/10 dark:bg-white/5">
           <Table>
             <TableHeader>
               <TableRow>
@@ -109,7 +109,13 @@ export default async function DonationHistoryPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {donationList.map((d) => (
+              {donationList.map((d) => {
+                const publicHref = publicCampaignPath({
+                  slug: d.campaignSlug,
+                  status: d.campaignStatus,
+                  publishedAt: d.campaignPublishedAt,
+                });
+                return (
                 <TableRow key={d.id}>
                   <TableCell>
                     {/*
@@ -118,9 +124,9 @@ export default async function DonationHistoryPage() {
                       exactly that to twelve live campaigns - and this link
                       would then 404 from the donor's own history.
                     */}
-                    {hasPublicPage({ status: d.campaignStatus, publishedAt: d.campaignPublishedAt }) ? (
+                    {publicHref ? (
                       <Link
-                        href={`/campaigns/${d.campaignSlug}`}
+                        href={publicHref}
                         className="font-medium text-[#0F766E] hover:underline"
                       >
                         {d.campaignTitle}
@@ -144,7 +150,8 @@ export default async function DonationHistoryPage() {
                     {formatDate(d.createdAt)}
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>

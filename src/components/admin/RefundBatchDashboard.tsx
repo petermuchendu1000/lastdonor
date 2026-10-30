@@ -306,7 +306,7 @@ export function RefundBatchDashboard() {
                     ) : expandedRecords.length === 0 ? (
                       <p className="text-center text-sm text-muted-foreground">No individual records.</p>
                     ) : (
-                      <div className="overflow-x-auto">
+                      <div className="relative overflow-x-auto">
                         <table className="w-full text-left text-sm">
                           <thead>
                             <tr className="text-xs text-muted-foreground">

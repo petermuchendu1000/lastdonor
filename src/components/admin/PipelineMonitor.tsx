@@ -160,7 +160,7 @@ function AICostsTab({
           {byPromptType.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No data yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>
@@ -302,7 +302,7 @@ function SimulationTab({ data }: { data: SimulationQuality }) {
               No active campaign messages.
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>
@@ -350,7 +350,7 @@ function SimulationTab({ data }: { data: SimulationQuality }) {
               No repeated donor names detected.
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>
@@ -430,7 +430,7 @@ function PipelineTab({ data }: { data: PipelineHealth }) {
           {data.sourceStatuses.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No sources configured.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>

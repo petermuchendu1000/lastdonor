@@ -489,7 +489,7 @@ export function CampaignDetail({ campaign, donations, updates, phaseBreakdown, i
           Recent donations ({donations.length})
         </h2>
         <div className="mt-4 overflow-hidden rounded-lg border border-border">
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">

@@ -508,7 +508,7 @@ export function SimulationControlPanel({ initialSettings, campaigns: initialCamp
               <p>No simulated campaigns.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>

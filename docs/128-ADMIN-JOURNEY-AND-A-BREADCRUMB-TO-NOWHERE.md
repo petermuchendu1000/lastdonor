@@ -186,7 +186,39 @@ Gate: lint clean (0 errors, 1 pre-existing warning), typecheck clean,
 
 ---
 
-## 5. ⛔ Reported, NOT fixed: four admin tables overflow at 390px
+## 5. ✅ RESOLVED 2026-10-30 by `docs/154` — four admin tables overflow at 390px
+
+> **✅ The root cause below is no longer [UNKNOWN]. See `docs/154` §3.**
+>
+> A `.sr-only` span (`position: absolute`, **1×1px**) is rendered as the last
+> `<th>` of each table — the "Actions" header — and the scroll wrapper was
+> `position: static`, so that span's **containing block was the initial
+> containing block, not the wrapper**. An absolutely positioned box whose
+> containing block lies outside a scroll container is not clipped by it, and it
+> extends the scroll area of **its own** containing block, which is `html` and
+> never `body`.
+>
+> That is why every observation in this section looked irreconcilable:
+> `body.scrollWidth` 390 vs `html` 514 (only `html`'s area grows); *"a scan
+> finds **zero** unclipped elements"* (**the span is 1×1 and the scan skipped
+> sub-2px boxes**); *"`table-layout: fixed` takes it to 0"* (it narrows the
+> columns so the span lands on screen); *"a minimal reproduction produces 0px,
+> so the browser is not at fault"* (the reproduction had no `.sr-only` — the
+> browser never was at fault); and the *"blank right gutter"*, which is
+> literally correct.
+>
+> ⛔ **The control named below was never structurally different.**
+> `/admin/campaigns` has the same span with the same containing block; its
+> table is merely narrow enough that it lands **32px** inside the viewport.
+> `/admin/blog`'s margin was **1px**. The four pages here are not a class, they
+> are the ones that crossed zero.
+>
+> Fixed by `relative` on all 40 hand-rolled scroll wrappers, which changes no
+> geometry; `src/components/ui/table.tsx` had always had it. Guarded by
+> `src/components/ui/scroll-containment.ratchet.test.ts`. The original
+> measurements below are kept as the record.
+
+### The original report (root cause [UNKNOWN] at the time)
 
 `/admin/blog/topics` (+124px), `/admin/governance` (+90), `/admin/donations`
 (+73) and `/admin/users` (+46) report `documentElement.scrollWidth` exceeding

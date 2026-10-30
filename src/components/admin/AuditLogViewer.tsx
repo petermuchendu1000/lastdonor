@@ -146,7 +146,7 @@ export function AuditLogViewer({
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border">
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
@@ -209,7 +209,7 @@ export function AuditLogViewer({
                       {expanded && entry.details && (
                         <tr>
                           <td colSpan={6} className="bg-muted/50 px-4 py-2">
-                            <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs">
+                            <pre className="max-h-48 relative overflow-auto whitespace-pre-wrap text-xs">
                               {JSON.stringify(entry.details, null, 2)}
                             </pre>
                           </td>

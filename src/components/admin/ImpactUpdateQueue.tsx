@@ -37,6 +37,14 @@ const LINK_BUTTON =
   390px with the root cause still [UNKNOWN] and `overflow-x-auto` already
   present on all of them; a new table would be a fifth instance of a defect
   nobody has explained.
+
+  ⚠️ AMENDED 2026-10-30: that root cause is now KNOWN and fixed (`docs/154`) -
+  a `.sr-only` "Actions" header is `position: absolute`, and the scroll wrapper
+  was not a containing block, so the 1x1 span escaped the clip and extended
+  `html`'s scroll area. Every scroller is `relative` now, with a ratchet. So
+  the reason above no longer argues against a table here. Cards remain the
+  shape chosen, but if anyone converts this to a table, the hazard it was
+  avoiding is gone.
 */
 
 export type ImpactUpdateRow = {

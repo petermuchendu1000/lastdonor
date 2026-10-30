@@ -3,6 +3,7 @@ import { db } from '@/db';
 import { donorCampaignSubscriptions, campaigns, users } from '@/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { formatMoney } from '@/lib/money/format';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import { SubscriptionsClient } from './client';
 import type { Metadata } from 'next';
 
@@ -37,6 +38,12 @@ export default async function SubscriptionsPage() {
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,
       campaignStatus: campaigns.status,
+      /*
+        Selected because both links in the client are GATED on it (`docs/131`:
+        publication is what `published_at` answers, not the status). Added to
+        a select that already runs - never a new query (`docs/87`).
+      */
+      campaignPublishedAt: campaigns.publishedAt,
       campaignHeroImageUrl: campaigns.heroImageUrl,
       campaignRaisedAmount: campaigns.raisedAmount,
       campaignGoalAmount: campaigns.goalAmount,
@@ -59,6 +66,19 @@ export default async function SubscriptionsPage() {
     campaignSlug: s.campaignSlug,
     campaignTitle: s.campaignTitle,
     campaignStatus: s.campaignStatus,
+    /*
+      Resolved HERE, not in the client: the client would otherwise need the
+      timestamp serialised and deserialised just to ask one question. A
+      campaign you subscribed to can stop having a public page afterwards
+      (`docs/118` §2.5), and both links in the client pointed at
+      `/campaigns/<slug>` unconditionally. [VERIFIED by execution: 2 visible
+      anchors to an `under_review` campaign, both 404.]
+    */
+    campaignHref: publicCampaignPath({
+      slug: s.campaignSlug,
+      status: s.campaignStatus,
+      publishedAt: s.campaignPublishedAt,
+    }),
     campaignHeroImageUrl: s.campaignHeroImageUrl,
     /*
       `formatMoney`, not `<Money>`: this page serialises STRINGS to its client

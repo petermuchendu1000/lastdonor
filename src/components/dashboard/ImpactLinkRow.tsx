@@ -7,7 +7,14 @@ import { Money } from '@/components/ui/Money';
 
 interface ImpactLinkRowProps {
   campaignTitle: string;
-  campaignSlug: string;
+  /*
+    Resolved on the server by `share-impact.ts` from `status` +
+    `published_at` (`docs/131`). The title below was an unconditional link to
+    `/campaigns/<slug>`, and a share link outlives its campaign's public page
+    (`docs/118` §2.5), so a sharer could be handed a 404 on the screen that
+    exists to thank them. `docs/154`.
+  */
+  campaignHref: string | null;
   url: string;
   clicks: number;
   donorsBrought: number;
@@ -37,7 +44,7 @@ interface ImpactLinkRowProps {
  */
 export function ImpactLinkRow({
   campaignTitle,
-  campaignSlug,
+  campaignHref,
   url,
   clicks,
   donorsBrought,
@@ -61,12 +68,18 @@ export function ImpactLinkRow({
   return (
     <li className="rounded-xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <Link
-          href={`/campaigns/${campaignSlug}`}
-          className="min-w-0 flex-1 font-display text-base font-semibold text-card-foreground hover:text-primary"
-        >
-          {campaignTitle}
-        </Link>
+        {campaignHref ? (
+          <Link
+            href={campaignHref}
+            className="min-w-0 flex-1 font-display text-base font-semibold text-card-foreground hover:text-primary"
+          >
+            {campaignTitle}
+          </Link>
+        ) : (
+          <p className="min-w-0 flex-1 font-display text-base font-semibold text-card-foreground">
+            {campaignTitle}
+          </p>
+        )}
 
         <div className="flex shrink-0 items-center gap-4 text-right">
           <div>

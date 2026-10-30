@@ -470,7 +470,7 @@ export function BulkEmailDashboard() {
           <p className="mt-2 text-sm text-muted-foreground">No bulk emails found.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="relative overflow-x-auto rounded-lg border">
           <table className="w-full text-left text-sm">
             <thead className="border-b bg-muted/40">
               <tr>

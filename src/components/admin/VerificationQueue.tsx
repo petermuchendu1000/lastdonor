@@ -390,7 +390,7 @@ export function VerificationQueue({ initialItems, stats }: VerificationQueueProp
 
       {/* Table */}
       <div className="overflow-hidden rounded-lg border">
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40">

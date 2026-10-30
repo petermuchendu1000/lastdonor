@@ -25,6 +25,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { campaignShareLinks, campaigns, donations } from '@/db/schema';
+import { publicCampaignPath } from '@/lib/campaign-links';
 
 /** Totals across every campaign this person has shared. */
 /** One currency's worth of attributed donations. */
@@ -59,6 +60,14 @@ export interface ImpactByCampaign {
   campaignId: string;
   campaignTitle: string;
   campaignSlug: string;
+  /*
+    Resolved HERE so there is ONE decider for both row types below and both
+    renderers. A share link outlives its campaign's public page - the campaign
+    can be archived or reverted to draft after somebody shared it
+    (`docs/118` §2.5) - and an ungated link then hands the sharer a 404 on a
+    screen that exists to thank them. `docs/154`.
+  */
+  campaignHref: string | null;
   token: string;
   clicks: number;
   donorsBrought: number;
@@ -74,6 +83,8 @@ export interface AttributedDonor {
   createdAt: Date;
   campaignTitle: string;
   campaignSlug: string;
+  /** See `ImpactByCampaign.campaignHref`. */
+  campaignHref: string | null;
 }
 
 /**
@@ -161,11 +172,15 @@ export function impactAmountsByCurrency(
 }
 
 export async function getImpactByCampaign(userId: string): Promise<ImpactByCampaign[]> {
-  return db
+  const rows = await db
     .select({
       campaignId: campaignShareLinks.campaignId,
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,
+      // Selected ONLY to answer `campaignHasPublicPage`; added to a select
+      // that already runs, never a new query (`docs/87`).
+      campaignStatus: campaigns.status,
+      campaignPublishedAt: campaigns.publishedAt,
       token: campaignShareLinks.token,
       clicks: campaignShareLinks.clickCount,
       // A campaign is single-currency by composite FK (`docs/92`), so summing
@@ -186,11 +201,22 @@ export async function getImpactByCampaign(userId: string): Promise<ImpactByCampa
       campaignShareLinks.campaignId,
       campaigns.title,
       campaigns.slug,
+      campaigns.status,
+      campaigns.publishedAt,
       campaigns.currency,
       campaignShareLinks.token,
       campaignShareLinks.clickCount,
     )
     .orderBy(desc(sql`count(${donations.id})`));
+
+  return rows.map(({ campaignStatus, campaignPublishedAt, ...rest }) => ({
+    ...rest,
+    campaignHref: publicCampaignPath({
+      slug: rest.campaignSlug,
+      status: campaignStatus,
+      publishedAt: campaignPublishedAt,
+    }),
+  }));
 }
 
 /**
@@ -238,7 +264,7 @@ export async function getAttributedDonors(
   userId: string,
   limit = 50,
 ): Promise<AttributedDonor[]> {
-  return db
+  const rows = await db
     .select({
       donorName: sql<string>`case when ${donations.isAnonymous} then 'Anonymous' else ${donations.donorName} end`,
       amountMinor: donations.amount,
@@ -246,6 +272,9 @@ export async function getAttributedDonors(
       createdAt: donations.createdAt,
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,
+      // See `campaignHasPublicPage` above.
+      campaignStatus: campaigns.status,
+      campaignPublishedAt: campaigns.publishedAt,
     })
     .from(donations)
     .innerJoin(campaignShareLinks, eq(donations.shareLinkId, campaignShareLinks.id))
@@ -253,4 +282,13 @@ export async function getAttributedDonors(
     .where(and(eq(campaignShareLinks.userId, userId), COUNTS_AS_IMPACT))
     .orderBy(desc(donations.createdAt))
     .limit(limit);
+
+  return rows.map(({ campaignStatus, campaignPublishedAt, ...rest }) => ({
+    ...rest,
+    campaignHref: publicCampaignPath({
+      slug: rest.campaignSlug,
+      status: campaignStatus,
+      publishedAt: campaignPublishedAt,
+    }),
+  }));
 }

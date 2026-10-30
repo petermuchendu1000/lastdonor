@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db';
 import { users, campaigns, campaignWithdrawals } from '@/db/schema';
 import { eq, desc, inArray, and, sql } from 'drizzle-orm';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import FinancesClient from '@/components/dashboard/FinancesClient';
 import type { Metadata } from 'next';
 
@@ -54,6 +55,15 @@ export default async function FundReleasesPage() {
     campaignId: string;
     campaignTitle: string | null;
     campaignSlug: string | null;
+    /*
+      Selected ONLY to answer `campaignHasPublicPage` below. The donation
+      history on the sibling screen has been gated since `docs/109`; this
+      withdrawal list on the SAME page never was, and a campaign you withdrew
+      from can be archived or reverted afterwards (`docs/118` §2.5).
+      `docs/154`.
+    */
+    campaignStatus: string;
+    campaignPublishedAt: Date | null;
     // NOT NULL in the schema and reached through an inner join, so there is
     // deliberately NO fallback: a silently-defaulted currency on a money
     // figure is the defect, not the safety net.
@@ -88,6 +98,8 @@ export default async function FundReleasesPage() {
           campaignId: campaignWithdrawals.campaignId,
           campaignTitle: campaigns.title,
           campaignSlug: campaigns.slug,
+          campaignStatus: campaigns.status,
+          campaignPublishedAt: campaigns.publishedAt,
           campaignCurrency: campaigns.currency,
           amount: campaignWithdrawals.amount,
           status: campaignWithdrawals.status,
@@ -131,6 +143,11 @@ export default async function FundReleasesPage() {
     campaignId: r.campaignId,
     campaignTitle: r.campaignTitle ?? 'Unknown',
     campaignSlug: r.campaignSlug ?? '',
+    campaignHref: publicCampaignPath({
+      slug: r.campaignSlug,
+      status: r.campaignStatus,
+      publishedAt: r.campaignPublishedAt,
+    }),
     currency: r.campaignCurrency,
     amount: r.amount,
     status: r.status,

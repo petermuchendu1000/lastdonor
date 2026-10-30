@@ -122,7 +122,7 @@ export default function AboutPage() {
 
         <section className="mt-12">
           <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">What donors can check</h2>
-          <div className="mt-6 overflow-x-auto rounded-2xl border border-border shadow-[--shadow-elevation-1]">
+          <div className="mt-6 relative overflow-x-auto rounded-2xl border border-border shadow-[--shadow-elevation-1]">
             <table className="w-full text-sm leading-relaxed">
               <thead>
                 <tr className="bg-muted/60 text-left">

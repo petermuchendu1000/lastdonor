@@ -272,7 +272,7 @@ export function FundPoolManager({ allocations: initialAllocations, summary, targ
               <p>No allocations found.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>

@@ -7,6 +7,7 @@ import { eq, desc, and, or } from 'drizzle-orm';
 import { Money } from '@/components/ui/Money';
 import { donorTotalsByCurrency } from '@/lib/donor-totals.server';
 import { formatDate } from '@/lib/utils/dates';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import { NextStepRow } from '@/components/dashboard/NextStepRow';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import {
@@ -51,6 +52,13 @@ async function getDashboardData(userId: string, userEmail: string) {
         raisedAmount: campaigns.raisedAmount,
         donorCount: campaigns.donorCount,
         verificationStatus: campaigns.verificationStatus,
+        /*
+          Selected because the "View" link below is GATED on it. `docs/131`
+          made publication the question `published_at` answers, not the
+          status, so `hasPublicPage` requires both. Added to a select that
+          already runs - never a new query (`docs/87`).
+        */
+        publishedAt: campaigns.publishedAt,
         // Needed to name the raise cap in the organiser's own money.
         currency: campaigns.currency,
         heroImageUrl: campaigns.heroImageUrl,
@@ -213,6 +221,11 @@ export default async function DashboardPage() {
 
             <div className="mt-4 space-y-3">
               {myCampaigns.slice(0, 4).map((c) => {
+                const publicHref = publicCampaignPath({
+                  slug: c.slug,
+                  status: c.status,
+                  publishedAt: c.publishedAt,
+                });
                 const pct =
                   c.goalAmount > 0
                     ? Math.min(100, Math.round((c.raisedAmount / c.goalAmount) * 100))
@@ -303,12 +316,30 @@ export default async function DashboardPage() {
                         </div>
 
                         <div className="mt-3 flex items-center gap-3 border-t border-border pt-3">
-                          <Link
-                            href={`/campaigns/${c.slug}`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            View
-                          </Link>
+                          {/*
+                            ⛔ Gated. This was the FOURTH ungated link to
+                            `/campaigns/<slug>`, and the near-miss is recorded
+                            in `dashboard/campaigns/[id]/page.tsx`: `docs/109`
+                            fixed "the dashboard View button" - the one in
+                            `CampaignsListClient`, on /dashboard/campaigns -
+                            and this page has its own, same label, same
+                            template. Every newly submitted campaign is
+                            `under_review` with `published_at` NULL, so for the
+                            whole time an organiser is waiting this handed them
+                            a 404 for their own campaign.
+                            [VERIFIED by execution: visible "View" anchor ->
+                            404, with an active campaign's 200 as the control.]
+                            Its gated sibling omits the link entirely; the
+                            status badge above already says why.
+                          */}
+                          {publicHref && (
+                            <Link
+                              href={publicHref}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              View
+                            </Link>
+                          )}
                           <Link
                             href={`/dashboard/campaigns/${c.id}`}
                             className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary transition-colors hover:underline"

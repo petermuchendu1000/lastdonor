@@ -417,7 +417,7 @@ export function UserDetail({ user, donations, auditEntries, currentUserId }: Use
             No donations from this user.
           </div>
         ) : (
-          <div className="mt-4 overflow-x-auto rounded-lg border">
+          <div className="mt-4 relative overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40">
                 <tr>
@@ -479,7 +479,7 @@ export function UserDetail({ user, donations, auditEntries, currentUserId }: Use
       {auditEntries.length > 0 && (
         <section>
           <h2 className="text-sm font-semibold text-muted-foreground">Activity Log</h2>
-          <div className="mt-4 overflow-x-auto rounded-lg border">
+          <div className="mt-4 relative overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40">
                 <tr>

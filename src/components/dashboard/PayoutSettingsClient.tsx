@@ -452,7 +452,7 @@ export function PayoutSettingsClient({ connectStatus, campaigns, withdrawals, co
             Withdrawal History
           </h2>
 
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-800">

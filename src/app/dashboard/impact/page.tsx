@@ -134,7 +134,7 @@ export default async function ImpactPage() {
               <ImpactLinkRow
                 key={row.token}
                 campaignTitle={row.campaignTitle}
-                campaignSlug={row.campaignSlug}
+                campaignHref={row.campaignHref}
                 url={shareUrl(row.token, origin)}
                 clicks={row.clicks}
                 donorsBrought={row.donorsBrought}
@@ -170,12 +170,24 @@ export default async function ImpactPage() {
                     <p className="truncate text-sm font-medium text-card-foreground">
                       {d.donorName}
                     </p>
-                    <Link
-                      href={`/campaigns/${d.campaignSlug}`}
-                      className="truncate text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      {d.campaignTitle}
-                    </Link>
+                    {/*
+                      Gated: the campaign a share link brought a donor to can
+                      stop having a public page afterwards (`docs/118` §2.5),
+                      and this screen exists to thank the sharer, not to hand
+                      them a 404. `docs/154`.
+                    */}
+                    {d.campaignHref ? (
+                      <Link
+                        href={d.campaignHref}
+                        className="truncate text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {d.campaignTitle}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {d.campaignTitle}
+                      </p>
+                    )}
                   </div>
                   <Money
                     minor={d.amountMinor}

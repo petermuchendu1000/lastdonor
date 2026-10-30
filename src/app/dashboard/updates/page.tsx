@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils/dates';
 import type { Metadata } from 'next';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
+import { publicCampaignPath } from '@/lib/campaign-links';
 
 export const metadata: Metadata = {
   title: 'Campaign Updates - Dashboard - LastDonor.org',
@@ -44,6 +45,15 @@ export default async function DashboardUpdatesPage() {
       createdAt: campaignUpdates.createdAt,
       campaignTitle: campaigns.title,
       campaignSlug: campaigns.slug,
+      /*
+        Selected ONLY to gate the link below. An update you are reading arrived
+        from a campaign you gave to, and that campaign can be archived or
+        reverted to draft afterwards (`docs/118` §2.5) - the update survives in
+        this list while its page stops being served. Added to a select that
+        already runs (`docs/87`). `docs/154`.
+      */
+      campaignStatus: campaigns.status,
+      campaignPublishedAt: campaigns.publishedAt,
     })
     .from(campaignUpdates)
     .innerJoin(campaigns, eq(campaignUpdates.campaignId, campaigns.id))
@@ -68,19 +78,29 @@ export default async function DashboardUpdatesPage() {
         </Card>
       ) : (
         <div className="mt-6 space-y-3">
-          {updates.map((upd) => (
+          {updates.map((upd) => {
+            const publicHref = publicCampaignPath({
+              slug: upd.campaignSlug,
+              status: upd.campaignStatus,
+              publishedAt: upd.campaignPublishedAt,
+            });
+            return (
             <Card key={upd.id}>
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-foreground">{upd.title}</p>
                     <div className="mt-1 flex items-center gap-2">
-                      <Link
-                        href={`/campaigns/${upd.campaignSlug}`}
-                        className="text-sm text-brand-teal hover:underline"
-                      >
-                        {upd.campaignTitle}
-                      </Link>
+                      {publicHref ? (
+                        <Link
+                          href={publicHref}
+                          className="text-sm text-brand-teal hover:underline"
+                        >
+                          {upd.campaignTitle}
+                        </Link>
+                      ) : (
+                        <span className="text-sm text-foreground">{upd.campaignTitle}</span>
+                      )}
                       <Badge variant="outline" className="text-xs">{upd.updateType}</Badge>
                     </div>
                     {upd.bodyHtml && (
@@ -96,7 +116,8 @@ export default async function DashboardUpdatesPage() {
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </>

@@ -142,7 +142,7 @@ export function AdminDashboard({ stats, isAdmin }: AdminDashboardProps) {
             {/* docs/88 F18: a table narrower than its content needs a scrollable
     wrapper, or `overflow-hidden` on the card clips the last columns
     with no way to reach them on a phone. */}
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
@@ -208,7 +208,7 @@ export function AdminDashboard({ stats, isAdmin }: AdminDashboardProps) {
             {/* docs/88 F18: a table narrower than its content needs a scrollable
     wrapper, or `overflow-hidden` on the card clips the last columns
     with no way to reach them on a phone. */}
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
@@ -269,7 +269,7 @@ export function AdminDashboard({ stats, isAdmin }: AdminDashboardProps) {
             {/* docs/88 F18: a table narrower than its content needs a scrollable
     wrapper, or `overflow-hidden` on the card clips the last columns
     with no way to reach them on a phone. */}
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">

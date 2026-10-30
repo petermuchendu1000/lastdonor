@@ -93,7 +93,7 @@ export default async function BlogPage({ searchParams }: PageProps) {
       </p>
 
       {/* Category Tabs */}
-      <nav className="mt-8 flex gap-2 overflow-x-auto" aria-label="Blog categories">
+      <nav className="mt-8 flex gap-2 relative overflow-x-auto" aria-label="Blog categories">
         {CATEGORIES.map((cat) => {
           const isActive = categoryFilter === cat.value;
           const href = cat.value

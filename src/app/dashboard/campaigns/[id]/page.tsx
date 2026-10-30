@@ -6,7 +6,7 @@ import { db } from '@/db';
 import { campaigns, donations, campaignUpdates, impactUpdates } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { Money } from '@/components/ui/Money';
-import { hasPublicPage } from '@/lib/campaign-visibility';
+import { publicCampaignPath } from '@/lib/campaign-links';
 import { isOrganiserEditable } from '@/lib/campaign-editability';
 import { JourneyChecklist } from '@/components/dashboard/JourneyChecklist';
 import { CampaignTeamPanel } from '@/components/collaborators/CampaignTeamPanel';
@@ -59,6 +59,17 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     .limit(1);
 
   if (!campaign) notFound();
+
+  /*
+    One resolved href, or nothing. `publicCampaignPath` returns null when the
+    campaign has no public page, which is the whole time a submission is in
+    the review queue (`docs/131`).
+  */
+  const publicHref = publicCampaignPath({
+    slug: campaign.slug,
+    status: campaign.status,
+    publishedAt: campaign.publishedAt,
+  });
   /*
     ⛔ Creator, staff, OR a live collaborator - and the role decides what
     renders below, not just whether anything does.
@@ -173,9 +184,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           button). A campaign in the review queue has no public page, so
           this handed the organiser a 404 for their own campaign.
         */}
-        {hasPublicPage({ status: campaign.status, publishedAt: campaign.publishedAt }) && (
+        {publicHref && (
           <Link
-            href={`/campaigns/${campaign.slug}`}
+            href={publicHref}
             target="_blank"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >

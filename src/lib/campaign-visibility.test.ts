@@ -172,16 +172,40 @@ describe('the dashboard uses it', () => {
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
-  it('gates the public link on hasPublicPage', () => {
-    expect(list).toContain('hasPublicPage({ status: c.status, publishedAt: c.publishedAt })');
+  /*
+    ⚠️ AMENDED 2026-10-30 (`docs/154`). These two used to assert the OLD shape:
+    that the file contained `hasPublicPage({ status: c.status, ... })` and that
+    there was EXACTLY ONE hand-written `` href={`/campaigns/${…}`} `` sitting
+    after it in the text.
+
+    Both are now false, and the code is what moved - in the stronger
+    direction. The dashboard builds its links with `publicCampaignPath`, which
+    returns `string | null`, so there is no hand-written href to be "inside"
+    or "outside" a guard. The positional assertion was also the weaker claim:
+    an href merely appearing LATER in the file than a guard call is not the
+    same as being governed by it, and four injections proved a position/count
+    rule cannot see a per-link regression (`docs/154` §6).
+
+    What they assert now is the property: the builder is called, and no
+    hand-written campaign href exists in this file at all.
+  */
+  it('builds the public link with publicCampaignPath', () => {
+    expect(list).toContain('publicCampaignPath({');
+    expect(list, 'the resolved href must be what is rendered').toContain('href={publicHref}');
   });
 
-  it('⛔ has no ungated link to the public campaign page', () => {
+  it('⛔ has no hand-written link to the public campaign page', () => {
     const links = [...list.matchAll(/href=\{`\/campaigns\/\$\{[^}]+\}`\}/g)];
-    expect(links.length, 'expected exactly one public campaign link').toBe(1);
-    // ...and it sits inside the guard.
-    const guard = list.indexOf('hasPublicPage({ status: c.status');
-    expect(guard).toBeGreaterThan(-1);
-    expect(links[0].index!).toBeGreaterThan(guard);
+    expect(links.length, `hand-written campaign hrefs: ${links.map((m) => m[0]).join(', ')}`).toBe(0);
+  });
+
+  it('⚠️ the control: this file really is the campaign list being read', () => {
+    /*
+      Without this the two rules above pass against an empty read, a renamed
+      file, or a component that renders no campaign rows at all.
+    */
+    expect(list.length, 'the file read is empty - both rules above are vacuous').toBeGreaterThan(2000);
+    expect(list, 'not the campaign list any more').toContain('filtered.map((c) => {');
+    expect(list, 'the View control is gone entirely').toContain('View');
   });
 });
