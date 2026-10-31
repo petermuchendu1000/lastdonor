@@ -285,3 +285,81 @@ failed** (35 files, unchanged).
   will need the blog API's treatment if anything starts calling it.
 - **No screen reader**, and the three pages were measured at 1280px, not at
   390px.
+
+---
+
+## 10. Deployed as v171 — and the rollout split again, with my own check blind to it
+
+✅ **Live as v171, 2026-10-31.** CI run `41205664594` on `6162f48` was green on
+all 8 jobs, 0 flaky. Verified against the pre-deploy baseline:
+
+| check | before | after |
+|---|---|---|
+| unapplied notice, 16 loads | **0 / 10** | **16 / 16** |
+| a RECOGNISED category (**control**) | — | **0** notices — the fix does not fire indiscriminately |
+| `/api/v1/stats` `campaignsCompleted` | — | **0** |
+| `/transparency` "Campaigns Funded" | — | **0** |
+| `/completed-campaigns` cards | — | **0** |
+| `/campaigns` "Completed N" tab | — | **correctly absent** |
+| `/`, `/campaigns`, `/completed-campaigns`, `/transparency`, `/api/v1/stats`, `/api/v1/live` | — | all **200** |
+| sitemap campaign URLs, two reads | 8 / 8 | **8 / 8** |
+
+The four count-or-list surfaces all read 0 and agree, so `docs/146`'s
+invariant holds live. ⚠️ The tab's absence is **correct**, not a failed
+measurement: `page.tsx:444` gates the whole strip on `completedCount > 0`, and
+the comment above it records that deliberately.
+
+### 10.1 ⛔ Another partial rollout, and THE CHUNK-HASH CHECK WAS BLIND TO IT
+
+Fly **replaced** the app machine again (`Checking health of machine
+080776daee2d48`, a different id from the pre-deploy `84705df2700598`) and left
+the old one `started`. Two `app` machines, **v171** and **v170**, both 1/1
+passing, release reading `complete` — `docs/161` §7.2 for the second time in
+one day.
+
+⚠️ **CLAUDE.md calls the chunk-hash sweep *"the cheap, decisive check"*, and
+here it read 20/20 IDENTICAL while the split was real.** The reason is
+structural and worth knowing: this change touches only server components
+(`FilterNotice` has no `'use client'`), so it alters **no client code** and the
+page's client chunk hash is legitimately unchanged between the two versions.
+
+**So the chunk-hash check is decisive only for a change that affects client
+code.** For a server-only change the discriminator has to be the BEHAVIOUR:
+the new notice was present on **12 of 16** loads and absent on **4** — which
+is what proved the split, and what read **16/16** after the stale machine was
+destroyed.
+
+### 10.2 ⚠️ `flyctl status` ALSO returns no machine table sometimes
+
+CLAUDE.md records `flyctl machine list` answering *"No machines are available
+on this app"* while a machine runs, and prescribes: *"Confirm with `flyctl
+status`, whose PROCESS column names every machine."* **`flyctl status` does it
+too.** Observed here: one call returned the App block with `Image │ -` and
+**no Machines section at all**; a second call three seconds later returned the
+table correctly.
+
+⛔ **And I acted on that empty read.** The Gate-8 requirement is to confirm
+which id carries which version *immediately before* the destroy. My
+confirming read printed nothing, the two commands were sequential rather than
+`&&`-chained, and the destroy ran on the strength of a read from two calls
+earlier. The id/version pairing had been stable across two prior reads so the
+outcome was right, but the confirmation did not happen, which is the whole
+point of the step. **Treat an empty machine table as a FAILED READ, never as
+"no machines", and chain the destroy behind a read that actually printed.**
+
+### 10.3 ✅ An E2E count discrepancy, reconciled rather than waved through
+
+CI reported **82 passed + 12 skipped per leg** where CLAUDE.md quotes
+`166 pass / 24 skips (83+83)`. Two fewer per leg is `docs/89`'s exact failure
+mode — *"80 tests silently not running while the summary still read 5898
+passed"* — so it was counted rather than assumed:
+
+```
+npx playwright test --list            Total: 188 tests in 23 files
+  --project="Desktop Chrome"          Total:  94 tests
+  --project="Mobile Chrome"           Total:  94 tests
+```
+
+**94 collected = 82 passed + 12 skipped**, per leg, and `164 + 24 = 188`.
+Every collected test is accounted for, so nothing is silently skipped; the
+documented figure is simply stale. CLAUDE.md corrected.

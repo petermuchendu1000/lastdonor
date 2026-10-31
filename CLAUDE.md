@@ -199,9 +199,16 @@ npm run test:unit      # Vitest (8261 pass + 16 skipped, 297 files passed +
                        #   added 19 icon wraps, and icon.test.tsx is five
                        #   `it.each(ALL)` blocks, so one wrap is ~5 tests.
 npm run test:integration  # Vitest + a throwaway Postgres (329 tests, 35 files)
-npm run test:e2e       # Playwright: 2 Chromium projects, 22 files
-                       #   166 pass / 0 fail / 24 declared skips (2026-10-30,
-                       #   measured both locally AND on a runner: 83+83)
+npm run test:e2e       # Playwright: 2 Chromium projects, 23 files
+                       #   COLLECTS 188 (94 per project). On the runner
+                       #   2026-10-31: 164 pass / 0 fail / 24 skips (82+82),
+                       #   0 flaky. ⚠️ The "166 pass (83+83)" this file
+                       #   carried was stale by one test per leg. It was
+                       #   RECONCILED rather than waved through, because two
+                       #   fewer passes is docs/89's failure mode: 94
+                       #   collected = 82 passed + 12 skipped per leg, and
+                       #   164 + 24 = 188, so nothing is silently skipped.
+                       #   Count with `npx playwright test --list`.
                        #   The "138/0/24" this file carried for days was STALE
                        #   in both numbers, and the suite was RED: see
                        #   docs/131 §5.5 for the single-use invitation two
@@ -457,6 +464,16 @@ because `machine list` is what the orphaned-`fly_app_release_command` check
 above uses — run that way it can report "none" when it can see nothing at all.
 **Confirm with `flyctl status`**, whose PROCESS column names every machine.
 
+⛔ **`flyctl status` DOES IT TOO, so neither tool is trustworthy on one read.**
+Added 2026-10-31, see `docs/165` §10.2. Observed: one `flyctl status` returned
+the App block with `Image │ -` and **no Machines section at all**; a second
+call three seconds later returned the table correctly. ⛔ **Treat an empty
+machine table as a FAILED READ, never as "no machines"** — read it twice, and
+`&&`-chain any destroy behind a read that actually printed. I destroyed a
+stale machine on an empty confirming read (the pairing was stable across two
+earlier reads, so the outcome was right and the confirmation still did not
+happen).
+
 ⛔ **AND THAT BLINDNESS CAN CAUSE A PARTIAL ROLLOUT, not merely a confusing
 readout.** Added 2026-10-31, see `docs/163` §9. The v169 deploy printed
 `This deployment will: * create 2 "app" machines` and then **`No machines in
@@ -493,10 +510,19 @@ loads at 390px rendered no donate bar at all**, because the client component
 never mounted. So a partial rollout is not a cosmetic version skew to clean up
 at leisure; it is a live outage for roughly half of visitors.
 
-**The cheap, decisive check is the chunk hash**, and it needs no Fly access:
-fetch one page ~20 times and count distinct `page-<hash>.js` values. One hash
-is a clean rollout; two is a split. To tell which hash is the new build, fetch
-each and grep it for something only the new code contains.
+**The cheap check is the chunk hash**, and it needs no Fly access: fetch one
+page ~20 times and count distinct `page-<hash>.js` values. Two hashes is a
+split. To tell which hash is the new build, fetch each and grep it for
+something only the new code contains.
+
+⛔ **But it is NOT decisive, and this line used to say it was.** Added
+2026-10-31, see `docs/165` §10.1. A change that touches only SERVER components
+alters no client code, so the page's client chunk hash is legitimately
+IDENTICAL between the two versions. Measured on the v171 split: **20/20 the
+same hash while two machines really were serving two versions.** For a
+server-only change the discriminator must be the BEHAVIOUR — the new copy was
+present on **12 of 16** loads and absent on 4, and read 16/16 once the stale
+machine was gone. **Pick a probe that the change actually alters.**
 
 So after every deploy read the machine table, and treat anything but **one
 machine per process group, all on the new version** as a partial rollout. A
