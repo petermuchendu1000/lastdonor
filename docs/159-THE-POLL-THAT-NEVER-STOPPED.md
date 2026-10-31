@@ -248,6 +248,58 @@ superseded it. Corrected in place.
 lint 1 pre-existing warning, typecheck clean, unit **8204 passed / 0 failed /
 16 skipped** (291 files, +5 tests).
 
+## 7.1 ✅ Live on production as v165
+
+Merged fast-forward to `main` (`d53c39f..3a3d631`) after CI went green on all
+eight jobs, because this is money code. `release v165 complete`, machine on
+165, `1 total, 1 passing`, 0 orphaned release machines. `/`, `/campaigns` and
+`/donate` all 200 against their pre-deploy baseline, and the sitemap carried
+**8** campaign URLs on both sides of the deploy, so `--prerender` did its job
+(`docs/119`).
+
+The fix was then confirmed **in the deployed bundle**, not merely inferred from
+a successful deploy: `/donate` references 28 chunks, and
+`chunks/9574-…js` carries `could not confirm this payment`, `paying again pays
+twice` and `Check again`. ⚠️ With a **fabricated control string** absent from
+the same chunk, so the grep is a check that can fail. `The payment did not go
+through` is still present and should be — the `failed` screen still exists.
+
+### 7.2 ⚠️ Two probes that reported cleanly and could not see
+
+- **`flyctl machine list --app lastdonor` answered "No machines are available
+  on this app"** while `flyctl status` showed machine `d8d1116b5161d8` on
+  version 165, `started`, 1/1 checks passing. That is the command CLAUDE.md
+  prescribes for clearing orphaned `fly_app_release_command` machines — so a
+  pre-deploy orphan check run that way can report "none" when it simply cannot
+  see anything. **Use `flyctl status`, whose PROCESS column names every
+  machine.** `docs/135` §5 on the deploy path.
+- **Reading the failing job's log returned GitHub's own
+  `ServerBusy — Egress is over the account limit`** as an XML body where the
+  log should have been. Mistaken for an empty log, it reads as "no error
+  information"; the MCP log tool returned the real content.
+
+### 7.3 ⛔ Do not use "re-run failed jobs" on this workflow
+
+`ci.yml:34-36` declares `concurrency: group: ci-${{ github.ref }}` with
+`cancel-in-progress: true`. Re-running a failed job on a run that already owns
+its group **deadlocks**: the re-run waits for a slot held by itself. [VERIFIED
+three ways] the run sat `queued` with **zero jobs created** for 35 minutes with
+`updated_at` frozen; a cancel was refused with `409 Cannot cancel a workflow
+re-run that has not yet queued`, i.e. GitHub reported it as not queued while
+the run read `queued`; and a fresh `workflow_dispatch` on the same sha started
+immediately and went green on all eight jobs.
+
+**Dispatch a fresh run instead.** The stuck run stays `queued` forever and is
+harmless.
+
+⚠️ The failure that prompted the re-run was itself not the change: `next/font`
+fetches Google Fonts at build time and its parser hit a null match
+(`TypeError: Cannot read properties of null (reading '1')` at
+`@next/font/.../google/loader.js:122`). The diff touches neither `layout.tsx`
+nor any font file, the previous run was green on the identical file, and the
+fresh run built clean — so it was a transient fetch, spent as the one re-run
+CLAUDE.md allows for "a service the diff doesn't touch".
+
 ## 8. What was NOT checked
 
 - **The FAILED screen's copy.** This walk made the poll stop; it did not read

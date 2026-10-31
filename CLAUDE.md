@@ -424,6 +424,30 @@ database URL off the command line, since `--prerender`'s build secret is only
 needed while building. ⛔ Do NOT change the region to work around it: that is
 production topology.
 
+⛔ **Never use GitHub's "re-run failed jobs" on this workflow — dispatch a fresh
+run.** Added 2026-10-31, see `docs/159` §7.3. `ci.yml:34-36` declares
+`concurrency: group: ci-${{ github.ref }}` with `cancel-in-progress: true`, and
+re-running a run that already owns its group **deadlocks**: it waits for a slot
+held by itself. [VERIFIED] the run sat `queued` with **zero jobs created** for 35
+minutes, `updated_at` frozen, and a cancel was refused with `409 Cannot cancel a
+workflow re-run that has not yet queued` — GitHub calling it *not queued* while
+the run read `queued`. A fresh `workflow_dispatch` on the same sha started at
+once and went green on all eight jobs. The stuck run stays `queued` forever and
+is harmless.
+
+⚠️ **`flyctl machine list --app lastdonor` can answer "No machines are available
+on this app" while a machine is running and healthy.** Measured 2026-10-31
+(`docs/159` §7.2) against `flyctl status`, which showed the same app's machine
+`started` with 1/1 checks passing on the version just released. That matters
+because `machine list` is what the orphaned-`fly_app_release_command` check
+above uses — run that way it can report "none" when it can see nothing at all.
+**Confirm with `flyctl status`**, whose PROCESS column names every machine.
+
+⚠️ **A GitHub job-log fetch can return `ServerBusy — Egress is over the account
+limit` as an XML body** where the log should be. Read as an empty log it looks
+like "the job failed with no output". The MCP log tool returned the real
+content.
+
 When you touch `.github/workflows/`, remember that a valid YAML file can still
 be an invalid workflow: Actions expressions are a second language nested inside
 it, and GitHub only parses them server-side. `src/ci-workflows.ratchet.test.ts`
