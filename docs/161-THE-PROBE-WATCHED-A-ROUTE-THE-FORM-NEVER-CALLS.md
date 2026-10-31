@@ -234,6 +234,57 @@ is no longer "the publishable key is empty" but "the SECRET key in CI is a
 format-only throwaway, so `create-checkout` answers 503". The old reason is
 now false in CI.
 
+## 7.2 ⛔ The deploy "completed" and production served BOTH versions for 35 minutes
+
+v167 released clean — `fly releases` read `v167 complete`, and `fly status`
+showed a machine on **167** with **1/1 passing**. Every signal the deploy
+script and `docs/119`'s sitemap check look at was green, and the rollout had
+**not landed**.
+
+Fly **replaced** the machine rather than updating it in place (the deploy log
+says `Creating machine for <old-id>`), and the old one was left `started`:
+
+```
+PROCESS │ ID             │ VERSION │ STATE   │ CHECKS
+app     │ 83779ef7797d48 │ 167     │ started │ 1 total, 1 passing
+app     │ d8d1116b5161d8 │ 166     │ started │ 1 total, 1 passing
+```
+
+Both in process group `app`, both behind the same Fly proxy, both answering
+their health check — so the proxy load-balanced across them. Measured on the
+live donate page, 14 requests:
+
+| | before destroying v166 | after |
+|---|---|---|
+| v167 (notice, no form) | **8** | **14** |
+| v166 (form present) | **6** | **0** |
+
+⚠️ **A health check cannot see this.** `/api/v1/live` answers 200 on both
+versions, so 1/1 passing is true of a machine running last week's image. And
+`fly status`'s single-line `Image` field names only the *latest* release, so it
+agreed with the deploy while half the traffic disagreed with it.
+
+⛔ **So after every deploy, count the machines and read their VERSION column**
+— not just the release status and not just the health check. Anything other
+than one machine per process group, all on the new version, is a partial
+rollout. ⚠️ And use `flyctl status`, not `flyctl machine list`, which answered
+*"No machines are available on this app"* against the same healthy app earlier
+in the same session.
+
+The stale machine was destroyed on the owner's explicit instruction
+(`flyctl machine destroy d8d1116b5161d8 --app lastdonor --force`), after a
+two-call re-read confirming which id carried which version. Verified
+afterwards: one `app` machine on 167, 1/1 passing, 0 orphaned
+`fly_app_release_command` machines, `/`, `/campaigns` and `/donate` all 200,
+sitemap **8** campaign URLs on two consecutive reads, and the 14/0 split
+above. In a browser at 390px: 1 `role="alert"`, no email field, no amount
+field, no ledger, no *"Total charged"*, 0px horizontal overflow.
+
+⚠️ **[UNKNOWN]** whether the earlier releases in this session left the same
+duplicate and it went unnoticed, or whether v167 is the first. Nothing
+recorded the machine count after v164, v165 or v166, so this is not claimed
+either way — only that nothing in the deploy path would have reported it.
+
 ## 8. What was NOT checked
 
 - **The dead Stripe credentials.** Owner-only, unchanged, and the reason the
