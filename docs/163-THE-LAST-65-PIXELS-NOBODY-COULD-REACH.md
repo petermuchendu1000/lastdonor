@@ -70,6 +70,12 @@ Cause **[UNKNOWN]**, recorded, not a finding. What I should have done is
 repeat the load before reporting: one sample is Gate 3's "partial data", and I
 broke that rule in the direction of alarm.
 
+⚠️ **§9 below produces a tempting explanation for this, and it does not
+fit.** §9 is a chunk failing across a split deployment — but that is a **404**,
+and this was a **502 served as `text/plain`**; and at 09:15 production had a
+single machine on v167, so there was no split to land in. Two symptoms of the
+same shape are not the same cause. It stays [UNKNOWN].
+
 ## 4. The fix
 
 `StickyMobileDonateBar` reserves its own space, as a bottom padding on
@@ -210,3 +216,111 @@ Recorded so nobody re-investigates:
   signed-in screen — are still unwalked at 390px.
 - **`docs/162`'s own unchecked items** are untouched here: the dead Stripe
   credentials, and the `emailDonationReceipts === false` receipt line.
+
+---
+
+## 9. ⛔ The deploy landed as a partial rollout, and a split deployment BREAKS loads
+
+Shipped as **v169**. `flyctl releases` read `v169 complete`, the deploy script
+reported `deploy finished in 390s`, the sitemap report read 8 campaign URLs,
+and the machine it created was 1/1 passing. All of that was true and the
+rollout was still wrong.
+
+### 9.1 Three `app` machines, one on the old version
+
+[VERIFIED three ways, each able to give the other answer]
+
+| method | result |
+|---|---|
+| `flyctl status` machine table, read twice | `83779ef7797d48` **v168**, `84705df2700598` v169, `918577533c24d8` v169 — all `started`, all 1/1 passing |
+| 20 HTML loads of `/campaigns/harold-jennings`, page-chunk hash | **two** distinct hashes: `ce060f4d…` ×11, `6b447671…` ×9 |
+| fetch each chunk and read its contents | `6b447671…` contains `paddingBottom` **and** `getBoundingClientRect` (this doc's fix, +479 bytes); `ce060f4d…` contains **neither** |
+
+The third method is what makes the second one evidence rather than a
+coincidence of two builds: it identifies which hash is which version from the
+code itself.
+
+### 9.2 The cause is in the deploy's own log
+
+```
+This deployment will:
+ * create 2 "app" machines
+> Launching new machine
+No machines in group app, launching a new machine
+> Machine 84705df2700598 [app] was created
+Creating a second machine for high availability and zero downtime deployments.
+✔ Machine 918577533c24d8 [app] was created
+```
+
+**`No machines in group app`** — against an app with a healthy, passing
+machine. This is CLAUDE.md's existing warning (`docs/159` §7.2: *"`flyctl
+machine list` can answer 'No machines are available on this app' while a
+machine is running and healthy"*) escalating from a confusing readout to the
+**cause of an outage**: flyctl could not see the v168 machine, so it created
+new ones instead of updating it, and nothing then destroyed the one it had
+missed. ⚠️ Not configuration: deploy v168 an hour earlier, same `fly.toml`,
+read `Updating machine config for 83779ef7797d48`.
+
+Fly then added a second machine on its own ("for high availability"), which is
+why there were three rather than two.
+
+### 9.3 ⛔ The consequence is a broken page, not stale HTML
+
+`docs/161` §7.2 described a split as traffic *"load-balanced across two
+versions"*, which reads as a version skew. It is worse than that. A Next chunk
+filename is **content-addressed**, so each version's assets do not exist on the
+other version's machines. Measured, 24 requests each:
+
+```
+page-ce060f4dd483615c.js  (v168)   200=7   404=17
+page-6b4476712b0d2bd9.js  (v169)   200=17  404=7
+```
+
+So whenever a browser's HTML and its chunks land on different versions, the
+chunk 404s and hydration dies. In the browser at 390px: **5 of 9 loads found
+no fixed bar at all** — the client component never mounted. Two consecutive
+loads of one URL, screenshotted, showed the donate bar present and then absent.
+
+**The cheap check needs no Fly access**: fetch one page ~20 times, count
+distinct `page-<hash>.js` values. One is clean; two is a split.
+
+### 9.4 Resolved, and verified with controls
+
+⛔ **Gate 8.** Destroying a live `app` machine is the action CLAUDE.md names as
+owner-only. Put to the owner with the measurements and the options; the owner
+chose **back to one machine** — the stale v168 *and* the duplicate v169 — over
+keeping Fly's HA pair, because [per CLAUDE.md's own convention list and
+`docs/26` §5] **ISR here has no shared cache handler** (26 pages export
+`revalidate`, 36 files call `revalidatePath`/`revalidateTag`), so two instances
+serve stale HTML silently, and two machines reopen this chunk-404 window on
+every future rolling deploy. The id and VERSION table was re-read immediately
+before each `destroy`.
+
+After: **one `app` machine, `84705df2700598`, v169, 1/1 passing, 0 orphaned
+release machines.**
+
+| check | result | control |
+|---|---|---|
+| distinct page-chunk hashes over 20 HTML loads | **1** (`6b447671…`, the fix) | was 2 |
+| v169 chunk availability | **200 × 12** | v168 chunk **0 × 12** — the probe can still give the other answer |
+| `body` padding-bottom / covered elements, 6 browser loads | **65px / 0**, six times, no `noBar` | v168 baseline was `0px` / **2** |
+| real click on the footer's dark-mode toggle | **clicked**, bar still 65px | `/campaigns` and `/about` (no bar) still `clicked` |
+| `/`, `/campaigns`, `/donate`, `/api/v1/live`, the campaign page | all **200** | — |
+| sitemap campaign URLs, two consecutive reads | **8 / 8** | — |
+
+⚠️ One detail worth keeping: the bar is still 65px tall and still present on
+the subject page. The click succeeding is the overlap going away, not the bar
+going away — a fix that had merely hidden the bar would score the same on the
+click and fail that column.
+
+### 9.5 What §9 did NOT check
+
+- **Whether the two v169 machines ever disagreed with each other.** They ran
+  the same image, so the chunk hashes matched and no measurement could separate
+  them; the ISR-cache risk `docs/26` §5 names is [INFERRED] from that doc, not
+  observed here.
+- **Why flyctl went blind.** The failure is now seen twice in one day with two
+  different consequences, and the mechanism is **[UNKNOWN]** — no API error was
+  surfaced in either log.
+- **Whether earlier deploys left the same split.** Nothing recorded the machine
+  count for v163-v166, and `docs/161` §7.2 already says the same about v164-v166.
