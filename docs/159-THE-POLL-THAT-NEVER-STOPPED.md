@@ -315,3 +315,11 @@ CLAUDE.md allows for "a service the diff doesn't touch".
   503 to everybody (`docs/125`).
 - No screen reader. The unresolved screen carries `role="alert"`; its
   announcement was not heard.
+- **The SUCCEEDED screen.** This walk stopped the poll and read the two
+  screens it could end on; the one it ends on when the payment *works* was
+  left for later.
+
+  ✅ **Walked by `docs/162`** (2026-10-31), which found that the thank-you
+  screen could thank a donor for a donation that was never written — and that
+  the route answered `state: 'succeeded'` byte-for-byte identically whether a
+  donation row existed or not.

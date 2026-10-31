@@ -7,7 +7,7 @@ import { Money } from '@/components/ui/Money';
 import { CURRENCIES } from '@/lib/money/currencies';
 import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
 
-import { PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
+import { COLLECTED_UNRECORDED_MESSAGE, PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
 
 const SUPPORT_EMAIL = 'support@lastdonor.org';
 
@@ -54,7 +54,18 @@ export const MAX_POLL_ATTEMPTS =
   `docs/158` mistake: a statement about somebody's money that we cannot
   substantiate.
 */
-type Phase = 'form' | 'waiting' | 'succeeded' | 'failed' | 'unresolved';
+type Phase =
+  | 'form'
+  | 'waiting'
+  | 'succeeded'
+  | 'failed'
+  | 'unresolved'
+  /**
+   * PayHero collected the money and no donation was recorded. `docs/162`.
+   * Distinct from `succeeded` because the donation does not exist, and from
+   * `failed`/`unresolved` because the payment is known to have gone through.
+   */
+  | 'collected_unrecorded';
 
 interface Props {
   campaignId: string;
@@ -180,7 +191,7 @@ export function MpesaDonationForm({
         component. A response type must describe the responder.
       */
       const { state, keepPolling, message } = body.data as {
-        state: 'pending' | 'succeeded' | 'failed' | 'abandoned';
+        state: 'pending' | 'succeeded' | 'failed' | 'abandoned' | 'collected_unrecorded';
         keepPolling: boolean;
         message: string | null;
       };
@@ -188,6 +199,17 @@ export function MpesaDonationForm({
       if (state === 'succeeded') {
         setPhase('succeeded');
         onDonationComplete?.();
+        return;
+      }
+      /*
+        The money moved and no donation was written (`docs/162`). NOT routed
+        through `succeeded`: that screen thanks the donor for a donation that
+        does not exist and promises a receipt nothing sends. NOT routed
+        through `failed` either - the payment did go through.
+      */
+      if (state === 'collected_unrecorded') {
+        setStatusMessage(message ?? null);
+        setPhase('collected_unrecorded');
         return;
       }
       if (state === 'failed' || state === 'abandoned') {
@@ -409,6 +431,65 @@ export function MpesaDonationForm({
             <Link
               href={backTo.href}
               className="btn-press inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            >
+              {backTo.label}
+            </Link>
+          )}
+          <Link
+            href="/campaigns"
+            className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+          >
+            Browse campaigns
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Collected, not recorded ───────────────────────────────────────────────
+  if (phase === 'collected_unrecorded') {
+    /*
+      `docs/162`. PayHero took the money and `recordGatewayCharge` declined to
+      book it - in practice because the campaign reached its goal while the
+      donor was entering a PIN. The platform's own audit row for this reads
+      "Money moved but no donation row was written. Needs manual
+      reconciliation", at `critical`.
+
+      ⛔ This screen claims only that. It does NOT thank the donor for a
+      donation (there is none), does NOT promise a receipt (`:881` of
+      `payment-service.ts` returns above the receipt), does NOT say "nothing
+      has been charged" (`docs/158` - here we know it was), and does NOT
+      promise a refund or a date: nothing in this platform returns money on a
+      clock (`docs/140`) and PayHero exposes no refund API (`docs/122`).
+
+      ⛔ And there is no "Check again". The row is terminal and the answer is
+      derived from it, so re-polling returns this same screen by
+      construction - unlike `unresolved`, where a later settlement is still
+      possible and the donor's own poll is the only path that finds it
+      (`docs/159`).
+    */
+    return (
+      <div className="py-2 text-center" role="alert">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+          <ErrorCircleIcon className="h-8 w-8 text-muted-foreground" />
+        </div>
+
+        <h3 className="font-display text-2xl font-bold text-card-foreground">
+          Your payment went through, but we could not record it
+        </h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          {statusMessage ?? COLLECTED_UNRECORDED_MESSAGE}
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-sm font-medium text-card-foreground">
+          Please do not send it again. Email {SUPPORT_EMAIL} with your M-Pesa confirmation
+          message and we will sort it out.
+        </p>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          {backTo && (
+            <Link
+              href={backTo.href}
+              className="btn-press inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
             >
               {backTo.label}
             </Link>

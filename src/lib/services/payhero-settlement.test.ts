@@ -26,7 +26,20 @@ const world: {
   recorded: Row[];
   /** Simulates another caller winning the claim first. */
   claimLoses: boolean;
-} = { request: null, updates: [], audits: [], recorded: [], claimLoses: false };
+  /**
+   * The row as the race WINNER left it, answered to the re-read in
+   * `alreadySettled`. Defaults to a settled-and-recorded collection, which is
+   * the ordinary outcome of losing a race.
+   */
+  rowAfterRace: Row;
+} = {
+  request: null,
+  updates: [],
+  audits: [],
+  recorded: [],
+  claimLoses: false,
+  rowAfterRace: { status: 'succeeded', donationId: 'donation-xyz' },
+};
 
 const getTransactionStatus = vi.fn();
 
@@ -59,9 +72,23 @@ vi.mock('@/db', () => {
         from: () => ({
           where: () => ({
             limit: () => {
-              const isDonationLookback =
-                cols != null && Object.keys(cols).length === 1 && 'id' in cols;
+              const keys = cols == null ? [] : Object.keys(cols);
+              const isDonationLookback = keys.length === 1 && 'id' in cols!;
               if (isDonationLookback) return Promise.resolve([{ id: 'donation-xyz' }]);
+              /*
+                The re-read after losing a settlement race (`docs/162`). It
+                must answer the row as the WINNER left it, not the stale copy
+                this mock holds in `world.request` - the whole reason the
+                re-read exists is that another transaction changed it.
+
+                ⚠️ A mock cannot represent that by itself, which is why the
+                real behaviour is covered in
+                `payhero-settlement.integration.test.ts` against Postgres
+                (`docs/124` §5.1). This branch only keeps the SHAPE honest.
+              */
+              if (keys.length === 2 && 'status' in cols! && 'donationId' in cols!) {
+                return Promise.resolve([world.rowAfterRace]);
+              }
               return Promise.resolve(world.request ? [world.request] : []);
             },
           }),
@@ -131,6 +158,7 @@ beforeEach(() => {
   world.audits = [];
   world.recorded = [];
   world.claimLoses = false;
+  world.rowAfterRace = { status: 'succeeded', donationId: 'donation-xyz' };
   getTransactionStatus.mockResolvedValue(status());
 });
 
@@ -175,7 +203,14 @@ describe('the outcome comes from an authenticated read, not from a caller', () =
   it('records a donation only when PayHero says SUCCESS', async () => {
     const result = await settlePayHeroRequest(REF);
 
-    expect(result).toEqual({ kind: 'recorded', amountMinor: 5_000, currency: 'KES' });
+    expect(result).toEqual({
+      kind: 'recorded',
+      amountMinor: 5_000,
+      currency: 'KES',
+      // docs/162: carried so the status route has ONE place that answers a
+      // thank-you, and that place always reads a donation link.
+      donationId: 'donation-xyz',
+    });
     expect(world.recorded).toHaveLength(1);
     expect(world.recorded[0]).toMatchObject({
       provider: 'payhero',
@@ -273,7 +308,12 @@ describe('the callback and the donor’s poll race', () => {
 
     const result = await settlePayHeroRequest(REF);
 
-    expect(result).toEqual({ kind: 'already_settled', status: 'succeeded' });
+    expect(result).toEqual({
+      kind: 'already_settled',
+      status: 'succeeded',
+      // docs/162: re-read from the row the winner left, not the stale copy.
+      donationId: 'donation-xyz',
+    });
     // The decisive assertion: the loser records nothing, so a campaign
     // cannot be credited twice for one M-Pesa payment.
     expect(world.recorded).toHaveLength(0);
@@ -292,10 +332,13 @@ describe('the callback and the donor’s poll race', () => {
   it('does not double-write a failure either', async () => {
     getTransactionStatus.mockResolvedValue(status({ status: 'FAILED' }));
     world.claimLoses = true;
+    // The winner of this race wrote a FAILURE, so it left no donation behind.
+    world.rowAfterRace = { status: 'failed', donationId: null };
 
     expect(await settlePayHeroRequest(REF)).toEqual({
       kind: 'already_settled',
       status: 'failed',
+      donationId: null,
     });
   });
 });

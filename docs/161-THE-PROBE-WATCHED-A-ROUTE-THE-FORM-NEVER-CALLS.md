@@ -299,3 +299,12 @@ either way — only that nothing in the deploy path would have reported it.
   §B.3), and was not walked here.
 - No screen reader. The notice carries `role="alert"`; its announcement was not
   heard.
+- **The SUCCESS screen** — this walk stopped at the refusal.
+
+  ✅ **Walked by `docs/162`** (2026-10-31), and it was the only one of
+  `MpesaDonationForm`'s five phases nobody had read. `settlePayHeroRequest`
+  returned `{ kind: 'recorded' }` whether or not a donation row existed, so a
+  collection PayHero took on a campaign that had just completed was reported
+  as "Thank you - your donation is in … we are sending one by email too" —
+  with no donation, no receipt, and a `critical` audit row saying a person had
+  to return the money by hand.

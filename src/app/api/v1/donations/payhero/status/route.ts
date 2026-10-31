@@ -6,6 +6,11 @@ import { payheroPaymentRequests } from '@/db/schema';
 import { payheroStatusQuerySchema } from '@/lib/validators/payhero';
 import { settlePayHeroRequest } from '@/lib/services/payhero-settlement';
 import { PROMPT_LIFETIME_MS } from '@/lib/payhero-abuse-guard';
+import {
+  COLLECTED_UNRECORDED_MESSAGE,
+  claimForSettledCollection,
+  type SettledCollectionClaim,
+} from '@/lib/payhero-prompt';
 import { PayHeroNotConfiguredError } from '@/lib/payhero';
 import { logError } from '@/lib/errors';
 import type { ApiError, ApiResponse } from '@/types/api';
@@ -70,6 +75,14 @@ export async function GET(request: NextRequest) {
         currency: payheroPaymentRequests.currency,
         createdAt: payheroPaymentRequests.createdAt,
         failureReason: payheroPaymentRequests.failureReason,
+        /*
+          The discriminator `docs/162` turns on. A `succeeded` row with no
+          donation means PayHero collected the money and nothing was booked -
+          indistinguishable from a real donation if you read only `status`,
+          which is what every branch below used to do. Added to a select that
+          already runs; never a second query (`docs/87`, `docs/131`).
+        */
+        donationId: payheroPaymentRequests.donationId,
       })
       .from(payheroPaymentRequests)
       .where(eq(payheroPaymentRequests.externalReference, reference))
@@ -86,7 +99,7 @@ export async function GET(request: NextRequest) {
     }
 
     type StatusPayload = {
-      state: 'pending' | 'succeeded' | 'failed' | 'abandoned';
+      state: 'pending' | 'succeeded' | 'failed' | 'abandoned' | 'collected_unrecorded';
       amount: number;
       currency: string;
       /** False once there is no point polling again. */
@@ -118,8 +131,35 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(payload);
     };
 
+    /**
+     * ONE decider for "may success be claimed?". `docs/146`'s rule: three
+     * branches here can answer for a settled collection - this early return,
+     * `case 'recorded'` and `case 'already_settled'` - and all three used to
+     * read `status` alone, so all three claimed a donation that may not
+     * exist (`docs/162`).
+     *
+     * ⛔ A donation row is the only evidence that the money was booked.
+     */
+    /*
+      A lookup rather than a ternary, and that is not style. §5.1 of
+      `docs/162`: an injection that INVERTED the condition passed every
+      structural rule, because text cannot see which way a branch points.
+      Keyed by the claim, there is no condition left to invert - and a swap
+      of the two entries makes the KEY disagree with the state it answers,
+      which a test can see.
+    */
+    const ANSWER: Record<SettledCollectionClaim, () => NextResponse> = {
+      collected_unrecorded: () =>
+        settled('collected_unrecorded', COLLECTED_UNRECORDED_MESSAGE, false),
+      succeeded: () => settled('succeeded', null),
+    };
+
+    const succeededOrUnrecorded = (donationId: string | null): NextResponse =>
+      ANSWER[claimForSettledCollection(donationId)]();
+
     // Already resolved: answer from our own row, no outbound call.
     if (row.status !== 'pending') {
+      if (row.status === 'succeeded') return succeededOrUnrecorded(row.donationId);
       return settled(
         row.status,
         row.status === 'failed'
@@ -138,9 +178,29 @@ export async function GET(request: NextRequest) {
 
     switch (outcome.kind) {
       case 'recorded':
-        return settled('succeeded', null);
+        /*
+          Routed through the same decider as the other two branches even
+          though `recorded` carries a non-null id by construction. The point
+          is that ONE place answers a thank-you and it always answers from a
+          donation link - a second site that answers it directly is how the
+          three branches drifted apart in the first place (`docs/162`).
+        */
+        return succeededOrUnrecorded(outcome.donationId);
+
+      case 'collected_unrecorded':
+        /*
+          PayHero took the money and nothing was booked. The settlement
+          service has already written the critical audit row and marked the
+          request; all this does is refuse to call it a donation.
+        */
+        logError(new Error(`PayHero collected but not recorded: ${outcome.reason}`), {
+          requestId,
+          route: 'payhero/status#collected-unrecorded',
+        });
+        return settled('collected_unrecorded', COLLECTED_UNRECORDED_MESSAGE, false);
 
       case 'already_settled':
+        if (outcome.status === 'succeeded') return succeededOrUnrecorded(outcome.donationId);
         return settled(
           outcome.status,
           outcome.status === 'failed'

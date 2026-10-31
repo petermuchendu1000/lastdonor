@@ -49,12 +49,77 @@ import { logError } from '@/lib/errors';
 export const PAYHERO_REF_PREFIX = 'payhero_';
 
 export type SettlementOutcome =
-  | { kind: 'recorded'; amountMinor: number; currency: string }
-  | { kind: 'already_settled'; status: 'succeeded' | 'failed' | 'abandoned' }
+  | {
+      kind: 'recorded';
+      amountMinor: number;
+      currency: string;
+      /**
+       * The donation this collection produced. Non-null by construction: the
+       * absence of a row is `collected_unrecorded`, not `recorded`. Carried
+       * so the status route has ONE place that answers a thank-you, and that
+       * place always decides from a donation link (`docs/162`).
+       */
+      donationId: string;
+    }
+  /**
+   * PayHero collected the money and `recordGatewayCharge` declined to book
+   * it, so there is no donation row. `docs/162`.
+   *
+   * ⛔ This is NOT `recorded` and must never be folded back into it. The
+   * status route turns `recorded` into `state: 'succeeded'`, which the donor
+   * reads as "Thank you - your donation is in"; on this path that sentence is
+   * false, no receipt is sent (`payment-service.ts:881` returns above
+   * `handlePostPaymentEffects`), and the platform's own audit row says a
+   * person must return the money by hand.
+   *
+   * ⛔ Nor is it `unverifiable`, which means we cannot establish what
+   * happened. Here we can: the payment succeeded and we did not book it.
+   */
+  | { kind: 'collected_unrecorded'; reason: string }
+  | {
+      kind: 'already_settled';
+      status: 'succeeded' | 'failed' | 'abandoned';
+      /**
+       * Null when no donation was booked. Carried because a caller cannot
+       * tell a settled-and-recorded row from a settled-and-unrecorded one
+       * from the status alone - which is the whole of `docs/162`.
+       */
+      donationId: string | null;
+    }
   | { kind: 'still_pending' }
   | { kind: 'failed'; reason: string }
   | { kind: 'unknown_reference' }
   | { kind: 'unverifiable'; reason: string };
+
+/**
+ * Re-read a row whose settlement race we lost.
+ *
+ * The `request` read at the top of `settlePayHeroRequest` is stale by then:
+ * another caller has just written the terminal state and, on the success
+ * path, may have written the donation link too. Reporting `donationId: null`
+ * from the stale copy would say "collected but not recorded" about a donation
+ * that exists.
+ */
+async function alreadySettled(id: string): Promise<SettlementOutcome> {
+  const [row] = await db
+    .select({
+      status: payheroPaymentRequests.status,
+      donationId: payheroPaymentRequests.donationId,
+    })
+    .from(payheroPaymentRequests)
+    .where(eq(payheroPaymentRequests.id, id))
+    .limit(1);
+
+  // The row cannot vanish - we just updated it - but guessing a state is how
+  // a false claim gets made, so an absent row is reported as unknowable.
+  if (!row || row.status === 'pending') {
+    return {
+      kind: 'unverifiable',
+      reason: 'The payment request could not be re-read after a settlement race.',
+    };
+  }
+  return { kind: 'already_settled', status: row.status, donationId: row.donationId };
+}
 
 /**
  * Ask PayHero what happened to one collection request, and act on it.
@@ -86,7 +151,11 @@ export async function settlePayHeroRequest(
   if (!request) return { kind: 'unknown_reference' };
 
   if (request.status !== 'pending') {
-    return { kind: 'already_settled', status: request.status };
+    return {
+      kind: 'already_settled',
+      status: request.status,
+      donationId: request.donationId,
+    };
   }
 
   /*
@@ -162,7 +231,7 @@ export async function settlePayHeroRequest(
       .returning({ id: payheroPaymentRequests.id });
 
     if (claimed.length === 0) {
-      return { kind: 'already_settled', status: 'failed' };
+      return alreadySettled(request.id);
     }
 
     await db.insert(auditLogs).values({
@@ -241,7 +310,7 @@ export async function settlePayHeroRequest(
     .returning({ id: payheroPaymentRequests.id });
 
   if (claimed.length === 0) {
-    return { kind: 'already_settled', status: 'succeeded' };
+    return alreadySettled(request.id);
   }
 
   /*
@@ -284,12 +353,54 @@ export async function settlePayHeroRequest(
     .where(eq(donations.stripePaymentId, providerRef))
     .limit(1);
 
-  if (donation) {
+  /*
+    ⛔ The answer to this lookup DECIDES the outcome; it used to be read and
+    then thrown away, and `return { kind: 'recorded' }` followed whether or
+    not anything had been recorded. `docs/162`.
+
+    `recordGatewayCharge` has early returns that book nothing - the live one
+    being a campaign that reached its goal while the donor was entering a PIN
+    (`payment-service.ts:835`, whose own comment names that window). On that
+    path it writes `donation.manual_refund_required` at CRITICAL severity and
+    returns above both the donation transaction and the receipt, so the money
+    is in the platform's wallet with nothing owed to any campaign - while the
+    donor was being told "Thank you - your donation is in" and promised a
+    receipt by email.
+  */
+  if (!donation) {
+    const reason =
+      'PayHero settled this collection and no donation row was written. ' +
+      'The money is in the platform wallet and needs manual reconciliation.';
+
+    logError(new Error(`PayHero collected but not recorded: ${ref}. ${reason}`), {
+      requestId: ref,
+      route: 'payhero/settlement#collected-unrecorded',
+    });
+
+    /*
+      Written onto the row so the durable record is honest too. The request
+      stays `succeeded` - the COLLECTION did succeed, and a new enum value
+      means a migration on a live money table for a path that has never fired
+      (`docs/129`'s reasoning). What makes the row readable is `donation_id`
+      being null beside it, which is the discriminator the status route uses.
+    */
     await db
       .update(payheroPaymentRequests)
-      .set({ donationId: donation.id })
+      .set({ failureReason: reason })
       .where(eq(payheroPaymentRequests.id, request.id));
+
+    return { kind: 'collected_unrecorded', reason };
   }
 
-  return { kind: 'recorded', amountMinor: request.amount, currency: request.currency };
+  await db
+    .update(payheroPaymentRequests)
+    .set({ donationId: donation.id })
+    .where(eq(payheroPaymentRequests.id, request.id));
+
+  return {
+    kind: 'recorded',
+    amountMinor: request.amount,
+    currency: request.currency,
+    donationId: donation.id,
+  };
 }
