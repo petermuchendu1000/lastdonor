@@ -97,6 +97,13 @@ export async function GET(request: NextRequest) {
     const settled = (
       state: StatusPayload['state'],
       message: string | null,
+      /*
+        ⛔ Pass this explicitly only for a state that is TRUE of the row but
+        must not be asked about again. `pending` normally means keep asking;
+        an unverifiable outcome is pending-and-unaskable, and defaulting it to
+        `true` there would reinstate the endless poll `docs/159` fixed.
+      */
+      keepPolling: boolean = state === 'pending',
     ): NextResponse => {
       const payload: ApiResponse<StatusPayload> = {
         ok: true,
@@ -104,7 +111,7 @@ export async function GET(request: NextRequest) {
           state,
           amount: row.amount,
           currency: row.currency,
-          keepPolling: state === 'pending',
+          keepPolling,
           message,
         },
       };
@@ -146,19 +153,47 @@ export async function GET(request: NextRequest) {
 
       case 'unverifiable':
         /*
-          We cannot confirm it. Reported as failed to the donor rather than
-          left spinning forever, because a donor staring at a spinner has no
-          way to act - but the row stays `pending` and the critical audit row
-          written by the settlement service is what gets a human to look.
+          We cannot confirm it, so we say so and claim nothing.
+
+          ⛔ This used to answer `state: 'failed'`, and `docs/160` is about
+          what that rendered: the client's `failed` screen heads with "Your
+          donation was not completed" and then appends, unconditionally,
+          "That usually means the prompt was cancelled, it timed out before
+          the PIN was entered, or there was not enough in the M-Pesa balance"
+          - three invented causes for an outcome we have just said we cannot
+          determine. On the amount-mismatch path (`payhero-settlement.ts:198`)
+          the platform's OWN audit row reads "Money moved but no donation row
+          was written", so that sentence would be addressed to somebody whose
+          balance had just been debited.
+
+          `pending` is not a softer word for failed: it is the row's ACTUAL
+          state. Both `unverifiable` returns happen BEFORE the claim
+          (`settlement.ts:106` and `:221`, against the claim at `:227`), so
+          nothing has been written and PayHero may still settle it. Reporting
+          that truth with `keepPolling: false` is what `docs/159`'s client
+          already renders as the `unresolved` screen - which claims nothing,
+          warns that paying again pays twice, and offers "Check again". No
+          client change is needed, and the donor is no longer left spinning.
+
+          The critical audit row written by the settlement service is still
+          what gets a human to look.
         */
         logError(new Error(`PayHero payment unverifiable: ${outcome.reason}`), {
           requestId,
           route: 'payhero/status#unverifiable',
         });
+        /*
+          ⚠️ The message must not restate the heading. The `unresolved` screen
+          already says "We could not confirm this payment" above it, and this
+          string used to open with that same sentence - so the donor read it
+          twice and learned nothing new from the slot that could have told
+          them something. `docs/112` made the identical call about an
+          `og:description` that began with its own title.
+        */
         return settled(
-          'failed',
-          'We could not confirm this payment. If your phone says it went through, email ' +
-            'support@lastdonor.org and we will sort it out.',
+          'pending',
+          'We heard back about this payment but could not match it to your donation.',
+          false,
         );
 
       case 'unknown_reference':

@@ -304,7 +304,9 @@ CLAUDE.md allows for "a service the diff doesn't touch".
 
 - **The FAILED screen's copy.** This walk made the poll stop; it did not read
   what the `failed` phase says when PayHero reports FAILED, which is the path
-  both real production failures took.
+  both real production failures took. ✅ **Done by `docs/160`**, which found the
+  dominant FAILED path correct and the `unverifiable` branch beside it
+  reporting an outcome it could not know.
 - **A real expiring prompt.** Every measurement here stubs the status endpoint.
   Proving the real one end to end means raising a real STK push and letting it
   lapse, which moves money — the `docs/158` §2 boundary.
