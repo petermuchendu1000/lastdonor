@@ -4,18 +4,18 @@ import Link from 'next/link';
 import { ShieldCheckIcon } from '@heroicons/react/24/solid';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
+import { desc, asc, sql } from 'drizzle-orm';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { CampaignFilters } from '../filters';
 import { FilterNotice } from '../filter-notice';
 import { Pagination } from '@/components/campaign/Pagination';
 import { GeneralFundCta } from '@/components/GeneralFundCta';
-import { paginationModel, parsePageParam } from '@/lib/pagination';
+import { paginationModel, paginationRobots, parsePageParam } from '@/lib/pagination';
 import { campaignsPageHref, resolveBrowseParams } from '../browse-params';
-import { campaignSearchCondition } from '@/lib/campaign-search';
 import { completedCampaignFilter } from '@/db/public-campaigns';
 import { listedCampaignFilter } from '@/db/public-campaigns';
+import { browseConditions, type BrowseFilter } from '@/db/browse-conditions';
 import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
 
@@ -47,10 +47,34 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   // every sequence stays the bare URL.
   const canonical = `https://lastdonor.org${campaignsPageHref(params, page)}`;
 
+  /*
+    ⛔ AN OUT-OF-RANGE PAGE IS `noindex`, and answering that needs the total.
+
+    [VERIFIED live on v170] `/campaigns?page=2` and `?page=99` both answered
+    200 with `index, follow` and a canonical pointing at THEMSELVES, over zero
+    cards - and with 8 live campaigns against a page size of 12 there is one
+    page, so EVERY page above 1 was an indexable empty URL, not just an exotic
+    probe. `docs/146` §9.2 reported it and could not fix it, because
+    `generateMetadata` ran no query.
+
+    This costs ONE query, and the page body gives one back: see the note
+    above `browseCounts`, where the measured arithmetic is 2 + 1 = 3 against
+    `docs/87`'s cap of three.
+
+    ⚠️ `follow: true`, deliberately. The page still carries the site
+    navigation and, on a real page 2, `rel="prev"`; telling a crawler to stop
+    following links out of it would undo what `docs/145` built crawlable
+    pagination FOR.
+  */
+  const { category, searchQuery, location, closeToTarget } = resolveBrowseParams(params);
+  const { matched: total } = await browseCounts({ category, searchQuery, location, closeToTarget });
+  const robots = paginationRobots({ total, pageSize: PAGE_SIZE, requestedPage: page });
+
   return {
     ...metadata,
     title: page > 1 ? `${BASE_TITLE} (Page ${page})` : BASE_TITLE,
     alternates: { canonical },
+    robots,
   };
 }
 
@@ -120,6 +144,71 @@ interface PageProps {
 
 const PAGE_SIZE = 12;
 
+/*
+  ── ONE COUNT QUERY, THREE AGGREGATES ────────────────────────────────────
+
+  `generateMetadata` needs the matched total so it can answer *is the
+  requested page beyond the end?* and emit `noindex` if it is. Before this it
+  ran no query, so it could not know, and an out-of-range page was served
+  `index, follow` with a self-referencing canonical - an indexable empty page
+  (`docs/166`).
+
+  ⛔ IT IS NOT WRAPPED IN React's `cache()`, AND THAT IS A MEASURED DECISION,
+  not an oversight. The obvious design shares one cached count between
+  `generateMetadata` and the page. I built it that way and the query log
+  refuted it: ONE unfiltered request ran the zero-argument cached function
+  **three times** from three backends inside 2ms - `generateMetadata` once and
+  the page's two call sites once each. `cache()` dedupes on
+  `campaigns/[slug]/page.tsx` (verified: its lookup appears exactly once per
+  request) and does NOT here; the difference is [INFERRED] that this route is
+  dynamic and that one is ISR. Either way a comment claiming it would be a
+  claim the code does not keep.
+
+  ⛔ So the total comes from the predicate instead: `matched` is a THIRD
+  FILTER aggregate over the SAME scan as the two tab counts. The arithmetic
+  that makes the fix free:
+
+    page body       rows + counts                           = 2 concurrent
+    generateMetadata  counts (its own execution)            = 1
+    worst case                                              = 3
+
+  Three is `docs/87`'s cap, and the page body is now BELOW where it was - it
+  used to issue rows + tabCounts + a separate filtered count. The fix removes
+  a query rather than adding one.
+
+  ⚠️ `count(*) FILTER (WHERE …)` takes any boolean expression, so a predicate
+  built from the request is as valid here as a constant one. The previous
+  comment said the filtered count "keeps its own query because its predicate
+  is built from the request" - that was a choice, not a constraint.
+*/
+async function browseCounts(filter: BrowseFilter) {
+  const rows = await db
+    .select({
+      /*
+        ⛔ The SAME predicate the rows query uses, for the reason `docs/146`
+        established: the predicate that COUNTS a group must be the predicate
+        that LISTS it. The tab said "Active 14" over a list of 14; with the
+        general fund holding a listed status, the raw pair would have said 15.
+      */
+      active: sql<number>`count(*) FILTER (WHERE ${listedCampaignFilter()})::int`,
+      // ⛔ The SAME set `/completed-campaigns` lists. This counted
+      // `IN ('completed','archived')` and linked to a page listing only
+      // `completed`, so the tab read "Completed 1" over an empty page.
+      // See docs/146.
+      completed: sql<number>`count(*) FILTER (WHERE ${completedCampaignFilter()})::int`,
+      // What the CURRENT browse URL matches - the number the header reports
+      // and the number `beyondEnd` is decided from.
+      matched: sql<number>`count(*) FILTER (WHERE ${browseConditions(filter)})::int`,
+    })
+    .from(campaigns);
+
+  return {
+    active: Number(rows[0]?.active ?? 0),
+    completed: Number(rows[0]?.completed ?? 0),
+    matched: Number(rows[0]?.matched ?? 0),
+  };
+}
+
 const faqs = [
   {
     question: 'What fundraisers can I browse on LastDonor?',
@@ -160,46 +249,20 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
   const categoryContent = categoryFilter ? getCategoryContent(categoryFilter) : null;
 
   /*
-    Build query conditions.
+    One filter object, one predicate, one total.
 
-    ⛔ `listedCampaignFilter()`, not the raw status pair: this is a LISTING, so
-    the platform's own general fund is excluded. It holds a listed status
-    because that is the only way `payhero/initiate` will take a donation for
-    it, and it is not an appeal for a named person. See `docs/147`.
+    ⛔ This block used to build `filterParts` inline here, which is why
+    `generateMetadata` could not know the total without a SECOND idea of what
+    matches. `browseConditions` is now the single definition, in `src/db/` so
+    a test can execute it (`docs/107` §7). See `docs/166`.
   */
-  const filterParts = [listedCampaignFilter()];
-
-  if (categoryFilter) {
-    filterParts.push(eq(campaigns.category, categoryFilter));
-  }
-
-  // One shared predicate (title, name, location, hometown, story prose,
-  // category) so this page and the API cannot drift. See docs/45.
-  const keywordCondition = campaignSearchCondition(searchQuery);
-  if (keywordCondition) {
-    filterParts.push(keywordCondition);
-  }
-
-  if (locationFilter) {
-    const locPattern = `%${locationFilter}%`;
-    filterParts.push(
-      or(
-        ilike(campaigns.location, locPattern),
-        ilike(campaigns.subjectHometown, locPattern),
-      )!,
-    );
-  }
-
-  if (closeToTarget) {
-    filterParts.push(
-      gte(
-        sql`(${campaigns.raisedAmount}::float / NULLIF(${campaigns.goalAmount}, 0))`,
-        0.9,
-      ),
-    );
-  }
-
-  const conditions = and(...filterParts)!;
+  const filter: BrowseFilter = {
+    category: categoryFilter,
+    searchQuery,
+    location: locationFilter,
+    closeToTarget,
+  };
+  const conditions = browseConditions(filter);
 
   /*
     The offset is derived from the REQUESTED page alone, so it is known before
@@ -229,11 +292,17 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
     }
   })();
 
-  // Fetch campaigns + counts in parallel. The unfiltered counts drive the
-  // status tabs; `matchedCountRow` is what the header above the list reports,
-  // because printing the unfiltered total above a filtered list contradicted
-  // the list itself (docs/45).
-  const [results, tabCounts, matchedCountRow] = await Promise.all([
+  /*
+    TWO concurrent queries, down from three.
+
+    The unfiltered counts drive the status tabs and `matched` is what the
+    header above the list reports, because printing the unfiltered total above
+    a filtered list contradicted the list itself (`docs/45`). All three are
+    FILTER aggregates over one scan now, so the separate filtered-count query
+    is gone - which is what leaves room for `generateMetadata`'s own
+    execution inside `docs/87`'s cap of three.
+  */
+  const [results, counts] = await Promise.all([
     db
       .select({
         id: campaigns.id,
@@ -263,39 +332,10 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
       .orderBy(primaryOrder, asc(campaigns.id))
       .offset(offset)
       .limit(PAGE_SIZE + 1),
-    /*
-      docs/87 amendment 5. The tab counts were three separate scans of
-      `campaigns` running beside the listing query, four connections for
-      one page view on the busiest public route. They are FILTER
-      aggregates over one scan now; the filtered count keeps its own
-      query because its predicate is built from the request.
-    */
-    db
-      .select({
-        /*
-          ⛔ The SAME predicate the rows query uses, for the reason `docs/146`
-          established: the predicate that COUNTS a group must be the predicate
-          that LISTS it. The tab said "Active 14" over a list of 14; with the
-          general fund holding a listed status, the raw pair would have said
-          15. Interpolating a condition into a `sql` template is the shape the
-          `completed` line beside it already uses.
-        */
-        active: sql<number>`count(*) FILTER (WHERE ${listedCampaignFilter()})::int`,
-        // ⛔ The SAME set `/completed-campaigns` lists. This counted
-        // `IN ('completed','archived')` and linked to a page listing only
-        // `completed`, so the tab read "Completed 1" over an empty page.
-        // See docs/146.
-        completed: sql<number>`count(*) FILTER (WHERE ${completedCampaignFilter()})::int`,
-      })
-      .from(campaigns),
-    filtersActive
-      ? db.select({ count: sql<number>`COUNT(*)` }).from(campaigns).where(conditions)
-      : Promise.resolve(null),
+    browseCounts(filter),
   ]);
 
-  const activeCount = Number(tabCounts[0]?.active ?? 0);
-  const completedCount = Number(tabCounts[0]?.completed ?? 0);
-  const matchedCount = filtersActive ? Number(matchedCountRow?.[0]?.count ?? 0) : activeCount;
+  const { active: activeCount, completed: completedCount, matched: matchedCount } = counts;
 
   const hasMore = results.length > PAGE_SIZE;
   const displayedCampaigns = hasMore ? results.slice(0, PAGE_SIZE) : results;

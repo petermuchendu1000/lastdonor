@@ -84,7 +84,8 @@ const TWELVE = Array.from({ length: 12 }, (_, i) => campaignRow(i + 1));
 
 /**
  * Queue the result sets the page reads.
- * `matched` is omitted when no filter is active, exactly as the page does.
+ * `matched` may be omitted when no filter is active: it then equals `active`,
+ * which is what the real aggregate returns for an unfiltered listing.
  */
 function mockDb({
   rows,
@@ -99,12 +100,19 @@ function mockDb({
 }) {
   /*
     The two tab counts became one FILTER-aggregate row in docs/87
-    amendment 5, so the page now reads three result sets, not four.
-    The assertions below are unchanged: what the header says is the
-    point, not how many round trips produced it.
+    amendment 5, and `docs/166` folded the MATCHED count into that same
+    scan - so the page now reads TWO result sets, not three. The
+    assertions below are unchanged: what the header says is the point,
+    not how many round trips produced it.
+
+    ⚠️ `matched` defaults to `active`, and that is FIDELITY, not
+    convenience. With no filter applied, `count(*) FILTER (WHERE
+    browseConditions(...))` reduces to the listed count - so a mock that
+    left it 0 would be a result the database could never produce, and a
+    test passing against it would prove nothing (`docs/128` §6: a fixture
+    Postgres would never emit is not evidence).
   */
-  state.queue = [rows, [{ active, completed }]];
-  if (matched !== undefined) state.queue.push([{ count: matched }]);
+  state.queue = [rows, [{ active, completed, matched: matched ?? active }]];
 }
 
 async function renderPage(params: Record<string, string>) {

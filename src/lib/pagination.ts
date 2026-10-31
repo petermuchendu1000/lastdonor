@@ -147,3 +147,38 @@ function numberStrip(page: number, totalPages: number): PaginationItem[] {
   }
   return items;
 }
+
+/**
+ * Whether a listing URL may be indexed.
+ *
+ * ── WHY THIS IS A FUNCTION AND NOT A TERNARY IN `generateMetadata` ────────
+ *
+ * An out-of-range page was served `index, follow` with a self-referencing
+ * canonical, so `/campaigns?page=99` was an indexable empty page - and with 8
+ * live campaigns against a page size of 12 there was ONE page, so `?page=2`
+ * was too. `docs/146` §9.2 reported it; `docs/166` fixes it.
+ *
+ * ⛔ The judgement is PURE so a test can EXECUTE it on every boundary. A
+ * condition inline in `generateMetadata` cannot be executed by anything -
+ * that file imports the database, the FX store and the whole page - and text
+ * cannot see which way a branch points (`docs/162` §5.1; `docs/157` §4.1's
+ * cure).
+ *
+ * ⚠️ `follow` stays TRUE beyond the end. The page still carries the site
+ * navigation and, on a real page, `rel="prev"`; telling a crawler to stop
+ * following links out of it would undo what `docs/145` built crawlable
+ * pagination FOR. Only indexing is withdrawn.
+ *
+ * ⛔ And a REAL page keeps `index`. A blanket "noindex anything above page 1"
+ * needs no query and is the obvious shortcut - it also de-indexes the pages
+ * `docs/145` exists to expose. The boundary is the TOTAL, which is why
+ * `generateMetadata` reads the same count the page body does.
+ */
+export function paginationRobots(input: {
+  total: number;
+  pageSize: number;
+  requestedPage: number;
+}): { index: boolean; follow: boolean } {
+  const { beyondEnd } = paginationModel(input);
+  return { index: !beyondEnd, follow: true };
+}

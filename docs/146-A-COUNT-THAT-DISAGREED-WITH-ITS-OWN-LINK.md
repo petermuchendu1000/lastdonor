@@ -508,8 +508,14 @@ for the first time.
   the admin tiles. Not examined.
 - **Nothing retracts the archived row.** It is the PayHero test campaign and
   stays archived; it simply stops being counted as a success.
-- **The out-of-range page's `robots` meta is left as it is** (§9.2), and the
-  `EMAXCONNSESSION` route is unidentified (§9.1).
+- ✅ **The out-of-range page's `robots` meta is FIXED by `docs/166`** (§9.2),
+  and its stated blocker was answerable: the total is now a third
+  `count(*) FILTER` over the scan the tab counts already run, so
+  `generateMetadata` costs no additional query and the page body costs one
+  fewer. ⚠️ §9.2 also under-stated the defect — with 8 campaigns against a
+  page size of 12 there is ONE page, so every page above 1 was indexable and
+  empty, not only `?page=99`. The `EMAXCONNSESSION` route is still
+  unidentified (§9.1).
 - **The query reduction in §4.0b is derived from source, not measured at the
   database.** `pg_stat_statements` is not enabled on the throwaway Postgres and
   the claim is syntactic (six query builders became three).
