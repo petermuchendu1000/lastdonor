@@ -172,8 +172,15 @@ export function MpesaDonationForm({
       const body = await res.json();
       if (!body?.ok) return;
 
+      /*
+        The SERVER's union, not the client's phases. It used to read
+        `Phase | 'abandoned'`, which happened to cover the three states the
+        route can send - and the moment `Phase` grew `unresolved` it started
+        claiming the server could send a state that exists only in this
+        component. A response type must describe the responder.
+      */
       const { state, keepPolling, message } = body.data as {
-        state: Phase | 'abandoned';
+        state: 'pending' | 'succeeded' | 'failed' | 'abandoned';
         keepPolling: boolean;
         message: string | null;
       };

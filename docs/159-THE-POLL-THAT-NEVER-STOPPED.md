@@ -225,6 +225,15 @@ drives **both**, and the injection fires.
 A rule that exercises one of two branches reports the same thing as a rule that
 works.
 
+## 5.4 A type that described the wrong end
+
+The poll cast its response as `state: Phase | 'abandoned'`. That happened to
+cover the three states the route sends — and the moment `Phase` grew
+`unresolved`, it began claiming the server could send a state that exists only
+inside this component. Retyped from the route's own union. **A response type
+must describe the responder**, and reusing the local one is how it silently
+stops doing so.
+
 ## 6. ⚠️ A correction to `docs/158`'s own file
 
 `payhero-settlement.ts:92-102` said a reference-less row means *"there is
