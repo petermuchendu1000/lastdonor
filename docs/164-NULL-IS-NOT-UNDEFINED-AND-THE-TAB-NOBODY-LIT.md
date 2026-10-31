@@ -259,3 +259,168 @@ nameless` and read as a pass.
   test covers its query.
 - **The remaining route from `docs/151` §7** — every signed-in screen at
   390px — is still unwalked.
+
+---
+
+## 9. Two things found walking the rest of the signed-in surface — REPORTED, NOT FIXED
+
+Enumerating what `docs/151` §7's *"every signed-in screen"* still means (the
+organiser dashboard was walked by `docs/154`, all 35 admin pages by `docs/128`
+at both widths) left exactly three auth-gated routes outside those trees:
+`/notifications`, `/profile`, and `/campaigns/[slug]/congratulations`.
+
+### 9.1 ⚠️ A falsifier refuted the one that looked worst
+
+`/campaigns/[slug]/congratulations` is auth-gated — [VERIFIED live: `307 →
+/login?callbackUrl=…`] — and `docs/122` established that **the M-Pesa rail
+creates only guests**, so an auth-gated post-donation screen would be a
+thank-you no real donor could reach. It is not one: the query is
+`eq(campaigns.creatorId, session.user.id)` and the title is *"Your Campaign Is
+Live!"*. It is the ORGANISER's screen and the gate is correct. Refuted by
+reading it, before it cost a browser pass.
+
+⛔ **But nothing links to it.** A repo-wide sweep finds four references and not
+one is a link: a comment in `ShareButtons.tsx`, two assertions in
+`instant-live-architecture.test.ts` that the wizard does **not** redirect
+there, and `navigable-routes.ts` listing it as served. `docs/109` moved the
+wizard's redirect to `/dashboard/campaigns?submitted=1` and sent
+`?launched=true` to the approval email, where `LaunchSuccessBanner` does this
+screen's job. So it is `docs/83`'s shape — a working screen with no door —
+and it duplicates a banner that IS reachable.
+
+Not deleted here: it is `robots: index:false`, organiser-only and harmless, and
+removing a screen is a product call rather than an audit's. Recorded so the
+next reader does not assume it is live.
+
+### 9.2 ⛔ TWO independent ideas of this site's own public base URL
+
+`appBaseUrl()` (`src/lib/unsubscribe-tokens.ts:224`) reads
+**`NEXT_PUBLIC_APP_URL`** and strips trailing slashes. Five sites hand-write
+**`process.env.NEXTAUTH_URL || 'https://lastdonor.org'`** instead:
+
+| site | what it builds |
+|---|---|
+| `api/v1/auth/forgot-password/route.ts:127` | the **password-reset link** |
+| `campaigns/[slug]/congratulations/page.tsx:65` | the share URL on that screen |
+| `lib/email-templates.ts:15` | `BASE_URL` for the template family |
+| `lib/email-shell.ts:46` | `BASE_URL` for the shell |
+| `lib/email-adaptive.ts:37` | `BASE_URL` for the dormant family (`docs/140`) |
+
+[VERIFIED] `fly.toml:52` sets `NEXT_PUBLIC_APP_URL = "https://lastdonor.org"`,
+`NEXTAUTH_URL` appears in `fly.toml` only inside comments, and
+`flyctl secrets list` shows **`NEXTAUTH_URL` IS set as a secret** — so the two
+sources are genuinely independent in production, and `docs/57`'s rule
+(*"redirects must use `appBaseUrl()`"*) is unswept over all five.
+
+⚠️ **Whether they AGREE today is [UNKNOWN], and the probe that looked like it
+settled it does not.** `/api/auth/providers` answers
+`signinUrl=https://lastdonor.org/...`, but with `AUTH_TRUST_HOST` on (which
+`fly.toml:175-180` discusses at length) NextAuth derives that from the request
+host, not from `NEXTAUTH_URL` — so it measures the hostname I asked on. The
+secret's value is not readable here and must not be printed.
+
+⛔ **Which is why this is not fixed.** Pointing the five at `appBaseUrl()` is
+the right end state and it changes **every link in outgoing mail**, including
+the password-reset link `docs/74` proved end to end. If the two variables
+disagree, that switch silently re-hosts every emailed link. An owner call, and
+one `fly secrets list` away from being safe.
+
+✅ Fixed here, because it is zero-risk and actively misleading:
+`email-templates.submission-receipt.test.ts` carried a comment stating
+*"`appBaseUrl()` reads `NEXTAUTH_URL`"*. It does not. That comment is how a
+reader concludes the two forms are equivalent.
+
+### 9.3 Still unwalked
+
+`/notifications` and `/profile` at 390px. Both [VERIFIED live] answer `307 →
+/login?callbackUrl=…`, so walking them needs a signed-in fixture, which is the
+next step rather than a finding.
+
+---
+
+## 10. The signed-in screens at 390px — NO CODE CHANGE, and what that rests on
+
+`docs/151` §7's last named item. The surface is smaller than the phrase
+suggests: the organiser dashboard was walked at 390px by `docs/154`, all 35
+admin pages at both widths by `docs/128`, so what remained was
+`/notifications`, `/profile` and `/campaigns/[slug]/congratulations` (§9.1
+refuted the last one by reading it).
+
+Walked signed in as the E2E fixture organiser against a local production build.
+
+| route | lands on | overflow | nameless controls | tap targets < 24px not 2.5.8-exempt |
+|---|---|---|---|---|
+| `/notifications` | `/notifications` | **0px** | **0** / 30 named | **0** |
+| `/profile` | `/dashboard/settings` | **0px** | **0** / 8 named | **0** |
+| `/settings` | `/dashboard/settings` | **0px** | **0** / 8 named | **0** |
+| `/dashboard` (control) | `/dashboard` | **0px** | **0** / 16 named | **0** |
+
+⚠️ **The signed-OUT arm is the control that makes those rows mean anything**:
+`/notifications`, `/profile` and `/dashboard` each bounce to `/login`, while
+`/settings` stays and serves (`docs/122` §3's requirement). A walk that had
+silently measured signed-out pages would have reported a clean login form four
+times and read as a pass.
+
+⛔ **The tap-target question was MEASURED, not assumed.** 16 of 20 targets on
+`/dashboard` are under 24px, which looks alarming until WCAG 2.2 2.5.8's
+exceptions are applied properly: for each one, whether a 24px circle centred
+on it intersects another target's circle, and whether it is inline in a
+sentence. **0 fail** on all three screens. Same answer `docs/153` §4 reached
+for the wizard, by the same method.
+
+### 10.1 ⚠️ What that "clean" actually covers
+
+[VERIFIED] `notifications` holds **0 rows** in the fixture, so the
+`/notifications` reading is **its empty state**, and the 30 named controls are
+mostly navbar and footer rather than the page's own. `docs/128` walked 35
+pages and pressed nothing; this walk pressed nothing on `/notifications`
+either, and says so.
+
+### 10.2 ✅ `docs/118` §2.5's rot, inventoried against production
+
+A notification is a stored link, and `NotificationsClient.tsx:280` renders
+`n.link` **verbatim from the database** — there is no render-time re-guard, so
+`docs/118` §2.5's warning (*"a STORED link ROTS"*) stands. What `docs/118` had
+was *"one production row was a 404"*. The full inventory now:
+
+| | |
+|---|---|
+| notifications | **8** |
+| carrying a link | **7** |
+| links that resolve today | **7** |
+
+- The one `/campaigns/...` link points at an **`archived`** campaign with
+  `published_at` set and answers **200** — [VERIFIED, with a fabricated slug
+  answering **404** as the control]. So `docs/118` §9's decision to serve
+  closed campaigns did heal the rot it was argued to heal, on the only
+  production row that could have rotted.
+- Three `campaign_submitted` rows still point at
+  **`/admin/campaigns/<id>/edit`** — the route `docs/120` §2 is entirely
+  about. ⚠️ The **minter was repointed**: `notifications.ts:659` and `:993`
+  now mint `/admin/campaigns/${campaignId}`, no `/edit`, and
+  `AdminDashboard.tsx:177` carries the comment recording it. These three are
+  historical rows minted before that fix. All three campaigns exist and are
+  `under_review`, so the links resolve.
+
+⚠️ **Low severity, and the reason is a fact about production rather than about
+the code**: `docs/133` admin-gated `/admin/campaigns/[id]/edit`, and
+[`docs/132`] **0 editors exist**, so nobody is currently bounced; the single
+admin can open the editor. Were an editor created, those three rows would
+become dead links for them.
+
+⛔ **Not fixed, and not a one-liner.** A render-time guard needs each link's
+*kind* and the campaign's *current* state; the component has only a string,
+and the notifications API does no such join. The alternatives are migrating
+the rows or re-deriving at read time — both reopen `docs/118`'s write-time-vs-
+read-time decision rather than patching a page.
+
+### 10.3 What was NOT checked
+
+- **`/notifications` with rows in it.** Its mark-as-read, page-size and
+  per-row controls are unexercised; the fixture seeds no notifications.
+- **`/profile` and `/settings` are the same screen**, so they are one
+  measurement reported twice, not two.
+- **No screen reader**, and no real device (`docs/163` §8's caveat applies
+  unchanged).
+- **`/campaigns/[slug]/congratulations` was read, not rendered** — nothing
+  links to it (§9.1), so there is no door to walk through.

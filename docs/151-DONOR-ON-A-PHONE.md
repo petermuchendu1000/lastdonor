@@ -170,7 +170,19 @@ edit, proving the rule is not firing on noise.
   param forwarder, [VERIFIED live] `307 → /campaigns?q=medical → 200`. Its
   substantive surface is `/campaigns`, which this doc did walk.
 
-  ⛔ **Still open: every signed-in screen at 390px.**
+  ✅ **The signed-in screens walked by `docs/164`** §10 (2026-10-31). Smaller
+  than the phrase suggests: `docs/154` had already walked the organiser
+  dashboard at 390px and `docs/128` all 35 admin pages at both widths, so what
+  remained was `/notifications`, `/profile` and
+  `/campaigns/[slug]/congratulations`. **No code change** — 0px overflow, 0
+  nameless controls and 0 WCAG 2.5.8 failures on all of them, with a
+  signed-OUT arm as the control. ⚠️ `/notifications` was measured in its
+  EMPTY state (the fixture seeds no rows) and nothing on it was pressed.
+
+  ⛔ **So `docs/151` §7 is now closed, and `docs/164` §9-§10 record what
+  replaced it**: nothing links to `/congratulations`, this codebase has two
+  independent ideas of its own public base URL, and `/notifications` with rows
+  in it is still unexercised.
 
   ✅ **`/campaigns/[slug]` walked by `docs/163`** (2026-10-31), which found
   that the fixed mobile donate bar reserved no space for itself, so the last

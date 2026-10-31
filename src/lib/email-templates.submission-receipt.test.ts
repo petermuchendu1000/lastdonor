@@ -133,12 +133,18 @@ describe('campaign submission receipt — brevity', () => {
     /*
       Asserted as a PATH, not as `https://lastdonor.org/dashboard`.
 
-      The absolute form made this test depend on the ambient environment:
-      `appBaseUrl()` reads `NEXTAUTH_URL`, so a developer (or a verification
-      run) with `NEXTAUTH_URL=http://localhost:3000` in their shell saw this
-      fail with a correct email. The property worth pinning is "exactly one
-      call to action of its own, and it goes to the dashboard" - the host is
-      the shell's business, not this template's.
+      The absolute form made this test depend on the ambient environment: a
+      developer (or a verification run) with a localhost base URL in their
+      shell saw this fail with a correct email. The property worth pinning is
+      "exactly one call to action of its own, and it goes to the dashboard" -
+      the host is the shell's business, not this template's.
+
+      ⚠️ This comment used to say `appBaseUrl()` reads `NEXTAUTH_URL`. It does
+      NOT - `unsubscribe-tokens.ts:224` reads **`NEXT_PUBLIC_APP_URL`** and
+      strips trailing slashes. The confusion is real and is recorded in
+      `docs/164` §9: this codebase has TWO independent ideas of its own public
+      base URL, and five sites hand-write `process.env.NEXTAUTH_URL ||
+      'https://lastdonor.org'` instead of calling the helper.
     */
     expect(ownLinks).toHaveLength(1);
     /*
