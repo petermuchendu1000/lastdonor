@@ -212,6 +212,12 @@ failed** (291 files, +10 tests).
 - **The card rail.** `DonationForm` and `create-checkout` were not walked;
   `docs/125` established that rail answers 503 to everybody, so its refusal copy
   is the next thing to read, not this one.
+
+  ✅ **Walked by `docs/161`** (2026-10-31). The refusal copy is sound. What was
+  not: the form collected an amount and an email before submitting to a rail it
+  already knew could not work, and this suite's own comment asserted the
+  opposite — resting on a probe that watched `create-intent`, a route this form
+  has never called.
 - **The waiting and polling screens.** This walk stopped at initiation. What a
   donor sees when a prompt is raised and then expires, or when the poll returns
   FAILED, is untouched — and that is the path both production failures actually
