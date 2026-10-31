@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowPathIcon, CheckIcon, ErrorCircleIcon } from '@/components/ui/icon';
+import { ArrowPathIcon, CheckIcon, ClockIcon, ErrorCircleIcon } from '@/components/ui/icon';
 import { Money } from '@/components/ui/Money';
 import { CURRENCIES } from '@/lib/money/currencies';
 import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
+
+import { PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
 
 const SUPPORT_EMAIL = 'support@lastdonor.org';
 
@@ -19,9 +21,40 @@ const SUPPORT_EMAIL = 'support@lastdonor.org';
  * endpoint has its own rate-limit tier (120/60s) instead of inheriting the
  * 10/60s donations tier that would have 429'd an honest donor mid-payment.
  */
-const POLL_INTERVAL_MS = 5_000;
+export const POLL_INTERVAL_MS = 5_000;
 
-type Phase = 'form' | 'waiting' | 'succeeded' | 'failed';
+/**
+ * How many polls before the browser gives up on its own.
+ *
+ * ⛔ DERIVED, never picked. The invariant is that this ceiling MUST outlast the
+ * prompt: `PROMPT_LIFETIME_MS / POLL_INTERVAL_MS` is 36 polls to cover a live
+ * prompt, so a smaller cap would abandon a donor who is still typing their
+ * PIN. The margin covers the row's `created_at` predating the browser's first
+ * poll, and the immediate `void poll()` that spends one attempt before the
+ * interval starts.
+ *
+ * This is the FALLBACK bound only. The server already says when to stop -
+ * `keepPolling: false`, computed from the row's real age - and that signal is
+ * what normally ends the loop. This ceiling exists for the case where the
+ * server never gets to answer at all: `payhero-settlement.ts` has no
+ * try/catch, so an unreachable PayHero throws through to the route's catch and
+ * answers 500, and a 500 carries no `keepPolling` field to obey (`docs/159`).
+ *
+ * Exported so a test can assert the INVARIANT against the shared constant
+ * rather than against today's number. A test that recomputed this expression
+ * itself would be comparing the arithmetic with itself, which is a check that
+ * cannot fail (`docs/159` §5.1).
+ */
+export const MAX_POLL_ATTEMPTS =
+  Math.ceil(PROMPT_LIFETIME_MS / POLL_INTERVAL_MS) + 12;
+
+/*
+  `unresolved` is NOT a failure. The row stays `pending` server-side and
+  PayHero may still settle it, so claiming an outcome here would be the
+  `docs/158` mistake: a statement about somebody's money that we cannot
+  substantiate.
+*/
+type Phase = 'form' | 'waiting' | 'succeeded' | 'failed' | 'unresolved';
 
 interface Props {
   campaignId: string;
@@ -97,6 +130,11 @@ export function MpesaDonationForm({
   const [reference, setReference] = useState<string | null>(null);
   const [maskedPhone, setMaskedPhone] = useState<string | null>(null);
   const [waitingSeconds, setWaitingSeconds] = useState(0);
+  /*
+    A ref, not state: bumping it must not re-render (which would re-create
+    `poll` and re-arm the interval). Reset when a wait begins.
+  */
+  const pollAttempts = useRef(0);
 
   /*
     The same `useRef` latch `docs/42` put on the Stripe submit button. A
@@ -150,14 +188,32 @@ export function MpesaDonationForm({
         setStatusMessage(message ?? null);
         return;
       }
-      if (!keepPolling) {
+      /*
+        ⛔ `=== false`, not `!keepPolling`. Stopping is an INSTRUCTION and must
+        be explicit: a payload that omits the field is an unexpected shape, not
+        the server saying the prompt is dead, and treating absence as "stop"
+        would silently end every donor's wait the day the response shape
+        changes. The malformed case is covered by MAX_POLL_ATTEMPTS instead.
+        (Found by three pre-existing waiting-screen tests whose mock returns an
+        initiate payload to the status poll - the old `!keepPolling` took this
+        branch for them too, and only looked harmless because it set a message
+        and kept going.)
+      */
+      if (keepPolling === false) {
         /*
           Still pending, but the prompt can no longer be live. The donation is
           NOT called failed - the row stays pending server-side, because a
           prompt we never heard about is not a prompt known to have failed.
           The donor is told the truth and given somewhere to go.
+
+          ⛔ And the loop STOPS here. `keepPolling: false` is the server saying
+          so, computed from the row's real age; this used to set the message
+          and keep polling every 5s for as long as the tab stayed open, leaving
+          the screen reading "Waiting for your confirmation · 847s" and firing
+          one outbound PayHero call per tick (`docs/159`).
         */
         setStatusMessage(message ?? null);
+        setPhase('unresolved');
       }
     } catch {
       // A dropped poll is not evidence about the payment. Try again.
@@ -167,10 +223,25 @@ export function MpesaDonationForm({
   useEffect(() => {
     if (phase !== 'waiting' || !reference) return;
 
+    pollAttempts.current = 0;
     const tick = setInterval(() => setWaitingSeconds((s) => s + 1), 1_000);
-    const poller = setInterval(poll, POLL_INTERVAL_MS);
+    const poller = setInterval(() => {
+      /*
+        The fallback bound. A 500 carries no `keepPolling` to obey, so without
+        a ceiling an unreachable provider becomes an unbounded request loop
+        from every open tab.
+      */
+      if (pollAttempts.current >= MAX_POLL_ATTEMPTS) {
+        setStatusMessage(null);
+        setPhase('unresolved');
+        return;
+      }
+      pollAttempts.current += 1;
+      void poll();
+    }, POLL_INTERVAL_MS);
     // Ask once immediately: a donor who approves in three seconds should not
     // wait five more to be told so.
+    pollAttempts.current += 1;
     void poll();
 
     return () => {
@@ -347,6 +418,57 @@ export function MpesaDonationForm({
   }
 
   // ── Failed ────────────────────────────────────────────────────────────────
+  if (phase === 'unresolved') {
+    /*
+      `docs/159`. The poll has stopped and we do NOT know the outcome: the row
+      is still `pending` server-side and PayHero may yet settle it. So this
+      screen states exactly that and claims nothing - no "did not go through",
+      no "nothing has been charged", which is the `docs/158` rule.
+
+      ⛔ It warns against a second payment for the same reason the initiation
+      path latches its button: if the first one did go through, paying again
+      pays twice. And it offers "Check again" rather than only an email
+      address, because [VERIFIED] nothing sweeps `payhero_payment_requests` -
+      the donor's own poll is the ONLY path by which a late settlement is ever
+      discovered, so leaving them with no way to re-ask would close it.
+    */
+    return (
+      <div className="py-2 text-center" role="alert">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+          <ClockIcon className="h-8 w-8 text-muted-foreground" />
+        </div>
+
+        <h3 className="font-display text-2xl font-bold text-card-foreground">
+          We could not confirm this payment
+        </h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          {statusMessage ??
+            'We stopped waiting for an answer about this payment, so we cannot tell you ' +
+              'whether it went through.'}
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-sm font-medium text-card-foreground">
+          Check your M-Pesa messages. Please do not send it again until you have. If the
+          first one went through, paying again pays twice.
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">
+          If money left your account, email {SUPPORT_EMAIL} and we will sort it out.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => {
+            setStatusMessage(null);
+            setWaitingSeconds(0);
+            setPhase('waiting');
+          }}
+          className="btn-press mt-6 inline-flex items-center justify-center rounded-full border border-border px-6 py-2.5 text-sm font-semibold text-card-foreground transition-colors hover:bg-muted"
+        >
+          Check again
+        </button>
+      </div>
+    );
+  }
+
   if (phase === 'failed') {
     return (
       <div className="py-2 text-center" role="alert">

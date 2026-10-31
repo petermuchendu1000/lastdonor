@@ -93,7 +93,15 @@ export async function settlePayHeroRequest(
     Without PayHero's own reference the payment cannot be checked at all: our
     external_reference returns 404 from their status endpoint (probed
     2026-10-21). This means initiation failed between the insert and the API
-    answering, so there is nothing to confirm and nothing was charged.
+    answering.
+
+    ⛔ It does NOT mean nothing was charged, and this comment said so until
+    `docs/159`. `docs/158` had shipped the day before: a reference-less row is
+    exactly the row a LOST RESPONSE leaves behind, and the push reaches
+    Safaricom synchronously, so a prompt may have been raised while we were
+    giving up on the response. `unverifiable` is the honest kind precisely
+    because the outcome is unknown - the caller must not read it as
+    reassurance, and `initiate/route.ts` no longer does.
   */
   if (!request.payheroReference) {
     return {

@@ -44,6 +44,7 @@
 import { and, count, desc, eq, gte } from 'drizzle-orm';
 import { db } from '@/db';
 import { payheroPaymentRequests } from '@/db/schema';
+import { PROMPT_LIFETIME_MS } from './payhero-prompt';
 
 /**
  * How long an M-Pesa prompt can plausibly still be answered.
@@ -58,9 +59,14 @@ import { payheroPaymentRequests } from '@/db/schema';
  * blocked.
  *
  * It is written as an assumption on purpose. The real figure comes from the
- * live test recorded in `docs/92`, and this constant is where it goes.
+ * live test recorded in `docs/92`.
+ *
+ * ⛔ The value itself now lives in `src/lib/payhero-prompt.ts`, which imports
+ * nothing, because the donor's BROWSER needs it too and this module imports
+ * `@/db` (`docs/159`; the boundary rule is `docs/139` §7). It is re-exported
+ * here so existing server callers are unaffected.
  */
-export const PROMPT_LIFETIME_MS = 3 * 60_000;
+export { PROMPT_LIFETIME_MS } from './payhero-prompt';
 
 /** Cooldown after an attempt that already resolved. */
 export const RETRY_COOLDOWN_MS = 20_000;

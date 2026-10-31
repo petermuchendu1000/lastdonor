@@ -216,6 +216,13 @@ failed** (291 files, +10 tests).
   donor sees when a prompt is raised and then expires, or when the poll returns
   FAILED, is untouched — and that is the path both production failures actually
   took.
+
+  ✅ **The expiry half is RESOLVED by `docs/159`** (2026-10-31), which found
+  that the poll had no stop condition at all: the server's `keepPolling: false`
+  was read and ignored, so the donor sat under *"Waiting for your confirmation ·
+  847s"* while the browser called PayHero every five seconds. ⛔ The **FAILED**
+  half is still open — what the `failed` phase says when PayHero reports FAILED
+  has not been read, and that remains the path both production failures took.
 - **Whether a lost response leaves a collection** — §2, [UNKNOWN] and
   unprovable without moving money.
 - No screen reader; the `role="alert"` on the error is asserted to exist and its
