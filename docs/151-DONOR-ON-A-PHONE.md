@@ -159,6 +159,12 @@ edit, proving the rule is not firing on noise.
 
 - **Only five routes.** `/campaigns/[slug]`, the campaign donate page, `/blog`,
   `/search` and every signed-in screen were not walked at 390px.
+
+  ✅ **`/campaigns/[slug]` walked by `docs/163`** (2026-10-31), which found
+  that the fixed mobile donate bar reserved no space for itself, so the last
+  ~65px of the document — the footer's copyright line and its "Switch to dark
+  mode" button — were permanently behind it. `/blog`, `/search` and the
+  signed-in screens are still unwalked.
 - **No real device.** Chromium at 390px is not a phone: no touch heuristics, no
   real keyboard overlay, no slow network.
 - **The pay button was never pressed.** Pressing it sends a real STK push to a
