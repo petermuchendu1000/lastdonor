@@ -3,12 +3,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils/dates';
 import type { BlogPost } from '@/types';
-
-const CATEGORY_LABELS: Record<BlogPost['category'], string> = {
-  campaign_story: 'Campaign Story',
-  impact_report: 'Impact Report',
-  news: 'News',
-};
+import { blogCategoryLabel } from '@/lib/blog-categories';
 
 type BlogCardProps = Pick<
   BlogPost,
@@ -41,7 +36,7 @@ export function BlogCard({
         <div className="p-4">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[11px]">
-              {CATEGORY_LABELS[category]}
+              {blogCategoryLabel(category)}
             </Badge>
             {publishedAt && (
               <span className="text-xs text-muted-foreground">

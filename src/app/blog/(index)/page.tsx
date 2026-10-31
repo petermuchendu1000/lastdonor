@@ -1,9 +1,16 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { db } from '@/db';
 import { blogPosts } from '@/db/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { BlogCard } from '@/components/blog/BlogCard';
 import { seoKeywords } from '@/lib/seo/keywords';
+import {
+  blogCategoryTabs,
+  blogEmptyState,
+  resolveBlogCategory,
+  unappliedCategoryNotice,
+} from '@/lib/blog-categories';
 
 /*
   NO `revalidate` HERE, DELIBERATELY.
@@ -47,26 +54,28 @@ export const metadata: Metadata = {
   },
 };
 
-const CATEGORIES = [
-  { label: 'All', value: null },
-  { label: 'Campaign Stories', value: 'campaign_story' },
-  { label: 'Impact Reports', value: 'impact_report' },
-  { label: 'News', value: 'news' },
-] as const;
-
 interface PageProps {
-  searchParams: Promise<{ category?: string }>;
+  searchParams: Promise<{ category?: string | string[] }>;
 }
 
 export default async function BlogPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const categoryFilter = CATEGORIES.find(
-    (c) => c.value === params.category,
-  )?.value;
+  /*
+    ⛔ ONE resolver, returning a KIND rather than a value.
 
-  const conditions = categoryFilter
-    ? and(eq(blogPosts.published, true), eq(blogPosts.category, categoryFilter))
-    : eq(blogPosts.published, true);
+    This was `CATEGORIES.find((c) => c.value === params.category)?.value`
+    against a list whose first entry was `{ label: 'All', value: null }`. An
+    absent param is `undefined` and `null === undefined` is false, so the All
+    pill was never active on any URL, and an unrecognised value was
+    indistinguishable from no filter at all - silently widening the list,
+    which `docs/45` forbids. See `src/lib/blog-categories.ts` and `docs/164`.
+  */
+  const resolved = resolveBlogCategory(params.category);
+
+  const conditions =
+    resolved.kind === 'category'
+      ? and(eq(blogPosts.published, true), eq(blogPosts.category, resolved.value))
+      : eq(blogPosts.published, true);
 
   const posts = await db
     .select({
@@ -83,6 +92,8 @@ export default async function BlogPage({ searchParams }: PageProps) {
     .orderBy(desc(blogPosts.publishedAt))
     .limit(50);
 
+  const emptyState = blogEmptyState(resolved);
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       <h1 className="font-display text-4xl font-bold text-foreground">
@@ -92,28 +103,40 @@ export default async function BlogPage({ searchParams }: PageProps) {
         What happened after the money was raised. Real updates from real campaigns.
       </p>
 
-      {/* Category Tabs */}
-      <nav className="mt-8 flex gap-2 relative overflow-x-auto" aria-label="Blog categories">
-        {CATEGORIES.map((cat) => {
-          const isActive = categoryFilter === cat.value;
-          const href = cat.value
-            ? `/blog?category=${cat.value}`
-            : '/blog';
+      {/*
+        ⛔ An unapplied filter is REPORTED, never dropped in silence. `docs/45`:
+        a list shown unfiltered with the filter pill inert reads as "all of
+        these match what you asked for".
+      */}
+      {resolved.kind === 'unapplied' && (
+        <p
+          role="status"
+          className="mt-6 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-foreground"
+        >
+          {unappliedCategoryNotice(resolved.raw)}
+        </p>
+      )}
 
-          return (
-            <a
-              key={cat.label}
-              href={href}
-              className={`inline-flex shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              {cat.label}
-            </a>
-          );
-        })}
+      {/*
+        Category tabs. Which one is active is decided by `blogCategoryTabs`,
+        not here - the defect was an active test that was false on every URL,
+        and a judgement in JSX cannot be executed by a test.
+      */}
+      <nav className="mt-8 flex gap-2 relative overflow-x-auto" aria-label="Blog categories">
+        {blogCategoryTabs(resolved).map((tab) => (
+          <Link
+            key={tab.href}
+            href={tab.href}
+            aria-current={tab.isActive ? 'page' : undefined}
+            className={`inline-flex shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+              tab.isActive
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80'
+            }`}
+          >
+            {tab.label}
+          </Link>
+        ))}
       </nav>
 
       {/* Posts Grid */}
@@ -125,9 +148,21 @@ export default async function BlogPage({ searchParams }: PageProps) {
         </div>
       ) : (
         <div className="mt-16 text-center">
-          <p className="text-lg text-muted-foreground">
-            No posts published yet. Check back soon.
-          </p>
+          {/*
+            ⚠️ Decided by `blogEmptyState`, because "No posts published yet"
+            is a claim about the WHOLE BLOG and is false under a filter the
+            moment any other category holds a post (`docs/123`: 0 published
+            rows ever, so it is latent).
+          */}
+          <p className="text-lg text-muted-foreground">{emptyState.message}</p>
+          {emptyState.showAllLink && (
+            <Link
+              href="/blog"
+              className="mt-4 inline-block text-sm font-medium text-primary underline"
+            >
+              See every story
+            </Link>
+          )}
         </div>
       )}
     </div>

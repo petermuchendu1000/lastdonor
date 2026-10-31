@@ -12,14 +12,16 @@ import { ShareButtons } from '@/components/campaign/ShareButtons';
 import { formatDate } from '@/lib/utils/dates';
 import { buildArticleJsonLd } from '@/lib/blog/geo-optimizer';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { blogCategoryLabel } from '@/lib/blog-categories';
 import Image from 'next/image';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  campaign_story: 'Campaign Story',
-  impact_report: 'Impact Report',
-  news: 'News',
-};
-
+/*
+  ⛔ The post-category labels come from `@/lib/blog-categories`. This file
+  declared its own `Record<string, string>`, which COMPILES WITH A HOLE - a
+  fourth `blog_category` enum value would have rendered `undefined` here and
+  failed the build nowhere (`docs/144`'s lesson). The shared map is keyed by
+  the union `InferSelectModel` derives from the enum, so tsc enumerates it.
+*/
 const CAUSE_CATEGORY_LABELS: Record<string, string> = {
   medical: 'Medical',
   disaster: 'Disaster Relief',
@@ -178,7 +180,7 @@ export default async function BlogPostPage({ params }: PageProps) {
   // Use cause category label when available (richer than blog_category enum)
   const displayCategory = post.causeCategory
     ? (CAUSE_CATEGORY_LABELS[post.causeCategory] ?? post.causeCategory.replace(/-/g, ' '))
-    : (CATEGORY_LABELS[post.category] ?? post.category);
+    : blogCategoryLabel(post.category);
 
   const jsonLdArray = buildArticleJsonLd({
     title: post.title,

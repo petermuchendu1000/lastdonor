@@ -160,6 +160,18 @@ edit, proving the rule is not firing on noise.
 - **Only five routes.** `/campaigns/[slug]`, the campaign donate page, `/blog`,
   `/search` and every signed-in screen were not walked at 390px.
 
+  ✅ **`/blog` walked by `docs/164`** (2026-10-31), which found that the
+  category filter resolved an absent param and an unrecognised one to the same
+  value — so the All tab was highlighted on no URL at all, and
+  `/blog?category=anything` silently served every post. 0px overflow and 0
+  nameless controls at 390px.
+
+  ⚠️ **`/search` has no screen to walk**, settled by `docs/164`: it is a pure
+  param forwarder, [VERIFIED live] `307 → /campaigns?q=medical → 200`. Its
+  substantive surface is `/campaigns`, which this doc did walk.
+
+  ⛔ **Still open: every signed-in screen at 390px.**
+
   ✅ **`/campaigns/[slug]` walked by `docs/163`** (2026-10-31), which found
   that the fixed mobile donate bar reserved no space for itself, so the last
   ~65px of the document — the footer's copyright line and its "Switch to dark

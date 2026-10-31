@@ -4,9 +4,13 @@ import { blogPosts } from '@/db/schema';
 import { eq, and, desc, lt } from 'drizzle-orm';
 import { withApiHandler } from '@/lib/api-handler';
 import { parsePagination } from '@/lib/api-helpers';
+import { MAX_REPORTED_VALUE_LENGTH, resolveBlogCategory } from '@/lib/blog-categories';
 
-const VALID_CATEGORIES = ['campaign_story', 'impact_report', 'news'] as const;
-type BlogCategory = (typeof VALID_CATEGORIES)[number];
+/*
+  ⛔ The category list is NOT restated here. This file used to hold its own
+  copy - one of EIGHT hand-written copies of a three-value database enum
+  across seven files, none derived from `blogCategoryEnum`.
+*/
 
 export const GET = withApiHandler(async (request) => {
   const { searchParams } = request.nextUrl;
@@ -14,14 +18,24 @@ export const GET = withApiHandler(async (request) => {
   const cursor = searchParams.get('cursor');
   const { limit } = parsePagination(searchParams, { defaultLimit: 10 });
 
-  const categoryFilter = VALID_CATEGORIES.includes(categoryParam as BlogCategory)
-    ? eq(blogPosts.category, categoryParam as BlogCategory)
-    : null;
+  /*
+    ⛔ An unrecognised category is REPORTED, not dropped. This read
+    `VALID_CATEGORIES.includes(x) ? eq(...) : null`, so a caller asking for a
+    category we do not have received every post with `ok: true` and nothing
+    saying their filter had been ignored - `docs/45`'s rule, which was made
+    for `/campaigns` and never swept here. `docs/164`.
+
+    ⚠️ The casts are gone too: `resolveBlogCategory` narrows, so the column
+    comparison no longer needs `as BlogCategory` to typecheck. A cast is what
+    let the string in.
+  */
+  const resolved = resolveBlogCategory(categoryParam);
 
   const publishedFilter = eq(blogPosts.published, true);
-  const conditions = categoryFilter
-    ? and(publishedFilter, categoryFilter)
-    : publishedFilter;
+  const conditions =
+    resolved.kind === 'category'
+      ? and(publishedFilter, eq(blogPosts.category, resolved.value))
+      : publishedFilter;
 
   const results = await db
     .select({
@@ -48,7 +62,19 @@ export const GET = withApiHandler(async (request) => {
   const nextCursor = hasMore ? data[data.length - 1]?.id : undefined;
 
   return NextResponse.json(
-    { ok: true, data, meta: { cursor: nextCursor, hasMore } },
+    {
+      ok: true,
+      data,
+      meta: {
+        cursor: nextCursor,
+        hasMore,
+        // Additive, and present only when there is something to report, so a
+        // caller reading `meta.cursor`/`meta.hasMore` is unaffected.
+        ...(resolved.kind === 'unapplied'
+          ? { unappliedCategory: resolved.raw.slice(0, MAX_REPORTED_VALUE_LENGTH) }
+          : {}),
+      },
+    },
     { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' } },
   );
 }, { skipAuth: true });
