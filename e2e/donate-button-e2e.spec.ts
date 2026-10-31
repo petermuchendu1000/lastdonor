@@ -169,37 +169,32 @@ test.describe('Donate Button E2E', () => {
     `src/`, so that one was asserting text the product has never had.
   */
   const CARD_RAIL_UNAVAILABLE =
-    'card rail unavailable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is empty, so the ' +
-    'form refuses before collecting details and there is no card flow to drive ' +
+    'card rail unavailable: STRIPE_SECRET_KEY in CI is a format-only throwaway, ' +
+    'so create-checkout answers 503 and there is no card flow to drive ' +
     '(docs/72, docs/161). NB: this form calls create-checkout, never ' +
     'create-intent - watching the wrong endpoint is what hid docs/161.';
 
-  test('the form says so when the card rail is unavailable', async ({ page }) => {
-    /*
-      The behaviour that IS reachable, and worth pinning: a donor who
-      submits a valid form on a deployment with no publishable key is told
-      plainly, rather than being dropped into a payment step that cannot
-      finish. This encodes docs/42's decision.
-    */
-    await goToDonate(page);
+  /*
+    ── The upfront refusal is covered by a UNIT test, not here ──────────────
 
-    /*
-      ⚠️ No interaction. This test used to pick $50, type an email and press
-      Donate before asserting - and it PASSED for the wrong reason, because
-      `create-checkout`'s 503 body carries this same sentence. It was pinning
-      the server's reply while its name claimed it pinned the form's.
+    `docs/161` made `DonationForm` refuse BEFORE collecting details when no
+    publishable key was built in. That condition cannot be driven from this
+    suite any more: CI now sets a format-only
+    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` so the twelve tests that exercise the
+    form (presets, custom amount, validation, keyboard a11y, the guest flow)
+    have a form to exercise.
 
-      Asserting on landing is what discriminates: the sentence can only come
-      from the component now, because nothing has been submitted.
-    */
-    await expect(
-      page.getByText(/card payments are unavailable right now/i).first(),
-    ).toBeVisible({ timeout: 10_000 });
+    A test here could only ever assert ONE of the two directions, and the one
+    it used to assert passed for the wrong reason - it clicked through the
+    form and matched a sentence that `create-checkout`'s 503 body also
+    carries, so it was pinning the server's reply while its name claimed it
+    pinned the form's.
 
-    // And the details the donor would have wasted effort on are not there.
-    await expect(page.locator('#donor-email')).toHaveCount(0);
-    await expect(page.locator('#custom-amount')).toHaveCount(0);
-  });
+    `src/components/campaign/DonationForm.rail-availability.test.ts` drives
+    BOTH directions properly, via `vi.resetModules()` and a dynamic import,
+    because the key is read at module scope. That is strictly more coverage
+    than this file could give, so the test is removed rather than weakened.
+  */
 
   test.skip('full donation flow transitions to payment step', async ({ page }) => {
     test.info().annotations.push({ type: 'skip', description: CARD_RAIL_UNAVAILABLE });

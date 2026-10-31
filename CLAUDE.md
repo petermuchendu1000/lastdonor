@@ -691,6 +691,13 @@ These exist for a reason; changing them has consequences beyond the local file.
   `test/setup.ts`: a global stub makes the whole suite render a form
   production never shows, which is how this hid.
 
+  ⛔ **The E2E suite needs that key too, at BUILD time** (`NEXT_PUBLIC_*` is
+  inlined by `next build`). `ci.yml`'s `e2e-tests` job sets a format-only one
+  beside its format-only `STRIPE_SECRET_KEY`; without it **12 tests across six
+  spec files** fail, because there is no form to drive. If you run E2E
+  locally, export it alongside `PASSWORD_PEPPER` and `AUTH_TRUST_HOST`
+  (`docs/99` §6).
+
   ⚠️ **This form calls `create-checkout`, never `create-intent`.** Both routes
   exist. An E2E probe watching `create-intent` recorded `null`, which was read
   as "the form refuses upfront" and skipped three card tests — a probe that

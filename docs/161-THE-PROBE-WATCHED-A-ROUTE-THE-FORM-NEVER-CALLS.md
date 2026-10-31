@@ -201,6 +201,39 @@ dependents I had **not** enumerated at Gate 6 — I listed `<DonationForm` rende
 sites and missed tests that render the *page*. Both assert the form appears, so
 both got the same local stub.
 
+## 7.1 ⛔ The E2E suite needs a publishable key, and CI went red proving it
+
+The first CI run after this change failed **12 tests across six spec files**,
+both Chromium legs, and it was mine: my Gate-6 blast radius listed the unit
+tests and the two `<DonationForm>` render sites, and **missed that the E2E
+suite depends on the form rendering at all**. With no key the form is
+(correctly) not there, so presets, custom amount, validation, keyboard a11y,
+the guest flow and dual-campaign parity all had nothing to drive.
+
+Fixed by giving the `e2e-tests` job a **format-only**
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, exactly as it already carries a
+format-only `STRIPE_SECRET_KEY`. ⚠️ It must be set at **build** time:
+`NEXT_PUBLIC_*` is inlined by `next build`, not read at runtime.
+
+⛔ The alternative — rewriting twelve tests to expect no form — would have
+deleted real donor coverage to accommodate a gate. The suite should test the
+form as it behaves on a correctly-configured deployment.
+
+⚠️ **And my own E2E test had to go.** With a key present, the no-key path
+cannot be driven from that suite at all, so a test there could only ever
+assert one direction — and the direction it used to assert passed for the
+wrong reason (§1.1). `DonationForm.rail-availability.test.ts` drives **both**
+via `vi.resetModules()`, which is strictly more coverage, so the E2E test was
+removed rather than weakened.
+
+Validated locally before re-pushing: the five affected specs run **21 passed /
+3 skipped**, exit 0.
+
+⚠️ The three card-flow tests stay skipped, and their skip reason changed: it
+is no longer "the publishable key is empty" but "the SECRET key in CI is a
+format-only throwaway, so `create-checkout` answers 503". The old reason is
+now false in CI.
+
 ## 8. What was NOT checked
 
 - **The dead Stripe credentials.** Owner-only, unchanged, and the reason the

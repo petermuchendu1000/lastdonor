@@ -349,6 +349,21 @@ jobs:
       # never used to call Stripe.
       STRIPE_SECRET_KEY: sk_test_ciE2eThrowawayNotARealStripeKey00
       STRIPE_WEBHOOK_SECRET: whsec_ciE2eThrowawayNotARealWebhookSecret
+      # ⛔ REQUIRED for the E2E suite, and it must be present at BUILD time:
+      # `NEXT_PUBLIC_*` is inlined by `next build`, not read at runtime.
+      #
+      # `DonationForm` renders the details form only when a publishable key
+      # exists - without one the card rail cannot mount embedded checkout, so
+      # it shows the unavailable notice instead (`docs/161`). Twelve tests
+      # across six spec files drive that form (presets, custom amount,
+      # validation, keyboard a11y, the guest flow, dual-campaign parity), and
+      # all twelve fail with no key.
+      #
+      # The value is format-only, like STRIPE_SECRET_KEY above: nothing here
+      # reaches Stripe, and `create-checkout` still answers 503 because the
+      # SECRET key cannot authenticate. That is deliberate - it is why the
+      # three card-flow tests in donate-button-e2e remain skipped.
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ciE2eThrowawayNotARealPublishableKey
       # Distinct from NEXTAUTH_SECRET, or `validate-secrets.ts` warns about
       # key separation.
       NEWSLETTER_UNSUBSCRIBE_SECRET: ci-e2e-throwaway-unsubscribe-secret-01
