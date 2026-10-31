@@ -503,32 +503,45 @@ export function CampaignFilters({
           </div>
         )}
 
-        {/* Active filter chips - clearable */}
+        {/*
+          Active filter chips - clearable.
+
+          ⛔ `max-w-full` + a `truncate`/`min-w-0` span are LOAD-BEARING. These
+          chips echo free text straight from the URL, and `freeText` caps it at
+          100 characters, which is not short: [VERIFIED live at 390px] an
+          unbroken 100-character `?q=` made this button **898px wide** and slid
+          the page **524px** sideways, `?location=` 532px, against 0px for a
+          short value and 0px with no param. A chip must stay a chip, so this
+          one TRUNCATES rather than wrapping - the full value is still in the
+          search input above, and `title` carries it. See `docs/167`.
+        */}
         {searchQuery && (
           <button
             type="button"
+            title={searchQuery}
             onClick={() => {
               setLocalQuery('');
               updateParams({ q: null });
             }}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
           >
-            &ldquo;{searchQuery}&rdquo;
-            <XMarkIcon className="h-3.5 w-3.5" />
+            <span className="min-w-0 truncate">&ldquo;{searchQuery}&rdquo;</span>
+            <XMarkIcon className="h-3.5 w-3.5 shrink-0" />
           </button>
         )}
         {activeLocation && (
           <button
             type="button"
+            title={activeLocation}
             onClick={() => {
               setLocalLocation('');
               updateParams({ location: null });
             }}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
           >
-            <MapPinIcon className="h-3.5 w-3.5" />
-            {activeLocation}
-            <XMarkIcon className="h-3.5 w-3.5" />
+            <MapPinIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{activeLocation}</span>
+            <XMarkIcon className="h-3.5 w-3.5 shrink-0" />
           </button>
         )}
       </div>

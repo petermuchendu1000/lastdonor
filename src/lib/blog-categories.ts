@@ -50,6 +50,7 @@
  * `src/lib/campaign-labels.ts` uses.
  */
 import type { BlogPost } from '@/types';
+import { reportedValue } from '@/lib/reported-value';
 
 export type BlogCategory = BlogPost['category'];
 
@@ -105,14 +106,15 @@ export function resolveBlogCategory(
 }
 
 /**
- * The sentence shown to a visitor whose filter could not be applied.
+ * ⛔ RE-EXPORTED, not defined here.
  *
- * ⚠️ Deliberately the same shape as `/campaigns`' notice: name the value back
- * to them, and say what they are looking at instead. The value is rendered as
- * text by React, so it is escaped; it is still truncated, because a query
- * string is attacker-controlled and an unbounded one would be a layout.
+ * This file used to own a `MAX_REPORTED_VALUE_LENGTH = 40` of its own while
+ * `/completed-campaigns` capped at 60 and `/campaigns` at nothing — three
+ * implementations of one rule, with three answers. One definition now lives
+ * in `src/lib/reported-value.ts`; the alias is kept so existing importers
+ * keep working.
  */
-export const MAX_REPORTED_VALUE_LENGTH = 40;
+export { MAX_REPORTED_VALUE_LENGTH } from '@/lib/reported-value';
 
 export interface BlogTab {
   href: string;
@@ -167,10 +169,15 @@ export function blogEmptyState(
   return { message: 'No posts published yet. Check back soon.', showAllLink: false };
 }
 
+/**
+ * The sentence shown to a visitor whose filter could not be applied.
+ *
+ * ⚠️ Deliberately the same shape as `/campaigns`' notice: name the value back
+ * to them, and say what they are looking at instead. The value is rendered as
+ * text by React, so it is escaped; it is still capped, and the surface that
+ * renders it must let it WRAP — a cap alone leaves an unbroken 40-character
+ * run that still overflows a phone. See `src/lib/reported-value.ts`.
+ */
 export function unappliedCategoryNotice(raw: string): string {
-  const shown =
-    raw.length > MAX_REPORTED_VALUE_LENGTH
-      ? `${raw.slice(0, MAX_REPORTED_VALUE_LENGTH)}…`
-      : raw;
-  return `We do not have a category called “${shown}”. Showing every story instead.`;
+  return `We do not have a category called “${reportedValue(raw)}”. Showing every story instead.`;
 }

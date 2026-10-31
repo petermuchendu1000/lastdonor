@@ -14,6 +14,7 @@
 import { CAMPAIGN_CATEGORIES } from '@/lib/categories';
 import type { CampaignCategory } from '@/types';
 import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
+import { reportedValue } from '@/lib/reported-value';
 
 /** Every query param `/campaigns` understands, in canonical URL order. */
 export const BROWSE_PARAM_KEYS = [
@@ -87,7 +88,15 @@ export function resolveCategory(value: string): CampaignCategory | null {
   return CATEGORY_ALIASES[normalized] ?? null;
 }
 
-/** A param that carried a value the listing could not apply. */
+/**
+ * A param that carried a value the listing could not apply.
+ *
+ * ⛔ `value` is ALWAYS passed through `reportedValue` before it lands here. It
+ * is a string a stranger put in the URL and it is rendered on a public page,
+ * and this surface used to cap it at nothing at all: [VERIFIED live at 390px]
+ * a 500-character value slid the page **4,520px** sideways. See
+ * `src/lib/reported-value.ts`.
+ */
 export interface UnappliedParam {
   key: 'category' | 'sort' | 'status';
   value: string;
@@ -128,7 +137,7 @@ export function resolveBrowseParams(
   const rawCategory = first(raw.category).trim();
   const category = rawCategory ? resolveCategory(rawCategory) : null;
   if (rawCategory && !category) {
-    unapplied.push({ key: 'category', value: rawCategory });
+    unapplied.push({ key: 'category', value: reportedValue(rawCategory) });
   }
 
   const rawSort = first(raw.sort).trim();
@@ -136,7 +145,7 @@ export function resolveBrowseParams(
     ? (rawSort.toLowerCase() as SortOption)
     : DEFAULT_SORT;
   if (rawSort && sort !== rawSort.toLowerCase()) {
-    unapplied.push({ key: 'sort', value: rawSort });
+    unapplied.push({ key: 'sort', value: reportedValue(rawSort) });
   }
 
   const rawStatus = first(raw.status).trim().toLowerCase();
@@ -146,7 +155,7 @@ export function resolveBrowseParams(
     !completedRequested &&
     !(ACTIVE_STATUSES as readonly string[]).includes(rawStatus)
   ) {
-    unapplied.push({ key: 'status', value: first(raw.status).trim() });
+    unapplied.push({ key: 'status', value: reportedValue(first(raw.status)) });
   }
 
   const searchQuery = freeText(raw.q);
@@ -215,6 +224,52 @@ export function campaignsPageHref(
     const value = first(raw[key]).trim();
     if (value !== '') search.set(key, value);
   }
+  if (page > 1) search.set(PAGE_PARAM, String(page));
+  const qs = search.toString();
+  return qs ? `/campaigns?${qs}` : '/campaigns';
+}
+
+/**
+ * The canonical URL for the document this listing is ACTUALLY serving.
+ *
+ * ── WHY THIS IS NOT `campaignsPageHref` ───────────────────────────────────
+ *
+ * A canonical is a claim about identity. `campaignsPageHref` reads the RAW
+ * params on purpose, so a value we could not apply survives a page hop and
+ * the notice does not vanish on page 2 — correct for a LINK, and wrong for a
+ * canonical, because a param that changed nothing cannot make the document a
+ * different one.
+ *
+ * ⛔ [VERIFIED live on production v171] `/campaigns?category=garbage-not-real`
+ * answered `index, follow` with `canonical:
+ * https://lastdonor.org/campaigns?category=garbage-not-real` over the
+ * **unfiltered** listing — byte-identical to `/campaigns`, and declaring
+ * itself a separate document. So any string anyone chooses mints another
+ * indexable URL on this domain, each one rendering that string back inside
+ * the notice. That is not a hack, just a link; the fix is to describe what we
+ * served.
+ *
+ * ⚠️ It also closes an alias duplicate nobody had noticed:
+ * `?category=disaster-relief` and `?category=disaster` are one document
+ * (`CATEGORY_ALIASES`), and both used to canonicalise to themselves.
+ *
+ * ⛔ It takes RESOLVED params, never raw ones. That is the whole safety
+ * property and it is structural: there is no argument through which an
+ * unapplied value could reach this function.
+ *
+ * ⚠️ `sort` is omitted when it equals `DEFAULT_SORT`, since that URL is the
+ * same document as the bare one. `status` is omitted ALWAYS — it is a no-op
+ * on this page in every case (`ACTIVE_STATUSES` change nothing, and
+ * `completed`/`archived` only add a pointer to another page), so it never
+ * identifies a different listing.
+ */
+export function campaignsCanonicalHref(resolved: ResolvedBrowseParams, page: number): string {
+  const search = new URLSearchParams();
+  if (resolved.searchQuery) search.set('q', resolved.searchQuery);
+  if (resolved.category) search.set('category', resolved.category);
+  if (resolved.location) search.set('location', resolved.location);
+  if (resolved.sort !== DEFAULT_SORT) search.set('sort', resolved.sort);
+  if (resolved.closeToTarget) search.set('close_to_target', '1');
   if (page > 1) search.set(PAGE_PARAM, String(page));
   const qs = search.toString();
   return qs ? `/campaigns?${qs}` : '/campaigns';

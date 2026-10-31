@@ -12,7 +12,11 @@ import { FilterNotice } from '../filter-notice';
 import { Pagination } from '@/components/campaign/Pagination';
 import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { paginationModel, paginationRobots, parsePageParam } from '@/lib/pagination';
-import { campaignsPageHref, resolveBrowseParams } from '../browse-params';
+import {
+  campaignsCanonicalHref,
+  campaignsPageHref,
+  resolveBrowseParams,
+} from '../browse-params';
 import { completedCampaignFilter } from '@/db/public-campaigns';
 import { listedCampaignFilter } from '@/db/public-campaigns';
 import { browseConditions, type BrowseFilter } from '@/db/browse-conditions';
@@ -43,9 +47,24 @@ const BASE_TITLE = 'Browse Reviewed Medical & Emergency Crowdfunding Campaigns';
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const params = await searchParams;
   const page = parsePageParam(params.page);
-  // `campaignsPageHref` drops the param entirely for page 1, so page one of
-  // every sequence stays the bare URL.
-  const canonical = `https://lastdonor.org${campaignsPageHref(params, page)}`;
+  const resolved = resolveBrowseParams(params);
+
+  /*
+    ⛔ THE CANONICAL IS BUILT FROM WHAT WAS APPLIED, never from the raw URL.
+
+    It used to be `campaignsPageHref(params, page)`, which carries raw values
+    on purpose so the "not applied" notice survives a page hop — right for a
+    LINK, wrong for a canonical. [VERIFIED live on v171]
+    `?category=garbage-not-real` answered `index, follow` with a canonical
+    pointing at ITSELF over the unfiltered listing, so any string anyone
+    chooses minted another indexable URL on this domain rendering that string
+    back. `campaignsCanonicalHref` takes RESOLVED params, so an unapplied
+    value cannot reach it.
+
+    ⚠️ It drops the param entirely for page 1, so page one of every sequence
+    stays the bare URL.
+  */
+  const canonical = `https://lastdonor.org${campaignsCanonicalHref(resolved, page)}`;
 
   /*
     ⛔ AN OUT-OF-RANGE PAGE IS `noindex`, and answering that needs the total.
@@ -66,7 +85,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     following links out of it would undo what `docs/145` built crawlable
     pagination FOR.
   */
-  const { category, searchQuery, location, closeToTarget } = resolveBrowseParams(params);
+  const { category, searchQuery, location, closeToTarget } = resolved;
   const { matched: total } = await browseCounts({ category, searchQuery, location, closeToTarget });
   const robots = paginationRobots({ total, pageSize: PAGE_SIZE, requestedPage: page });
 

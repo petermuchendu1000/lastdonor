@@ -407,32 +407,39 @@ export function CompletedCampaignFilters({
           </div>
         )}
 
-        {/* Active filter chips */}
+        {/*
+          Active filter chips. ⛔ `max-w-full` + `truncate`/`min-w-0` are
+          load-bearing: these echo free text from the URL, capped at 100
+          characters, and an unbroken 100 made the sibling chip on
+          `/campaigns` 898px wide at a 390px viewport. See `docs/167`.
+        */}
         {searchQuery && (
           <button
             type="button"
+            title={searchQuery}
             onClick={() => {
               setLocalQuery('');
               updateParams({ q: null });
             }}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
           >
-            &ldquo;{searchQuery}&rdquo;
-            <XMarkIcon className="h-3.5 w-3.5" />
+            <span className="min-w-0 truncate">&ldquo;{searchQuery}&rdquo;</span>
+            <XMarkIcon className="h-3.5 w-3.5 shrink-0" />
           </button>
         )}
         {activeLocation && (
           <button
             type="button"
+            title={activeLocation}
             onClick={() => {
               setLocalLocation('');
               updateParams({ location: null });
             }}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-sm text-foreground"
           >
-            <MapPinIcon className="h-3.5 w-3.5" />
-            {activeLocation}
-            <XMarkIcon className="h-3.5 w-3.5" />
+            <MapPinIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{activeLocation}</span>
+            <XMarkIcon className="h-3.5 w-3.5 shrink-0" />
           </button>
         )}
       </div>

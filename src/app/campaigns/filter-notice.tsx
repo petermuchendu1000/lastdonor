@@ -28,9 +28,25 @@ export function FilterNotice({ unapplied, completedRequested, filtersActive }: F
       className="mb-6 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-start dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
     >
       <ExclamationTriangleIcon className="h-5 w-5 shrink-0" aria-hidden="true" />
-      <div className="space-y-1">
+      {/*
+        ⛔ `min-w-0` + `wrap-anywhere` are LOAD-BEARING, not polish.
+
+        `param.value` is a string a stranger put in the URL. A flex item
+        defaults to `min-width: auto`, so one unbroken word sets the whole
+        row's minimum and pushes the page sideways - [VERIFIED live on v171 at
+        390px] a 500-character value slid `/campaigns` **4,520px**, with a
+        short value and no param both 0px as the controls. `reportedValue`
+        caps the length, and a cap alone is not enough: the capped 60 on
+        `/completed-campaigns` still overflowed 239px and the capped 40 on
+        `/blog` 36px. Only wrapping takes it to zero.
+
+        ⚠️ `wrap-anywhere` (`overflow-wrap: anywhere`), not `break-words`
+        (`overflow-wrap: break-word`): only the former contributes to
+        min-content sizing, which is the thing a flex parent reads.
+      */}
+      <div className="min-w-0 space-y-1">
         {unapplied.map((param) => (
-          <p key={`${param.key}:${param.value}`}>
+          <p key={`${param.key}:${param.value}`} className="wrap-anywhere">
             <span className="font-semibold">
               {PARAM_LABELS[param.key]} &ldquo;{param.value}&rdquo;
             </span>{' '}

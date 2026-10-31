@@ -9,6 +9,7 @@ import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CompletedCampaignFilters } from './filters';
 import { seoKeywords } from '@/lib/seo/keywords';
 import { resolveCategory, type UnappliedParam } from '@/app/campaigns/browse-params';
+import { reportedValue } from '@/lib/reported-value';
 import { FilterNotice } from '@/app/campaigns/filter-notice';
 import { completedCampaignFilter } from '@/db/public-campaigns';
 
@@ -135,7 +136,7 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
   const rawCategory = typeof params.category === 'string' ? params.category.trim() : '';
   const categoryFilter = rawCategory ? resolveCategory(rawCategory) : null;
   if (rawCategory && !categoryFilter) {
-    unapplied.push({ key: 'category', value: rawCategory.slice(0, 60) });
+    unapplied.push({ key: 'category', value: reportedValue(rawCategory) });
   }
 
   const rawSort = typeof params.sort === 'string' ? params.sort.trim() : '';
@@ -143,7 +144,7 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
     ? (rawSort as SortOption)
     : 'most_funded';
   if (rawSort && !VALID_SORTS.includes(rawSort as SortOption)) {
-    unapplied.push({ key: 'sort', value: rawSort.slice(0, 60) });
+    unapplied.push({ key: 'sort', value: reportedValue(rawSort) });
   }
 
   const searchQuery = typeof params.q === 'string' ? params.q.trim().slice(0, 100) : '';

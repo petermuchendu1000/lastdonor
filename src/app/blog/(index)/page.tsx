@@ -108,10 +108,16 @@ export default async function BlogPage({ searchParams }: PageProps) {
         a list shown unfiltered with the filter pill inert reads as "all of
         these match what you asked for".
       */}
+      {/*
+        ⛔ `wrap-anywhere` is load-bearing: this sentence quotes a string from
+        the URL back to the visitor, and an unbroken one pushes the page
+        sideways. Measured here at 36px even with the value capped at 40, so
+        the cap is not the whole fix. See `src/lib/reported-value.ts`.
+      */}
       {resolved.kind === 'unapplied' && (
         <p
           role="status"
-          className="mt-6 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-foreground"
+          className="mt-6 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-foreground wrap-anywhere"
         >
           {unappliedCategoryNotice(resolved.raw)}
         </p>
