@@ -135,18 +135,27 @@ test.describe('Donate Button E2E', () => {
   /*
     ── The three tests below exercise the CARD rail, which is unavailable ──
 
-    Probed 2026-10-22 against a production build: submitting a valid form
-    ($50 + a good email) does NOT call `create-intent` at all. The request
-    never fires - a route interceptor recorded `null` - and the form instead
-    shows
+    ⚠️ CORRECTED 2026-10-31 (`docs/161`). This block used to say: "submitting
+    a valid form does NOT call `create-intent` at all. The request never fires
+    - a route interceptor recorded `null` - and the form instead shows 'Card
+    payments are unavailable'. That is correct behaviour, not a bug."
 
-        "Card payments are unavailable right now. This is a problem on our
-         side, not with your card."
+    Every part of that after the first clause was wrong, and the reason is the
+    probe: **this form has never called `create-intent`.** It calls
+    `create-checkout` (`DonationForm.tsx:651`). Both routes exist on disk, so
+    an interceptor watching `create-intent` records `null` however the form
+    behaves - it could not have produced any other answer.
 
-    That is correct behaviour, not a bug. `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
-    is empty (docs/72 records it empty in production too), so the form refuses
-    to present a payment step it cannot complete - the same principle as
-    docs/42's "do not show a payment form that cannot complete".
+    Measured properly, counting BOTH endpoints in one run:
+        create-intent   calls: 0      <- all the old probe could see
+        create-checkout calls: 1  ->  503
+    and the message that appeared was the ROUTE's 503 body, told apart from
+    this component's notice by its tail ("so we can help you give" vs "Please
+    try again later or email"). So the form submitted, and the SERVER refused.
+
+    `docs/161` then made the described behaviour true: with no publishable key
+    the form now refuses BEFORE collecting anything, which is the principle
+    this comment always claimed and docs/42 states.
 
     So these cannot be fixed by correcting locators: there is no card flow to
     drive. They are skipped with the reason attached rather than rewritten,
@@ -161,7 +170,9 @@ test.describe('Donate Button E2E', () => {
   */
   const CARD_RAIL_UNAVAILABLE =
     'card rail unavailable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is empty, so the ' +
-    'form never calls create-intent (docs/72, docs/99 §3.4)';
+    'form refuses before collecting details and there is no card flow to drive ' +
+    '(docs/72, docs/161). NB: this form calls create-checkout, never ' +
+    'create-intent - watching the wrong endpoint is what hid docs/161.';
 
   test('the form says so when the card rail is unavailable', async ({ page }) => {
     /*
@@ -172,13 +183,22 @@ test.describe('Donate Button E2E', () => {
     */
     await goToDonate(page);
 
-    await page.getByRole('radio', { name: /^\$50,/ }).click();
-    await page.getByRole('textbox', { name: /email address/i }).first().fill('e2e@example.invalid');
-    await page.getByRole('button', { name: /^Donate \$50\.00$/ }).click();
+    /*
+      ⚠️ No interaction. This test used to pick $50, type an email and press
+      Donate before asserting - and it PASSED for the wrong reason, because
+      `create-checkout`'s 503 body carries this same sentence. It was pinning
+      the server's reply while its name claimed it pinned the form's.
 
+      Asserting on landing is what discriminates: the sentence can only come
+      from the component now, because nothing has been submitted.
+    */
     await expect(
       page.getByText(/card payments are unavailable right now/i).first(),
     ).toBeVisible({ timeout: 10_000 });
+
+    // And the details the donor would have wasted effort on are not there.
+    await expect(page.locator('#donor-email')).toHaveCount(0);
+    await expect(page.locator('#custom-amount')).toHaveCount(0);
   });
 
   test.skip('full donation flow transitions to payment step', async ({ page }) => {

@@ -59,6 +59,53 @@ const MAX_DONATION_CENTS = CURRENCIES.USD.maxDonationMinor;
 
 const SUPPORT_EMAIL = 'support@lastdonor.org';
 
+/**
+ * The card rail cannot take a payment, said once.
+ *
+ * ── WHY THIS IS RENDERED BEFORE THE FORM, NOT AFTER IT ──────────────────────
+ *
+ * `stripePromise` is null when no publishable key was built in, and embedded
+ * checkout cannot mount without it - so the donation CANNOT complete, and the
+ * component has known that since module scope, for free, before painting
+ * anything.
+ *
+ * It used to show this only inside `CheckoutStep`, which renders at
+ * `step === 'payment'` - a step reached only AFTER `create-checkout` returns a
+ * client secret. In production that route answers 503, so the step is never
+ * reached and this notice was unreachable (`docs/161`). The donor chose an
+ * amount, typed their email, pressed Donate, and only then learnt the platform
+ * could not take it.
+ *
+ * ⛔ The implication runs ONE WAY. `stripePromise === null` proves the rail
+ * cannot work; a non-null promise proves nothing, because the SECRET key may
+ * still be dead - which is a separate blocker the server's 503 still handles.
+ * So this gate can refuse too rarely, and can never refuse wrongly.
+ */
+function CardRailUnavailable({ onBack }: { onBack?: () => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4" role="alert">
+        <p className="text-sm font-semibold text-foreground">
+          Card payments are unavailable right now.
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This is a problem on our side, not with your card, and nothing has been charged.
+          Please try again later or email {SUPPORT_EMAIL} so we can help you give.
+        </p>
+      </div>
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mx-auto block text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          &larr; Back
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 // Client-side validation schema (mirrors server-side createIntentSchema)
 const donationFormSchema = z.object({
   amount: z
@@ -176,28 +223,7 @@ function CheckoutStep({
   onBack: () => void;
 }) {
   if (!stripePromise) {
-    // Honest dead end instead of a blank frame. The donor can still reach a
-    // human, and the missing build variable is named for whoever is on call.
-    return (
-      <div className="space-y-4">
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4" role="alert">
-          <p className="text-sm font-semibold text-foreground">
-            Card payments are unavailable right now.
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            This is a problem on our side, not with your card, and nothing has been charged.
-            Please try again later or email {SUPPORT_EMAIL} so we can help you give.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="mx-auto block text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-        >
-          &larr; Back
-        </button>
-      </div>
-    );
+    return <CardRailUnavailable onBack={onBack} />;
   }
 
   return (
@@ -768,6 +794,22 @@ export function DonationForm({
     );
   }
 
+  /*
+    ── The rail cannot work, so do not collect details for it ──
+
+    `docs/161`. Checked HERE, before the form, because this is the last point
+    at which the donor has not yet spent any effort. The same notice used to
+    exist only on the payment step, which `create-checkout`'s 503 means nobody
+    reaches.
+  */
+  if (!stripePromise) {
+    return (
+      <div className={wrapperClass}>
+        <CardRailUnavailable />
+      </div>
+    );
+  }
+
   /* ── Details form (Step 1) ── */
   return (
     <form
@@ -1068,7 +1110,17 @@ export function DonationForm({
         </div>
         <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-border pt-2.5">
           <dt className="font-semibold text-card-foreground">
-            {isRecurring ? 'Total charged monthly' : 'Total charged today'}
+            {/*
+              ⚠️ "Total CHARGED today" asserted an event. This box is a
+              PROJECTION - its own comment above says "the figures are the
+              donor's own arithmetic, not a claim" - and `submitError` renders
+              directly beneath it, so after any refusal the donor read
+              "Total charged today $25.00" 95px above "nothing has been
+              charged" (`docs/161`, measured on BOTH the 503 and the raise-cap
+              paths). The figure is deliberately NOT blanked: a donor who
+              retries wants their amount still there. Only the tense was wrong.
+            */}
+            {isRecurring ? 'Total to pay monthly' : 'Total to pay today'}
           </dt>
           <dd className="font-bold tabular-nums text-card-foreground">
             {centsToDollars(ledgerAmount)}

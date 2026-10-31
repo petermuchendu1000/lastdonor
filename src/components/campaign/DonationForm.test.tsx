@@ -1,4 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+/*
+  ⛔ These tests drive the DETAILS FORM, and `DonationForm` only renders it
+  when a publishable key was built in - without one the card rail cannot
+  mount embedded checkout, so the component shows the unavailable notice
+  instead (`docs/161`). Production has no key, which is exactly the condition
+  being modelled elsewhere, so the key is stubbed HERE and deliberately NOT in
+  `test/setup.ts`: a global stub would make every test in the suite render a
+  form production never shows, which is how the defect hid.
+
+  `vi.hoisted` because the key is read at MODULE SCOPE, before any beforeEach.
+*/
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_fixtureKeyNotReal';
+});
+
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DonationForm } from '@/components/campaign/DonationForm';

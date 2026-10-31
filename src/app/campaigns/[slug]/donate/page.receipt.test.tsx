@@ -22,6 +22,20 @@
  *   3. the amount shown is the one Stripe reported, not the one in the URL.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+/*
+  ⛔ This test asserts the DETAILS FORM renders. `DonationForm` only renders it
+  when a publishable key was built in - without one the card rail cannot mount
+  embedded checkout, so it shows the unavailable notice instead (`docs/161`).
+  Production has no key, so the key is stubbed HERE and deliberately NOT in
+  `test/setup.ts`: a global stub would make every test in the suite render a
+  form production never shows, which is how that defect hid.
+
+  `vi.hoisted` because the key is read at MODULE SCOPE, before any beforeEach.
+*/
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_fixtureKeyNotReal';
+});
 import { render, screen, waitFor } from '@testing-library/react';
 import DonatePage from '@/app/campaigns/[slug]/donate/page';
 

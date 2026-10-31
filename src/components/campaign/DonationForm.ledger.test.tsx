@@ -10,6 +10,22 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+/*
+  ⛔ These tests drive the DETAILS FORM, and `DonationForm` only renders it
+  when a publishable key was built in - without one the card rail cannot
+  mount embedded checkout, so the component shows the unavailable notice
+  instead (`docs/161`). Production has no key, which is exactly the condition
+  being modelled elsewhere, so the key is stubbed HERE and deliberately NOT in
+  `test/setup.ts`: a global stub would make every test in the suite render a
+  form production never shows, which is how the defect hid.
+
+  `vi.hoisted` because the key is read at MODULE SCOPE, before any beforeEach.
+*/
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_fixtureKeyNotReal';
+});
+
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DonationForm } from '@/components/campaign/DonationForm';
@@ -37,6 +53,27 @@ function amountFor(label: string) {
   return dt.nextElementSibling?.textContent?.trim();
 }
 
+/**
+ * The total row, found STRUCTURALLY.
+ *
+ * ⚠️ `docs/161`. These tests used to name the total row by its exact label,
+ * so rewording it - even to something equally honest - failed four of them.
+ * A test that pins today's copy stops the copy being improved and proves
+ * nothing about the property that matters. The row is the one whose label
+ * starts "Total"; whether a label may say "charged" is asserted separately,
+ * as a property, at the bottom of this file.
+ */
+function totalRow() {
+  const dt = within(ledger())
+    .getAllByRole('term')
+    .find((t) => /^Total\b/.test(t.textContent?.trim() ?? ''));
+  if (!dt) throw new Error('no ledger row labelled "Total…"');
+  return {
+    label: dt.textContent?.trim() ?? '',
+    amount: dt.nextElementSibling?.textContent?.trim(),
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   global.fetch = vi.fn();
@@ -46,7 +83,7 @@ describe('the running total', () => {
   it('starts at zero, the way GoFundMe’s does, because nothing is pre-selected', () => {
     render(<DonationForm {...props} />);
     expect(amountFor('Your donation')).toBe('$0.00');
-    expect(amountFor('Total charged today')).toBe('$0.00');
+    expect(totalRow().amount).toBe('$0.00');
   });
 
   it('always states the platform fee as zero', () => {
@@ -59,21 +96,21 @@ describe('the running total', () => {
     render(<DonationForm {...props} />);
     await user.click(screen.getByRole('radio', { name: /^\$50,/ }));
     expect(amountFor('Your donation')).toBe('$50.00');
-    expect(amountFor('Total charged today')).toBe('$50.00');
+    expect(totalRow().amount).toBe('$50.00');
   });
 
   it('charges exactly the donation: nothing is added to the card', async () => {
     const user = userEvent.setup();
     render(<DonationForm {...props} />);
     await user.click(screen.getByRole('radio', { name: /^\$250,/ }));
-    expect(amountFor('Total charged today')).toBe(amountFor('Your donation'));
+    expect(totalRow().amount).toBe(amountFor('Your donation'));
   });
 
   it('says "monthly" rather than "today" on the recurring tab', async () => {
     const user = userEvent.setup();
     render(<DonationForm {...props} />);
     await user.click(screen.getByRole('radio', { name: 'Monthly' }));
-    expect(amountFor('Total charged monthly')).toBe('$0.00');
+    expect(totalRow().amount).toBe('$0.00');
   });
 
   it('reads zero for an amount the form would refuse, not the typed figure', async () => {
@@ -185,5 +222,42 @@ describe('the protection block', () => {
       'href',
       '/refund-policy',
     );
+  });
+});
+
+describe('the ledger does not claim a charge has happened', () => {
+  /*
+    `docs/161`. `submitError` renders DIRECTLY beneath this box, so after any
+    refusal - the dead card rail's 503 or the docs/101 raise cap - the donor
+    read "Total charged today $25.00" 95px above "nothing has been charged".
+    Measured in a browser on both paths.
+
+    ⛔ This asserts the PROPERTY, not the wording: the rows above pin today's
+    labels so they can find a row at all, and a reword would quietly satisfy
+    them. The box is a projection - its own comment says "the figures are the
+    donor's own arithmetic, not a claim" - so no row may use the past tense of
+    a charge.
+  */
+  const PAST_TENSE_CHARGE = /\bcharged\b/i;
+
+  it('no ledger row says money has been charged', async () => {
+    const user = userEvent.setup();
+    render(<DonationForm {...props} />);
+    // A payable amount, so the ledger is showing real figures.
+    await user.click(screen.getAllByRole('radio')[5]);
+    const labels = within(ledger())
+      .getAllByRole('term')
+      .map((t) => t.textContent?.trim() ?? '');
+    expect(labels.length).toBeGreaterThan(1);
+    for (const l of labels) {
+      expect(PAST_TENSE_CHARGE.test(l), `ledger row "${l}" asserts a charge`).toBe(false);
+    }
+  });
+
+  it('ANTI-VACUITY: the matcher really does catch the wording it replaced', () => {
+    // Without this, a typo in the regex would make the rule above pass
+    // against the defect it exists to prevent.
+    expect(PAST_TENSE_CHARGE.test('Total charged today')).toBe(true);
+    expect(PAST_TENSE_CHARGE.test('Total to pay today')).toBe(false);
   });
 });
