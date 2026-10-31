@@ -181,6 +181,37 @@ Recorded so nobody re-investigates them (`docs/129`'s habit):
 lint 1 pre-existing warning, typecheck clean, unit **8210 passed / 0 failed /
 16 skipped** (292 files, +6 tests).
 
+## 7.1 ✅ Live on production as v166
+
+Merged fast-forward to `main` (`8829882..4dba5ce`) after CI went green on all
+eight jobs, with the runner's own counts read rather than assumed: **292 files
+passed / 3 skipped, 8210 tests passed / 16 skipped** — identical to local.
+
+`release v166 complete`, machine on 166, `1 total, 1 passing`. `/`,
+`/campaigns` and `/donate` all 200 against their pre-deploy baseline, and the
+sitemap carried 8 campaign URLs on both sides (`docs/119`). ⚠️ The baseline and
+the check were both taken with `flyctl status`, not `flyctl machine list`,
+which `docs/159` §7.2 caught answering *"No machines are available on this
+app"* while a machine was running.
+
+The changed route was then probed live, with two discriminating controls:
+
+| probe | result |
+|---|---|
+| a real `LD-` reference | **200** `{"state":"succeeded","keepPolling":false,…}` |
+| a well-formed but unknown `LD-` reference | **404** `NOT_FOUND` |
+| a reference outside the `LD-` namespace | **404** — the isolation check |
+
+⚠️ That `keepPolling: false` beside `succeeded` is worth more than it looks:
+it is the **refactored `settled` helper's default parameter**
+(`state === 'pending'`) evaluating on the deployed image, which is the one
+piece of this change a live probe can reach.
+
+⛔ **The `unverifiable` branch itself cannot be exercised live** without a real
+amount mismatch, which would mean a payment PayHero settles for the wrong
+figure. It is covered by the derived rule and the paired A/B, not by a
+production observation, and that gap is deliberate.
+
 ## 8. What was NOT checked
 
 - **Whether `:221` can fire at all.** 5/5 real transactions matched, which is
