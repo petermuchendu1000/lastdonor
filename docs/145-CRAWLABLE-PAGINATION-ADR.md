@@ -224,6 +224,16 @@ clean · **unit 7995 passed / 16 skipped (8011) in 278 files** · **integration
   at most 12 with no control.
 - **`/completed-campaigns`** is the other `CampaignGrid` caller and has the
   same shape. Untouched.
+
+  ✅ **ANSWERED 2026-10-31 by `docs/165`, and the answer is that neither needs
+  pagination.** The category page's two hops were measured end to end
+  (`View all` → `rel="next"` → `?page=2` serves the overflow), and adding
+  `?page=` there would turn 23 prerendered ISR pages dynamic to reach rows a
+  crawler already reaches. ⚠️ `/completed-campaigns` keeps the
+  constant-cursor trap at `:187` — correct only because page 1 is the only
+  page there — recorded and unfixed. Walking it instead found two real
+  defects on that page: it listed the platform's own fund with a 404 link,
+  and it silently widened an unrecognised `?category=`.
 - **No `?page=` URL is in the sitemap**, deliberately — the campaigns
   themselves are already listed individually.
 - **Filtered URLs still canonicalise to `/campaigns`**, exactly as the static

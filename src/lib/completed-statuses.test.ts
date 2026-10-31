@@ -250,19 +250,67 @@ describe('rule 4: the surfaces that count or list completed read the constant', 
       page 1 and "Load more" can list different things.
     */
     'app/api/v1/campaigns/route.ts',
+    /*
+      ⚠️ ADDED by `docs/165`. `/transparency` renders "Campaigns Funded" from
+      the same set and was absent from this list - a pre-existing gap, found
+      only because pointing every site at one predicate meant enumerating
+      them. The comment above says a site list must SHRINK when a surface
+      disappears; it must also GROW when one is found.
+    */
+    'app/transparency/page.tsx',
   ];
 
-  it.each(SITES)('%s USES COMPLETED_STATUSES, not merely imports it', (rel) => {
+  it.each(SITES)('%s USES one shared definition, not merely imports it', (rel) => {
     /*
       ⚠️ This asserted `src.toContain('COMPLETED_STATUSES')` and an injection
       proved it could not fail: deleting the USAGE while leaving the IMPORT in
       place passed. Import lines are stripped first, so only a real reference
       counts.
+
+      ⚠️ AND IT NAMED A MECHANISM RATHER THAN THE PROPERTY. `docs/165` pointed
+      these sites at `completedCampaignFilter()`, which reads the constant
+      once and adds the two things a public completed listing also needs (the
+      platform fund excluded, `published_at` set) - so all four sites failed
+      while the property the rule protects, ONE definition of "completed",
+      had just been strengthened. Either spelling is accepted; the next test
+      is what stops that acceptance being a hole.
     */
     const body = strip(readFileSync(join(SRC, rel), 'utf8'))
       .split('\n')
       .filter((l) => !/^\s*import\b/.test(l))
       .join('\n');
-    expect(body).toContain('COMPLETED_STATUSES');
+    const readsConstant = body.includes('COMPLETED_STATUSES');
+    const readsFilter = /completedCampaignFilter\s*\(/.test(body);
+    expect(
+      readsConstant || readsFilter,
+      `${rel} defines "completed" for itself`,
+    ).toBe(true);
+  });
+
+  it('⛔ and the shared filter really reads the constant', () => {
+    /*
+      Accepting `completedCampaignFilter()` above is only safe while that
+      function is itself derived. Without this, somebody could hardcode the
+      pair inside it and every site would still pass - the hole that
+      loosening a rule usually opens.
+    */
+    const src = strip(readFileSync(join(SRC, 'db/public-campaigns.ts'), 'utf8'));
+    const body = src
+      .split('\n')
+      .filter((l) => !/^\s*import\b/.test(l))
+      .join('\n');
+    expect(body, 'completedCampaignFilter does not exist').toMatch(
+      /export function completedCampaignFilter/,
+    );
+    expect(body, 'completedCampaignFilter does not read COMPLETED_STATUSES').toContain(
+      'COMPLETED_STATUSES',
+    );
+    // And it must still carry the two predicates it was created for.
+    expect(body, 'the platform fund is no longer excluded').toMatch(
+      /excludePlatformFunds\s*\(/,
+    );
+    expect(body, 'published_at is no longer required').toMatch(
+      /isNotNull\(\s*campaigns\.publishedAt\s*\)/,
+    );
   });
 });

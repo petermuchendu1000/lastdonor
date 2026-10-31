@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   LISTED_CAMPAIGN_STATUSES,
   PLATFORM_FUND_CAMPAIGN_IDS,
+  completedCampaignFilter,
   isPlatformFund,
   listedCampaignFilter,
 } from './public-campaigns';
@@ -194,5 +195,92 @@ describe('rule 4: the sitemap never advertises a platform fund campaign URL', ()
     const code = strip(readFileSync(join(SRC, 'app/sitemap.ts'), 'utf8'));
     expect(code).toContain('PLATFORM_FUND_CAMPAIGN_IDS');
     expect(code).toMatch(/notInArray\(\s*campaigns\.id/);
+  });
+});
+
+/*
+  ───────────────────────────────────────────────────────────────────────────
+  rule 4: THE SWEEP GAP THAT LET A TENTH SURFACE THROUGH  (`docs/165`)
+
+  Rule 1 above asks *"who names the raw ACTIVE status?"* - and that question
+  is blind to a listing of a DIFFERENT status set. `/completed-campaigns`
+  filtered on `COMPLETED_STATUSES` alone, named nothing rule 1 searches for,
+  and so lost the platform-fund exclusion in silence: [VERIFIED by execution]
+  the fund, seeded `completed` with `published_at` NULL exactly as production
+  holds it, rendered a card on `?sort=newest` whose href answered 404, with a
+  real completed campaign's 200 as the control.
+
+  `docs/147` enumerated NINE listing surfaces. This was a tenth, and the
+  reason it was missed is the shape of the sweep, not the length of the list -
+  so the fix is a second question, asked the same absolute way.
+*/
+const RAW_COMPLETED_QUERY =
+  /inArray\(\s*campaigns\.status\s*,\s*\[\s*\.\.\.\s*COMPLETED_STATUSES\s*\]\s*\)/;
+
+function filesQueryingCompletedRaw(): string[] {
+  const out: string[] = [];
+  for (const f of sourceFiles(SRC)) {
+    const rel = f.slice(SRC.length + 1).split('\\').join('/');
+    if (NOT_PUBLIC.some((p) => rel.startsWith(p))) continue;
+    if (rel === 'db/public-campaigns.ts') continue;
+    if (RAW_COMPLETED_QUERY.test(strip(readFileSync(f, 'utf8')))) out.push(rel);
+  }
+  return out;
+}
+
+describe('rule 4: a public COMPLETED listing or count uses the shared predicate', () => {
+  it('no public surface builds the completed filter itself', () => {
+    /*
+      ⛔ ABSOLUTE, for rule 1's reason: a file-level "does it also call the
+      helper" question cannot see a single regressed occurrence. The one
+      legitimate home is `db/public-campaigns.ts`.
+
+      ⚠️ `app/campaigns/browse-params.ts` reads `COMPLETED_STATUSES` as a SET
+      (`SERVED_BY_COMPLETED_PAGE`) to tell a visitor that `?status=completed`
+      is served elsewhere. That is not a query and this pattern does not match
+      it - which is the point of matching the `inArray(campaigns.status, …)`
+      CALL rather than the constant's name.
+    */
+    expect(filesQueryingCompletedRaw()).toEqual([]);
+  });
+
+  it('ANTI-VACUITY: the pattern really matches the shape it forbids', () => {
+    // Without this, a typo in the regex passes against any codebase forever.
+    const sample =
+      "      .where(inArray(campaigns.status, [...COMPLETED_STATUSES]));";
+    expect(RAW_COMPLETED_QUERY.test(sample)).toBe(true);
+    // And it must NOT match the set use, or it would fire on browse-params.
+    expect(RAW_COMPLETED_QUERY.test('const SERVED = COMPLETED_STATUSES;')).toBe(false);
+  });
+
+  it('the shared predicate excludes the fund AND requires publication', () => {
+    /*
+      Executed, not read: `docs/130` - render the SQL before reasoning about
+      what drizzle emits. Both halves are asserted because either alone leaves
+      a public card that is wrong in a different way: without the exclusion
+      the platform's own fund is listed as somebody's appeal (`docs/147`),
+      without `published_at` a listed card's href 404s (`docs/131`).
+    */
+    const rendered = new PgDialect().sqlToQuery(completedCampaignFilter());
+    expect(rendered.sql).toContain('"campaigns"."status" in');
+    expect(rendered.sql).toContain('"campaigns"."id" not in');
+    expect(rendered.sql).toContain('"campaigns"."published_at" is not null');
+    expect(rendered.params).toContain(GENERAL_FUND_CAMPAIGN_ID);
+    // ⚠️ QUALIFIED columns - `docs/101`'s unqualified-identifier trap does not
+    // apply here, and this is how that is known rather than assumed.
+    expect(rendered.sql).not.toMatch(/(?<!")\bpublished_at\b(?!")/);
+  });
+
+  it('CONTROL: the active filter is unchanged by the refactor', () => {
+    /*
+      `listedCampaignFilter()` now COMPOSES `excludePlatformFunds()` instead of
+      inlining it. That must be byte-identical, or nine surfaces moved while
+      nobody was looking.
+    */
+    const rendered = new PgDialect().sqlToQuery(listedCampaignFilter());
+    expect(rendered.sql).toBe(
+      '(("campaigns"."status" = $1 or "campaigns"."status" = $2) and "campaigns"."id" not in ($3))',
+    );
+    expect(rendered.params).toEqual(['active', 'last_donor_zone', GENERAL_FUND_CAMPAIGN_ID]);
   });
 });

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { donations, campaigns } from '@/db/schema';
 import { sql, eq, and, inArray } from 'drizzle-orm';
-import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
+import { completedCampaignFilter } from '@/db/public-campaigns';
 
 export const revalidate = 300;
 
@@ -28,7 +28,7 @@ export async function GET() {
         test campaign that reached a tenth of its goal and has no
         `completed_at`. See docs/146.
       */
-      .where(inArray(campaigns.status, [...COMPLETED_STATUSES]));
+      .where(completedCampaignFilter());
 
     const [active] = await db
       .select({ count: sql<number>`count(*)::int` })

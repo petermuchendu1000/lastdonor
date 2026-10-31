@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { db } from '@/db';
 import { campaigns, donations } from '@/db/schema';
-import { inArray, sql } from 'drizzle-orm';
-import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
+import { sql } from 'drizzle-orm';
+import { completedCampaignFilter } from '@/db/public-campaigns';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Money } from '@/components/ui/Money';
 import { platformRaisedByCurrency } from '@/lib/platform-totals.server';
@@ -60,7 +60,7 @@ async function getTransparencyData() {
         legal transition, so the set includes campaigns that raised
         nothing. See docs/146.
       */
-      completed: sql<number>`COUNT(CASE WHEN ${inArray(campaigns.status, [...COMPLETED_STATUSES])} THEN 1 END)`,
+      completed: sql<number>`COUNT(CASE WHEN ${completedCampaignFilter()} THEN 1 END)`,
       active: sql<number>`COUNT(CASE WHEN ${campaigns.status} IN ('active', 'last_donor_zone') THEN 1 END)`,
     })
     .from(campaigns);

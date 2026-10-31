@@ -1,6 +1,7 @@
-import { and, eq, notInArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notInArray, or, type SQL } from 'drizzle-orm';
 import { campaigns } from '@/db/schema';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
+import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
 
 /**
  * Which campaigns a PUBLIC LISTING may show.
@@ -95,6 +96,51 @@ export function listedCampaignFilter(): SQL {
       eq(campaigns.status, 'active'),
       eq(campaigns.status, 'last_donor_zone'),
     )!,
-    notInArray(campaigns.id, [...PLATFORM_FUND_CAMPAIGN_IDS]),
+    excludePlatformFunds(),
+  )!;
+}
+
+/**
+ * "This row is the platform's own fund, not an appeal", on its own.
+ *
+ * ⛔ THIS IS THE PIECE `listedCampaignFilter()` USED TO HIDE, and hiding it
+ * cost a surface. That function bundles two decisions - *is this taking
+ * money* (status) and *is this somebody's appeal* (id) - so a listing that
+ * needs a DIFFERENT status set cannot reuse it, and `/completed-campaigns`
+ * therefore filtered on `COMPLETED_STATUSES` alone and lost the fund
+ * exclusion in silence. `docs/165`.
+ *
+ * ⚠️ `docs/147` enumerated nine listing surfaces and this was a tenth,
+ * because its sweep looks for files naming the RAW ACTIVE STATUS and a page
+ * filtering on `completed` names nothing it searches for.
+ */
+export function excludePlatformFunds(): SQL {
+  return notInArray(campaigns.id, [...PLATFORM_FUND_CAMPAIGN_IDS]) as SQL;
+}
+
+/**
+ * The one predicate a public COMPLETED listing - or its count - filters by.
+ *
+ * ⛔ Used by BOTH, and that is not tidiness: `docs/146`'s invariant is that
+ * *the predicate that COUNTS a group must be the predicate that LISTS it*,
+ * because a count rendered as a link is a promise about what is behind the
+ * link. Excluding the fund from the listing alone would have made the
+ * `/campaigns` tab read "Completed 1" over an empty page, which is the exact
+ * defect `docs/146` was reported for.
+ *
+ * ⚠️ `isNotNull(publishedAt)` is here because a card in a public listing is a
+ * LINK, and `docs/131` made `published_at` the record of approval that the
+ * public page requires - so a row without it is a card whose href 404s.
+ * [VERIFIED by execution: the fund, seeded `completed` with `published_at`
+ * NULL as production holds it, rendered a card on `?sort=newest` whose href
+ * answered 404 against a real completed campaign's 200.] The two predicates
+ * answer different questions and both belong to "would a visitor be able to
+ * open this?", which is what a public listing and its count both mean.
+ */
+export function completedCampaignFilter(): SQL {
+  return and(
+    inArray(campaigns.status, [...COMPLETED_STATUSES]),
+    excludePlatformFunds(),
+    isNotNull(campaigns.publishedAt),
   )!;
 }

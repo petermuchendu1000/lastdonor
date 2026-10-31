@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, desc, asc, ilike, or, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, ilike, or } from 'drizzle-orm';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CompletedCampaignFilters } from './filters';
 import { seoKeywords } from '@/lib/seo/keywords';
-import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
-import type { CampaignCategory } from '@/types';
+import { resolveCategory, type UnappliedParam } from '@/app/campaigns/browse-params';
+import { FilterNotice } from '@/app/campaigns/filter-notice';
+import { completedCampaignFilter } from '@/db/public-campaigns';
 
 /*
   NO `revalidate` HERE, DELIBERATELY.
@@ -52,13 +53,33 @@ export const metadata: Metadata = {
   },
 };
 
-const VALID_CATEGORIES: CampaignCategory[] = [
-  'medical', 'memorial', 'emergency', 'charity', 'education', 'animal',
-  'environment', 'business', 'community', 'competition', 'creative', 'event',
-  'faith', 'family', 'sports', 'travel', 'volunteer', 'wishes',
-  'military', 'veterans', 'first-responders', 'disaster', 'essential-needs',
-];
+/*
+  ⛔ THE 23 CATEGORIES ARE NOT RESTATED HERE. This file held its own copy -
+  one of several - and resolved `?category=` with
+  `VALID_CATEGORIES.includes(x) ? x : null`, which had three consequences
+  (`docs/165`):
 
+    1. An UNRECOGNISED value was indistinguishable from no filter, so
+       `?category=garbage` served every completed campaign with nothing
+       saying the filter had been dropped. That is what
+       `browse-params.ts`'s own header forbids: *"never silently widen the
+       result set"* (`docs/45`) - a rule decided for `/campaigns`, swept to
+       `/blog` by `docs/164`, and never swept here.
+    2. No ALIAS resolution, so `?category=disaster-relief` - the slug the
+       product's own menu DISPLAYS - was dropped here and resolved by
+       `/campaigns`. [VERIFIED live: 1 card there, 12 here.]
+    3. A copy that drifts from the enum.
+
+  `resolveCategory` answers all three, and it is the same function
+  `/campaigns` uses, so the two browse surfaces cannot disagree again.
+*/
+
+/*
+  ⚠️ The SORT list is deliberately NOT shared with `browse-params.ts`, which
+  has a fourth option: `closing_soon`. A completed campaign has no deadline
+  left to close, so offering it here would be a control that cannot mean
+  anything. Three is the right number for this page.
+*/
 const VALID_SORTS = ['newest', 'most_funded', 'least_funded'] as const;
 type SortOption = (typeof VALID_SORTS)[number];
 
@@ -101,13 +122,29 @@ const faqs = [
 export default async function CompletedCampaignsPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
-  const categoryFilter = VALID_CATEGORIES.includes(params.category as CampaignCategory)
-    ? (params.category as CampaignCategory)
-    : null;
+  /*
+    A value we cannot apply is REPORTED, never dropped (`docs/45`). The two
+    halves are separate on purpose: `category` NARROWS the list, so dropping
+    it in silence makes every row read as a match; `sort` only reorders the
+    same rows, so it can never explain an empty page - but an unrecognised
+    sort still silently gave the visitor a different order than they asked
+    for, which is its own small lie.
+  */
+  const unapplied: UnappliedParam[] = [];
 
-  const sort: SortOption = VALID_SORTS.includes(params.sort as SortOption)
-    ? (params.sort as SortOption)
+  const rawCategory = typeof params.category === 'string' ? params.category.trim() : '';
+  const categoryFilter = rawCategory ? resolveCategory(rawCategory) : null;
+  if (rawCategory && !categoryFilter) {
+    unapplied.push({ key: 'category', value: rawCategory.slice(0, 60) });
+  }
+
+  const rawSort = typeof params.sort === 'string' ? params.sort.trim() : '';
+  const sort: SortOption = VALID_SORTS.includes(rawSort as SortOption)
+    ? (rawSort as SortOption)
     : 'most_funded';
+  if (rawSort && !VALID_SORTS.includes(rawSort as SortOption)) {
+    unapplied.push({ key: 'sort', value: rawSort.slice(0, 60) });
+  }
 
   const searchQuery = typeof params.q === 'string' ? params.q.trim().slice(0, 100) : '';
   const locationFilter = typeof params.location === 'string' ? params.location.trim().slice(0, 100) : '';
@@ -116,7 +153,7 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
   // ⛔ The SAME set the `/campaigns` tab counts (docs/146). Keep these two
   // reading one constant: the badge counted `completed + archived` and this
   // listed `completed`, so it advertised 1 over an empty page.
-  const filterParts = [inArray(campaigns.status, [...COMPLETED_STATUSES])];
+  const filterParts = [completedCampaignFilter()];
 
   if (categoryFilter) {
     filterParts.push(eq(campaigns.category, categoryFilter));
@@ -232,6 +269,18 @@ export default async function CompletedCampaignsPage({ searchParams }: PageProps
       <p className="mt-2 text-sm text-muted-foreground">
         Campaigns that successfully reached their goals. See the impact your donations made.
       </p>
+
+      {/* A param we could not apply is reported, never dropped in silence. */}
+      <FilterNotice
+        unapplied={unapplied}
+        /*
+          `completedRequested` is for `/campaigns` telling a visitor that
+          `?status=completed` is served by THIS page. Here it would point at
+          itself, so it is always false.
+        */
+        completedRequested={false}
+        filtersActive={Boolean(categoryFilter || searchQuery || locationFilter)}
+      />
 
       <div className="mt-6">
         <CompletedCampaignFilters

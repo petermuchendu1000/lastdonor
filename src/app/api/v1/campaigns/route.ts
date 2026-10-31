@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, or, desc, asc, sql, ilike, gte, inArray } from 'drizzle-orm';
-import { listedCampaignFilter } from '@/db/public-campaigns';
-import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
+import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
+import { completedCampaignFilter, listedCampaignFilter } from '@/db/public-campaigns';
 import { createCampaignSchema } from '@/lib/validators/campaign';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 import { withApiHandler } from '@/lib/api-handler';
@@ -46,7 +45,7 @@ export const GET = withApiHandler(async (request, { requestId: _requestId }) => 
   */
   const statusParam = searchParams.get('status');
   const statusFilter = statusParam === 'completed'
-    ? inArray(campaigns.status, [...COMPLETED_STATUSES])
+    ? completedCampaignFilter()
     // ⛔ A LISTING, and it is what `CampaignGrid`'s "Load more" calls, so it
     // must match the page's first query exactly (docs/147).
     : listedCampaignFilter();

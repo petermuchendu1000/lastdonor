@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ShieldCheckIcon } from '@heroicons/react/24/solid';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
-import { eq, and, inArray, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, ilike, gte } from 'drizzle-orm';
 import { CampaignGrid } from '@/components/campaign/CampaignGrid';
 import { CategoryHeroSection } from '@/components/campaign/CategoryHeroSection';
 import { CampaignFilters } from '../filters';
@@ -14,7 +14,7 @@ import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { paginationModel, parsePageParam } from '@/lib/pagination';
 import { campaignsPageHref, resolveBrowseParams } from '../browse-params';
 import { campaignSearchCondition } from '@/lib/campaign-search';
-import { COMPLETED_STATUSES } from '@/lib/campaign-visibility';
+import { completedCampaignFilter } from '@/db/public-campaigns';
 import { listedCampaignFilter } from '@/db/public-campaigns';
 import { getCategoryContent } from '@/lib/category-content';
 import { seoKeywords } from '@/lib/seo/keywords';
@@ -285,7 +285,7 @@ export default async function CampaignsPage({ searchParams }: PageProps) {
         // `IN ('completed','archived')` and linked to a page listing only
         // `completed`, so the tab read "Completed 1" over an empty page.
         // See docs/146.
-        completed: sql<number>`count(*) FILTER (WHERE ${inArray(campaigns.status, [...COMPLETED_STATUSES])})::int`,
+        completed: sql<number>`count(*) FILTER (WHERE ${completedCampaignFilter()})::int`,
       })
       .from(campaigns),
     filtersActive
