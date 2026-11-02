@@ -3,7 +3,20 @@ import { and, eq, or } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { db } from '@/db';
 import { auditLogs, campaigns, payheroPaymentRequests } from '@/db/schema';
-import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { getCurrency, isSupportedCurrency, minorPerMajor } from '@/lib/money/currencies';
+import { formatMoney } from '@/lib/money/format';
+/*
+  ⛔ This route is in `ALLOWED_IMPORTERS` of
+  `src/lib/money/fx-display-only.ratchet.test.ts`, on purpose.
+
+  A rate now decides a charge here, which that boundary exists to make
+  impossible to do by accident. Doing it deliberately means saying so in the
+  allowlist - and the rule that replaces "display only" is stricter: this
+  file must PERSIST the quote it used (`fxRateMicro`, `fxQuotedAt`), so the
+  conversion is reproducible and settlement never re-derives it. See
+  docs/168.
+*/
+import { quoteCharge, quoteRefusalMessage } from '@/lib/money/fx-quote.server';
 import { checkDonationAmount } from '@/lib/validators/donation';
 import { checkRaiseCap } from '@/lib/campaign-raise-cap';
 import { realRaisedMinorSql } from '@/db/real-raised';
@@ -21,6 +34,7 @@ import {
   initiateStkPush,
   isPayHeroConfigured,
   configuredChannelId,
+  payHeroChargeCurrency,
   toPayHeroMsisdn,
 } from '@/lib/payhero';
 import { checkPhoneAbuseGuard } from '@/lib/payhero-abuse-guard';
@@ -136,16 +150,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const currency = getCurrency(campaign.currency);
-    if (currency.gateway !== 'payhero') {
-      return fail(
-        400,
-        'WRONG_PAYMENT_RAIL',
-        `Donations to this campaign are collected in ${currency.code}, which is paid by card ` +
-          'rather than by M-Pesa. Nothing has been charged.',
-      );
-    }
+    /*
+      ⛔ There is no longer a WRONG_PAYMENT_RAIL refusal here, and its absence
+      is the fix (docs/168).
 
+      It used to require `currency.gateway === 'payhero'`, i.e. that the
+      campaign be DENOMINATED in the rail's own currency. That conflated two
+      different things and made all 8 live USD campaigns uncollectable: the
+      card rail answered 503 (dead Stripe credentials) and this one answered
+      400, so they had no working rail at all.
+
+      The campaign's currency decides what it is CREDITED in. The rail decides
+      what the donor is CHARGED in. `quoteCharge` below bridges them.
+    */
+    const currency = getCurrency(campaign.currency);
+
+    /* `data.amount` is the CREDIT, in the campaign's own currency. */
     const amountError = checkDonationAmount(data.amount, currency.code);
     if (amountError) return fail(400, 'VALIDATION_ERROR', amountError, { field: 'amount' });
 
@@ -170,6 +190,58 @@ export async function POST(request: NextRequest) {
     );
     if (!capDecision.allowed) {
       return fail(409, capDecision.code, capDecision.message, { field: 'amount' });
+    }
+
+    /*
+      ── THE QUOTE: credit in the campaign's currency, charge in the rail's ──
+
+      Decided HERE, before anything is asked of PayHero, for the same reason
+      the cap is: this is the last point at which refusing costs the donor
+      nothing. The rate is recorded on the row below and NEVER re-read at
+      settlement - re-deriving it there would move the credit after the donor
+      had agreed to the charge.
+    */
+    const chargeCurrencyCode = payHeroChargeCurrency();
+    const quoted = await quoteCharge({
+      creditMinor: data.amount,
+      creditCurrency: currency.code,
+      chargeCurrency: chargeCurrencyCode,
+      /* PayHero accepts WHOLE major units only - `payhero.ts:472`. */
+      roundChargeUpToMultiple: minorPerMajor(chargeCurrencyCode),
+    });
+    if (!quoted.ok) {
+      /*
+        A stale or missing rate REFUSES the charge rather than guessing one.
+        503 because it is our side and it is transient; the message claims
+        nothing about the donor's money, since none has been asked for.
+      */
+      logError(
+        new Error(`FX quote refused for campaign ${campaign.id}: ${quoted.reason}`),
+        { requestId, route: 'payhero/initiate#fx' },
+      );
+      return fail(503, 'FX_UNAVAILABLE', quoteRefusalMessage(quoted.reason));
+    }
+    const quote = quoted.quote;
+
+    /*
+      The CHARGE must also satisfy the RAIL's own bounds, not just the
+      campaign's. `initiateStkPush` enforces them and THROWS, which would
+      surface as an unknown outcome; refusing here keeps it a clean 400.
+
+      In practice the binding one is the M-Pesa ceiling: KES 250,000 is the
+      real per-transaction limit (docs/92), so a donation above roughly
+      US$1,886 cannot be collected in a single push.
+    */
+    const chargeError = checkDonationAmount(quote.chargeMinor, quote.chargeCurrency);
+    if (chargeError) {
+      return fail(
+        400,
+        'VALIDATION_ERROR',
+        `That works out to ${formatMoney(quote.chargeMinor, quote.chargeCurrency, 'exact')} ` +
+          `on M-Pesa, which is outside what a single M-Pesa payment allows. ${chargeError} ` +
+          'Nothing has been charged.',
+        { field: 'amount' },
+      );
     }
 
     // ── The phone, normalised against OUR region before anything else ───────
@@ -223,8 +295,16 @@ export async function POST(request: NextRequest) {
       .values({
         externalReference,
         campaignId: campaign.id,
-        currency: currency.code,
-        amount: data.amount,
+        /* The CHARGE - what PayHero is asked to collect, in the rail's currency. */
+        currency: quote.chargeCurrency,
+        amount: quote.chargeMinor,
+        /* The CREDIT - what the campaign gets, FK-bound to its own currency. */
+        creditedAmountMinor: quote.creditMinor,
+        creditedCurrency: quote.creditCurrency,
+        /* The quote, recorded so settlement never has to re-derive it. */
+        fxRateMicro: quote.rateMicro,
+        fxMarginBps: quote.marginBps,
+        fxQuotedAt: quote.quotedAt,
         phoneE164: phone.e164,
         msisdnSent: msisdn,
         channelId,
@@ -241,8 +321,9 @@ export async function POST(request: NextRequest) {
     // ── The push ────────────────────────────────────────────────────────────
     try {
       const accepted = await initiateStkPush({
-        amountMinor: data.amount,
-        currency: currency.code,
+        /* The CHARGE, in the rail's currency - not the campaign's. */
+        amountMinor: quote.chargeMinor,
+        currency: quote.chargeCurrency,
         phone: phone.e164,
         externalReference,
         /*

@@ -31,6 +31,17 @@ const FX_MODULES = [
   './fx-convert',
   './fx-providers',
   './fx-store.server',
+  /*
+    Added 2026-11-02 (docs/168). `fx-quote.server` converts a credit into a
+    charge, so importing it IS seeing a rate.
+
+    ⛔ It is listed here deliberately. The cheap move would have been to leave
+    it out, which would let any file reach a rate through it without tripping
+    rule 1 - that is evading the mechanism, not satisfying it. The boundary
+    has to be able to see the new door.
+  */
+  '@/lib/money/fx-quote.server',
+  './fx-quote.server',
 ] as const;
 
 /**
@@ -46,6 +57,24 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/components/money/ApproxMoney.tsx': 'the one display component',
   'src/components/money/LocalAmount.tsx': 'detects the viewer currency and delegates to ApproxMoney',
   'src/app/api/v1/cron/refresh-fx-rates/route.ts': 'the refresh job',
+
+  /*
+    Added 2026-11-02 (docs/168). Cross-currency collection.
+
+    `fx-quote.server.ts` is the ONE place a rate becomes a charge. The
+    initiate route is the ONE caller, and it is also a money writer - which
+    is exactly what rule 2 below used to forbid outright. That rule is now
+    stricter rather than relaxed: such a file must PERSIST the quote it used.
+
+    Why this had to change at all: the rail charges KES and nothing else
+    (`initiateStkPush` sends no currency field), so a USD campaign could be
+    collected for by no rail at all - the card one answers 503 on dead
+    credentials and this one used to answer 400. Denomination and rail are
+    different questions; Stripe calls them presentment and settlement.
+  */
+  'src/lib/money/fx-quote.server.ts': 'turns a credit into a charge; the only rate-to-money door',
+  'src/app/api/v1/donations/payhero/initiate/route.ts':
+    'quotes the charge and persists the rate it used',
   'src/app/campaigns/[slug]/page.tsx': 'reads the snapshot to pass to ApproxMoney',
 
   /*
@@ -126,12 +155,79 @@ describe('FX is display-only, enforced', () => {
     expect(unexpected).toEqual([]);
   });
 
-  it('no file that writes money can see an exchange rate', () => {
-    const offenders = files
+  /*
+    AMENDED 2026-11-02 (docs/168).
+
+    This used to be "no file that writes money can see an exchange rate",
+    which was right while FX was display-only and is wrong now that a rate
+    legitimately decides a charge.
+
+    The replacement is STRICTER, not looser. The hazard was never that a rate
+    reaches a money write; it is that it does so UNRECORDED, leaving a figure
+    nobody can reproduce and that settlement might re-derive differently. So:
+    see a rate and write money, and you must PERSIST the quote.
+  */
+  /*
+    ⚠️ GATE 4 CAUGHT THIS RULE TWICE, and both were known traps.
+
+    v1 was `src.includes('fxRateMicro')`. Injecting `fxRateMicroX:` DID NOT
+    FIRE, because the original is a SUBSTRING of the mutant - `docs/149` §5.1
+    exactly (`<LocalAmount` matching `<LocalAmountXX`). And the route's own
+    comment NAMES both keys, so deleting the properties outright would also
+    have passed - `docs/116` §4, where the comment explaining a fix quotes
+    the very string being searched for.
+
+    So: comments are stripped first, and the key must appear as a PROPERTY
+    ASSIGNMENT, not anywhere in the text.
+  */
+  const PERSISTS_QUOTE = [/\bfxRateMicro\s*:/, /\bfxQuotedAt\s*:/] as const;
+
+  const stripComments = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+
+  const rateAndMoney = () =>
+    files
       .filter((f) => importsFx(f.src))
-      .filter((f) => MONEY_WRITE_SIGNALS.some((sig) => f.src.includes(sig)))
+      .filter((f) => MONEY_WRITE_SIGNALS.some((sig) => f.src.includes(sig)));
+
+  it('a file that sees a rate and writes money must PERSIST the quote', () => {
+    const offenders = rateAndMoney()
+      .filter((f) => {
+        const code = stripComments(f.src);
+        return !PERSISTS_QUOTE.every((re) => re.test(code));
+      })
       .map((f) => f.rel);
     expect(offenders).toEqual([]);
+  });
+
+  /*
+    ⛔ ANTI-VACUITY for the stripper itself: if `stripComments` ever stopped
+    removing anything, the rule above would silently go back to matching
+    comment text. The route carries a long block comment, so a real strip
+    removes a lot.
+  */
+  it('CONTROL: comments really are stripped before the check', () => {
+    const route = files.find(
+      (f) => f.rel === 'src/app/api/v1/donations/payhero/initiate/route.ts',
+    );
+    expect(route, 'the initiate route is still where it was').toBeDefined();
+    const removed = route!.src.length - stripComments(route!.src).length;
+    expect(removed).toBeGreaterThan(500);
+  });
+
+  /*
+    ⛔ ANTI-VACUITY. The rule above passes trivially if NO file both sees a
+    rate and writes money - which was the state before docs/168 and would be
+    the state again if someone quietly reverted the quote. Then the rule
+    would go green while protecting nothing.
+
+    So assert the set is non-empty and contains the one file that is supposed
+    to be in it.
+  */
+  it('CONTROL: the initiate route really is in the rate-and-money set', () => {
+    const inSet = rateAndMoney().map((f) => f.rel);
+    expect(inSet.length).toBeGreaterThan(0);
+    expect(inSet).toContain('src/app/api/v1/donations/payhero/initiate/route.ts');
   });
 
   it('the settlement writer in particular has no FX import', () => {

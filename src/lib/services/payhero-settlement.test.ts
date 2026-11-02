@@ -123,8 +123,29 @@ function pendingRequest(overrides: Row = {}): Row {
     externalReference: REF,
     payheroReference: 'E8UWT7CLUW',
     campaignId: CAMPAIGN_ID,
+    /*
+      The CHARGE - what PayHero collected. KES, because that is the only
+      currency this rail charges in.
+    */
     currency: 'KES',
     amount: 5_000, // KES 50.00
+    /*
+      The CREDIT - what the campaign is booked (docs/168). These are NOT NULL
+      in the schema, so a row without them is one Postgres could never
+      produce; omitting them here made `recordGatewayCharge` receive
+      `undefined` and is why this fixture had to move, not the assertion
+      (`docs/166` §6, `docs/128` §6).
+
+      This fixture is a SAME-CURRENCY request - a KES campaign charged in KES
+      - so the credit equals the charge at a rate of 1 with no margin, and
+      the existing expectations of 5_000/'KES' stay exactly right. The
+      cross-currency case is covered in `fx-quote.test.ts`.
+    */
+    creditedAmountMinor: 5_000,
+    creditedCurrency: 'KES',
+    fxRateMicro: 1_000_000,
+    fxMarginBps: 0,
+    fxQuotedAt: new Date('2026-11-02T00:00:00Z'),
     status: 'pending',
     donorName: 'Wanjiku',
     donorEmail: 'wanjiku@example.com',
@@ -217,6 +238,62 @@ describe('the outcome comes from an authenticated read, not from a caller', () =
       amountMinor: 5_000,
       currency: 'KES',
     });
+  });
+
+  /*
+    ⛔ THE CROSS-CURRENCY INVARIANT (docs/168).
+
+    The test above cannot fail if the credit/charge split is reverted,
+    because its fixture is same-currency: credit EQUALS charge, so passing
+    either books the same thing. This one separates them.
+
+    A USD campaign collected over the M-Pesa rail: the donor is CHARGED
+    Ksh 650.00 and the campaign is CREDITED $5.00. What gets booked must be
+    the credit - `recordGatewayCharge` compares the currency it is handed
+    against `campaigns.currency` and writes a `critical`
+    `donation.currency_mismatch` if they differ, so booking the charge here
+    would silently lose a real donation.
+  */
+  it('books the CREDIT, not the charge, when the two currencies differ', async () => {
+    world.request = pendingRequest({
+      currency: 'KES',
+      amount: 65_000, // Ksh 650.00 charged
+      creditedAmountMinor: 500, // $5.00 credited
+      creditedCurrency: 'USD',
+      fxRateMicro: 129_901_648,
+    });
+    // PayHero reports the CHARGE, in major units, and must still reconcile.
+    getTransactionStatus.mockResolvedValue(status({ amountMajor: 650 }));
+
+    await settlePayHeroRequest(REF);
+
+    expect(world.recorded).toHaveLength(1);
+    expect(world.recorded[0]).toMatchObject({
+      provider: 'payhero',
+      amountMinor: 500,
+      currency: 'USD',
+    });
+  });
+
+  /*
+    CONTROL for the above: the amount guard still reconciles against the
+    CHARGE. If it were pointed at the credit, 5.00 would be compared with
+    PayHero's 650 and every cross-currency donation would be refused.
+  */
+  it('CONTROL: the amount guard reconciles against the CHARGE, not the credit', async () => {
+    world.request = pendingRequest({
+      currency: 'KES',
+      amount: 65_000,
+      creditedAmountMinor: 500,
+      creditedCurrency: 'USD',
+      fxRateMicro: 129_901_648,
+    });
+    // PayHero reports something other than the charge: must NOT be recorded.
+    getTransactionStatus.mockResolvedValue(status({ amountMajor: 640 }));
+
+    await settlePayHeroRequest(REF);
+
+    expect(world.recorded).toHaveLength(0);
   });
 
   /*

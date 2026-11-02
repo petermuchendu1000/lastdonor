@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   integer,
+  bigint,
   boolean,
   timestamp,
   jsonb,
@@ -1079,10 +1080,47 @@ export const payheroPaymentRequests = pgTable(
     campaignId: uuid('campaign_id')
       .notNull()
       .references(() => campaigns.id),
-    /** Always equal to the campaign's currency; enforced by the FK below. */
+    /*
+      ── CHARGE vs CREDIT ───────────────────────────────────────────────────
+      These are two different currencies and conflating them is the defect
+      this split exists to fix (docs/168).
+
+      `currency`/`amount` are the CHARGE: what PayHero is actually asked to
+      collect. M-Pesa is KES-only - `initiateStkPush` sends `amount` with no
+      currency field at all, so the charge currency is fixed by the RAIL and
+      is not a choice.
+
+      `creditedCurrency`/`creditedAmountMinor` are the CREDIT: what the
+      campaign receives, always in the campaign's own currency. That one is
+      still database-guaranteed, by the composite FK below - the guarantee
+      MOVED off `currency`, it was not given up.
+
+      This is Stripe's presentment/settlement split
+      (https://docs.stripe.com/currencies), which is how every multi-currency
+      processor models it. We are not inventing a shape here.
+    */
+    /** The CHARGE currency - the rail's, not necessarily the campaign's. */
     currency: text('currency').notNull(),
-    /** Minor units, matching `donations.amount`. */
+    /** The CHARGE, in minor units of `currency`. What the donor pays. */
     amount: integer('amount').notNull(),
+    /** The CREDIT, in minor units of `creditedCurrency`. What the campaign gets. */
+    creditedAmountMinor: integer('credited_amount_minor').notNull(),
+    /** The CREDIT currency. FK-bound to the campaign's currency below. */
+    creditedCurrency: text('credited_currency').notNull(),
+    /*
+      The rate that produced the charge, x1_000_000, recorded so the
+      conversion is auditable and never re-derived at settlement.
+
+      ⛔ `bigint`, not `integer`. int4 caps at 2,147,483,647, i.e. a rate of
+      2,147 units per USD - fine for KES at ~130 and silently wrong the day a
+      currency like IDR (~15,000/USD) is collectable. Same class as the
+      hardcoded `100` that `fx-convert.ts` records surviving a mutation test.
+    */
+    fxRateMicro: bigint('fx_rate_micro', { mode: 'number' }).notNull(),
+    /** The spread applied, in basis points. 0 = mid-market, no margin. */
+    fxMarginBps: integer('fx_margin_bps').notNull(),
+    /** When the rate was read. Staleness refuses the charge, see fx-quote. */
+    fxQuotedAt: timestamp('fx_quoted_at', { withTimezone: true }).notNull(),
     /** The normalised number, for the per-number abuse guard. */
     phoneE164: text('phone_e164').notNull(),
     /** What was actually sent to PayHero, in their national format. */
@@ -1121,15 +1159,38 @@ export const payheroPaymentRequests = pgTable(
     index('idx_payhero_requests_phone_created').on(table.phoneE164, table.createdAt),
     check('payhero_requests_amount_positive', sql`${table.amount} > 0`),
     check('payhero_requests_currency_iso4217', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check(
+      'payhero_requests_credited_amount_positive',
+      sql`${table.creditedAmountMinor} > 0`,
+    ),
+    check(
+      'payhero_requests_credited_currency_iso4217',
+      sql`${table.creditedCurrency} ~ '^[A-Z]{3}$'`,
+    ),
+    /* A rate of zero or less is not a rate; it would also make the charge 0. */
+    check('payhero_requests_fx_rate_positive', sql`${table.fxRateMicro} > 0`),
     /*
-      Same guarantee as on `donations`: a collection request is always
-      denominated in the currency its campaign raises in, enforced by the
-      database rather than by convention. See the FK on `donations` for the
-      full reasoning.
+      A margin is a spread we take, so it cannot be negative, and a ceiling
+      stops a fat-fingered constant quietly tripling what a donor pays.
+      10_000 bps = 100%. The owner's setting is 0 (docs/168).
+    */
+    check(
+      'payhero_requests_fx_margin_bounded',
+      sql`${table.fxMarginBps} >= 0 AND ${table.fxMarginBps} <= 10000`,
+    ),
+    /*
+      Same guarantee as on `donations`, moved to the CREDIT column.
+
+      It used to bind `(campaign_id, currency)`, which asserted that the
+      charge currency equals the campaign's. That assertion is what made a
+      USD campaign uncollectable over an M-Pesa rail that can only charge KES
+      (docs/168). The database guarantee that matters - "a campaign is only
+      ever credited in its own currency" - is unchanged and still enforced
+      here; only the column it hangs off moved.
     */
     foreignKey({
-      name: 'payhero_requests_campaign_currency_fk',
-      columns: [table.campaignId, table.currency],
+      name: 'payhero_requests_campaign_credited_currency_fk',
+      columns: [table.campaignId, table.creditedCurrency],
       foreignColumns: [campaigns.id, campaigns.currency],
     }),
   ],

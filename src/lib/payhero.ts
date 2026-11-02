@@ -96,7 +96,7 @@
  */
 
 import { normalisePhone } from './phone';
-import { getCurrency } from './money/currencies';
+import { getCurrency, SUPPORTED_CURRENCY_CODES } from './money/currencies';
 
 const BASE_URL = 'https://backend.payhero.co.ke';
 
@@ -113,6 +113,32 @@ export const LASTDONOR_REFERENCE_PREFIX = 'LD-';
 
 /** M-Pesa is the only provider this client requests. */
 const PROVIDER_MPESA = 'm-pesa';
+
+/**
+ * The currency this rail actually charges in.
+ *
+ * [VERIFIED] the push payload carries `amount` and NO currency field, so the
+ * charge currency is a property of the CHANNEL, not of the request. A
+ * campaign denominated in something else is charged in this and credited in
+ * its own (docs/168).
+ *
+ * DERIVED from `CURRENCIES` rather than written down twice, so it cannot
+ * drift from the `gateway !== 'payhero'` refusal below. Throws rather than
+ * guessing if the set is ever ambiguous - picking one of two silently is how
+ * a donor gets charged in the wrong money.
+ */
+export function payHeroChargeCurrency(): string {
+  const codes = SUPPORTED_CURRENCY_CODES.filter(
+    (code) => getCurrency(code).gateway === 'payhero',
+  );
+  if (codes.length !== 1) {
+    throw new Error(
+      `Expected exactly one PayHero currency, found ${codes.length}: ${codes.join(', ')}. ` +
+        'Resolve which one this rail charges in before collecting.',
+    );
+  }
+  return codes[0];
+}
 
 /**
  * Our OWN pre-flight guards refused to send the request.

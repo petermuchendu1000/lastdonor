@@ -322,11 +322,26 @@ export async function settlePayHeroRequest(
   */
   const providerRef = `${PAYHERO_REF_PREFIX}${status.providerReference ?? ref}`;
 
+  /*
+    ⛔ The CREDIT, not the charge (docs/168).
+
+    `request.amount`/`request.currency` are what PayHero collected - KES,
+    because that is all this rail can charge. What gets BOOKED is what the
+    campaign is credited, in the campaign's own currency, and
+    `recordGatewayCharge` refuses anything else: its guard compares this
+    currency against `campaigns.currency` and writes a `critical`
+    `donation.currency_mismatch` on a mismatch.
+
+    The conversion is NOT recomputed here. It was quoted and recorded at
+    initiation, and re-reading the rate at settlement would move the credit
+    after the donor had already agreed to the charge - which is why
+    `payment-service.ts` still may not import an FX module at all.
+  */
   await recordGatewayCharge({
     provider: 'payhero',
     providerRef,
-    amountMinor: request.amount,
-    currency: request.currency,
+    amountMinor: request.creditedAmountMinor,
+    currency: request.creditedCurrency,
     metadata: {
       campaignId: request.campaignId,
       donorName: request.donorName,

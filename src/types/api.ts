@@ -46,6 +46,15 @@ export interface ApiError {
       */
       | 'CURRENCY_UNSUPPORTED'
       /*
+        A cross-currency collection needs an exchange rate and we have no
+        fresh one. 503, and the copy claims NOTHING about the donor's money:
+        this is refused before the gateway is contacted, so nothing has been
+        asked for. Distinct from CURRENCY_UNSUPPORTED, which is permanent
+        until an operator acts - this one clears itself when the rate
+        refresh cron next runs (docs/168).
+      */
+      | 'FX_UNAVAILABLE'
+      /*
         The currency is supported, but not by the gateway the donor reached.
         A KES campaign sent to the card checkout, or a USD campaign sent to
         the M-Pesa route. 400, not 503: the request is answerable, just on a

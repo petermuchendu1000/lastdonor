@@ -89,8 +89,19 @@ async function seedRequest(campaignId: string, amountMinor: number) {
     .insert(schema.payheroPaymentRequests)
     .values({
       campaignId,
+      /*
+        A SAME-CURRENCY request: a KES campaign charged in KES, so the credit
+        equals the charge at a rate of 1 with no margin. The cross-currency
+        case has its own coverage in `fx-quote.test.ts` and
+        `payhero-cross-currency.integration.test.ts` (docs/168).
+      */
       currency: 'KES',
       amount: amountMinor,
+      creditedAmountMinor: amountMinor,
+      creditedCurrency: 'KES',
+      fxRateMicro: 1_000_000,
+      fxMarginBps: 0,
+      fxQuotedAt: new Date(),
       externalReference: ref,
       payheroReference: `ph-${seq}`,
       phoneE164: '+254712345678',

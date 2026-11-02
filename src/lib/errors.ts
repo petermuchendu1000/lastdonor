@@ -93,6 +93,18 @@ const ERROR_DEFAULTS: Record<ErrorCode, { status: number; message: string }> = {
       'We cannot take donations for this campaign right now. This is a problem on our side ' +
       'and nothing has been charged.',
   },
+  FX_UNAVAILABLE: {
+    status: 503,
+    /*
+      Refused BEFORE the gateway is contacted, so "nothing has been charged"
+      is substantiated here - unlike PAYMENT_OUTCOME_UNKNOWN, where it would
+      not be. No turnaround is quoted (docs/78); the rate refresh cron clears
+      this on its own.
+    */
+    message:
+      'We cannot work out the M-Pesa amount for this campaign right now, so we have not ' +
+      'asked for any money. Please try again shortly.',
+  },
   WRONG_PAYMENT_RAIL: {
     status: 400,
     message: 'This campaign is paid by a different method. Nothing has been charged.',
