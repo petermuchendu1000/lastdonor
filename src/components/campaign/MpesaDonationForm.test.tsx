@@ -55,6 +55,33 @@ function renderForm(backTo: { href: string; label: string } | null = BACK_TO_CAM
   );
 }
 
+/**
+ * A USD campaign collected over the KES rail - the docs/168 case.
+ *
+ * The rate is the live production one, 129.901648 KES per USD, with the
+ * owner's margin of 0.
+ */
+const USD_OVER_MPESA = {
+  chargeCurrency: 'KES',
+  chargeExponent: 2,
+  creditExponent: 2,
+  rateMicro: 129_901_648,
+  marginBps: 0,
+  roundUpToMultiple: 100,
+} as const;
+
+function renderCrossCurrencyForm() {
+  return render(
+    <MpesaDonationForm
+      campaignId={CAMPAIGN_ID}
+      campaignTitle="Help Keisha"
+      backTo={BACK_TO_CAMPAIGN}
+      currency="USD"
+      charge={USD_OVER_MPESA}
+    />,
+  );
+}
+
 const fetchMock = vi.fn();
 
 /** A never-resolving promise, to hold the form mid-submit. */
@@ -644,5 +671,71 @@ describe('the poll has a stop condition', () => {
       `ceiling ${MAX_POLL_ATTEMPTS} does not outlast the ${pollsToCoverPrompt} polls a live ` +
         'prompt needs, so the browser would give up while the prompt is still answerable',
     ).toBeGreaterThan(pollsToCoverPrompt);
+  });
+});
+
+/*
+  ── THE DONOR MUST SEE WHAT LEAVES THEIR PHONE (docs/168) ─────────────────
+
+  A USD campaign is now collectable over the M-Pesa rail, which charges
+  shillings. The donor enters the amount in the campaign's currency, as
+  GoFundMe does, so the campaign is credited exactly what they chose - but
+  the figure on the button they press has to be the one their handset will
+  be debited, or the form says "$5.00" while Ksh 650.00 leaves the account.
+*/
+describe('a USD campaign collected over the KES rail', () => {
+  it('states the M-Pesa charge on the pay button, not the campaign amount', async () => {
+    const user = userEvent.setup();
+    renderCrossCurrencyForm();
+
+    // $5.00, the USD floor. 5 x 129.901648 = 649.51, rounded UP to a whole
+    // shilling because PayHero refuses fractions.
+    await user.type(screen.getByLabelText(/Or enter an amount/i), '5');
+
+    const pay = await screen.findByRole('button', { name: /Send M-Pesa request/i });
+    expect(pay).toHaveTextContent(/Ksh\s*650\.00/);
+    /*
+      ⛔ CONTROL. Without this the assertion passes against a button that
+      happens to contain "Ksh 650.00" somewhere alongside the dollar figure,
+      which would still be two amounts in two currencies on one control.
+    */
+    expect(pay).not.toHaveTextContent(/\$\s*5\.00/);
+  });
+
+  it('discloses the rate and that there is no margin', async () => {
+    const user = userEvent.setup();
+    renderCrossCurrencyForm();
+    await user.type(screen.getByLabelText(/Or enter an amount/i), '5');
+
+    expect(
+      await screen.findByText(/129\.90 KES per USD/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no conversion margin/i)).toBeInTheDocument();
+  });
+
+  it('still credits the campaign in ITS currency - the donation line stays USD', async () => {
+    const user = userEvent.setup();
+    renderCrossCurrencyForm();
+    await user.type(screen.getByLabelText(/Or enter an amount/i), '5');
+
+    // "Your donation" is what the campaign receives, in the campaign's money.
+    const donation = screen.getByText('Your donation').closest('div');
+    expect(donation).toHaveTextContent(/\$\s*5\.00/);
+  });
+
+  /*
+    ⛔ CONTROL for the whole block: a same-currency campaign must be
+    unchanged. Without it, "the button shows Ksh" would also pass if the
+    form had simply been hardcoded to shillings for everyone.
+  */
+  it('CONTROL: a KES campaign is unaffected and discloses no conversion', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(screen.getByLabelText(/Or enter an amount/i), '50');
+
+    const pay = await screen.findByRole('button', { name: /Send M-Pesa request/i });
+    expect(pay).toHaveTextContent(/Ksh\s*50\.00/);
+    expect(screen.queryByText(/conversion margin/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/KES per/i)).not.toBeInTheDocument();
   });
 });

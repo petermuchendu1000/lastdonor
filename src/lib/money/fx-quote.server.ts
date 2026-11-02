@@ -52,6 +52,7 @@
  * (its published currency-conversion rate), PayPal 3-4.5%.
  */
 import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { chargeMinorFor, type ChargePreview } from '@/lib/money/fx-charge';
 import { isFxFresh, MAX_FX_AGE_HOURS } from '@/lib/money/fx-convert';
 import { readFxSnapshot } from '@/lib/money/fx-store.server';
 import type { FxSnapshot } from '@/lib/money/fx-providers';
@@ -108,33 +109,13 @@ export type QuoteInput = {
   readonly roundChargeUpToMultiple?: number;
 };
 
-/**
- * The arithmetic, with exponents and per-USD rates passed in.
- *
- * ⛔ Extracted so the ZERO-DECIMAL path can be tested. `CURRENCIES` holds
- * only USD and KES and both are exponent 2, which makes a hardcoded 100 and
- * a real exponent behaviourally identical today - `fx-convert.ts` records a
- * mutation test proving the hardcoded version survives the whole suite. That
- * is harmless now and a 100x error the day UGX, RWF, XOF or XAF becomes
- * collectable. Taking the exponent as a parameter means the case can be
- * exercised before such a currency exists, rather than being a comment
- * promising it works.
- *
- * Rounds the charge UP, never to nearest: we must never collect less than
- * the credit is worth.
- */
-export function chargeMinorFor(
-  creditMinor: number,
-  credit: { exponent: number; rate: number },
-  charge: { exponent: number; rate: number },
-  marginBps: number,
-  roundUpToMultiple: number,
-): number {
-  const effectiveRate = (charge.rate / credit.rate) * (1 + marginBps / 10_000);
-  const creditMajor = creditMinor / 10 ** credit.exponent;
-  const chargeMinorExact = creditMajor * effectiveRate * 10 ** charge.exponent;
-  return Math.ceil(chargeMinorExact / roundUpToMultiple) * roundUpToMultiple;
-}
+/*
+  The arithmetic lives in `fx-charge.ts` - pure, rate-blind, and therefore
+  importable by the client form, which must state the charge while the donor
+  types. One implementation, so what the donor is shown and what the server
+  quotes cannot drift apart.
+*/
+export { chargeMinorFor };
 
 /**
  * The pure quote, with the snapshot passed in.
@@ -209,6 +190,47 @@ export async function quoteCharge(
   const snapshot = await readFxSnapshot();
   if (!snapshot) return { ok: false, reason: 'fx_unavailable' };
   return quoteChargeFrom(snapshot, input, now);
+}
+
+/**
+ * What a donation form needs to state the charge while the donor types.
+ *
+ * Returns `null` when there is nothing to disclose - same currency - and
+ * also when we have no usable rate. ⛔ A null for the second reason is NOT
+ * silent failure: the form then shows only the campaign-currency figure, and
+ * the initiate route refuses the charge outright with FX_UNAVAILABLE. The
+ * donor cannot reach a state where they are billed a figure they were not
+ * shown.
+ */
+export async function chargePreviewFor(
+  creditCurrency: string,
+  chargeCurrency: string,
+): Promise<ChargePreview | null> {
+  if (!isSupportedCurrency(creditCurrency) || !isSupportedCurrency(chargeCurrency)) {
+    return null;
+  }
+  const credit = getCurrency(creditCurrency);
+  const charge = getCurrency(chargeCurrency);
+  if (credit.code === charge.code) return null;
+
+  const snapshot = await readFxSnapshot();
+  if (!snapshot || !isFxFresh(snapshot)) return null;
+
+  const rateCredit = snapshot.rates[credit.code];
+  const rateCharge = snapshot.rates[charge.code];
+  const usable = (r: unknown): r is number =>
+    typeof r === 'number' && Number.isFinite(r) && r > 0;
+  if (!usable(rateCredit) || !usable(rateCharge)) return null;
+
+  return {
+    chargeCurrency: charge.code,
+    chargeExponent: charge.exponent,
+    creditExponent: credit.exponent,
+    rateMicro: Math.round((rateCharge / rateCredit) * 1_000_000),
+    marginBps: FX_MARGIN_BPS,
+    /* PayHero takes whole major units only - `payhero.ts:472`. */
+    roundUpToMultiple: 10 ** charge.exponent,
+  };
 }
 
 /** For the donor-facing message, so the refusal says something true. */

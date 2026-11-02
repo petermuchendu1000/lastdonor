@@ -10,6 +10,7 @@ import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { formatMoney } from '@/lib/money/format';
 import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
 import { MpesaDonationForm } from '@/components/campaign/MpesaDonationForm';
+import type { ChargePreview } from '@/lib/money/fx-charge';
 import { confirmDonation } from '@/lib/donations/confirm-client';
 import type { DonationReturnState } from '@/lib/donations/verify-return';
 
@@ -47,6 +48,15 @@ interface DonatePageClientProps {
   paymentIntentId?: string;
   /** This donor's attributed share link. See docs/57. */
   attributedShareUrl?: string;
+  /**
+   * How this campaign's currency becomes an M-Pesa charge, or `null` when
+   * the campaign is already in the rail's currency or we have no fresh rate.
+   *
+   * Computed on the server because reading the FX snapshot is a database
+   * read, and passed down as plain numbers so the form can state the charge
+   * as the donor types (docs/168).
+   */
+  chargePreview: ChargePreview | null;
 }
 
 /** How a verified Stripe state is shown to the donor. */
@@ -87,6 +97,7 @@ export function DonatePageClient({
   sessionId,
   paymentIntentId,
   attributedShareUrl,
+  chargePreview,
 }: DonatePageClientProps) {
   const router = useRouter();
   const confirmSent = useRef(false);
@@ -258,12 +269,29 @@ export function DonatePageClient({
                 has been charged. Please email support@lastdonor.org so we can
                 help you give.
               </p>
-            ) : getCurrency(currency).gateway === 'payhero' ? (
+            ) : /*
+                 ⛔ M-Pesa is offered whenever it CAN collect, which since
+                 docs/168 is not only for campaigns denominated in its own
+                 currency.
+
+                 This used to be `gateway === 'payhero'`, so every USD
+                 campaign fell through to the card form - and that form's
+                 rail answers 503 on dead credentials, so all 8 live
+                 campaigns had no working way to donate at all. The rail
+                 charges shillings regardless; a rate is all that is needed
+                 to credit the campaign in its own currency.
+
+                 `chargePreview` is null when we have no fresh rate, and
+                 then this correctly falls back rather than offering a form
+                 whose charge we cannot state.
+               */
+            getCurrency(currency).gateway === 'payhero' || chargePreview ? (
               <MpesaDonationForm
                 campaignId={campaignId}
                 campaignTitle={campaignTitle}
                 backTo={backTo}
                 currency={currency}
+                charge={chargePreview}
                 onDonationComplete={() => router.refresh()}
               />
             ) : (

@@ -228,18 +228,56 @@ describe('Money currency ratchet', () => {
     expect(client).not.toMatch(/centsToDollars/);
   });
 
-  it('the M-Pesa form renders every figure in the campaign currency', () => {
-    const form = readFileSync(
-      join(process.cwd(), 'src/components/campaign/MpesaDonationForm.tsx'),
-      'utf8',
-    );
-    // No bare Money, and no hardcoded dollar formatting anywhere in a form
-    // that only ever collects a non-USD currency.
+  /*
+    AMENDED 2026-11-02 (docs/168).
+
+    This used to require `currency={currency}` on every `<Money>`, on the
+    stated premise of "a form that only ever collects a non-USD currency".
+    That premise is now FALSE: the form collects for USD campaigns too, over
+    a rail that charges shillings.
+
+    The replacement is narrower, not looser. Before, any single variable
+    named `currency` satisfied it. Now exactly TWO names are permitted - the
+    credit currency and the billed one - and the rule additionally PINS which
+    of them the total uses, which the old version could not express at all.
+  */
+  const FORM = 'src/components/campaign/MpesaDonationForm.tsx';
+
+  it('every M-Pesa figure names one of the two currencies the form knows', () => {
+    const form = readFileSync(join(process.cwd(), FORM), 'utf8');
     for (const tag of form.match(/<Money\b[^>]*?\/?>/g) ?? []) {
-      expect(tag).toMatch(/\bcurrency=\{currency\}/);
+      expect(tag, `${tag} names neither the credit nor the billed currency`).toMatch(
+        /\bcurrency=\{(currency|billedCurrency)\}/,
+      );
     }
     expect(form).not.toMatch(/centsToDollars/);
     expect(form).not.toMatch(/\$\$\{/);
+  });
+
+  /*
+    ⛔ THE HONESTY PROPERTY, and the reason the rule above had to change.
+
+    "Total charged today" is what leaves the donor's phone, so it must be in
+    the currency the handset is debited in. Rendering it in the campaign's
+    currency instead is the exact defect docs/168 fixed: the form would have
+    said $5.00 while Ksh 650.00 was taken.
+
+    The donation line stays in the campaign's currency, because that is what
+    the campaign actually receives. Both halves are asserted, so neither can
+    be "fixed" by making everything one currency.
+  */
+  it('the charged total is in the BILLED currency and the donation line is not', () => {
+    const form = readFileSync(join(process.cwd(), FORM), 'utf8');
+
+    const total = form.slice(form.indexOf('Total charged today'));
+    expect(total.slice(0, 400), 'the charged total must name the billed currency').toMatch(
+      /currency=\{billedCurrency\}/,
+    );
+
+    const donation = form.slice(form.indexOf('>Your donation<'));
+    expect(donation.slice(0, 400), 'the donation line must stay in the campaign currency').toMatch(
+      /currency=\{currency\}/,
+    );
   });
 });
 

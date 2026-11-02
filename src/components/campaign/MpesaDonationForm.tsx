@@ -6,6 +6,7 @@ import { ArrowPathIcon, CheckIcon, ClockIcon, ErrorCircleIcon } from '@/componen
 import { Money } from '@/components/ui/Money';
 import { CURRENCIES } from '@/lib/money/currencies';
 import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
+import { previewChargeMinor, type ChargePreview } from '@/lib/money/fx-charge';
 
 import { COLLECTED_UNRECORDED_MESSAGE, PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
 
@@ -87,8 +88,25 @@ interface Props {
    * to decide what is publicly visible.
    */
   backTo: { href: string; label: string } | null;
-  /** ISO 4217. The campaign decides it; this form only collects in it. */
+  /** ISO 4217. The campaign's own currency - what the donor's gift is worth to it. */
   currency: string;
+  /**
+   * How the campaign's currency becomes the charge, when the two differ.
+   *
+   * `null` when the campaign is already denominated in the rail's currency,
+   * which is the case with nothing to convert and nothing to disclose.
+   *
+   * ⛔ Load-bearing for honesty (docs/168). The donor enters an amount in the
+   * campaign's currency - GoFundMe's model, and the one that lets the
+   * campaign be credited exactly what they chose - but M-Pesa debits their
+   * phone in shillings. Without this the pay button would read "$5.00" while
+   * Ksh 650.00 left their account.
+   *
+   * The rate here is the SAME pair of numbers the server persists on the
+   * request row, so what the donor was shown and what was quoted cannot
+   * drift apart.
+   */
+  charge?: ChargePreview | null;
   onDonationComplete?: () => void;
 }
 
@@ -114,6 +132,7 @@ export function MpesaDonationForm({
   campaignTitle,
   backTo,
   currency,
+  charge = null,
   onDonationComplete,
 }: Props) {
   const def = CURRENCIES[currency];
@@ -164,6 +183,25 @@ export function MpesaDonationForm({
 
   const withinBounds =
     def != null && amountMinor >= def.minDonationMinor && amountMinor <= def.maxDonationMinor;
+
+  /*
+    ── WHAT THE PHONE IS ACTUALLY DEBITED ─────────────────────────────────
+    M-Pesa charges in its own currency whatever the campaign is denominated
+    in. The donor must see THAT figure on the button they press, not the
+    campaign-currency one - otherwise the button says "$5.00" and Ksh 650.00
+    leaves their account (docs/168).
+
+    Computed from the same rate the server will quote, via the same pure
+    function, so the two cannot disagree.
+  */
+  const chargeMinor =
+    charge && withinBounds ? previewChargeMinor(charge, amountMinor) : null;
+  /** The currency the donor is billed in - the rail's, or the campaign's. */
+  const billedCurrency = charge?.chargeCurrency ?? currency;
+  /** The figure to print wherever we say what is being taken. */
+  const billedMinor = chargeMinor ?? amountMinor;
+  /** True only when the two genuinely differ and a disclosure is owed. */
+  const converts = charge != null && charge.chargeCurrency !== currency;
 
   const canSubmit =
     phase === 'form' &&
@@ -766,9 +804,34 @@ export function MpesaDonationForm({
         <div className="flex justify-between border-t border-border pt-1.5">
           <dt className="font-semibold text-foreground">Total charged today</dt>
           <dd className="font-semibold tabular-nums text-foreground">
-            <Money minor={withinBounds ? amountMinor : 0} currency={currency} precision="exact" />
+            <Money
+              minor={withinBounds ? billedMinor : 0}
+              currency={billedCurrency}
+              precision="exact"
+            />
           </dd>
         </div>
+        {/*
+          ⛔ The conversion, stated outright (docs/168).
+
+          The donor is giving in one currency and paying in another, and the
+          rate is ours, so hiding it inside the total would be the spread
+          every processor buries. Printed as a rate and a margin, both read
+          from the same numbers the server persists on the request row.
+
+          The margin is 0, so this says there is none. It is derived rather
+          than written as prose, so it cannot become a lie the day the owner
+          sets one (`docs/136` §7's class).
+        */}
+        {converts && charge ? (
+          <p className="border-t border-border pt-1.5 text-xs text-muted-foreground">
+            {`Charged in ${billedCurrency} at ${(charge.rateMicro / 1_000_000).toFixed(2)} `}
+            {`${billedCurrency} per ${currency}`}
+            {charge.marginBps === 0
+              ? ', the mid-market rate with no conversion margin.'
+              : `, including our ${charge.marginBps / 100}% conversion margin.`}
+          </p>
+        ) : null}
       </dl>
 
       {error ? (
@@ -802,7 +865,13 @@ export function MpesaDonationForm({
         className="btn-press w-full rounded-full bg-primary px-6 py-4 text-base font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {withinBounds ? (
-          <>Send M-Pesa request for {formatMoney(amountMinor, currency, 'exact')}</>
+          /*
+            The figure here is what leaves the donor's phone, in the currency
+            their handset will name. Saying the campaign-currency amount
+            instead would be a different number in a different currency from
+            the one actually debited (docs/168).
+          */
+          <>Send M-Pesa request for {formatMoney(billedMinor, billedCurrency, 'exact')}</>
         ) : (
           'Enter an amount to continue'
         )}

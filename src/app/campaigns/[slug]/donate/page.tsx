@@ -11,6 +11,13 @@ import { logError } from '@/lib/errors';
 import { appBaseUrl } from '@/lib/unsubscribe-tokens';
 import { mintShareLink, shareUrl } from '@/lib/share-links';
 import { publicCampaignPath } from '@/lib/campaign-links';
+/*
+  ⛔ In `ALLOWED_IMPORTERS` of `fx-display-only.ratchet.test.ts` on purpose.
+  This page reads the rate so the donor can be told the charge before they
+  press pay; it writes no money (docs/168).
+*/
+import { chargePreviewFor } from '@/lib/money/fx-quote.server';
+import { payHeroChargeCurrency } from '@/lib/payhero';
 import { DonatePageClient } from './client';
 
 interface PageProps {
@@ -184,8 +191,26 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
     ? { href: campaignPath, label: 'Back to campaign' }
     : null;
 
+  /*
+    How this campaign's currency becomes an M-Pesa charge (docs/168).
+
+    Read here rather than in the client because the FX snapshot lives in the
+    database, and passed down as plain numbers so the form can state the
+    charge while the donor types - the same rate the initiate route will
+    quote, so what they were shown and what they are billed agree.
+
+    ⚠️ One extra query on this route. `docs/87` caps an entry point at three
+    concurrent; this is sequential and after the campaign lookup, not added
+    to a `Promise.all`.
+  */
+  const chargePreview = await chargePreviewFor(
+    campaign.currency,
+    payHeroChargeCurrency(),
+  );
+
   return (
     <DonatePageClient
+      chargePreview={chargePreview}
       attributedShareUrl={attributedShareUrl}
       campaignId={campaign.id}
       campaignSlug={campaign.slug}

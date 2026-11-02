@@ -75,6 +75,8 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/lib/money/fx-quote.server.ts': 'turns a credit into a charge; the only rate-to-money door',
   'src/app/api/v1/donations/payhero/initiate/route.ts':
     'quotes the charge and persists the rate it used',
+  'src/app/campaigns/[slug]/donate/page.tsx':
+    'reads the rate so the donor is told the charge before pressing pay; writes no money',
   'src/app/campaigns/[slug]/page.tsx': 'reads the snapshot to pass to ApproxMoney',
 
   /*
