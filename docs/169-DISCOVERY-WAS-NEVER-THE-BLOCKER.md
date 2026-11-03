@@ -515,16 +515,73 @@ was identical to production's. That is the discriminator; the pid read was not.
 
 ### 8.3 What is still not verified
 
-- ⛔ **The PRODUCTION deployment's route has still never run this.**
-  [VERIFIED after all of the above] production holds `seo_rows=0`, 8 live
-  campaigns and 15 under review — nothing was published there. The remaining
-  difference is only *which host executes the call*, and that half is measured
-  separately: the submissions in §8.1 were made **from the production machine**,
-  which also reported `NODE_ENV=production`. The first real approval will write
-  the first production row.
+- ✅ **RESOLVED — see §8.4. The production route has now run it.** This item
+  used to read *"the PRODUCTION deployment's route has still never run this"*,
+  which was true for about ten minutes.
 - **Whether Bing then indexes anything is [UNKNOWN]** and is not what any of
   this measures. `submitted` means received (`docs/158`, `docs/160`,
   `docs/162`). Bing remains unverified as a property (`docs/142` §6).
 - **Only the 200 path was executed.** `invalid_key`, `wrong_host`,
   `rate_limited` and the timeout path are covered by unit tests, not by
   execution against the live API.
+
+### 8.4 ✅ Production, on a real approval
+
+2026-11-03 11:32:45Z. The owner named the campaign — the editorial decision
+§8.2 declined to make — and
+`help-maksym-a-ukrainian-war-veteran-and-widowed-father-overcome-a-financial-crisis`
+was approved through the real production route. It is the one row in the queue
+with a real organiser behind it and a substantial first-person story; the 12
+with `creator_id NULL` are untouched.
+
+**Baseline first** (`docs/119`'s rule — measure before asserting after):
+sitemap `total=33 campaign=8 category=6`, Maksym absent; the campaign page
+**404** against `tuan-nguyen`'s **200** as the control; `seo_rows=0`.
+
+The row:
+
+```
+11:32:45.146Z  campaign.published       warning  actor=676ad0be… (the admin)
+11:32:45.747Z  seo.indexnow_submitted   info
+  urls  [ /campaigns/help-maksym-…, /campaigns, / ]
+  detail "HTTP 200"   outcome "submitted"   submittedCount 3
+```
+
+**HTTP 200 in production too**, 601ms after publication — so §8.1's finding
+holds on the deployed path and not merely from a shell on the same machine.
+`live_published` 8 → **9**, `under_review` 15 → **14**, `published_at` stamped.
+
+Verified after: the page **200** (fabricated slug 404 as the control),
+`index, follow`, self-canonical, renders the organiser's name, and appears on
+`/campaigns` — so the three `revalidatePath` calls took effect. The organiser's
+notification exists with `email_sent: true` and its link resolves, which is
+`docs/118`'s guard holding on a live row.
+
+⚠️ **The session was MINTED, not signed in, and that is worth recording.** The
+standalone image bundles `next-auth` into its chunks, so there is no importable
+copy on the machine, and pulling `NEXTAUTH_SECRET` into a sandbox to forge one
+there would have created a credential exposure to run a test. Instead an
+Auth.js JWE was minted **on the machine with its own secret**, using nothing
+but Node's `crypto` — HKDF-SHA256 with the cookie name as salt, then `dir` +
+A256CBC-HS512, `kid` omitted (which `@auth/core`'s decode explicitly permits).
+⛔ **The encoder was proven before it was used**: locally, its output was
+round-tripped through the REAL `@auth/core/jwt.decode`, with a wrong salt and
+a wrong secret as controls — both `JWEDecryptionFailed`. And the drive script
+refused to PATCH unless `/api/auth/session` first returned `role=admin`, then
+sent the same PATCH **with no cookie** as a control (**401**), so the 200
+cannot be read as the route being open.
+
+⚠️ **Two ISR surfaces lag, and neither is a defect.** The route revalidates
+`/campaigns/<slug>`, `/campaigns` and `/` — not the sitemap (`revalidate =
+3600`) and not the category page (`300`). Measured: three sitemap reads at
++2 min still said `33/8/6` with Maksym absent, and `/campaigns/category/family`
+showed nothing; the category page then **healed at +5m30s** (3 reads, 1 card
+each). So IndexNow announces a page the sitemap has not yet caught up with,
+by design — IndexNow is the faster channel, which is the whole reason it exists.
+
+⚠️ **This is also the first live instance of the flapping `docs/169` §5
+accepted.** `family` was one of the 17 EMPTY categories this change stopped
+advertising; it now holds one campaign, so the sitemap should return to
+`total=35 campaign=9 category=7` once its hour expires. **That is a PREDICTION,
+not a measurement** — it was not observed, and the §5 invariant (advertised ⇒
+non-empty) is what it tests in the refill direction.
