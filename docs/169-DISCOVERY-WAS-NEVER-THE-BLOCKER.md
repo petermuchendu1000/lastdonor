@@ -1,7 +1,22 @@
 # 169 — Discovery was never the blocker, and IndexNow is for the engines Google is not
 
-**Status: BUILT, NOT DEPLOYED.** Branch `claude/adoring-bell-7aka3l`. The
-owner deploys (`docs/96`); the gate was run here and is reported in §7.
+**Status: ✅ DEPLOYED as v174, 2026-11-03**, merged to `main` at `3d5f1b4`.
+Owner instruction on the day overrode the standing *"do not deploy"*
+(`docs/96`); the gate was run on `main` first (8362 passed / 0 failed).
+
+[VERIFIED live after the release] the sitemap went **50 → 33** URLs
+(category **23 → 6**, campaigns 8 unchanged, and the 6 are exactly the 6
+measured as holding campaigns); `origin.lastdonor.org` and
+`lastdonor.fly.dev` serve `noindex, nofollow` while **the apex and `www`
+serve none**; the IndexNow key file answers 200 with exactly the key against
+a fabricated file's 404; `/donate` still renders its M-Pesa form; and the
+de-advertised category pages still answer **200**. One `app` machine on
+v174, updated in place, zero orphaned release machines — no partial rollout.
+
+⚠️ **Deployed WITH `--prerender`**, which matters more for this change than
+any before it: see §5.6: without it the sitemap bakes at **19** URLs rather
+than 42. `deploy.sh`'s own closing line read `sitemap: 8 campaign URL(s)`,
+which is the discriminator proving the builder reached the database.
 
 ---
 
@@ -358,19 +373,23 @@ assertion broke: *"expected [ 'noindex, nofollow' ] to deeply equal []"*].
 
 ## 7. ⛔ What was NOT checked
 
-- **Nothing is deployed.** `docs/96`: the owner deploys. Every measurement
-  above is local or against the live site's *current* (unchanged) state.
-- **The header measurement is from `next dev`, not a production build.** The
-  `headers()` function is the same in both and the matcher is Next's own,
-  but a production build was not run. [INFERRED] it behaves identically;
-  the cheap confirmation after deploy is one `curl -I` per hostname.
-- **No real IndexNow submission has been made.** Every probe used a foreign
-  host (`example.com`) with a bogus key, so nothing of ours was submitted
-  and the 200 path has never executed against the real API. The first
-  production publication is what exercises it — and the audit row is what
-  will say whether it worked.
-- **The key file is not yet live**, so IndexNow cannot verify ownership
-  until this deploys. Until then a submission would answer 403.
+- ⚠️ **Whether the IndexNow key VALIDATES is [UNKNOWN], and the probe that
+  looked like proof was void.** After the deploy a single real submission
+  (`GET …/indexnow?url=https://lastdonor.org/&key=<real>`) answered **202** —
+  and so did the **control with a deliberately wrong key**. 202 is not
+  acceptance: the API defers key checking, which is exactly what this
+  codebase's own classifier already calls `pending_key_validation`. The
+  earlier **403**s were a FOREIGN host (`example.com`) failing the *host*
+  check, a different branch. So the precondition is verified (the file is
+  served at the location the payload names) and validation is not.
+  **Bing Webmaster Tools is the only place that shows received URLs**, and
+  it is owner-only — `docs/142` §6 records Bing as unverified entirely.
+- **The 200 path has still never executed.** The first campaign approval is
+  what exercises `submitUrlsToIndexNow`, and its `seo.indexnow_submitted`
+  audit row is what will say whether it worked.
+- **The `noindex` headers were verified live, which supersedes the earlier
+  `next dev` measurement** — but only on `/`. Other paths were not sampled
+  per host.
 - **12 of the 20 Search Console 404s are unidentified** (owner-only sample).
 - **The 2 "Blocked due to other 4xx" URLs are unexplained.** Rate limiting
   is refuted; nothing else was established.
@@ -386,9 +405,9 @@ assertion broke: *"expected [ 'noindex, nofollow' ] to deeply equal []"*].
   advertisement of pages Google has shown no sign of wanting. It does not
   address §2.3, which is why the four real pages it *did* read were declined.
   The honest expectation is a smaller, cleaner sitemap — not indexing.
-- **The 33-entry prediction is [INFERRED], not observed**: it is computed
-  from the live tally and the current sitemap's decomposition, and nothing is
-  deployed. One `curl` after deploy settles it.
+- ✅ **The 33-entry prediction is now OBSERVED**, not inferred: two reads
+  after the deploy both returned `total=33 category=6 campaign=8`, and the
+  six advertised are exactly the six measured as holding campaigns.
 - **The flapping cost is unquantified.** A category crossing zero now adds or
   removes a sitemap URL within the hour. Nobody has measured what Google does
   with a sitemap whose entry set moves; `docs/46` raised it as an objection
