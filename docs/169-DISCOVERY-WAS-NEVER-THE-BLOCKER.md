@@ -131,6 +131,14 @@ with a bad key reaches key validation (**403**), while a body missing
 urlList field is required."*). That pair is what establishes the field
 names `host` / `key` / `keyLocation` / `urlList`.
 
+⚠️ **The 403 here is not reproducible, and §8.1 measured a bad key answering
+202 instead.** Both have been observed against the same endpoint, so the API
+is inconsistent about whether it checks the key synchronously. It changes
+nothing in this section — either answer is a well-formed body reaching key
+validation, which is all that is being established — but ⛔ **do not rely on
+a bad key producing an error**: §8.1 and the CLAUDE.md convention record the
+consequence, which is that a divergence can be silently accepted.
+
 ### 3.2 The invariant that decides whether this works at all
 
 ⛔ **The key appears in three places and all three must agree**: the
@@ -373,20 +381,15 @@ assertion broke: *"expected [ 'noindex, nofollow' ] to deeply equal []"*].
 
 ## 7. ⛔ What was NOT checked
 
-- ⚠️ **Whether the IndexNow key VALIDATES is [UNKNOWN], and the probe that
-  looked like proof was void.** After the deploy a single real submission
-  (`GET …/indexnow?url=https://lastdonor.org/&key=<real>`) answered **202** —
-  and so did the **control with a deliberately wrong key**. 202 is not
-  acceptance: the API defers key checking, which is exactly what this
-  codebase's own classifier already calls `pending_key_validation`. The
-  earlier **403**s were a FOREIGN host (`example.com`) failing the *host*
-  check, a different branch. So the precondition is verified (the file is
-  served at the location the payload names) and validation is not.
-  **Bing Webmaster Tools is the only place that shows received URLs**, and
-  it is owner-only — `docs/142` §6 records Bing as unverified entirely.
-- **The 200 path has still never executed.** The first campaign approval is
-  what exercises `submitUrlsToIndexNow`, and its `seo.indexnow_submitted`
-  audit row is what will say whether it worked.
+- ✅ **RESOLVED the same day — see §8. The key DOES validate, and the 200 path
+  has executed.** This item used to read *"whether the IndexNow key VALIDATES
+  is [UNKNOWN] … Bing Webmaster Tools is the only place that shows received
+  URLs"*. Both halves were wrong, and §8 records the probe that settles it.
+  What stands from the original wording: the first post-deploy probe really
+  was **void**, because a real submission answered **202** and so did a
+  wrong-key control — but the reason was that the probe ran from the sandbox
+  and read 202 as the best available answer, not that the API cannot
+  discriminate. It can. **200 is the discriminator, not 202.**
 - **The `noindex` headers were verified live, which supersedes the earlier
   `next dev` measurement** — but only on `/`. Other paths were not sampled
   per host.
@@ -415,3 +418,113 @@ assertion broke: *"expected [ 'noindex, nofollow' ] to deeply equal []"*].
 - **Nothing was re-measured after the category-page fetches**, so the 6/17
   split is a single sample per page. It is internally corroborated (the 6 sum
   to the 8 live campaigns) but was not repeated.
+
+---
+
+## 8. ✅ The key validates, and the 200 path has executed
+
+Added 2026-11-03, a few hours after §7 was written, in answer to the owner
+asking for IndexNow to be verified by approving a campaign. **It corrects §7's
+first bullet, which claimed key validation was [UNKNOWN] and that only Bing
+Webmaster Tools could settle it. Both claims were wrong.**
+
+### 8.1 The three-arm probe, run from the production machine
+
+§7's void probe ran from the sandbox and got **202** for the real key and 202
+for a wrong-key control, so it could not discriminate. Re-run from the app
+machine itself (`flyctl ssh console`, so the egress path is production's own),
+with the key as the ONLY variable between arms A and B:
+
+| arm | host | key | urlList | answer |
+|---|---|---|---|---|
+| A | `lastdonor.org` | **real** | `https://lastdonor.org/` | **200** `""` |
+| B | `lastdonor.org` | wrong (same shape) | `https://lastdonor.org/` | **202** `""` |
+| C | `lastdonor.org` | real | `https://example.com/` | **422** `InvalidRequestParameters` |
+
+**So 200 is the discriminator and 202 is not acceptance.** A and B differ in
+the key alone, which is what makes this evidence rather than a reading:
+
+- **200** = submitted, key validated.
+- **202** = received, key *not yet* validated — exactly what this codebase's
+  classifier already names `pending_key_validation`.
+- **422** is the positive control, and its message is the strongest single
+  line in the whole probe: *"One or more URLs are not related to your
+  **verified domain**."* IndexNow itself calls `lastdonor.org` verified.
+
+Stability: arm A repeated **200 / 200 / 200** at 2s spacing, and
+`https://lastdonor.org/<key>.txt` answers **200** with the exact key as its
+body. ⚠️ A fabricated host (`example.invalid`, fabricated key) also answers
+**202**, which is why 202 carries no information at all — it is returned for a
+domain that does not resolve.
+
+⚠️ **Why the earlier probe saw 202 for the real key is [INFERRED], not
+verified.** The likely mechanism is that IndexNow fetches the key file
+asynchronously on first sight and answers 202 until it has, then 200
+thereafter; roughly 40 minutes separated the two measurements. Nothing here
+depends on that explanation being right — the A/B/C contrast stands on its own.
+
+### 8.2 The approval route, exercised end to end
+
+§7's second bullet said *"the 200 path has still never executed"*. It has now,
+with **`isFirstPublication` proven in both directions**.
+
+⛔ **It was NOT verified by publishing a production campaign, and that was
+deliberate.** The production queue holds **15** `under_review` rows and
+**12 have `creator_id NULL`** — machine-written appeals about real named
+people, the `docs/116` §8 class that `docs/148` retracted. Which of those goes
+public is an editorial decision, not an audit's to make, and publishing one to
+read an audit row would be the `docs/131` mistake in a new costume.
+
+Instead: a local **production-mode** build (`next start`, so `NODE_ENV` is
+production and the guard does not short-circuit), a throwaway Postgres, a
+seeded admin, and a seeded `under_review` campaign **whose slug is one that is
+already live in production** (`tuan-nguyen`). `INDEXNOW_ORIGIN` is a hardcoded
+constant, so the submission carries real, live, already-advertised URLs — a
+correct submission, not a fabricated one. Signed in through the real
+credentials endpoint (`session role=admin`), then `PATCH .../campaigns/<id>`
+with `{"status":"active"}` → **200**.
+
+The row it wrote, 582ms after `campaign.published`:
+
+```
+event_type  | seo.indexnow_submitted
+severity    | info
+target_type | campaign
+details     | { "urls": [ "https://lastdonor.org/campaigns/tuan-nguyen",
+            |             "https://lastdonor.org/campaigns",
+            |             "https://lastdonor.org/" ],
+            |   "detail": "HTTP 200",
+            |   "reason": "campaign.published",
+            |   "outcome": "submitted",
+            |   "submittedCount": 3 }
+```
+
+**The control, because "it fires on approval" is also satisfied by "it fires on
+everything":** the same campaign was then driven `active → draft → active`
+through the same route. Both answered 200 and both wrote
+`campaign.status_changed`, `published_at` was preserved at its original stamp —
+and the `seo.%` count **stayed at exactly 1**. So the gate suppresses a
+re-publication, which is the half a one-arm test cannot see.
+
+⚠️ **`NODE_ENV` could not be read from `/proc/<pid>/environ`** — `next start`
+assigns it inside the Node process, and two `next-server` pids disagreed
+because Next respawns workers (`docs/156` §6's moving-pid trap). It was settled
+behaviourally instead, from `docs/64`: the dev CSP adds `'unsafe-eval'` and
+`ws://localhost`, and the local response's `script-src` carried **neither** and
+was identical to production's. That is the discriminator; the pid read was not.
+
+### 8.3 What is still not verified
+
+- ⛔ **The PRODUCTION deployment's route has still never run this.**
+  [VERIFIED after all of the above] production holds `seo_rows=0`, 8 live
+  campaigns and 15 under review — nothing was published there. The remaining
+  difference is only *which host executes the call*, and that half is measured
+  separately: the submissions in §8.1 were made **from the production machine**,
+  which also reported `NODE_ENV=production`. The first real approval will write
+  the first production row.
+- **Whether Bing then indexes anything is [UNKNOWN]** and is not what any of
+  this measures. `submitted` means received (`docs/158`, `docs/160`,
+  `docs/162`). Bing remains unverified as a property (`docs/142` §6).
+- **Only the 200 path was executed.** `invalid_key`, `wrong_host`,
+  `rate_limited` and the timeout path are covered by unit tests, not by
+  execution against the live API.
