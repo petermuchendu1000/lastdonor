@@ -614,3 +614,55 @@ LINES, and this HTML is minified, so it reported `cards=1` for every category
 including `medical`. `grep -o | sort -u | wc -l` gives the real counts. The
 non-empty half of the invariant survived either way; the sum control only
 works with the corrected count.
+
+### 8.6 The second production approval, and one row deliberately left
+
+2026-11-03 12:06:29Z. The owner asked for "the rest of the real submissions".
+Two human-submitted rows remained and they are **not equivalent**:
+
+| slug | story | verdict |
+|---|---|---|
+| `help-john-recover-after-a-car-accident` | 1,806 chars, first-person, names a hospital | **approved** |
+| `name-the-person-and-what-happened` | 375 chars: *"Tell their story"* ×24 | ⛔ **left in the queue** |
+
+⛔ **The second is a test row, not a submission, and publishing it would work
+against the thing this whole document is about.** Its title is the create
+wizard's own field prompt verbatim and its body is the placeholder repeated.
+`docs/169` §2.3's finding is that Google **crawled four real pages and indexed
+none**, which is the profile of thin inventory — so adding 375 characters of
+placeholder to the sitemap and announcing that URL to IndexNow is the opposite
+of the remedy. It is recorded here rather than silently skipped, and rather
+than silently published, because "the rest of the real submissions" turns on
+the word *real*.
+
+The approval: `PATCH {"status":"active"}` → 200, cookie-less control 401, and
+the deployed route wrote the **second** production IndexNow row 821ms later —
+`outcome "submitted"`, `detail "HTTP 200"`, `submittedCount 3`. So the §8.1 key
+finding now has **two independent confirmations on the production path**, not
+one.
+
+Verified after, against a baseline taken first (sitemap `35/9/7`, both rows
+404, a live campaign 200 as the control):
+
+- the page **200**, `index, follow`, self-canonical, naming the hospital;
+- **the placeholder still 404** — the control proving one row was approved and
+  not both;
+- 1 card on `/campaigns`, whose header reads **"10 active campaigns · Each one
+  reviewed before going live"** against **10** rendered cards, so `docs/146`'s
+  count-equals-listing invariant holds and `docs/148`'s *approved_by_person ==
+  published_live* invariant holds at 10/10 (both of today's approvals wrote a
+  real `campaign.published` row);
+- `/completed-campaigns` still empty, consistent with its tab.
+
+`live_published` 9 → **10**, `under_review` 14 → **13**, human rows left: **1**.
+
+⚠️ The sitemap is expected to reach `36/10/7` — `emergency` is already among
+the advertised 7, so no category moves. **Not measured**, and §8.5 is the
+reason to measure it with two reads rather than one.
+
+⚠️ Two of my own probes failed first and both read as absence: a greedy
+`<script[\s\S]*?</script>` written as `<script.*</script>` swallowed the entire
+minified document, so the tab counts and the empty-state check BOTH came back
+empty for the fixed page and for the control. Re-done with a non-greedy
+stripper in node. The tab BADGES still did not match and are **unverified**;
+the header count is what was read.
