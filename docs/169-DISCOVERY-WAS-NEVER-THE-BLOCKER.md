@@ -198,12 +198,16 @@ two independent guards: the ratchet reconstructs Next's own matcher over the
 real config with **the apex as a must-NOT-match control**, and §6 measures
 the running server.
 
-## 5. ⛔ Item 3 was NOT done, and it reopens an owner decision
+## 5. Empty categories are no longer advertised — a REVERSED owner decision
 
-The third thing I proposed was dropping the 17 empty category pages from the
-sitemap. I proposed it without reading the doc that records the owner's
-instruction against it. `src/lib/homepage-categories.test.ts:216-228`,
-rule 7:
+I first proposed this without reading the doc recording the owner's
+instruction against it, halted on that, and the owner then reversed the
+instruction explicitly. Both halves are recorded because the reversal is the
+decision, not the tidy-up it looks like.
+
+### 5.1 What was reversed
+
+`src/lib/homepage-categories.test.ts` rule 7, now amended in place:
 
 > *"The owner's instruction was explicit: make the grid data-driven AND keep
 > the 23 in the sitemap. The obvious tidy-up after this change is to drop the
@@ -211,15 +215,81 @@ rule 7:
 > in it today is a real page that fills later, and `generateStaticParams`
 > builds all 23."*
 
-So the change is (a) against a recorded explicit instruction, (b) pinned by
-a test that would fail, and (c) described verbatim as the tidy-up not to do.
+`docs/46`'s four reasons are preserved verbatim in `sitemap.ts` rather than
+deleted, because none was refuted — each page renders its own editorial copy
+and is a real landing page; they answer 200 regardless; dropping a URL from a
+sitemap does not deindex it; and gating on a live count makes the advertised
+set **flap**. ⚠️ **The flapping cost is accepted, not solved.**
 
-⚠️ And the obvious alternative is **worse**: serving those pages `noindex`
-while leaving them in the sitemap is the contradiction
-`src/lib/campaign-visibility.ts` already names — *a URL both submitted in a
-sitemap and served `noindex` is a contradiction Google reports*. Every
-technical variant of item 3 is either a reversal of an owner decision or a
-known contradiction. **It is an owner call, and it is left untouched.**
+What outweighed them is a measurement that did not exist when they were
+written: Search Console on 2026-11-03 shows **60 URLs known, zero indexed**,
+four of them *"Crawled – currently not indexed"*. On a domain whose crawl
+budget is demonstrably not reaching the pages that matter, advertising 17
+near-empty URLs is a cost with no measured benefit.
+
+### 5.2 The invariant, and why it holds in the safe direction
+
+> **A category advertised in the sitemap renders at least one campaign on its
+> page.**
+
+| | status set | fund excluded | `published_at` |
+|---|---|---|---|
+| sitemap (`sitemap.ts:~300`) | `LIVE_SITEMAP_STATUSES` | yes | **required** |
+| category page (`page.tsx:90`) | `listedCampaignFilter()` — same two | yes | not required |
+
+[VERIFIED from `public-campaigns.ts:93-101`] the sitemap's test is **strictly
+narrower**, so it can under-advertise and can never advertise an empty page.
+A category holding only `completed` campaigns is correctly dropped — that
+page shows the live set. ⛔ Nothing connects those two declarations, so a new
+test derives both from source and fails if either moves.
+
+### 5.3 ⛔ Absence of data is not emptiness
+
+`advertisedCategorySlugs` keys on a new `campaignsLoaded` flag, **not** on
+`newestByCategory.size`. `NO_DERIVED_DATES` carries an empty map because the
+campaign read FAILED, and `sitemap()`'s own comment requires the dates to
+*"fall back to the editorial constant rather than disappearing"*. A bare
+`.has()` would drop all 23 URLs on any database failure.
+
+⚠️ That this was the right design is not my judgement: `sitemap.test.ts`
+**already had a test** named *"keeps every category landing page"* on a
+database failure. Three independent signals agreed before a line was changed
+— the code comment, the `NO_DERIVED_DATES` sentinel, and that test. Same rule
+as `docs/106` (*a MISSING trusted name is "cannot judge", never "no
+mismatch"*) and `docs/159` (*`keepPolling === false`, never `!keepPolling`*).
+
+⛔ An **empty database** is the opposite case and now drops all 23: the tally
+is known and every category really is empty. The two are pinned against each
+other in one test, because either rule alone can be satisfied wrongly.
+
+### 5.4 ⛔ Not paired with `noindex`, deliberately
+
+Serving these `noindex` while leaving them in the sitemap is the
+contradiction `campaign-visibility.ts` names — *a URL both submitted in a
+sitemap and served `noindex` is a contradiction Google reports*. An
+unadvertised URL is not in that bind. `noindex`ing them is a second, larger
+decision and was not taken.
+
+### 5.5 ⛔ The pages are untouched
+
+`generateStaticParams` still builds all 23 and each still answers 200. Rule 7
+now guards exactly that, having previously guarded the opposite.
+
+### 5.6 Measured effect
+
+[VERIFIED live, 23 category pages fetched 2026-11-03] **6 hold campaigns**
+(medical 3; emergency, community, veterans, disaster, essential-needs 1 each)
+and **17 are empty**. Those 6 sum to **8 campaigns — exactly the 8 live
+ones**, which is the control that makes the count trustworthy, and the live
+sitemap's 50 URLs decompose as 19 static + 23 category + 8 campaign.
+
+**Predicted after deploy: 50 → 33** (19 + 6 + 8).
+
+⚠️ Accepted regression: a deploy without `--prerender` (`docs/119`) now bakes
+**19** URLs rather than 42 for up to an hour, because the build-phase
+fail-soft returns zero rows without throwing — `campaignsLoaded` is true and
+the tally is honestly empty. The campaign URLs already vanish in that case,
+so the sitemap is degraded either way, and the flag remains the fix.
 
 ## 6. Verification record
 
@@ -230,7 +300,8 @@ known contradiction. **It is an owner call, and it is left untouched.**
 | key file served | **200 `text/plain`**, body exactly the key; a fabricated key file **404s** (control) |
 | robots.txt | does not disallow the key file |
 | `X-Robots-Tag` by Host | real execution, 8 hostnames, see below |
-| unit | **8350 passed / 0 failed / 16 skipped**, 302 files (+34 tests, +2 files vs baseline — exactly the two new files) |
+| category tally, live | 23 pages fetched: **6 hold campaigns, 17 empty**; the 6 sum to the 8 live campaigns |
+| unit | **8362 passed / 0 failed / 16 skipped**, 302 files |
 | typecheck | clean |
 | lint | clean (1 pre-existing warning in an untouched file) |
 
@@ -264,6 +335,21 @@ the rule does not govern (`docs/152`).
 widened to `.*lastdonor.*`, and the host condition dropped entirely) which
 fire on the apex control.
 
+**sitemap categories: 10/10 behave** (8 must-fail, 2 must-pass). The rows
+that earn their place: row 1 restores the real production state (all 23
+mapped unconditionally); row 3 keys the guard on `newestByCategory.size`,
+collapsing "known empty" into "unknown"; row 4 inverts the filter so it
+advertises exactly the empty ones; and rows 7 and 8 drift the two status
+lists apart from either end.
+
+⚠️ **I predicted ONE test would break and FOUR did.** The three I missed were
+not noise: an empty database, a completed-only category, and a
+no-live-campaign category all asserted the *editorial-date fallback* on
+entries that no longer exist. Each was repointed to the path where the
+property is still reachable rather than deleted — and reading them is what
+changed my mind on the empty-database case, which I had initially intended
+to treat as "unknown".
+
 ⚠️ **Row 5 fired when I had predicted green, and MY EXPECTATION was wrong.**
 `^.*origin\.lastdonor\.org$` genuinely matches `xorigin.lastdonor.org`, so
 the near-miss assertion was right to fail — [VERIFIED by reading which
@@ -296,3 +382,17 @@ assertion broke: *"expected [ 'noindex, nofollow' ] to deeply equal []"*].
 - **Bing's current index state is [UNKNOWN].** A `site:` probe via
   DuckDuckGo was void — the control (`site:gofundme.com`) also returned zero
   result links, so the probe could not discriminate.
+- **Whether dropping 17 URLs measurably helps is [UNKNOWN].** It removes
+  advertisement of pages Google has shown no sign of wanting. It does not
+  address §2.3, which is why the four real pages it *did* read were declined.
+  The honest expectation is a smaller, cleaner sitemap — not indexing.
+- **The 33-entry prediction is [INFERRED], not observed**: it is computed
+  from the live tally and the current sitemap's decomposition, and nothing is
+  deployed. One `curl` after deploy settles it.
+- **The flapping cost is unquantified.** A category crossing zero now adds or
+  removes a sitemap URL within the hour. Nobody has measured what Google does
+  with a sitemap whose entry set moves; `docs/46` raised it as an objection
+  and this change accepts it without evidence either way.
+- **Nothing was re-measured after the category-page fetches**, so the 6/17
+  split is a single sample per page. It is internally corroborated (the 6 sum
+  to the 8 live campaigns) but was not repeated.

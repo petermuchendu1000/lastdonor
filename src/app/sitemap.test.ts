@@ -24,6 +24,8 @@
  * @vitest-environment node
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getTableName, type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { ALL_CATEGORY_SLUGS } from '@/lib/category-content';
@@ -268,8 +270,17 @@ describe('sitemap queries only the indexable statuses', () => {
 });
 
 describe('sitemap survives a database failure', () => {
-  /** Static pages plus one landing page per category: needs no database. */
+  /** Pages that need no database at all. */
   const STATIC_PAGE_COUNT = 19;
+  /**
+   * What a FAILED campaign read still serves: the static pages plus every
+   * category landing page.
+   *
+   * ⛔ The categories are here because a failed read means the tally is
+   * UNKNOWN, not zero - `advertisedCategorySlugs` keeps all 23 when
+   * `campaignsLoaded` is false. Contrast the empty-database case below,
+   * where the tally IS known and every category really is empty.
+   */
   const EXPECTED_STATIC_TOTAL = STATIC_PAGE_COUNT + ALL_CATEGORY_SLUGS.length;
 
   it('serves the static sitemap instead of throwing', async () => {
@@ -324,11 +335,56 @@ describe('sitemap survives a database failure', () => {
     expect(entries).toHaveLength(EXPECTED_STATIC_TOTAL + BLOG_ROWS.length);
   });
 
-  it('an empty database still produces the static sitemap', async () => {
+  /*
+    ⚠️ CHANGED 2026-11-03 (`docs/169` §5), and the distinction it now draws
+    is the point. This used to expect `EXPECTED_STATIC_TOTAL`, i.e. all 23
+    category URLs, because they were advertised unconditionally.
+
+    An empty database is NOT the same case as a failed read. Here the tally
+    is KNOWN and every category really does hold nothing, so advertising a
+    category landing page would be advertising a page with no campaigns on
+    it - exactly what the owner's decision removes. A failed read is the
+    sibling case above, and it still keeps all 23.
+
+    What this test is FOR has not changed: an empty database must still
+    produce a valid, non-empty sitemap rather than throwing or collapsing.
+  */
+  it('an empty database produces the static pages, and no category URL', async () => {
     state.campaigns = [];
     state.blogPosts = [];
     const { entries } = await runSitemap();
-    expect(entries).toHaveLength(EXPECTED_STATIC_TOTAL);
+
+    expect(entries).toHaveLength(STATIC_PAGE_COUNT);
+    // Still a real sitemap, which is what this case exists to prove.
+    expect(urls(entries)).toContain('https://lastdonor.org');
+    expect(urls(entries)).toContain('https://lastdonor.org/campaigns');
+    for (const entry of entries) {
+      expect(entry.lastModified).toBeInstanceOf(Date);
+    }
+    // And not one category landing page, because none of them has anything.
+    expect(
+      urls(entries).filter((u) => u.includes('/campaigns/category/')),
+    ).toEqual([]);
+  });
+
+  /*
+    The pair that makes the two cases above mean something. Without this,
+    "empty database drops them" and "failed read keeps them" could both be
+    satisfied by a single wrong rule in either direction.
+  */
+  it('tells an empty tally apart from an unknown one', async () => {
+    state.campaigns = [];
+    const { entries: known } = await runSitemap();
+
+    state.campaigns = [];
+    state.failing = new Set(['campaigns']);
+    const { entries: unknown } = await runSitemap();
+
+    const cats = (e: { url: string }[]) =>
+      urls(e).filter((u) => u.includes('/campaigns/category/')).length;
+
+    expect(cats(known)).toBe(0);
+    expect(cats(unknown)).toBe(ALL_CATEGORY_SLUGS.length);
   });
 });
 
@@ -359,16 +415,26 @@ describe('the pages that returned 200 before the fix are all still listed', () =
     '/terms',
   ];
 
-  it('lists all 19 static pages and all 23 category pages', async () => {
+  it('lists all 19 static pages', async () => {
     const { entries } = await runSitemap();
     const listed = urls(entries);
     for (const path of MUST_KEEP) {
       expect(listed, path).toContain(`https://lastdonor.org${path}`);
     }
+  });
+
+  /*
+    ⚠️ CHANGED 2026-11-03 (`docs/169` §5). This used to require all 23
+    category URLs in the same breath as the 19 static ones. They are not the
+    same claim: a static page is unconditional, a category page is now
+    advertised only while it holds a live campaign. Splitting them is what
+    stops the static list quietly losing its guard the next time the category
+    rule changes.
+  */
+  it('still builds a page for every category, advertised or not', () => {
+    // The pages are untouched by the advertisement decision -
+    // `generateStaticParams` renders all 23 and each answers 200.
     expect(ALL_CATEGORY_SLUGS).toHaveLength(23);
-    for (const slug of ALL_CATEGORY_SLUGS) {
-      expect(listed).toContain(`https://lastdonor.org/campaigns/category/${slug}`);
-    }
   });
 
   it('emits no duplicate URL', async () => {
@@ -416,21 +482,63 @@ describe('listing pages date themselves from the campaigns they list', () => {
     ).toEqual(new Date('2026-09-20T09:00:00Z'));
   });
 
-  it('does not let a completed campaign date its category page', async () => {
-    // `memorial` holds only the completed campaign, which is not listed on
-    // the category page, so the page must fall back to the editorial date
-    // rather than claim the completed campaign's freshness.
+  /*
+    ⚠️ CHANGED 2026-11-03 (`docs/169` §5). Both of these used to assert the
+    EDITORIAL-DATE FALLBACK on a category with no live campaign. That
+    fallback is unchanged and still right - what moved is that such a
+    category is no longer advertised at all, so there is no entry on the
+    healthy path to carry a date.
+
+    The property each one protected is asserted more strongly below: the URL
+    is absent rather than present-with-a-conservative-date. The fallback
+    itself is still exercised, on the failed-read path where it remains
+    reachable.
+  */
+  it('drops a category whose only campaign is completed', async () => {
+    // `memorial` holds ONLY the completed campaign. The category page
+    // filters `listedCampaignFilter()` - the live statuses - so that page
+    // renders nothing, and a sitemap entry for it would advertise an empty
+    // page. This is the discriminating case: a rule keyed on "any campaign"
+    // rather than "a LIVE campaign" passes every other test and fails this.
+    const { entries } = await runSitemap();
+    expect(urls(entries)).not.toContain(
+      'https://lastdonor.org/campaigns/category/memorial',
+    );
+    // And the completed campaign's own URL is still advertised - dropping
+    // the category must not drop the campaign.
+    expect(urls(entries)).toContain(
+      'https://lastdonor.org/campaigns/the-okafor-family-fund',
+    );
+  });
+
+  it('drops a category with no campaign at all', async () => {
+    const { entries } = await runSitemap();
+    expect(urls(entries)).not.toContain(
+      'https://lastdonor.org/campaigns/category/animal',
+    );
+  });
+
+  it('keeps a category that has a live campaign, with its derived date', async () => {
+    // Anti-vacuity: without this, dropping EVERY category satisfies the two
+    // rules above while deleting the whole section.
+    const { entries } = await runSitemap();
+    const veterans = find(entries, 'https://lastdonor.org/campaigns/category/veterans');
+    expect(veterans).toBeDefined();
+    expect(veterans?.lastModified).toEqual(new Date('2026-10-01T09:00:00Z'));
+
+    const medical = find(entries, 'https://lastdonor.org/campaigns/category/medical');
+    expect(medical).toBeDefined();
+  });
+
+  it('still falls back to the editorial date on the path where that is reachable', async () => {
+    // The failed-read path keeps every category, so the fallback this
+    // suite used to prove on `memorial` is exercised here instead - and a
+    // completed campaign still never dates one.
+    state.failing = new Set(['campaigns']);
     const { entries } = await runSitemap();
     const memorial = find(entries, 'https://lastdonor.org/campaigns/category/memorial');
     expect(memorial?.lastModified).not.toEqual(new Date('2026-07-01T09:00:00Z'));
     expect(memorial?.lastModified).toEqual(new Date('2026-10-18'));
-  });
-
-  it('falls back to the editorial date for a category with no live campaign', async () => {
-    const { entries } = await runSitemap();
-    expect(
-      find(entries, 'https://lastdonor.org/campaigns/category/animal')?.lastModified,
-    ).toEqual(new Date('2026-10-18'));
   });
 
   it('falls back to the editorial date when the campaign read fails', async () => {
@@ -460,5 +568,125 @@ describe('listing pages date themselves from the campaigns they list', () => {
     expect(new Date(policy!.lastModified as Date).getTime()).toBeGreaterThan(
       new Date('2026-10-01').getTime(),
     );
+  });
+});
+
+/**
+ * The invariant the whole change rests on, checked from BOTH ends.
+ *
+ * "A category advertised in the sitemap renders at least one campaign on its
+ * page." The sitemap decides from `LIVE_SITEMAP_STATUSES`; the page decides
+ * from `listedCampaignFilter()`. Nothing connects those two declarations, so
+ * if either moves the sitemap starts advertising empty pages - which is the
+ * exact defect this change removes, inverted.
+ *
+ * Derived from source at both ends rather than pinning today's answer
+ * (`docs/109`'s shape), so widening either list fails here instead of
+ * silently un-fixing the sitemap.
+ */
+describe('a category is advertised only if its page would list something', () => {
+  const SITEMAP_SRC = readFileSync(
+    join(__dirname, 'sitemap.ts'),
+    'utf8',
+  );
+  const FILTER_SRC = readFileSync(
+    join(__dirname, '../db/public-campaigns.ts'),
+    'utf8',
+  );
+
+  /** Statuses named inside a `const NAME = [...] as const` declaration. */
+  function statusesInConst(src: string, name: string): string[] {
+    const m = new RegExp(`const ${name} = \\[([^\\]]*)\\]`).exec(src);
+    if (!m) return [];
+    return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort();
+  }
+
+  /** Statuses named inside `listedCampaignFilter`'s body. */
+  function listedStatuses(): string[] {
+    const start = FILTER_SRC.indexOf('export function listedCampaignFilter');
+    expect(start, 'listedCampaignFilter not found - rule cannot run').toBeGreaterThan(-1);
+    const body = FILTER_SRC.slice(start, FILTER_SRC.indexOf('\n}', start));
+    return [...body.matchAll(/campaigns\.status,\s*'([a-z_]+)'/g)]
+      .map((x) => x[1])
+      .sort();
+  }
+
+  it('finds both declarations at all (anti-vacuity)', () => {
+    // Two empty arrays would compare equal and prove nothing.
+    expect(statusesInConst(SITEMAP_SRC, 'LIVE_SITEMAP_STATUSES').length).toBeGreaterThan(0);
+    expect(listedStatuses().length).toBeGreaterThan(0);
+  });
+
+  it('the sitemap LIVE statuses equal the statuses the category page lists', () => {
+    expect(statusesInConst(SITEMAP_SRC, 'LIVE_SITEMAP_STATUSES')).toEqual(listedStatuses());
+  });
+
+  it('the CLOSED statuses are deliberately not among them', () => {
+    // `completed` is advertised as a campaign URL and must never make a
+    // category look occupied - the category page does not list it.
+    const closed = statusesInConst(SITEMAP_SRC, 'CLOSED_SITEMAP_STATUSES');
+    expect(closed.length).toBeGreaterThan(0);
+    for (const s of closed) {
+      expect(listedStatuses(), `${s} must not be listed by the category page`).not.toContain(s);
+    }
+  });
+});
+
+/**
+ * The judgement itself, EXECUTED.
+ *
+ * `advertisedCategorySlugs` is a branch, and a source-reading rule cannot see
+ * which way a branch points (`docs/162` §5.1). Inverting it passes every
+ * structural check above and fails these.
+ */
+describe('advertisedCategorySlugs, run directly', () => {
+  async function fn() {
+    vi.resetModules();
+    return (await import('./sitemap')).advertisedCategorySlugs;
+  }
+
+  it('returns only the categories present in the tally when it is known', async () => {
+    const advertised = await fn();
+    expect(
+      advertised({
+        newestPublished: new Date('2026-10-01'),
+        newestByCategory: new Map([['medical', new Date('2026-10-01')]]),
+        campaignsLoaded: true,
+      }),
+    ).toEqual(['medical']);
+  });
+
+  it('returns EVERY category when the tally is unknown', async () => {
+    const advertised = await fn();
+    expect(
+      advertised({
+        newestPublished: null,
+        newestByCategory: new Map(),
+        campaignsLoaded: false,
+      }),
+    ).toEqual(ALL_CATEGORY_SLUGS);
+  });
+
+  it('returns none when the tally is known and empty', async () => {
+    // The row that separates "known empty" from "unknown". An
+    // implementation keying on `newestByCategory.size` collapses the two.
+    const advertised = await fn();
+    expect(
+      advertised({
+        newestPublished: null,
+        newestByCategory: new Map(),
+        campaignsLoaded: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it('never invents a slug that is not a real category', async () => {
+    const advertised = await fn();
+    const out = advertised({
+      newestPublished: null,
+      newestByCategory: new Map([['not-a-category', new Date()]]),
+      campaignsLoaded: true,
+    });
+    expect(out).toEqual([]);
   });
 });

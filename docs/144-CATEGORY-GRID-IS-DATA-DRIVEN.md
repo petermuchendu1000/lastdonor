@@ -3,6 +3,16 @@
 **Date:** 2026-10-29 · **Closes:** `docs/143` §4 (A-024's remaining 15 orphans)
 **Owner instruction:** *"make the grid data-driven and keep the 23 in the sitemap."*
 
+> ⚠️ **AMENDED 2026-11-03 — the second half of that instruction is REVERSED.**
+> The empty category pages are no longer advertised in the sitemap; see
+> `docs/169` §5 for the decision, the measurement behind it (Search Console:
+> 60 URLs known, **zero** indexed, 17 of 23 categories empty) and the
+> invariant that keeps an advertised category non-empty. **The grid half of
+> this document stands unchanged**, and so do the pages themselves —
+> `generateStaticParams` still builds all 23 and each answers 200. The four
+> reasons for keeping them, argued here and in `docs/46`, were not refuted;
+> they were outweighed, and the flapping cost they name is now accepted.
+
 ---
 
 ## 1. What was wrong

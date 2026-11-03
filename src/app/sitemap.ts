@@ -90,14 +90,33 @@ const CLOSED_SITEMAP_STATUSES = ['completed'] as const;
  * Static and category URLs. These need no database, so they are the floor the
  * sitemap degrades to.
  *
- * All 23 category landing pages stay listed even when a category currently
- * holds no campaign. They are not thin by accident: each one renders its own
- * editorial copy from `src/lib/category-content.ts` and is a real landing
- * page, they return 200 whether or not they have campaigns, and dropping a URL
- * from a sitemap does not deindex it anyway - it only stops declaring a
- * `lastmod`. Gating them on a live campaign count would also make the set of
- * listed URLs flap as campaigns open and close, which is worse for crawl
- * budget than a stable list. Decision recorded in docs/46.
+ * ⚠️ **A CATEGORY WITH NO LIVE CAMPAIGN IS NO LONGER ADVERTISED.** Owner
+ * decision 2026-11-03 (`docs/169` §5), REVERSING the one recorded in
+ * `docs/46` and re-affirmed in `docs/144`. The superseded reasoning is kept
+ * here because it was not wrong, it was outweighed:
+ *
+ *   - each page renders its own editorial copy from `category-content.ts`,
+ *     so it is a real landing page and not thin by accident;
+ *   - they answer 200 whether or not they hold campaigns;
+ *   - dropping a URL from a sitemap does not deindex it, it only stops
+ *     declaring a `lastmod`;
+ *   - and gating on a live count makes the advertised set FLAP as campaigns
+ *     open and close, which is worse for crawl budget than a stable list.
+ *
+ * What outweighed it: Search Console measured this domain on 2026-11-03 with
+ * **60 URLs known and zero indexed**, four of them "Crawled - currently not
+ * indexed". **17 of the 23 category pages hold nothing.** On a domain whose
+ * crawl budget is visibly not being spent on the pages that matter,
+ * advertising 17 near-empty URLs is a cost with no measured benefit. The
+ * flapping objection is accepted as a real cost of this change.
+ *
+ * ⛔ The pages themselves are UNTOUCHED - `generateStaticParams` still builds
+ * all 23 and every one still answers 200. This changes advertisement only.
+ *
+ * ⛔ And it is NOT paired with `noindex`. A URL both submitted in a sitemap
+ * and served `noindex` is the contradiction `campaign-visibility.ts` names;
+ * a URL that is merely unadvertised is not in that bind, and `noindex`ing
+ * these would be a second, larger decision.
  *
  * ── Why some of these dates are derived and others are not ───────────
  *
@@ -119,9 +138,50 @@ const CLOSED_SITEMAP_STATUSES = ['completed'] as const;
  * `updatedAt`, because for one campaign's own page an edit IS the change
  * worth re-crawling; that trade-off is noted there too.)
  */
+/**
+ * Which category landing pages this sitemap advertises.
+ *
+ * A PURE function, exported, because the judgement is a branch and **text
+ * cannot see which way a branch points** - the lesson `docs/162` §5.1 paid
+ * for and `docs/164` repeated. A test that reads this file as source would
+ * pass against an inverted condition; a test that EXECUTES this cannot.
+ *
+ * ⛔ **`campaignsLoaded` is the whole safety of this function, and it is not
+ * the same question as "is the map empty".** `NO_DERIVED_DATES` carries an
+ * empty map because the campaign read FAILED, and `sitemap()`'s own comment
+ * says the dates must then "fall back to the editorial constant rather than
+ * disappearing". A bare `newestByCategory.has(slug)` would drop all 23 URLs
+ * on any database failure - turning a degraded sitemap into a much smaller
+ * one, which is the opposite of what the fail-soft is for.
+ *
+ * So: **absence of data is not evidence of emptiness.** Same rule as
+ * `docs/106` ("a MISSING trusted name is 'cannot judge', never 'no
+ * mismatch'") and `docs/159` ("`keepPolling === false`, never
+ * `!keepPolling`"). Zero live campaigns on a platform that really has none
+ * is a different fact from not having asked.
+ *
+ * ⚠️ The membership test is **`LIVE` statuses only**, which is what makes
+ * this safe: `newestByCategory` is built at `:~300` from
+ * `LIVE_SITEMAP_STATUSES` with a non-null `publishedAt`, while the category
+ * page filters `listedCampaignFilter()` - the same two statuses, minus the
+ * `publishedAt` requirement. The sitemap's test is therefore strictly
+ * NARROWER than the page's, so an advertised category always renders at
+ * least one card. It can under-advertise; it can never advertise an empty
+ * page. A category holding only `completed` campaigns is correctly dropped,
+ * because that page shows the live set and a completed campaign is not on it.
+ */
+export function advertisedCategorySlugs(
+  dates: DerivedDates,
+): readonly string[] {
+  if (!dates.campaignsLoaded) return ALL_CATEGORY_SLUGS;
+  return ALL_CATEGORY_SLUGS.filter((slug) => dates.newestByCategory.has(slug));
+}
+
 function staticSitemap(dates: DerivedDates): MetadataRoute.Sitemap {
   // A category with no live campaign has no campaign-driven date, so it
   // falls back to the editorial constant rather than claiming freshness.
+  // (Reachable only when `campaignsLoaded` is false - see
+  // `advertisedCategorySlugs`, which otherwise filters such a slug out.)
   const categoryDate = (slug: string) =>
     dates.newestByCategory.get(slug) ?? SEO_CONTENT_LAST_MODIFIED;
   const listingDate = dates.newestPublished ?? SEO_CONTENT_LAST_MODIFIED;
@@ -155,12 +215,14 @@ function staticSitemap(dates: DerivedDates): MetadataRoute.Sitemap {
     { url: `${BASE_URL}/terms`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'yearly', priority: 0.2 },
   ];
 
-  const categoryPages: MetadataRoute.Sitemap = ALL_CATEGORY_SLUGS.map((slug) => ({
-    url: `${BASE_URL}/campaigns/category/${slug}`,
-    lastModified: categoryDate(slug),
-    changeFrequency: 'daily' as const,
-    priority: 0.7,
-  }));
+  const categoryPages: MetadataRoute.Sitemap = advertisedCategorySlugs(dates).map(
+    (slug) => ({
+      url: `${BASE_URL}/campaigns/category/${slug}`,
+      lastModified: categoryDate(slug),
+      changeFrequency: 'daily' as const,
+      priority: 0.7,
+    }),
+  );
 
   return [...staticPages, ...categoryPages];
 }
@@ -211,11 +273,22 @@ type DerivedDates = {
   newestPublished: Date | null;
   /** Newest `publishedAt` per category slug, live campaigns only. */
   newestByCategory: Map<string, Date>;
+  /**
+   * Did the campaign query actually run?
+   *
+   * ⛔ Load-bearing, and NOT derivable from `newestByCategory.size`. An empty
+   * map means "no category has a live campaign" when this is true, and "we
+   * never found out" when it is false - two facts a size check collapses
+   * into one. `advertisedCategorySlugs` is the consumer that must tell them
+   * apart, because the wrong answer silently removes 23 URLs.
+   */
+  campaignsLoaded: boolean;
 };
 
 const NO_DERIVED_DATES: DerivedDates = {
   newestPublished: null,
   newestByCategory: new Map(),
+  campaignsLoaded: false,
 };
 
 async function campaignSitemap(): Promise<{
@@ -257,6 +330,10 @@ async function campaignSitemap(): Promise<{
   const dates: DerivedDates = {
     newestPublished: null,
     newestByCategory: new Map<string, Date>(),
+    // Set here, after the await resolved. `sitemapSection` hands back
+    // `NO_DERIVED_DATES` (false) when this function threw, so the flag means
+    // exactly "these rows are what the database says".
+    campaignsLoaded: true,
   };
   for (const c of rows) {
     if (!(LIVE_SITEMAP_STATUSES as readonly string[]).includes(c.status)) continue;

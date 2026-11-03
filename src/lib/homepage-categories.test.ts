@@ -213,19 +213,52 @@ describe('rule 6: the selection is not vacuous', () => {
   });
 });
 
-describe('rule 7: all 23 category URLs stay in the sitemap', () => {
-  it('maps ALL_CATEGORY_SLUGS, so promotion and advertisement stay separate', () => {
-    /*
-      The owner's instruction was explicit: make the grid data-driven AND keep
-      the 23 in the sitemap. The obvious tidy-up after this change is to drop
-      the empty ones, and that is a different decision - a category page with
-      nothing in it today is a real page that fills later, and
-      `generateStaticParams` builds all 23.
-    */
-    const sitemap = readFileSync(SITEMAP, 'utf8');
-    expect(sitemap).toContain('ALL_CATEGORY_SLUGS.map(');
-    expect(sitemap).toContain('/campaigns/category/${slug}');
+describe('rule 7: every category still has a PAGE, advertised or not', () => {
+  /*
+    ⚠️ REVERSED 2026-11-03 by owner decision (`docs/169` §5). This rule used
+    to read "all 23 category URLs stay in the sitemap" and said:
+
+      "The owner's instruction was explicit: make the grid data-driven AND
+       keep the 23 in the sitemap. The obvious tidy-up after this change is
+       to drop the empty ones, and that is a different decision - a category
+       page with nothing in it today is a real page that fills later, and
+       `generateStaticParams` builds all 23."
+
+    That was an accurate record of the instruction at the time, and the
+    instruction has since changed: Search Console measured 60 URLs known and
+    ZERO indexed on this domain, with 17 of the 23 category pages holding
+    nothing, so the empty ones are no longer advertised. The reasoning above
+    is preserved rather than deleted because it was not refuted - it was
+    outweighed, and the flapping cost it names is now accepted.
+
+    ⛔ What has NOT changed, and is what this rule now guards: the PAGES all
+    still exist. Advertisement moved; rendering did not. A future change that
+    stops building a category page is a different and larger decision, and
+    `/campaigns/category/<slug>` is still linked from the homepage grid for
+    every category that holds a campaign.
+  */
+  it('builds a static param for all 23, so none of the pages disappeared', () => {
+    const page = readFileSync(
+      join(SRC, 'app/campaigns/category/[category]/page.tsx'),
+      'utf8',
+    );
+    expect(page).toContain('ALL_CATEGORY_SLUGS.map(');
+    expect(page).toContain('generateStaticParams');
     expect(ALL_CATEGORY_SLUGS.length).toBe(23);
+  });
+
+  it('advertises categories from the live tally, not from the full list', () => {
+    // The sitemap must no longer map the whole list straight into URLs.
+    // Reading the source is enough HERE because the behavioural assertions
+    // live in `sitemap.test.ts`, which EXECUTES the route; this one only
+    // stops the reverted shape being restored by hand.
+    const sitemap = readFileSync(SITEMAP, 'utf8')
+      // The comment above the change necessarily quotes the old shape -
+      // `docs/116` §4's trap, met in this very file.
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/^\s*\/\/.*$/gm, ' ');
+    expect(sitemap).toContain('advertisedCategorySlugs(');
+    expect(sitemap).toContain('/campaigns/category/${slug}');
   });
 });
 

@@ -2,6 +2,15 @@
 
 **Date:** 2026-10-15
 **Status:** Accepted and implemented
+
+> ⚠️ **AMENDED 2026-11-03 — one decision here is REVERSED.** This document
+> argued that all 23 category landing pages stay in the sitemap even when
+> empty. Owner decision 2026-11-03 drops the empty ones; see `docs/169` §5.
+> The four reasons given here are preserved verbatim in `sitemap.ts` because
+> none was refuted — including the one that still costs us, that the
+> advertised set now flaps as campaigns open and close. Everything else in
+> this document (the login copy, the sitemap's `revalidate`, the wallet
+> permissions policy) is unaffected.
 **Supersedes / amends:** the `payment` directive in `docs/06` §7.2; the
 single-message login copy decided in `docs/32`
 **Related:** `docs/32` (enumeration controls), `docs/34`/`src/db/build-phase.ts`
