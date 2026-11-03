@@ -579,9 +579,38 @@ showed nothing; the category page then **healed at +5m30s** (3 reads, 1 card
 each). So IndexNow announces a page the sitemap has not yet caught up with,
 by design — IndexNow is the faster channel, which is the whole reason it exists.
 
-⚠️ **This is also the first live instance of the flapping `docs/169` §5
-accepted.** `family` was one of the 17 EMPTY categories this change stopped
-advertising; it now holds one campaign, so the sitemap should return to
-`total=35 campaign=9 category=7` once its hour expires. **That is a PREDICTION,
-not a measurement** — it was not observed, and the §5 invariant (advertised ⇒
-non-empty) is what it tests in the refill direction.
+✅ **§8.5 THE FLAP IS OBSERVED, and the §5 invariant holds in the refill
+direction.** `family` was one of the 17 EMPTY categories this change stopped
+advertising; it now holds one campaign. The prediction `total=35 campaign=9
+category=7` was recorded here before being measured, and at 11:56Z:
+
+| read | total | campaign | category | maksym |
+|---|---|---|---|---|
+| 1 | 33 | 8 | 6 | absent |
+| 2 | **35** | **9** | **7** | present |
+| 3–4 | 35 | 9 | 7 | present |
+
+⚠️ **Read 1 is why `docs/119`'s two-request rule exists.** Stale-while-
+revalidate served the expired entry and only *scheduled* the refresh, so a
+single read would have reported `33/8/6` and read as *"the sitemap never
+updated"*. The seventh category is `family`, as predicted.
+
+⚠️ **And the lag was ~24 minutes, not the ~60 this section implied**, because
+the ISR clock runs from when the cache ENTRY was generated — here around the
+v174 deploy — **not from the data change**. So "up to an hour" is the ceiling,
+and where in that hour a change lands is not something the change controls.
+
+The invariant was then checked both ways, with the sum as the control:
+
+- All **9** advertised campaign URLs answer **200**.
+- All **7** advertised category pages answer 200 and are non-empty, and their
+  card counts sum to exactly **9** — the live campaign count (`medical` holds
+  3, the other six hold 1 each).
+- CONTROL: `education`, `memorial` and `first-responders` answer **200 with 0
+  cards**. Advertisement moved; rendering did not, which is §5's central claim.
+
+⚠️ One of my own measurements was wrong first: `grep -c` counts matching
+LINES, and this HTML is minified, so it reported `cards=1` for every category
+including `medical`. `grep -o | sort -u | wc -l` gives the real counts. The
+non-empty half of the invariant survived either way; the sum control only
+works with the corrected count.
