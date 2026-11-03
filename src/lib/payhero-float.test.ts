@@ -172,6 +172,48 @@ describe('⛔ one predicate, two surfaces', () => {
     expect(cron).toMatch(/payhero-float/);
   });
 
+  it('⛔ the cooldown anchors on a DELIVERY, never on a row severity', () => {
+    /*
+      THE INVARIANT the drain-rate test above does not cover, and the one that
+      was missing when this job emailed once and then went quiet for three
+      days. [VERIFIED in production 2026-11-03] 20 runs at alert severity
+      produced ONE email while the balance fell 496.8 -> 372.0 KES.
+
+      This job writes an audit row on EVERY run, so a cooldown that reads a
+      row's SEVERITY is re-stamped by the job's own bookkeeping every hour -
+      at which point `cadence < cooldown`, asserted directly above as a
+      feature, becomes permanent suppression instead. The two tests only make
+      sense together.
+
+      Scoped to the cooldown QUERY, because `severity` is legitimately written
+      on the audit row further down the same file. Comments are stripped
+      first: the fix's own comment quotes the forbidden predicate in order to
+      explain it, which is `docs/116` §4's trap.
+    */
+    const rel = 'src/app/api/v1/cron/payhero-float/route.ts';
+    const cron = read(rel);
+
+    // Anti-vacuity: prove the stripper is actually removing something, or
+    // every assertion below passes against an empty string.
+    const raw = readFileSync(join(process.cwd(), rel), 'utf8');
+    expect(raw.length - cron.length).toBeGreaterThan(500);
+
+    const start = cron.indexOf('const [recent]');
+    expect(start, 'the cooldown query moved - re-read this test').toBeGreaterThan(-1);
+    const end = cron.indexOf('.limit(1)', start);
+    expect(end).toBeGreaterThan(start);
+    const cooldownQuery = cron.slice(start, end);
+
+    expect(cooldownQuery, 'the cooldown must not read a row severity').not.toMatch(/severity/);
+    expect(cooldownQuery, 'the cooldown must anchor on an email actually sent').toMatch(
+      /emailed/,
+    );
+
+    // Control: severity is still recorded ON the audit row, so this rule is
+    // about the cooldown's evidence source and not a ban on the column.
+    expect(cron, 'the audit row must still carry a severity').toMatch(/severity:/);
+  });
+
   it('and neither hardcodes the numbers the module owns', () => {
     for (const rel of [
       'src/app/api/v1/health/route.ts',

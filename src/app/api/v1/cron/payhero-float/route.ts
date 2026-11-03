@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { auditLogs } from '@/db/schema';
 import { verifyCronAuth } from '@/lib/cron-auth';
@@ -123,6 +123,35 @@ export async function GET(request: NextRequest) {
         separate store. `audit_logs` is indexed on both `event_type` and
         `timestamp` (`schema.ts:901-902`), so this is one indexed lookup, and
         it only runs when the float is actually low.
+
+        ⛔ THE ANCHOR IS A DELIVERY, NEVER AN OBSERVATION. This used to match
+        `severity IN ('warning','error')` - i.e. any row recording that the
+        float LOOKED low - and that defeated the cooldown completely, because
+        this job writes such a row on EVERY run. The job is hourly and the
+        cooldown is 6h, so each run re-stamped the window before the previous
+        stamp could expire.
+
+        The invariant that was missing, beside the drain-rate one in
+        `payhero-float.ts`:
+
+            the cooldown anchor must be an event that happens ONLY when an
+            email is actually sent
+
+        Otherwise `write interval < cooldown` permanently occupies the window,
+        and "cadence shorter than cooldown" - which this project deliberately
+        engineered and asserted in `payhero-float.test.ts` - inverts from a
+        feature into total suppression.
+
+        [VERIFIED in production 2026-11-03] before this change: 20 runs at
+        alert severity, ONE email, 18 of them carrying
+        `emailSkippedReason: "a low-float alert was already recorded within
+        6h"` while the balance fell 496.8 -> 372.0 KES over nine hours.
+
+        `details->'emailed'` is written by this same handler below and is a
+        jsonb NUMBER on every row that has it (verified across all 124
+        production rows; one older row omits the key and correctly reads as
+        NULL, i.e. not an anchor). The comparison is jsonb-to-jsonb with no
+        cast, so a missing or malformed value can never raise.
       */
       const since = new Date(Date.now() - LOW_FLOAT_EMAIL_COOLDOWN_HOURS * 3_600_000);
       const [recent] = await db
@@ -132,14 +161,14 @@ export async function GET(request: NextRequest) {
           and(
             eq(auditLogs.eventType, EVENT),
             gte(auditLogs.timestamp, since),
-            inArray(auditLogs.severity, ['warning', 'error']),
+            sql`(${auditLogs.details} -> 'emailed') > to_jsonb(0)`,
           ),
         )
         .orderBy(desc(auditLogs.timestamp))
         .limit(1);
 
       if (recent) {
-        emailSkippedReason = `a low-float alert was already recorded within ${LOW_FLOAT_EMAIL_COOLDOWN_HOURS}h`;
+        emailSkippedReason = `a low-float alert was already emailed within ${LOW_FLOAT_EMAIL_COOLDOWN_HOURS}h`;
       } else {
         const sent = await notifyAdminsPayHeroFloatLow({
           balanceKes: float.balanceKes,

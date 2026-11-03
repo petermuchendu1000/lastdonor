@@ -5,7 +5,7 @@
  *
  * The part of this job that can silently not work is the COOLDOWN, and it is a
  * SQL query: `eventType = …` AND `timestamp >= …` AND
- * `severity IN ('warning','error')`, ordered and limited. `docs/124` §5.1 is
+ * `(details->'emailed') > to_jsonb(0)`, ordered and limited. `docs/124` §5.1 is
  * the lesson - its route test mocked drizzle, and *"a mock cannot raise a
  * foreign-key or NOT NULL violation"*, so two branches that had never once
  * worked sat under a green suite. The same applies here in a milder form: a
@@ -21,7 +21,7 @@
  * row and the cooldown are real.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { auditLogs } from '@/db/schema';
 import { clearDatabase, seedUser } from '../../../../../../test/helpers';
@@ -194,6 +194,54 @@ describe('cron/payhero-float, against a real database', () => {
     expect(sent).toHaveLength(2);
   });
 
+  it('⛔ a float that STAYS low across consecutive hourly runs alerts AGAIN after the cooldown', async () => {
+    /*
+      THE PRODUCTION SYMPTOM, and the case no test above reaches: every one of
+      them calls the route exactly twice. The job runs HOURLY
+      (`cron-schedule.ts`, `cron: '0 * * * *'`) against a 6h cooldown, so the
+      question that matters is what happens on the seventh run - and the
+      answer used to be "nothing, ever".
+
+      [VERIFIED in production 2026-11-03] 20 runs at alert severity produced
+      exactly ONE email. Each hourly run wrote its own `warning` row, the old
+      severity-anchored cooldown read that row, and the window was re-stamped
+      before the previous stamp could expire. The balance fell 496.8 -> 372.0
+      KES over nine hours with the operator told once.
+
+      Anchoring on a DELIVERY fixes it: a suppressed run records `emailed: 0`,
+      which is not an anchor, so the window is governed by the last email and
+      expires on time.
+    */
+    const ageFloatRowsByOneHour = () =>
+      db
+        .update(auditLogs)
+        .set({ timestamp: sql`${auditLogs.timestamp} - interval '1 hour'` })
+        .where(eq(auditLogs.eventType, 'cron.payhero_float'));
+
+    await seedAdmin('ops1@example.test');
+    walletBalance = 100;
+
+    await callRoute();
+    expect(sent).toHaveLength(1);
+
+    /*
+      Hours 1-5 are inside the cooldown and must stay quiet. Each of these
+      runs writes its own `warning` row, which is exactly what used to
+      re-stamp the window - so this loop is the anti-regression half.
+    */
+    for (let hour = 1; hour <= 5; hour += 1) {
+      await ageFloatRowsByOneHour();
+      await callRoute();
+      expect(sent, `hour ${hour} is inside the cooldown and must stay quiet`).toHaveLength(1);
+    }
+
+    // Hour 6: the DELIVERED alert has now aged out, and the float is still
+    // low and still draining, so the operator must hear about it again.
+    await ageFloatRowsByOneHour();
+    await callRoute();
+    expect(sent, 'the alert must repeat once the cooldown has elapsed').toHaveLength(2);
+  });
+
   it('⚠️ a HEALTHY run writes an info row that does NOT suppress a later alert', async () => {
     /*
       The severity filter is what makes this true, and getting it wrong would
@@ -251,22 +299,28 @@ describe('cron/payhero-float, against a real database', () => {
 
   it('⛔ and a failed reading does NOT start the cooldown', async () => {
     /*
-      It writes `severity: 'error'`, which the cooldown query matches - so a
-      provider outage could suppress the next real alert. Asserted because the
-      behaviour is a trade-off worth knowing about rather than a mistake: an
-      alert suppressed for six hours after a failed read is better than one
-      mailed every hour during an outage, and the failure itself is on the
-      audit row either way.
+      This test's TITLE was always right and its assertions pinned the
+      opposite: it asserted `emailed: 0` and `/already recorded/`, i.e. that a
+      provider outage DOES suppress the next real alert, and called that an
+      acceptable trade-off.
+
+      It is not a trade-off, it is the defect. A failed read tells us nothing
+      about the float, so it must not consume the operator's one alert. Now
+      that the cooldown anchors on a DELIVERY rather than on a row's severity
+      (`route.ts`), a failed read writes no `emailed` count and therefore
+      cannot anchor anything.
     */
     await seedAdmin('ops1@example.test');
     walletThrows = new Error('PayHero timed out');
     await callRoute();
+    expect(sent).toHaveLength(0);
 
     walletThrows = null;
     walletBalance = 100;
     const { body } = await callRoute();
-    expect(body.data.emailed).toBe(0);
-    expect(body.data.emailSkippedReason).toMatch(/already recorded/);
+    expect(body.data.emailed).toBe(1);
+    expect(body.data.emailSkippedReason).toBeNull();
+    expect(sent).toHaveLength(1);
   });
 
   it('rejects a request with no cron secret', async () => {

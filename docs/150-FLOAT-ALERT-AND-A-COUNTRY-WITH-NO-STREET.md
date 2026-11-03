@@ -128,6 +128,50 @@ And the check runs hourly, which is **shorter** than the cooldown on purpose:
 otherwise the cadence silently becomes the real alert interval. A daily job
 could sleep through the entire nine-hour window.
 
+⛔ **AMENDMENT 2026-11-03 — THAT INVARIANT WAS NECESSARY AND NOT SUFFICIENT,
+and the gap took the alert out in production.**
+
+A second invariant was missing:
+
+    the cooldown's anchor must be an event that happens ONLY when an email
+    is actually sent
+
+The cooldown read `severity IN ('warning','error')`, and this job writes an
+audit row on **every** run. So while the float was low, each hourly run wrote
+its own `warning` row and re-stamped the 6-hour window before the previous
+stamp could expire. The two invariants interact, and that is the whole lesson:
+given an observation-anchored cooldown, *"cadence shorter than cooldown"* —
+engineered deliberately above, and asserted in `payhero-float.test.ts` —
+**inverts from a feature into total suppression.**
+
+[VERIFIED in production 2026-11-03] 20 runs at alert severity produced **one
+email**. Eighteen carry `emailSkippedReason: "a low-float alert was already
+recorded within 6h"`, and across those nine hours the balance fell
+**496.8 → 372.0 KES** with the operator told once, at 14:00:08. The `error`
+row from a failed wallet read suppressed alerts for the same reason — so the
+"accepted trade-off" in §A.8's test was the same defect wearing a different
+hat, not a separate decision.
+
+Fixed by anchoring on **delivery**: `(details->'emailed') > to_jsonb(0)`, a
+jsonb-to-jsonb comparison with no cast, so a missing or malformed value reads
+as NULL rather than raising. Verified against all **124** production rows:
+true for exactly the one delivered email, false for the 122 observations, NULL
+for the single row predating the field. The emitted SQL was read from a
+statement log rather than reasoned about (`docs/130`) — the column comes out
+**qualified** (`"audit_logs"."details"`), so `docs/101`'s trap does not apply
+here.
+
+⚠️ **Two tests held the defect in place**, which is `docs/109`'s shape for the
+third time in this codebase. `route.integration.test.ts`'s *"⛔ and a failed
+reading does NOT start the cooldown"* asserted that it **does**, and reasoned
+that it was an acceptable trade-off. And `payhero-float.test.ts`'s *"the check
+runs more often than the cooldown, so the cooldown governs volume"* asserted
+`1 < 6` **as the desired property** — a correct derivation from a false
+premise about what the cooldown reads. Both titles were right; both assertions
+pinned the opposite. The guard added alongside the fix is therefore scoped to
+the cooldown **query** and strips comments first, because the fix's own comment
+quotes the forbidden predicate in order to explain it (`docs/116` §4).
+
 ### A.6 ⚠️ EMAIL ONLY, which is a decision and not an omission
 
 `createAndEmail` always inserts an in-app notification, and **every value in
@@ -171,9 +215,17 @@ figures above exist only because somebody probed the wallet by hand. An hourly
 row makes the drain rate — currently one measurement — a thing that can be
 queried.
 
-⚠️ `severity` is load-bearing, because the cooldown reads it back: a healthy
+⚠️ ~~`severity` is load-bearing, because the cooldown reads it back: a healthy
 run writes `info` and therefore cannot suppress a later alert. If it counted,
-one healthy hourly run would mute the alert for six hours — i.e. forever.
+one healthy hourly run would mute the alert for six hours — i.e. forever.~~
+
+**SUPERSEDED 2026-11-03 — see the amendment in §A.5.** That reasoning was
+right about `info` and wrong about `warning`, and reasoning only about the
+healthy case is exactly how the defect survived review. The cooldown no longer
+reads `severity` at all: reading it meant every hourly **low** run muted the
+next one, which is the same "forever" this paragraph was written to prevent,
+arrived at from the other direction. The row still carries a severity and it is
+still the field an operator scans, but it anchors nothing.
 
 ### A.8 The checks, and the three defects the ratchets caught in my own work
 
