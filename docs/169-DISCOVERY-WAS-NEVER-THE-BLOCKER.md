@@ -657,8 +657,22 @@ Verified after, against a baseline taken first (sitemap `35/9/7`, both rows
 `live_published` 9 → **10**, `under_review` 14 → **13**, human rows left: **1**.
 
 ⚠️ The sitemap is expected to reach `36/10/7` — `emergency` is already among
-the advertised 7, so no category moves. **Not measured**, and §8.5 is the
-reason to measure it with two reads rather than one.
+the advertised 7, so no category moves.
+
+✅ **And checking it at 12:14Z sharpened §8.5's rule.** Four reads all answered
+`35/9/7` with John **absent** and Maksym present — not a defect, and the
+mechanism is the point: **the ISR clock runs from the cache ENTRY's age, not
+from the change's age.** The entry regenerated at ~11:56 (§8.5 read 2), so its
+hour runs to ~12:56, and John's approval at 12:06 landed *ten minutes into a
+fresh entry's life*. Maksym's landed late in an old entry's life and appeared
+in ~24 minutes; John's waits ~50. One cause, two lags, and neither is "an hour
+after you changed the data".
+
+⚠️ **The sitemap's own contents DATE the cache entry**, which is the cheap way
+to tell "not yet" from "broken": Maksym (11:32) present and John (12:06)
+absent brackets the generation between those two times. And four IDENTICAL
+reads are themselves evidence the window is still open — an expired entry
+gives stale-then-fresh, as it did at 11:56.
 
 ⚠️ Two of my own probes failed first and both read as absence: a greedy
 `<script[\s\S]*?</script>` written as `<script.*</script>` swallowed the entire
