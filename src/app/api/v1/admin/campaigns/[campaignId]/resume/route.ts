@@ -6,6 +6,8 @@ import { eq } from 'drizzle-orm';
 import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { resumeCampaignSchema } from '@/lib/validators/verification';
 import { notifyCampaignResumed } from '@/lib/notifications';
+import { campaignPublicationUrls } from '@/lib/indexnow';
+import { submitUrlsToIndexNow } from '@/lib/indexnow.server';
 import { randomUUID } from 'crypto';
 import type { ApiError } from '@/types/api';
 import type { UserRole } from '@/types';
@@ -129,6 +131,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }).catch((err) => console.error('[campaign.resumed] notification error:', err));
 
     revalidatePath(`/campaigns/${campaign.slug}`);
+
+    /*
+      A resume can be a FIRST publication - a campaign reaches `paused`
+      without ever having been public, which is why `publishedAt` is stamped
+      here at all (see the comment above it). When it is, the page is new to
+      every crawler and IndexNow should hear about it on the same terms as an
+      approval. When it is not, the campaign was already announced.
+    */
+    if (isFirstPublication) {
+      submitUrlsToIndexNow(campaignPublicationUrls(campaign.slug ?? ''), {
+        campaignId,
+        reason: 'campaign.resumed',
+      }).catch((err) => console.error('[campaign.resumed] indexnow error:', err));
+    }
+
     return NextResponse.json({ ok: true, data: { id: campaignId, status: 'active' } });
   } catch (error) {
     if (error instanceof UnauthorizedError) {

@@ -7,6 +7,8 @@ import { requireRole, UnauthorizedError, ForbiddenError } from '@/lib/auth';
 import { notifyCampaignStatusChange, notifyWelcomeCampaigner } from '@/lib/notifications';
 import { randomUUID } from 'crypto';
 import { DEFAULT_CURRENCY } from '@/lib/money/currencies';
+import { campaignPublicationUrls } from '@/lib/indexnow';
+import { submitUrlsToIndexNow } from '@/lib/indexnow.server';
 import type { ApiError } from '@/types/api';
 import type { CampaignStatus, UserRole } from '@/types';
 
@@ -242,6 +244,32 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     revalidatePath(`/campaigns/${campaign.slug}`);
     revalidatePath('/campaigns');
     revalidatePath('/');
+
+    /*
+      Tell the IndexNow engines the page exists.
+
+      The URL set is `campaignPublicationUrls`, which is deliberately the
+      same three paths purged immediately above: the pages whose cached HTML
+      we have just invalidated are exactly the pages whose content a crawler
+      now holds a stale copy of.
+
+      ⛔ First publication only. A later status change also alters these
+      pages, and submitting those is defensible, but the defect being fixed
+      is that a NEW campaign was announced to nobody - `docs/167`'s scope
+      rule. The wider case is recorded as unchecked rather than assumed.
+
+      Not awaited, and `.catch` is still required: `submitUrlsToIndexNow`
+      resolves on every path, so this guards against an unforeseen throw
+      becoming an unhandled rejection, matching the two notification calls
+      above. Google is NOT reached by this - it does not participate in
+      IndexNow; its channel is the sitemap.
+    */
+    if (isFirstPublication) {
+      submitUrlsToIndexNow(campaignPublicationUrls(campaign.slug), {
+        campaignId,
+        reason: 'campaign.published',
+      }).catch((err) => console.error('[campaign.published] indexnow error:', err));
+    }
 
     return NextResponse.json({ ok: true, data: { id: campaignId, status: newStatus } });
   } catch (error) {

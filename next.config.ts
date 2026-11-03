@@ -346,6 +346,51 @@ const nextConfig: NextConfig = {
         },
       ],
     },
+    /*
+      ── Duplicate hostnames must not be indexed ───────────────────────────
+      `docs/142` §7 reported that `origin.lastdonor.org` and
+      `lastdonor.fly.dev` each serve the WHOLE site at 200 with
+      `index, follow` and no `X-Robots-Tag`, and it stayed open.
+      [VERIFIED live 2026-11-03] all four hostnames - apex, `www`, `origin.`
+      and `lastdonor.fly.dev` - answered 200 with `index, follow`.
+
+      Google Search Console then measured the cost: **6 URLs** sit under
+      "Alternative page with proper canonical tag". The canonical IS working
+      - that is what that bucket means - so nothing is being indexed wrongly.
+      What it costs is crawl budget, on a domain that has very little: of 60
+      URLs Google knows here, zero are indexed.
+
+      ⛔ NOT a redirect, and this is the constraint that decides the
+      mechanism. `docs/66`'s cron Worker targets `lastdonor.fly.dev`
+      specifically to dodge Cloudflare's 100s proxy ceiling, and
+      `origin.lastdonor.org` is grey-clouded on purpose (`docs/105`) to keep
+      a non-proxied path to the origin. Redirecting either to the apex breaks
+      both. `noindex` removes them from search while leaving them reachable.
+
+      ⛔ `www` is deliberately NOT here. It is a conventional alias that
+      Cloudflare proxies (`docs/105` §7), and de-indexing it is a different
+      decision from de-indexing two internal hostnames. Reported, not taken.
+
+      ⚠️ The blast radius if a host pattern is wrong is the apex going
+      `noindex`, which is the exact opposite of the goal. Two independent
+      guards: the dots are escaped, so neither pattern can match
+      `lastdonor.org` whether or not Next anchors the regex; and
+      `next-config-noindex-hosts.test.ts` runs the real matcher from the real
+      config over every hostname this deployment answers on, with the apex as
+      a must-NOT-match control.
+
+      `has` entries are ANDed, so one rule per host.
+    */
+    {
+      source: "/:path*",
+      has: [{ type: "host" as const, value: "origin\\.lastdonor\\.org" }],
+      headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+    },
+    {
+      source: "/:path*",
+      has: [{ type: "host" as const, value: "lastdonor\\.fly\\.dev" }],
+      headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+    },
     {
       // Immutable static assets (hashed filenames)
       source: "/_next/static/:path*",
