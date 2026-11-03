@@ -656,8 +656,22 @@ Verified after, against a baseline taken first (sitemap `35/9/7`, both rows
 
 `live_published` 9 → **10**, `under_review` 14 → **13**, human rows left: **1**.
 
-⚠️ The sitemap is expected to reach `36/10/7` — `emergency` is already among
-the advertised 7, so no category moves.
+✅ **The sitemap reached `36/10/7` at 12:57Z, as predicted** — `emergency` was
+already among the advertised 7, so no category moved. Five reads:
+
+| read | total | campaign | category | john | placeholder |
+|---|---|---|---|---|---|
+| 1 | 35 | 9 | 7 | absent | absent |
+| 2–5 | **36** | **10** | **7** | present | **absent** |
+
+All **10** advertised campaign URLs answer **200**. The placeholder is the
+control and holds on both ends: **0** occurrences in the sitemap and **404**
+on its page, across every read — so one row was published and the other was
+not, which is the claim §8.6 makes.
+
+⚠️ Read 1 was stale AGAIN, the third time in one day. The entry regenerated at
+~11:56 and expired at ~12:56; the first read at 12:57:33 caught the old copy
+and only scheduled the refresh. **Treat a single sitemap read as worthless.**
 
 ✅ **And checking it at 12:14Z sharpened §8.5's rule.** Four reads all answered
 `35/9/7` with John **absent** and Maksym present — not a defect, and the
