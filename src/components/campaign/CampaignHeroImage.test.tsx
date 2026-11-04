@@ -1,10 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * ⛔ What a CRAWLER sees, which is the whole reason this component changed.
+ *
+ * The previous version of this file asserted, as its first test, that the
+ * stored image renders on initial load - with
+ * `src: 'https://example.com/hero.jpg'`. That was the defect written down as
+ * desired behaviour (`docs/109`'s shape, and `docs/150`'s): it pinned the
+ * stock photograph in place while the fallback it tested, which only ever ran
+ * in a browser, was invisible to the crawler that mattered.
+ *
+ * So these assertions are about the FIRST render, not the error path.
+ */
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CampaignHeroImage } from './CampaignHeroImage';
+import { CATEGORY_CONTENT } from '@/lib/category-content';
 
-// ─── Mocks ─────────────────────────────────────────────────────────────────
-
-// Mock next/image so we can test onError without real image loading
 vi.mock('next/image', () => ({
   default: (props: Record<string, unknown>) => {
     const { fill, onError, ...rest } = props;
@@ -19,40 +29,60 @@ vi.mock('next/image', () => ({
   },
 }));
 
-// Mock the fallback pool with deterministic data
-vi.mock('@/lib/campaign-fallback-pool', () => ({
-  getCampaignFallback: (category: string, _seed: string) => {
-    if (category === 'empty-category') return null;
-    return {
-      url: `https://images.unsplash.com/mock-${category}?w=800`,
-      attribution: `Photo by Mock on Unsplash`,
-    };
-  },
-}));
+const SUPABASE = 'https://vavxdjqufxrsbyohcwdh.supabase.co';
+const UPLOAD = `${SUPABASE}/storage/v1/object/public/media/campaign-photos/59171bbc.jpg`;
+const STOCK = 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=800';
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
-describe('CampaignHeroImage', () => {
-  const defaultProps = {
-    src: 'https://example.com/hero.jpg',
-    alt: 'Test Campaign Title',
-    category: 'medical',
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('renders the original image source on initial load', () => {
-    render(<CampaignHeroImage {...defaultProps} />);
-    const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('src', 'https://example.com/hero.jpg');
-  });
-
-  it('passes alt, fill, sizes, priority, and className to Image', () => {
+describe('CampaignHeroImage, on the first render', () => {
+  it('⛔ a stored stock photo is ALREADY the panel, with no error needed', () => {
     render(
       <CampaignHeroImage
-        {...defaultProps}
+        src={STOCK}
+        alt="Keisha Wallace Fights to Keep Her Four Kids Off Atlanta Streets"
+        category="medical"
+      />,
+    );
+    const img = screen.getByRole('img');
+    expect(img).toHaveAttribute('src', '/images/categories/medical-panel.webp');
+    // The crawler must never be handed the stock URL at all.
+    expect(img.getAttribute('src')).not.toContain('unsplash');
+  });
+
+  it('⛔ and it is not captioned with the named person\'s crisis', () => {
+    render(
+      <CampaignHeroImage
+        src={STOCK}
+        alt="Keisha Wallace Fights to Keep Her Four Kids Off Atlanta Streets"
+        category="medical"
+      />,
+    );
+    expect(screen.getByRole('img')).toHaveAttribute('alt', 'LastDonor Medical campaign');
+  });
+
+  it('⚠️ CONTROL: an organiser\'s own photo renders, and keeps the campaign title', () => {
+    /*
+      Without this the fix would be satisfied by "show a panel always", which
+      would delete the two real photographs the platform has.
+    */
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', SUPABASE);
+    render(
+      <CampaignHeroImage src={UPLOAD} alt="Help John Recover After a Car Accident" category="medical" />,
+    );
+    const img = screen.getByRole('img');
+    expect(img).toHaveAttribute('src', UPLOAD);
+    expect(img).toHaveAttribute('alt', 'Help John Recover After a Car Accident');
+  });
+
+  it('passes fill, sizes, priority and className through', () => {
+    render(
+      <CampaignHeroImage
+        src={STOCK}
+        alt="T"
+        category="medical"
         fill
         sizes="100vw"
         priority
@@ -60,138 +90,59 @@ describe('CampaignHeroImage', () => {
       />,
     );
     const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('alt', 'Test Campaign Title');
     expect(img).toHaveAttribute('data-fill', 'true');
     expect(img).toHaveAttribute('sizes', '100vw');
     expect(img).toHaveAttribute('class', 'object-cover');
   });
+});
 
-  // ─── Tier 1: Unsplash/Pexels fallback ──────────────────────────────────
-
-  it('switches to Unsplash fallback (tier 1) on first error', () => {
-    render(<CampaignHeroImage {...defaultProps} />);
+describe('the error path, which is now only for a real photo that 404s', () => {
+  it('a deleted organiser photo falls back to the panel', () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', SUPABASE);
+    render(<CampaignHeroImage src={UPLOAD} alt="Gone" category="memorial" />);
     const img = screen.getByRole('img');
+    expect(img).toHaveAttribute('src', UPLOAD);
 
     fireEvent.error(img);
 
-    expect(img).toHaveAttribute(
+    expect(img).toHaveAttribute('src', '/images/categories/memorial-panel.webp');
+    expect(img).toHaveAttribute('alt', 'LastDonor Memorial campaign');
+  });
+
+  it('does not loop once the panel is showing', () => {
+    render(<CampaignHeroImage src={STOCK} alt="T" category="medical" />);
+    const img = screen.getByRole('img');
+    const first = img.getAttribute('src');
+
+    fireEvent.error(img);
+    fireEvent.error(img);
+
+    expect(img).toHaveAttribute('src', first!);
+  });
+
+  it('an unknown category uses the community panel', () => {
+    render(<CampaignHeroImage src={STOCK} alt="T" category="not-real" />);
+    expect(screen.getByRole('img')).toHaveAttribute(
       'src',
-      'https://images.unsplash.com/mock-medical?w=800',
+      '/images/categories/community-panel.webp',
     );
   });
 
-  it('uses the category to select the correct pool', () => {
-    render(<CampaignHeroImage {...defaultProps} category="memorial" />);
-    const img = screen.getByRole('img');
-
-    fireEvent.error(img);
-
-    expect(img).toHaveAttribute(
+  it('defaults to community when no category is given', () => {
+    render(<CampaignHeroImage src={STOCK} alt="T" />);
+    expect(screen.getByRole('img')).toHaveAttribute(
       'src',
-      'https://images.unsplash.com/mock-memorial?w=800',
+      '/images/categories/community-panel.webp',
     );
   });
+});
 
-  // ─── Tier 2: Local hero.webp fallback ──────────────────────────────────
-
-  it('switches to local hero.webp (tier 2) on double error', () => {
-    render(<CampaignHeroImage {...defaultProps} />);
-    const img = screen.getByRole('img');
-
-    // First error -> tier 1 (Unsplash)
-    fireEvent.error(img);
-    expect(img.getAttribute('src')).toContain('unsplash.com');
-
-    // Second error -> tier 2 (local webp)
-    fireEvent.error(img);
-    expect(img).toHaveAttribute('src', '/images/categories/medical-hero.webp');
-  });
-
-  it('does not change src after tier 2 (no infinite loop)', () => {
-    render(<CampaignHeroImage {...defaultProps} />);
-    const img = screen.getByRole('img');
-
-    fireEvent.error(img); // -> tier 1
-    fireEvent.error(img); // -> tier 2
-    const tier2Src = img.getAttribute('src');
-
-    fireEvent.error(img); // -> no change
-    expect(img).toHaveAttribute('src', tier2Src!);
-  });
-
-  // ─── Empty pool → skip to tier 2 ──────────────────────────────────────
-
-  it('skips to local hero.webp when pool returns null', () => {
-    render(
-      <CampaignHeroImage
-        {...defaultProps}
-        category={'empty-category' as string}
-      />,
+describe('every category renders its own panel', () => {
+  it.each(CATEGORY_CONTENT.map((c) => c.slug))('%s', (slug) => {
+    render(<CampaignHeroImage src={STOCK} alt="T" category={slug} />);
+    expect(screen.getByRole('img')).toHaveAttribute(
+      'src',
+      `/images/categories/${slug}-panel.webp`,
     );
-    const img = screen.getByRole('img');
-
-    fireEvent.error(img);
-
-    // Should skip tier 1 and go straight to tier 2
-    expect(img).toHaveAttribute('src', '/images/categories/community-hero.webp');
   });
-
-  // ─── Unknown category defaults ─────────────────────────────────────────
-
-  it('defaults to community category when no category is provided', () => {
-    render(<CampaignHeroImage src="https://example.com/hero.jpg" alt="No Cat" />);
-    const img = screen.getByRole('img');
-
-    fireEvent.error(img);
-
-    expect(img.getAttribute('src')).toContain('mock-community');
-  });
-
-  it('uses community hero.webp for unknown categories at tier 2', () => {
-    render(
-      <CampaignHeroImage
-        {...defaultProps}
-        category={'empty-category' as string}
-      />,
-    );
-    const img = screen.getByRole('img');
-
-    // empty-category -> pool null -> straight to webp
-    fireEvent.error(img);
-
-    // Unknown category falls back to community
-    expect(img).toHaveAttribute('src', '/images/categories/community-hero.webp');
-  });
-
-  // ─── All 23 categories resolve to valid hero.webp paths ───────────────
-
-  const ALL_CATEGORIES = [
-    'medical', 'disaster', 'military', 'veterans', 'memorial',
-    'first-responders', 'community', 'essential-needs', 'emergency',
-    'charity', 'education', 'animal', 'environment', 'business',
-    'competition', 'creative', 'event', 'faith', 'family',
-    'sports', 'travel', 'volunteer', 'wishes',
-  ];
-
-  it.each(ALL_CATEGORIES)(
-    'category "%s" falls back to correct hero.webp path at tier 2',
-    (category) => {
-      render(
-        <CampaignHeroImage
-          src="https://broken.example.com/img.jpg"
-          alt="Test"
-          category={category}
-        />,
-      );
-      const img = screen.getByRole('img');
-
-      fireEvent.error(img); // tier 0 -> tier 1
-      fireEvent.error(img); // tier 1 -> tier 2
-
-      expect(img).toHaveAttribute(
-        'src',
-        `/images/categories/${category}-hero.webp`,
-      );
-    },
-  );
 });

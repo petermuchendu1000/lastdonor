@@ -32,6 +32,40 @@ const card = (over: Partial<Parameters<typeof ogCardModel>[0]> = {}) =>
     ...over,
   });
 
+describe('⛔ the share card never shows a stranger either', () => {
+  /*
+    `resolveHeroSrc` answers a FORMAT question - can Satori decode these
+    bytes - and an Unsplash URL passes it happily, so the share card showed
+    the same photograph of somebody else that the listing did. The
+    provenance decision lives in `ogCardModel`, and nothing asserted
+    `heroSrc` at all before these tests, so the change had no check on it.
+
+    ⚠️ BOTH branches, deliberately: `ogCardModel` returns from two places
+    (the raised-nothing card and the funded one), so a test that drove only
+    one would pass against a miss in the other.
+  */
+  const UPLOAD =
+    'https://vavxdjqufxrsbyohcwdh.supabase.co/storage/v1/object/public/media/campaign-photos/a.jpg';
+  const STOCK = 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=800';
+
+  it('refuses a stock photo on the raised-nothing card', () => {
+    expect(card({ raisedMinor: 0, heroImageUrl: STOCK }).heroSrc).toBeNull();
+  });
+
+  it('refuses a stock photo on the funded card too', () => {
+    expect(card({ raisedMinor: 120_000, donorCount: 3, heroImageUrl: STOCK }).heroSrc).toBeNull();
+  });
+
+  it('⚠️ CONTROL: an organiser\'s own photo still reaches the card, both branches', () => {
+    // Otherwise "always null" satisfies the two rules above and every share
+    // card loses its photograph.
+    expect(card({ raisedMinor: 0, heroImageUrl: UPLOAD }).heroSrc).toBe(UPLOAD);
+    expect(card({ raisedMinor: 120_000, donorCount: 3, heroImageUrl: UPLOAD }).heroSrc).toBe(
+      UPLOAD,
+    );
+  });
+});
+
 describe('resolveHeroSrc - the two shapes that answered 502', () => {
   it('⛔ refuses an SVG, which Satori cannot render through <img>', () => {
     // harold-jennings and david-l-jones, 2 of 14 live campaigns, 2026-10-25.

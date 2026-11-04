@@ -1,4 +1,5 @@
 import { formatMoney } from '@/lib/money/format';
+import { isOrganiserPhoto } from '@/lib/campaign-hero';
 import type { DonationPhase } from '@/types';
 
 /**
@@ -146,6 +147,22 @@ export async function probeHeroSrc(
 export function ogCardModel(input: OgCardInput): OgCardModel {
   const { raisedMinor, goalMinor, currency, donorCount, phase } = input;
 
+  /*
+    PROVENANCE FIRST, FORMAT SECOND. These are different questions and
+    `resolveHeroSrc` only answers the second one - it asks whether Satori can
+    decode the bytes, and an Unsplash URL passes that happily. So the share
+    card showed the same stranger the listing did: a toddler with a toy
+    camera for a mother of four facing homelessness. See
+    `src/lib/campaign-hero.ts`.
+
+    ⛔ `null` here, NOT the category panel. A panel is `.webp`, which this
+    renderer cannot decode, and the OG route already has a designed fallback
+    built for 1200x630. Passing the panel would hand it an image that throws
+    mid-stream, which is the `docs/112` §7 502.
+  */
+  const ownHero = isOrganiserPhoto(input.heroImageUrl) ? input.heroImageUrl : null;
+  const heroSrc = resolveHeroSrc(ownHero, input.baseUrl);
+
   const barPercent =
     goalMinor > 0 ? Math.min(Math.round((raisedMinor / goalMinor) * 100), 100) : 0;
 
@@ -160,7 +177,7 @@ export function ogCardModel(input: OgCardInput): OgCardModel {
   */
   if (raisedMinor <= 0) {
     return {
-      heroSrc: resolveHeroSrc(input.heroImageUrl, input.baseUrl),
+      heroSrc,
       headline: 'Be the first to donate',
       subline: goalText,
       barPercent: 0,
@@ -172,7 +189,7 @@ export function ogCardModel(input: OgCardInput): OgCardModel {
   const urgency = URGENT_PHASES.has(phase) ? `  ·  ${URGENT_LABELS[phase]}` : '';
 
   return {
-    heroSrc: resolveHeroSrc(input.heroImageUrl, input.baseUrl),
+    heroSrc,
     headline: `${formatMoney(raisedMinor, currency)} raised`,
     subline: `of ${goalText}  ·  ${donors}${urgency}`,
     barPercent,

@@ -2,26 +2,32 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { getCampaignFallback } from '@/lib/campaign-fallback-pool';
+import { resolveCampaignHero } from '@/lib/campaign-hero';
 
 /**
- * All 23 campaign categories have a matching hero.webp in public/images/categories/.
- * This is the last-resort fallback (tier 2) -- local, guaranteed to load.
+ * The image at the top of a campaign card or page.
+ *
+ * ⛔ The choice of image is made by `resolveCampaignHero` DURING RENDER, not
+ * in `onError`. This component used to fall back to a curated stock photo
+ * when the stored image failed to load, and that swap ran only in a browser
+ * - so a crawler, which reads the server-rendered HTML, never saw it. Every
+ * stock URL Google would have indexed came straight from the database, and
+ * 8 of 10 live campaigns were a photograph of somebody who is not the person
+ * named beside them. See `src/lib/campaign-hero.ts` for the decision and
+ * `docs/141` §5 for the question it answers.
+ *
+ * What is left here is a genuine error path: a photograph the organiser DID
+ * supply can still 404 if it is deleted from storage, and the panel is the
+ * same last resort it always was.
+ *
+ * ⚠️ `alt` is the CAMPAIGN TITLE, not the final accessible name. When a panel
+ * is shown the resolver renames it, because a teal graphic captioned with a
+ * named person's crisis is the same inaccuracy one layer down.
  */
-const CATEGORIES_WITH_HERO_WEBP = new Set([
-  'medical', 'disaster', 'military', 'veterans', 'memorial', 'first-responders',
-  'community', 'essential-needs', 'emergency', 'charity', 'education', 'animal',
-  'environment', 'business', 'competition', 'creative', 'event', 'faith',
-  'family', 'sports', 'travel', 'volunteer', 'wishes',
-]);
-
-function getHeroWebpPath(category: string): string {
-  const safe = CATEGORIES_WITH_HERO_WEBP.has(category) ? category : 'community';
-  return `/images/categories/${safe}-hero.webp`;
-}
-
 interface CampaignHeroImageProps {
+  /** The stored `hero_image_url`. May be empty, relative, or an external URL. */
   src: string;
+  /** The campaign title. */
   alt: string;
   category?: string;
   fill?: boolean;
@@ -30,15 +36,6 @@ interface CampaignHeroImageProps {
   className?: string;
 }
 
-/**
- * Campaign hero image with a three-tier fallback chain:
- *
- *   Tier 0 -> Original external URL (happy path)
- *   Tier 1 -> Unsplash/Pexels stock photo from curated pool
- *             (deterministic per campaign title, emotionally matched to category)
- *   Tier 2 -> Local /images/categories/{cat}-hero.webp
- *             (guaranteed to load, zero network dependency)
- */
 export function CampaignHeroImage({
   src,
   alt,
@@ -48,38 +45,27 @@ export function CampaignHeroImage({
   priority,
   className,
 }: CampaignHeroImageProps) {
-  const [tier, setTier] = useState(0);
-  const [imgSrc, setImgSrc] = useState(src);
+  const resolved = resolveCampaignHero({ heroImageUrl: src, category, title: alt });
+  /** Passing no image always yields the panel, so there is one decider for both. */
+  const panel = resolveCampaignHero({ heroImageUrl: null, category, title: alt });
 
-  const handleError = () => {
-    if (tier === 0) {
-      // Tier 0 failed -> try Unsplash/Pexels from curated pool
-      const fallback = getCampaignFallback(category, alt);
-      if (fallback) {
-        setTier(1);
-        setImgSrc(fallback.url);
-      } else {
-        // Pool empty for this category -> skip to local webp
-        setTier(2);
-        setImgSrc(getHeroWebpPath(category));
-      }
-    } else if (tier === 1) {
-      // Tier 1 (stock photo) also failed -> use local webp
-      setTier(2);
-      setImgSrc(getHeroWebpPath(category));
-    }
-    // Tier 2 is a local static asset; if it fails there is nothing else to try
-  };
+  /*
+    Keyed by the src that failed rather than a boolean, so a new `src` (a
+    client-side navigation, or a card appended by Load more) is retried
+    instead of inheriting the previous card's failure.
+  */
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const shown = failedSrc === resolved.src ? panel : resolved;
 
   return (
     <Image
-      src={imgSrc}
-      alt={alt}
+      src={shown.src}
+      alt={shown.alt}
       fill={fill}
       sizes={sizes}
       priority={priority}
       className={className}
-      onError={handleError}
+      onError={() => setFailedSrc(resolved.src)}
     />
   );
 }
