@@ -9,6 +9,7 @@ import { Money } from '@/components/ui/Money';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { publicCampaignPath } from '@/lib/campaign-links';
+import { resolveCampaignHero } from '@/lib/campaign-hero';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -110,18 +111,32 @@ export default async function SupportedCampaignsPage() {
             return (
               <Card key={c.campaignId} className="overflow-hidden">
                 <CardContent className="p-0">
-                  {c.heroImageUrl && (
-                    <div className="relative aspect-[16/9] overflow-hidden bg-muted">
-                      <Image
-                        src={c.heroImageUrl}
-                        alt={c.title}
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 768px) 100vw, 33vw"
-                        unoptimized
-                      />
-                    </div>
-                  )}
+                  {(() => {
+                    /*
+                      Resolved, never the stored column: for most campaigns
+                      `hero_image_url` is still the third-party photograph the
+                      public page stopped rendering (`docs/170`), and a donor
+                      reading "campaigns you supported" would see a stranger
+                      under the beneficiary's name.
+                    */
+                    const hero = resolveCampaignHero({
+                      heroImageUrl: c.heroImageUrl,
+                      category: c.category,
+                      title: c.title,
+                    });
+                    return (
+                      <div className="relative aspect-[16/9] overflow-hidden bg-muted">
+                        <Image
+                          src={hero.src}
+                          alt={hero.alt}
+                          fill
+                          className="object-cover"
+                          sizes="(max-width: 768px) 100vw, 33vw"
+                          unoptimized
+                        />
+                      </div>
+                    );
+                  })()}
                   <div className="p-4">
                     {publicHref ? (
                       <Link

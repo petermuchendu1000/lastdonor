@@ -19,7 +19,8 @@ interface Subscription {
     then hands you a 404.
   */
   campaignHref: string | null;
-  campaignHeroImageUrl: string;
+  campaignHeroSrc: string;
+  campaignHeroAlt: string;
   campaignRaisedFormatted: string;
   campaignGoalFormatted: string;
   subscribedAt: string;
@@ -93,8 +94,8 @@ export function SubscriptionsClient({ email, initialSubscriptions }: Subscriptio
             {sub.campaignHref ? (
               <Link href={sub.campaignHref} className="shrink-0">
                 <Image
-                  src={sub.campaignHeroImageUrl}
-                  alt={sub.campaignTitle}
+                  src={sub.campaignHeroSrc}
+                  alt={sub.campaignHeroAlt}
                   width={80}
                   height={52}
                   className="h-[52px] w-[80px] rounded-lg object-cover"
@@ -102,8 +103,8 @@ export function SubscriptionsClient({ email, initialSubscriptions }: Subscriptio
               </Link>
             ) : (
               <Image
-                src={sub.campaignHeroImageUrl}
-                alt={sub.campaignTitle}
+                src={sub.campaignHeroSrc}
+                alt={sub.campaignHeroAlt}
                 width={80}
                 height={52}
                 className="h-[52px] w-[80px] shrink-0 rounded-lg object-cover"

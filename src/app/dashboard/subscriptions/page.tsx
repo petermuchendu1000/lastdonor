@@ -4,6 +4,7 @@ import { donorCampaignSubscriptions, campaigns, users } from '@/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { formatMoney } from '@/lib/money/format';
 import { publicCampaignPath } from '@/lib/campaign-links';
+import { resolveCampaignHero } from '@/lib/campaign-hero';
 import { SubscriptionsClient } from './client';
 import type { Metadata } from 'next';
 
@@ -44,6 +45,14 @@ export default async function SubscriptionsPage() {
         a select that already runs - never a new query (`docs/87`).
       */
       campaignPublishedAt: campaigns.publishedAt,
+      /*
+        Both ride the select that already runs (`docs/87`). The stored column
+        is NOT what gets rendered: `resolveCampaignHero` needs the category to
+        pick a panel, because for most campaigns `hero_image_url` still holds
+        the third-party photograph the public page stopped showing
+        (`docs/170`).
+      */
+      campaignCategory: campaigns.category,
       campaignHeroImageUrl: campaigns.heroImageUrl,
       campaignRaisedAmount: campaigns.raisedAmount,
       campaignGoalAmount: campaigns.goalAmount,
@@ -61,7 +70,13 @@ export default async function SubscriptionsPage() {
     )
     .orderBy(desc(donorCampaignSubscriptions.createdAt));
 
-  const serialized = subs.map((s) => ({
+  const serialized = subs.map((s) => {
+    const hero = resolveCampaignHero({
+      heroImageUrl: s.campaignHeroImageUrl,
+      category: s.campaignCategory,
+      title: s.campaignTitle,
+    });
+    return {
     id: s.id,
     campaignSlug: s.campaignSlug,
     campaignTitle: s.campaignTitle,
@@ -79,7 +94,13 @@ export default async function SubscriptionsPage() {
       status: s.campaignStatus,
       publishedAt: s.campaignPublishedAt,
     }),
-    campaignHeroImageUrl: s.campaignHeroImageUrl,
+    /*
+      Resolved HERE, like `campaignHref` and the money strings above: this
+      page serialises finished values to its client component, so the raw
+      third-party URL never reaches the browser at all.
+    */
+    campaignHeroSrc: hero.src,
+    campaignHeroAlt: hero.alt,
     /*
       `formatMoney`, not `<Money>`: this page serialises STRINGS to its client
       component, so the figure has to be formatted here.
@@ -87,7 +108,8 @@ export default async function SubscriptionsPage() {
     campaignRaisedFormatted: formatMoney(s.campaignRaisedAmount, s.campaignCurrency, 'exact'),
     campaignGoalFormatted: formatMoney(s.campaignGoalAmount, s.campaignCurrency, 'exact'),
     subscribedAt: s.createdAt.toISOString(),
-  }));
+    };
+  });
 
   return (
     <div>

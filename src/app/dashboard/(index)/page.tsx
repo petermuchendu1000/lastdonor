@@ -18,6 +18,7 @@ import {
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { IdentityReturnNotice } from '@/components/dashboard/IdentityReturnNotice';
+import { resolveCampaignHero } from '@/lib/campaign-hero';
 
 export const metadata: Metadata = {
   title: 'Dashboard - LastDonor.org',
@@ -61,6 +62,15 @@ async function getDashboardData(userId: string, userEmail: string) {
         publishedAt: campaigns.publishedAt,
         // Needed to name the raise cap in the organiser's own money.
         currency: campaigns.currency,
+        /*
+          `heroImageUrl` is the STORED column, which for most campaigns is
+          still the third-party photograph the page no longer shows. It is
+          resolved through `resolveCampaignHero` before rendering - never
+          passed to `<Image>` directly (`docs/170`). `category` rides the
+          select that already runs, because the resolver needs it to pick a
+          panel; never a new query (`docs/87`).
+        */
+        category: campaigns.category,
         heroImageUrl: campaigns.heroImageUrl,
         updatedAt: campaigns.updatedAt,
       })
@@ -241,22 +251,25 @@ export default async function DashboardPage() {
                     className="group rounded-xl border border-border bg-card p-4 shadow-[--shadow-elevation-1] transition-all hover:shadow-[--shadow-elevation-2]"
                   >
                     <div className="flex gap-4">
-                      {c.heroImageUrl ? (
-                        <div className="relative h-16 w-[88px] shrink-0 overflow-hidden rounded-lg bg-muted">
-                          <Image
-                            src={c.heroImageUrl}
-                            alt={c.title}
-                            fill
-                            className="object-cover"
-                            sizes="88px"
-                            unoptimized
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex h-16 w-[88px] shrink-0 items-center justify-center rounded-lg bg-muted">
-                          <span className="font-display text-lg font-bold text-muted-foreground/40">{c.title.charAt(0)}</span>
-                        </div>
-                      )}
+                      {(() => {
+                        const hero = resolveCampaignHero({
+                          heroImageUrl: c.heroImageUrl,
+                          category: c.category,
+                          title: c.title,
+                        });
+                        return (
+                          <div className="relative h-16 w-[88px] shrink-0 overflow-hidden rounded-lg bg-muted">
+                            <Image
+                              src={hero.src}
+                              alt={hero.alt}
+                              fill
+                              className="object-cover"
+                              sizes="88px"
+                              unoptimized
+                            />
+                          </div>
+                        );
+                      })()}
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">

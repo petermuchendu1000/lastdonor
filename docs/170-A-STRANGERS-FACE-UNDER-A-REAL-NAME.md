@@ -344,3 +344,96 @@ fails `PUBLIC_MEDIA_PREFIX` and resolve to a panel.
 Satori renders its designed fallback instead of being handed a `.webp` it
 cannot decode (`docs/112` §7's 502). Four live cards: **200 `image/jpeg`**,
 46–59KB.
+
+---
+
+## 11. How the Google Images result happened, and the four sites it exposed
+
+The owner found a **male doctor in a studio portrait** in Google Images for
+`lastdonor`, captioned *"Help Danielle Sutton Care for Her Twins…"* and
+attributed to **LastDonor**. That looks like it contradicts `docs/169`
+("zero pages indexed"), and it does not.
+
+### 11.1 Image indexing and page indexing are different indexes
+
+`docs/169`'s "Google knows 60 URLs and has indexed ZERO" is Search Console's
+**page** indexing — eligibility for web results. Google Images maintains a
+separate association, *"this image appears on this page"*, built while
+crawling. A page can sit at *Crawled — currently not indexed* in web search
+while an image it carried is in the image index.
+
+So the result is not evidence of a defect in indexing. It is evidence that
+**Googlebot really did crawl and render the campaign page** — which is the
+one thing `docs/169` could not demonstrate.
+
+### 11.2 The image is served from OUR domain, which is why it says LastDonor
+
+`CampaignHeroImage` rendered through `next/image`, and `images.unsplash.com`
+is in the optimizer allowlist (`next.config.ts:162`), so the `<img src>` in
+the HTML was **`lastdonor.org/_next/image?url=<encoded unsplash>&w=…&q=75`**.
+Google stores the image URL as found, so the image is ours, on our page, with
+our `alt` as its caption.
+
+[VERIFIED] that optimizer URL still answers **200 `image/jpeg`, 25,066 B**
+today, with a host outside the allowlist answering **400** as the control. The
+stored column still holds the photograph — the live page simply no longer
+points at it.
+
+⚠️ The caption is `alt={title}`. That is the defect of §1 stated in Google's
+own words: a stranger's face, our domain, a real person's name.
+
+### 11.3 It is a snapshot of the pre-v175 page, and nothing on the live site feeds it
+
+[VERIFIED by sweeping **all 38 sitemap URLs** and classifying every `<img>`]:
+**36 panels, 8 organiser photos, 0 third-party photographs.** The share card
+for that campaign is the designed card with no photograph at all. So the
+association is stale and drops when Google recrawls.
+
+⛔ **When that happens is Google's, and is [UNKNOWN].** Nothing here makes it
+faster: Google does not participate in IndexNow (`docs/169`), and Search
+Console's "Remove outdated content" tool is for content that is gone, while
+this URL still answers 200.
+
+### 11.4 ⛔ The four render sites the fix never swept
+
+Checking "does anything still render one" found that it does — behind auth:
+
+| Site | What it rendered |
+|---|---|
+| `dashboard/(index)/page.tsx` | `src={c.heroImageUrl} alt={c.title}` |
+| `dashboard/supported/page.tsx` | same |
+| `dashboard/subscriptions/client.tsx` ×2 | same |
+
+All four `noindex` and signed-in, so **they were never an indexing problem** —
+a donor reading *"campaigns you supported"* simply saw a stranger under the
+beneficiary's name. `subscriptions` is resolved **on the server**, like the
+href and the money strings beside it, so the third-party URL no longer reaches
+the browser at all; the other two resolve at render. `category` rides each
+select that already runs — never a new query (`docs/87`).
+
+⚠️ **Why §1's tests did not catch it**: they pin the PURE FUNCTION — that it
+resolves, that the panel is not captioned with a crisis, that every category
+has a file. All true, all passing, and nothing asked *who else renders a
+campaign hero*. **A resolver that is correct and uncalled is the defect**, so
+the guard is now a sweep over render sites
+(`src/lib/campaign-hero-render-sites.test.ts`), which is `docs/110` §9.2:
+the second instance of one rule is a sweep, not a third assertion.
+
+⚠️ **MY FIRST RULE WAS WRONG AND FLAGGED THREE CORRECT CALL SITES.** It
+matched `src={…heroImageUrl}` on *any* element, so it fired on
+`<CampaignHeroImage src={heroImageUrl}>` — the component whose entire job is
+to resolve it (`docs/119`, `docs/134`: the rule was wrong, not the code). It
+now scans only real `<Image>`/`<img>` tags, with a **brace-aware** tag walker
+because `onError={() => …}` contains a `>` that truncates a naive match
+(`docs/153` §5), and a control pins that passing the raw column into the
+resolver stays legal — so the rule cannot be "fixed" by widening it back.
+
+Two exemptions, each **re-derived rather than named**: `CategoryHeroSection`
+(site art from `CATEGORY_CONTENT`, same field name, different thing) and the
+create wizard (unsaved form state — the organiser is being shown the photo
+they just chose, and no campaign row exists yet). Both assert the premise that
+makes them valid, so they fail instead of covering a real defect
+(`docs/165`: an allowlist is a hole).
+
+Injection: restoring the real pre-fix state on `dashboard/supported` fires the
+rule, with a sha256-verified clean restore after.

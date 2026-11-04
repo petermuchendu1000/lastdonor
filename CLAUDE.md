@@ -195,8 +195,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (8402 pass + 16 skipped, 304 files passed +
-                       #   3 skipped = 307, as of 2026-11-04)
+npm run test:unit      # Vitest (8414 pass + 16 skipped, 305 files passed +
+                       #   3 skipped = 308, as of 2026-11-04)
                        #   ⚠️ The "8066 … 280 files" this file carried was stale
                        #   by 99 tests and 9 files (docs/154, docs/155), and the
                        #   "7739 … 267" before that was stale too. THIS LINE
@@ -2940,6 +2940,30 @@ These exist for a reason; changing them has consequences beyond the local file.
   returns both. A panel captioned *"Keisha Wallace Fights to Keep Her Four
   Kids Off Atlanta Streets"* describes a teal graphic as a photograph of a
   named person — the same inaccuracy one layer down.
+
+  ⛔ **No `<Image>`/`<img>` may be bound to a campaign's stored
+  `heroImageUrl`** — pass it into `<CampaignHeroImage>`, or call the resolver
+  and render what it returns. Added 2026-11-04, `docs/170` §11.4: the original
+  fix changed one component and pinned the **pure function**, so four render
+  sites went on showing the stored photo (`/dashboard`, `/dashboard/supported`
+  and `/dashboard/subscriptions` ×2). All are `noindex` and behind auth, so
+  they were never an indexing problem — a donor reading *"campaigns you
+  supported"* simply saw a stranger under the beneficiary's name. **A resolver
+  that is correct and uncalled is the defect**, so
+  `src/lib/campaign-hero-render-sites.test.ts` sweeps the render sites.
+  Resolve on the **server** where a page already serialises finished values to
+  a client component, so the third-party URL never reaches the browser; and
+  take `category` from the select that already runs, never a new query
+  (`docs/87`).
+
+  ⚠️ **A Google Images result is not evidence that a page is indexed.** Image
+  indexing is a separate association (*this image appears on this page*) built
+  while crawling, so it survives a page sitting at *Crawled — currently not
+  indexed*. And because `next/image` rewrites to `/_next/image?url=…`, the
+  indexed URL is on **our** domain proxying the third party — which is why
+  such a result is attributed to LastDonor. Removing it from the page does not
+  remove it from the index; it drops on recrawl, on Google's timing
+  (`docs/170` §11).
 
   Regenerate panels with
   `npx tsx scripts/generate-category-panels.ts` (in this sandbox, prefix
