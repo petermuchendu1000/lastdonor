@@ -1,7 +1,8 @@
 # 170 — A stranger's face under a real name
 
 **Date:** 2026-11-04
-**Status:** BUILT, NOT DEPLOYED (owner standing instruction of 2026-10-22)
+**Status:** ✅ DEPLOYED as v175, 2026-11-04 — owner overrode the standing
+do-not-deploy instruction. Verified live: see §10.
 **Owner decision:** designed brand panels, taken 2026-11-04
 
 ---
@@ -277,10 +278,69 @@ by the emotional register of somebody's crisis, is how this comes back.
 - No screen reader was run against the new alt text.
 - The panels were rendered **in a harness** reproducing the two geometries
   they are used at — a 360px 16:9 card and a 112px square `object-cover`
-  thumbnail — which is what caught §4.1. They have **not** been seen in the
-  running app, because that needs a build and the owner's standing
-  instruction is not to deploy. The harness mimics the card's CSS; it is not
-  the card.
-- The `/campaigns` detail page's `MediaGallery` renders through the same
-  component, but its layout was not reproduced in the harness.
+  thumbnail — which is what caught §4.1. ✅ **Resolved by §10**: they have now
+  been seen in the running app.
+- ✅ The `/campaigns` detail page's `MediaGallery` renders through the same
+  component. Not reproduced in the harness; **now verified live in §10.**
 - Whether Bing or Google eventually index any of this is **[UNKNOWN]**.
+
+---
+
+## 10. Verified in production (v175, 2026-11-04)
+
+Every `<img>` on four live pages was classified by unwrapping
+`/_next/image?url=` and reading the real target.
+
+| Page | `<img>` | organiser | panel | **third-party** |
+|---|---|---|---|---|
+| `/campaigns` | 10 | 2 | 8 | **0** |
+| `/` | 7 | 1 | 5 | **0** |
+| `/campaigns/keisha-wallace` | 1 | 0 | 1 | **0** |
+| `/campaigns/danielle-sutton` | 3 | 0 | 3 | **0** |
+
+The last two are the reported cases: the toddler with a toy camera and the
+male doctor are gone, replaced by *Essential Needs* and *Medical* panels. The
+detail page's `MediaGallery` is the 3 on `danielle-sutton`, which closes §9.
+Panel alt text reads `LastDonor <Category> campaign` — no named person.
+
+⚠️ **A crude `grep -c unsplash` over the same page reports 7, and that is not
+a defect.** `CampaignHeroImage` is a client component taking the raw column
+value as `src` and resolving it while rendering, so the third-party URL is
+still serialized into the RSC flight payload as a hydration input. It is never
+a rendered `src`, never in the sitemap (§10.1) and never in the share card.
+**Count the `<img>` elements; a string search over the document cannot tell an
+input from an output.**
+
+⚠️ **The two `organiser` photos were suspected and cleared.** One is a
+photograph of a car crash, which looked like a news image laundered into our
+bucket — which would defeat the predicate, since it infers provenance from
+hosting. Refuted two ways: there is **no upload path anywhere in
+`src/lib/news/` or the crons**, and both URLs are
+`campaign-photos/<uuid>.jpg`, the shape our own uploader produces, on exactly
+the two slugs `docs/169` §8.4/§8.6 recorded as the only campaigns with a real
+organiser. They are genuine uploads. Whether an organiser's chosen photo
+depicts their own event is not something the platform can verify, and is not
+what this change is about — the defect was the *platform* substituting a
+stranger.
+
+### 10.1 The sitemap advertises no third-party image
+
+[VERIFIED by parsing the live XML] 18 `<image:loc>`, of which **0** point
+outside `lastdonor.org` or our Supabase host. 8 panels + 2 organiser photos
+across the 10 campaign URLs, plus the 8 explainers of `docs/171`.
+
+⚠️ **Next emits `<image:loc>` RAW, with no XML escaping**
+(`resolve-route-data.js:111`), so one `&` in a hero URL would invalidate the
+whole document and Google would reject every URL in it. Checked, not assumed:
+the live XML parses, 0 locs contain a bare `&`, and the check carries a
+control proving the parser rejects a deliberately malformed copy. It is not
+reachable from our uploader either — `getPublicUrl(path)` with no options
+builds no query string, and a transform would use a `render/image` path that
+fails `PUBLIC_MEDIA_PREFIX` and resolve to a panel.
+
+### 10.2 Share cards did not regress
+
+`ogCardModel` returns `null` rather than the panel for a third-party hero, so
+Satori renders its designed fallback instead of being handed a `.webp` it
+cannot decode (`docs/112` §7's 502). Four live cards: **200 `image/jpeg`**,
+46–59KB.

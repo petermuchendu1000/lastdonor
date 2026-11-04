@@ -1,7 +1,8 @@
 # 171 — Brand explainers, and an image sitemap
 
 **Date:** 2026-11-04
-**Status:** BUILT, NOT DEPLOYED (owner standing instruction of 2026-10-22)
+**Status:** ✅ DEPLOYED as v175, 2026-11-04 — owner overrode the standing
+do-not-deploy instruction. Verified live: see §10.
 **Owner decision:** approved from a single design, 2026-11-04
 
 ---
@@ -179,10 +180,60 @@ still removing something.
   (`docs/169`), and that remains the blocker. These change what Google finds
   *when* it indexes; they do not make it index.
 - The graphics were verified as **files** and at tile sizes, and the pages
-  typecheck and lint — but they have **not** been seen rendered in the running
-  app, because that needs a build and the standing instruction is not to
-  deploy. Page height at 390px is therefore unmeasured (`docs/60`/`docs/61`
-  budget the homepage; none of these five pages is the homepage).
+  typecheck and lint. ✅ **Both gaps closed by §10**: they have now been seen
+  rendered in the running app, and the 390px heights are measured.
 - No screen reader was run against the alt text.
 - Whether Google honours the image sitemap for this domain is **[UNKNOWN]**;
   a sitemap is a hint, not an instruction.
+
+---
+
+## 10. Verified in production (v175, 2026-11-04)
+
+Deployed with `--prerender`; the discriminator is `deploy.sh` closing with
+`sitemap: 10 campaign URL(s)`, which is what proves the BUILDER reached the
+database (`docs/119`). One `app` machine updated **in place**
+(`Updating machine config for 080776daee2d48`, the same id as the pre-deploy
+baseline) — not the `No machines in group app, launching a new machine` line
+that produces the `docs/163` §9 partial rollout. Machine table read twice
+after: 1 machine, v175, 1/1 passing, 0 orphaned release machines, and **one
+distinct `page-<hash>.js` over 20 loads**.
+
+### 10.1 The three rules hold on the live site
+
+| Rule | Measured |
+|---|---|
+| The file exists | 8/8 **200 `image/webp`** (fabricated slug 404 — the control) |
+| The page renders it | 3 / 1 / 2 / 1 / 1 figures on the five routes, 0 broken |
+| The sitemap advertises it | 8 explainer `<image:loc>`, inside 18 total |
+
+`/privacy` carries 0, which is the control making the five counts evidence.
+
+### 10.2 The 390px measurement `docs/60`/`docs/61` wanted
+
+Measured with `isMobile: false`, because with it true Chromium widens the
+layout viewport and **hides** horizontal overflow (`docs/128` §5).
+
+| Route | height @390 | overflow | img width |
+|---|---|---|---|
+| `/how-it-works` | 6,165px | **0px** | 356 ×3 |
+| `/about` | 5,695px | **0px** | 356 ×2 |
+| `/transparency` | 4,645px | **0px** | 356 |
+| `/donate` | 4,097px | **0px** | 356 |
+| `/share-your-story` | 1,854px | **0px** | 340 |
+
+0px on all five, and `<figcaption>` renders as real text beneath each. None of
+these is the homepage, so the `docs/60`/`docs/61` budget does not bind; the
+figures are recorded so a later change has a baseline to move from.
+
+### 10.3 The sitemap is well-formed, and that was checked rather than assumed
+
+⚠️ Next emits `<image:loc>` **raw, with no XML escaping**
+(`resolve-route-data.js:111`), so a single `&` in any image URL invalidates
+the whole document and Google rejects every URL in it — a worse outcome than
+having no image sitemap. The live XML parses, carries 18 `<image:loc>` with
+**0** containing a bare `&`, and the check includes a control proving the
+parser rejects a deliberately malformed copy of the same bytes.
+
+⛔ This still does **not** get anything indexed. Zero pages are indexed
+(`docs/169`) and that remains the blocker.
