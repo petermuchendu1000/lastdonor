@@ -106,6 +106,87 @@ export function isOrganiserPhoto(heroImageUrl: string | null | undefined): boole
   return parsed.host.endsWith('.supabase.co');
 }
 
+/**
+ * Where an organiser's upload is served from on OUR domain.
+ *
+ * ── WHY A FIRST-PARTY PATH AT ALL ───────────────────────────────────────────
+ *
+ * ⛔ **Supabase Storage stamps every public object with `X-Robots-Tag: none`**,
+ * which Google defines as *"Equivalent to `noindex, nofollow`"* and documents
+ * as the way to block indexing of image files. [VERIFIED live 2026-11-04 on
+ * both real uploads, with our own `/images/…` panels returning NO such header
+ * as the control.]
+ *
+ * The page was never the problem - `next/image` proxies the bytes and does
+ * NOT forward that header, so the rendered `/_next/image?url=…` URL is ours
+ * and is indexable. The SITEMAP was: it advertised the raw Supabase URL, so
+ * every organiser photo was announced to Google at an address Google is
+ * explicitly told to ignore (`docs/142`'s shape - a rule on another surface
+ * silently negating something we publish).
+ *
+ * Serving them from here makes the page and the sitemap name the SAME
+ * first-party URL, which is exactly the relationship the brand panels and
+ * explainers already have.
+ */
+export const FIRST_PARTY_MEDIA_PREFIX = '/media/';
+
+/**
+ * Object keys that may never be served publicly.
+ *
+ * ⚠️ Duplicated from `supabase-storage.ts`'s `PRIVATE_PATH_PREFIXES` rather
+ * than imported, because this module is reachable from a CLIENT component and
+ * that one pulls in the Supabase SDK. `campaign-hero.test.ts` asserts the two
+ * lists are equal, so they cannot drift (the same treatment
+ * `PUBLIC_MEDIA_PREFIX` already gets against `BUCKET_NAME`).
+ */
+export const NEVER_PUBLIC_KEY_PREFIXES = [
+  'verification-documents/',
+  'info-request-responses/',
+] as const;
+
+/**
+ * A storage key is servable only if it is an ordinary object path.
+ *
+ * ⛔ Deliberately strict: no `..`, no leading slash, no query, no escape, one
+ * extension. Anything it refuses resolves to a panel, which is the direction
+ * `resolveCampaignHero` already fails in - a real photograph replaced by a
+ * panel, never a path traversal turned into a public URL.
+ */
+const SAFE_OBJECT_KEY = /^[A-Za-z0-9][A-Za-z0-9/_-]*\.[A-Za-z0-9]{1,5}$/;
+
+export function isServableMediaKey(key: string): boolean {
+  if (!SAFE_OBJECT_KEY.test(key)) return false;
+  if (key.includes('..') || key.includes('//')) return false;
+  return !NEVER_PUBLIC_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+/**
+ * The storage key inside the public media bucket, for an upload of ours.
+ *
+ * Returns null for anything `isOrganiserPhoto` would reject, and for a key
+ * this app will not serve. The two together are TOTAL over the allowlist:
+ * every URL the predicate accepts either yields a first-party path or is
+ * refused outright, so there is no third case that quietly keeps the
+ * third-party URL.
+ */
+export function mediaObjectKey(heroImageUrl: string | null | undefined): string | null {
+  if (!isOrganiserPhoto(heroImageUrl)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL((heroImageUrl ?? '').trim());
+  } catch {
+    return null;
+  }
+  const key = decodeURIComponent(parsed.pathname.slice(PUBLIC_MEDIA_PREFIX.length));
+  return isServableMediaKey(key) ? key : null;
+}
+
+/** Site-root-relative path serving an organiser's upload from our own domain. */
+export function firstPartyMediaPath(heroImageUrl: string | null | undefined): string | null {
+  const key = mediaObjectKey(heroImageUrl);
+  return key === null ? null : `${FIRST_PARTY_MEDIA_PREFIX}${key}`;
+}
+
 export interface CampaignHero {
   /** The image to render. */
   src: string;
@@ -133,8 +214,17 @@ export function resolveCampaignHero(input: {
 }): CampaignHero {
   const { heroImageUrl, category, title } = input;
 
-  if (isOrganiserPhoto(heroImageUrl)) {
-    return { src: (heroImageUrl ?? '').trim(), isPanel: false, alt: title };
+  /*
+    Served from OUR domain, never the stored Supabase URL - see
+    `FIRST_PARTY_MEDIA_PREFIX` for why (the upstream host sends
+    `X-Robots-Tag: none`). A key this app will not serve yields null and
+    falls through to the panel, which keeps the failure direction of this
+    whole module: a real photograph replaced by a panel, never a stranger's
+    face and never an unservable path turned into a public URL.
+  */
+  const ownPath = firstPartyMediaPath(heroImageUrl);
+  if (ownPath !== null) {
+    return { src: ownPath, isPanel: false, alt: title };
   }
 
   return {

@@ -31,6 +31,8 @@ vi.mock('next/image', () => ({
 
 const SUPABASE = 'https://vavxdjqufxrsbyohcwdh.supabase.co';
 const UPLOAD = `${SUPABASE}/storage/v1/object/public/media/campaign-photos/59171bbc.jpg`;
+/** What the resolver now renders for it: our own domain (see `campaign-hero.ts`). */
+const FIRST_PARTY_UPLOAD = '/media/campaign-photos/59171bbc.jpg';
 const STOCK = 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=800';
 
 afterEach(() => {
@@ -73,7 +75,14 @@ describe('CampaignHeroImage, on the first render', () => {
       <CampaignHeroImage src={UPLOAD} alt="Help John Recover After a Car Accident" category="medical" />,
     );
     const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('src', UPLOAD);
+    /*
+      FIRST-PARTY, not the stored URL. This used to assert `UPLOAD` itself;
+      the upstream host sends `X-Robots-Tag: none`, so the photo is now
+      served from our own `/media/` route. The property guarded here is
+      unchanged - the real photograph is still rendered, not a panel.
+    */
+    expect(img).toHaveAttribute('src', FIRST_PARTY_UPLOAD);
+    expect(img).not.toHaveAttribute('src', UPLOAD);
     expect(img).toHaveAttribute('alt', 'Help John Recover After a Car Accident');
   });
 
@@ -101,7 +110,7 @@ describe('the error path, which is now only for a real photo that 404s', () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', SUPABASE);
     render(<CampaignHeroImage src={UPLOAD} alt="Gone" category="memorial" />);
     const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('src', UPLOAD);
+    expect(img).toHaveAttribute('src', FIRST_PARTY_UPLOAD);
 
     fireEvent.error(img);
 

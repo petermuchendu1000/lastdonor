@@ -6,7 +6,7 @@
  * `/campaigns` listing on 2026-11-04. That is the point: the rule is checked
  * against the rows that were actually wrong, not against invented ones.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -15,6 +15,10 @@ import {
   resolveCampaignHero,
   PUBLIC_MEDIA_PREFIX,
   FALLBACK_CATEGORY,
+  firstPartyMediaPath,
+  mediaObjectKey,
+  isServableMediaKey,
+  NEVER_PUBLIC_KEY_PREFIXES,
 } from './campaign-hero';
 import { CATEGORY_CONTENT } from './category-content';
 import { CATEGORY_LABELS } from './categories';
@@ -51,11 +55,19 @@ describe('⛔ a stock photograph never stands in for a named person', () => {
     }
   });
 
-  it('⚠️ CONTROL: an organiser\'s own upload passes through untouched', () => {
+  it('⚠️ CONTROL: an organiser\'s own upload is KEPT, and served first-party', () => {
     /*
-      Without this, "always return a panel" would satisfy every other
+      Two properties in one, and both are load-bearing.
+
+      KEPT: without it, "always return a panel" would satisfy every other
       assertion in this file, and the two campaigns with a real photograph
       would silently lose it.
+
+      FIRST-PARTY: this assertion used to read `toBe(PRODUCTION_UPLOAD)` -
+      the stored Supabase URL. That was correct until the upstream host was
+      measured sending `X-Robots-Tag: none`, which made the URL we published
+      one Google is told to ignore. The test is REPOINTED, not deleted: the
+      property it guards is unchanged, only the address is.
     */
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://vavxdjqufxrsbyohcwdh.supabase.co');
     expect(isOrganiserPhoto(PRODUCTION_UPLOAD)).toBe(true);
@@ -66,8 +78,11 @@ describe('⛔ a stock photograph never stands in for a named person', () => {
       title: 'Help John Recover After a Car Accident',
     });
     expect(hero.isPanel).toBe(false);
-    expect(hero.src).toBe(PRODUCTION_UPLOAD);
     expect(hero.alt).toBe('Help John Recover After a Car Accident');
+
+    expect(hero.src).toBe('/media/campaign-photos/59171bbc-7077-485a-a432-b2546f156690.jpg');
+    expect(hero.src).not.toMatch(/supabase/i);
+    expect(hero.src.startsWith('/')).toBe(true);
   });
 
   it('refuses an upload-shaped path on a host that is not ours', () => {
@@ -163,5 +178,79 @@ describe('⚠️ the bucket segment is duplicated, so it is pinned', () => {
     const match = src.match(/export const BUCKET_NAME\s*=\s*'([^']+)'/);
     expect(match, 'BUCKET_NAME moved or changed shape - re-read this test').toBeTruthy();
     expect(PUBLIC_MEDIA_PREFIX).toBe(`/storage/v1/object/public/${match![1]}/`);
+  });
+});
+
+describe('⛔ an organiser upload is served from OUR domain, never Supabase', () => {
+  /*
+    The defect this closes: Supabase Storage sends `X-Robots-Tag: none` on
+    every public object - Google's own definition of `noindex, nofollow` -
+    and `sitemap.ts` advertised exactly those URLs. [VERIFIED live, with our
+    own `/images/...` panels returning no such header as the control.]
+  */
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://vavxdjqufxrsbyohcwdh.supabase.co');
+  });
+
+  it('maps an upload to a first-party path under /media/', () => {
+    expect(firstPartyMediaPath(PRODUCTION_UPLOAD)).toBe('/media/campaign-photos/59171bbc-7077-485a-a432-b2546f156690.jpg');
+    expect(mediaObjectKey(PRODUCTION_UPLOAD)).toBe('campaign-photos/59171bbc-7077-485a-a432-b2546f156690.jpg');
+  });
+
+  it('⚠️ the mapping is TOTAL over what isOrganiserPhoto accepts', () => {
+    /*
+      Heroes are written to `campaign-photos/`, but `/api/v1/upload` takes a
+      caller-supplied folder and the predicate accepts any object under the
+      public media prefix. If the mapping only knew one folder, such a hero
+      would pass the predicate with NO first-party path and quietly keep the
+      Supabase URL - the third case this rules out.
+    */
+    for (const folder of ['campaign-photos', 'uploads', 'blog', 'deep/nested']) {
+      const url = `https://vavxdjqufxrsbyohcwdh.supabase.co/storage/v1/object/public/media/${folder}/a1.jpg`;
+      expect(isOrganiserPhoto(url), folder).toBe(true);
+      expect(firstPartyMediaPath(url), folder).toBe(`/media/${folder}/a1.jpg`);
+      expect(resolveCampaignHero({ heroImageUrl: url, category: 'medical', title: 'T' }).isPanel).toBe(false);
+    }
+  });
+
+  it('⛔ refuses traversal and the private-document prefixes', () => {
+    for (const key of [
+      'verification-documents/passport.jpg',
+      'info-request-responses/bank.png',
+      '../secrets/x.jpg',
+      'a//b.jpg',
+      '/leading.jpg',
+      'no-extension',
+    ]) {
+      expect(isServableMediaKey(key), key).toBe(false);
+    }
+    // And a refused key falls through to a PANEL, never to the stored URL.
+    const privateUrl =
+      'https://vavxdjqufxrsbyohcwdh.supabase.co/storage/v1/object/public/media/verification-documents/p.jpg';
+    const hero = resolveCampaignHero({ heroImageUrl: privateUrl, category: 'medical', title: 'T' });
+    expect(hero.isPanel).toBe(true);
+    expect(hero.src).toBe('/images/categories/medical-panel.webp');
+  });
+
+  it('⚠️ CONTROL: a servable key really is servable, so the rule can fail', () => {
+    // Without this, `isServableMediaKey` returning false always would pass
+    // the row above.
+    expect(isServableMediaKey('campaign-photos/59171bbc-7077-485a-a432-b2546f156690.jpg')).toBe(true);
+    expect(isServableMediaKey('uploads/a-b_c.webp')).toBe(true);
+  });
+
+  it('⛔ the duplicated private-prefix list equals the storage module\'s', async () => {
+    /*
+      `NEVER_PUBLIC_KEY_PREFIXES` is copied rather than imported, because this
+      module is reachable from a client component and `supabase-storage.ts`
+      pulls in the Supabase SDK. Copying is only safe while the two agree.
+    */
+    const { PRIVATE_PATH_PREFIXES } = await import('./supabase-storage');
+    expect([...NEVER_PUBLIC_KEY_PREFIXES].sort()).toEqual([...PRIVATE_PATH_PREFIXES].sort());
+  });
+
+  it('a non-upload host still yields no first-party path', () => {
+    expect(firstPartyMediaPath('https://images.unsplash.com/photo-123?w=800')).toBeNull();
+    expect(firstPartyMediaPath(null)).toBeNull();
   });
 });

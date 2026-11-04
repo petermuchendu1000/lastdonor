@@ -39,6 +39,12 @@ interface CampaignRow {
   category: string;
   updatedAt: Date | null;
   publishedAt: Date | null;
+  /*
+    Absent from this fixture until 2026-11-04, so NO sitemap test had ever
+    exercised a campaign with a real organiser photograph - which is how the
+    sitemap came to advertise Supabase URLs carrying `X-Robots-Tag: none`.
+  */
+  heroImageUrl: string | null;
 }
 
 interface BlogRow {
@@ -106,6 +112,8 @@ const CAMPAIGN_ROWS: CampaignRow[] = [
     slug: 'help-sergeant-reyes',
     status: 'active',
     category: 'veterans',
+    heroImageUrl:
+      'https://vavxdjqufxrsbyohcwdh.supabase.co/storage/v1/object/public/media/campaign-photos/aaaa1111.jpg',
     updatedAt: new Date('2026-10-12T09:00:00Z'),
     publishedAt: new Date('2026-10-01T09:00:00Z'),
   },
@@ -113,6 +121,7 @@ const CAMPAIGN_ROWS: CampaignRow[] = [
     slug: 'final-stretch-for-mia',
     status: 'last_donor_zone',
     category: 'medical',
+    heroImageUrl: null,
     updatedAt: new Date('2026-10-14T18:30:00Z'),
     publishedAt: new Date('2026-09-20T09:00:00Z'),
   },
@@ -120,6 +129,7 @@ const CAMPAIGN_ROWS: CampaignRow[] = [
     slug: 'the-okafor-family-fund',
     status: 'completed',
     category: 'memorial',
+    heroImageUrl: null,
     updatedAt: new Date('2026-08-02T12:00:00Z'),
     publishedAt: new Date('2026-07-01T09:00:00Z'),
   },
@@ -688,5 +698,40 @@ describe('advertisedCategorySlugs, run directly', () => {
       campaignsLoaded: true,
     });
     expect(out).toEqual([]);
+  });
+});
+
+
+describe('⛔ every image the sitemap advertises is on OUR domain', () => {
+  /*
+    The defect: Supabase Storage sends `X-Robots-Tag: none` on every public
+    object (Google's own definition of `noindex, nofollow`), and this sitemap
+    advertised organiser photos by their raw Supabase URL - announcing them
+    at an address Google is told to ignore.
+
+    This asserts the PROPERTY, not the mechanism, so it holds however
+    `resolveCampaignHero` is implemented later.
+  */
+  it('no <image:loc> points off lastdonor.org', async () => {
+    const { entries } = await runSitemap();
+    const images = entries.flatMap((e) => (e as { images?: string[] }).images ?? []);
+
+    const offDomain = images.filter((u) => !u.startsWith('https://lastdonor.org/'));
+    expect(offDomain, `off-domain images: ${offDomain.join(', ')}`).toEqual([]);
+  });
+
+  it('⚠️ CONTROL: the campaign WITH a photo is advertised, not skipped', async () => {
+    /*
+      Without this, emitting no images at all would satisfy the row above -
+      and the one campaign that has a real photograph is exactly the one
+      whose image we most want indexed.
+    */
+    const { entries } = await runSitemap();
+    const reyes = entries.find((e) => e.url.endsWith('/campaigns/help-sergeant-reyes'));
+    const images = (reyes as { images?: string[] } | undefined)?.images ?? [];
+
+    expect(images).toHaveLength(1);
+    expect(images[0]).toBe('https://lastdonor.org/media/campaign-photos/aaaa1111.jpg');
+    expect(images[0]).not.toMatch(/supabase/i);
   });
 });
