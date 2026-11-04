@@ -9,6 +9,7 @@ import { and, eq, or } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { seoKeywords } from '@/lib/seo/keywords';
 import Link from 'next/link';
+import { BrandGraphicsFor } from '@/components/BrandGraphic';
 
 /**
  * ISR, same cadence as /campaigns. The only query here is the general fund
@@ -261,6 +262,8 @@ export default async function DonatePage() {
             </div>
           </div>
         )}
+
+        <BrandGraphicsFor page="/donate" />
 
         <section className="mt-10" aria-labelledby="general-fund-faq">
           <h2 id="general-fund-faq" className="font-display text-2xl font-bold text-foreground">

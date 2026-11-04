@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ChevronDownIcon } from '@/components/ui/icon';
 import { ShareYourStoryForm } from './ShareYourStoryForm';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { BrandGraphicsFor } from '@/components/BrandGraphic';
 
 export const metadata: Metadata = {
   title: 'Start a Fundraiser | Create a Reviewed Campaign',
@@ -96,6 +97,10 @@ export default function ShareYourStoryPage() {
         and an answer expanded by default is one more thing between the
         visitor and the Continue button. See docs/75.
       */}
+      <div className="mx-auto max-w-3xl px-6 lg:px-8">
+        <BrandGraphicsFor page="/share-your-story" />
+      </div>
+
       <section className="mx-auto max-w-3xl px-6 py-12 lg:px-8" aria-labelledby="start-fundraiser-faq">
         <h2 id="start-fundraiser-faq" className="font-display text-2xl font-bold text-foreground">
           Questions about starting a fundraiser

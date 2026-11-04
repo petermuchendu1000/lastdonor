@@ -4,6 +4,7 @@ import { GeneralFundCta } from '@/components/GeneralFundCta';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { seoKeywords } from '@/lib/seo/keywords';
 import { organiserJourneyOutline } from '@/lib/organiser-journey';
+import { BrandGraphicsFor } from '@/components/BrandGraphic';
 import {
   MagnifyingGlassIcon,
   CurrencyDollarIcon,
@@ -218,6 +219,8 @@ export default function HowItWorksPage() {
           The page that explains the review is where "who pays for the
           review" belongs (docs/147).
         */}
+        <BrandGraphicsFor page="/how-it-works" />
+
         <GeneralFundCta className="mt-16" />
 
         <div className="mt-16 rounded-xl bg-muted/30 p-8 text-center">

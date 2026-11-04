@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { BrandGraphicsFor } from '@/components/BrandGraphic';
 
 export const metadata: Metadata = {
   title: 'About LastDonor.org | Reviewed Crowdfunding with 0% Platform Fees',
@@ -201,6 +202,7 @@ export default function AboutPage() {
             available on our{' '}
             <a href="/transparency" className="text-brand-teal underline underline-offset-2 hover:opacity-80">Transparency page</a>.
           </p>
+          <BrandGraphicsFor page="/about" />
         </section>
       </div>
     </>

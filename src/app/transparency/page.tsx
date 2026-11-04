@@ -8,6 +8,7 @@ import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { Money } from '@/components/ui/Money';
 import { platformRaisedByCurrency } from '@/lib/platform-totals.server';
 import { seoKeywords } from '@/lib/seo/keywords';
+import { BrandGraphicsFor } from '@/components/BrandGraphic';
 
 export const metadata: Metadata = {
   title: 'Transparency | Donation Tracking and Impact Updates',
@@ -248,6 +249,7 @@ export default async function TransparencyPage() {
             </Link>
           ))}
         </div>
+        <BrandGraphicsFor page="/transparency" />
       </section>
     </div>
   );

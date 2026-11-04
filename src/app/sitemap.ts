@@ -1,4 +1,6 @@
 import type { MetadataRoute } from 'next';
+import { brandGraphicPath, brandGraphicsFor } from '@/lib/brand-graphics';
+import { resolveCampaignHero } from '@/lib/campaign-hero';
 import { db } from '@/db';
 import { campaigns, blogPosts } from '@/db/schema';
 import { eq, inArray } from 'drizzle-orm';
@@ -177,6 +179,14 @@ export function advertisedCategorySlugs(
   return ALL_CATEGORY_SLUGS.filter((slug) => dates.newestByCategory.has(slug));
 }
 
+/**
+ * A sitemap image URL must be absolute. A campaign hero is either an
+ * organiser upload (already absolute) or a site-relative brand panel.
+ */
+function absoluteImage(src: string): string {
+  return /^https?:\/\//i.test(src) ? src : `${BASE_URL}${src}`;
+}
+
 function staticSitemap(dates: DerivedDates): MetadataRoute.Sitemap {
   // A category with no live campaign has no campaign-driven date, so it
   // falls back to the editorial constant rather than claiming freshness.
@@ -224,7 +234,23 @@ function staticSitemap(dates: DerivedDates): MetadataRoute.Sitemap {
     }),
   );
 
-  return [...staticPages, ...categoryPages];
+  /*
+    Attach each page's brand graphics as sitemap <image:image> entries.
+
+    An image sitemap is the only mechanism that tells Google which images
+    belong to a URL, rather than leaving it to find them while rendering. The
+    pairing is DERIVED from the registry, so moving a graphic to another page
+    moves its sitemap entry with it and cannot leave a stale one behind
+    (docs/171).
+  */
+  const withGraphics: MetadataRoute.Sitemap = staticPages.map((entry) => {
+    const path = entry.url.replace(BASE_URL, '') || '/';
+    const graphics = brandGraphicsFor(path);
+    if (graphics.length === 0) return entry;
+    return { ...entry, images: graphics.map((g) => `${BASE_URL}${brandGraphicPath(g.slug)}`) };
+  });
+
+  return [...withGraphics, ...categoryPages];
 }
 
 /**
@@ -300,6 +326,7 @@ async function campaignSitemap(): Promise<{
       slug: campaigns.slug,
       status: campaigns.status,
       category: campaigns.category,
+      heroImageUrl: campaigns.heroImageUrl,
       updatedAt: campaigns.updatedAt,
       publishedAt: campaigns.publishedAt,
     })
@@ -351,6 +378,18 @@ async function campaignSitemap(): Promise<{
     const isLive = (LIVE_SITEMAP_STATUSES as readonly string[]).includes(c.status);
     return {
       url: `${BASE_URL}/campaigns/${c.slug}`,
+      /*
+        The image the page REALLY renders, resolved through the one decider
+        (docs/170) rather than the stored column: for most campaigns that is
+        the brand panel, not the third-party photograph the column still
+        holds. Advertising the stored URL would point Google at somebody
+        else's domain for an image our page does not show.
+      */
+      images: [absoluteImage(resolveCampaignHero({
+        heroImageUrl: c.heroImageUrl,
+        category: c.category,
+        title: c.slug,
+      }).src)],
       // `updatedAt` is `notNull().defaultNow()` (`schema.ts`), so it is always
       // a real date; `publishedAt` is the fallback only in case a row predates
       // that default. Never `new Date()` - a lastmod that changes on every
