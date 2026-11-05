@@ -5,8 +5,9 @@
  *
  * `docs/169` established that nothing technical blocks indexing here: robots
  * allows, canonicals self-reference, 50/50 sitemap URLs answered 200 and
- * indexable. Google crawled four real pages and indexed NONE, which is the
- * profile of a new domain with thin inventory. Images are part of answering
+ * indexable. Four real pages sit in "Crawled - currently not indexed", which
+ * is the profile of a new domain with thin inventory. (26 other URLs ARE
+ * indexed - `docs/169` §2, corrected 2026-11-05.) Images are part of answering
  * that - a page with an illustration and a described subject has more for a
  * crawler to hold onto than a page of prose alone.
  *

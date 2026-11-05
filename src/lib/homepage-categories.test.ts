@@ -225,8 +225,11 @@ describe('rule 7: every category still has a PAGE, advertised or not', () => {
        `generateStaticParams` builds all 23."
 
     That was an accurate record of the instruction at the time, and the
-    instruction has since changed: Search Console measured 60 URLs known and
-    ZERO indexed on this domain, with 17 of the 23 category pages holding
+    instruction has since changed: Search Console measured 17 of the 23
+    category pages holding
+    (⛔ an earlier version of this comment added "60 URLs known and ZERO
+    indexed" - a misreading corrected 2026-11-05 in `docs/169` §2; 26 URLs
+    are indexed, and 60 is the NOT-indexed count)
     nothing, so the empty ones are no longer advertised. The reasoning above
     is preserved rather than deleted because it was not refuted - it was
     outweighed, and the flapping cost it names is now accepted.

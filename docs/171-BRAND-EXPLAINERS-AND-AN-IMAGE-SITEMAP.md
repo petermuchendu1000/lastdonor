@@ -176,7 +176,8 @@ still removing something.
 
 ## 9. Not done, and not claimed
 
-- ⛔ **This does not get anything indexed.** Zero pages are indexed
+- ⛔ **This does not get anything indexed.** 26 pages are indexed
+  (corrected 2026-11-05, `docs/169` §2)
   (`docs/169`), and that remains the blocker. These change what Google finds
   *when* it indexes; they do not make it index.
 - The graphics were verified as **files** and at tile sizes, and the pages
@@ -235,5 +236,6 @@ having no image sitemap. The live XML parses, carries 18 `<image:loc>` with
 **0** containing a bare `&`, and the check includes a control proving the
 parser rejects a deliberately malformed copy of the same bytes.
 
-⛔ This still does **not** get anything indexed. Zero pages are indexed
+⛔ This still does **not** get anything indexed. 26 pages are indexed
+(corrected 2026-11-05, `docs/169` §2)
 (`docs/169`) and that remains the blocker.

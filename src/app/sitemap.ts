@@ -106,8 +106,14 @@ const CLOSED_SITEMAP_STATUSES = ['completed'] as const;
  *     open and close, which is worse for crawl budget than a stable list.
  *
  * What outweighed it: Search Console measured this domain on 2026-11-03 with
- * **60 URLs known and zero indexed**, four of them "Crawled - currently not
- * indexed". **17 of the 23 category pages hold nothing.** On a domain whose
+ * four pages "Crawled - currently not indexed" and **17 of the 23 category
+ * pages holding nothing.**
+ *
+ * ⛔ CORRECTED 2026-11-05: this comment used to say "60 URLs known and zero
+ * indexed". That was a misreading - 60 is the NOT-indexed count, and 26 URLs
+ * ARE indexed (`docs/169` §2). The decision stands on the category half of
+ * the premise, which was verified independently; the indexing half was not
+ * real. On a domain whose
  * crawl budget is visibly not being spent on the pages that matter,
  * advertising 17 near-empty URLs is a cost with no measured benefit. The
  * flapping objection is accepted as a real cost of this change.
@@ -215,6 +221,15 @@ function staticSitemap(dates: DerivedDates): MetadataRoute.Sitemap {
     { url: `${BASE_URL}/last-donor-wall`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'weekly', priority: 0.6 },
     { url: `${BASE_URL}/donate`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE_URL}/share-your-story`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.7 },
+    /*
+      Added 2026-11-05. This page shipped on 2026-10-29 and was never added
+      here, so for a week the footer linked it from EVERY page - Google's
+      Links report counted 36 internal links to it, tied with the homepage as
+      the most-linked URL on the site - while the sitemap did not mention it.
+      `sitemap-advertises-public-pages.test.ts` now fails the build on the
+      next one of these.
+    */
+    { url: `${BASE_URL}/newsletter`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${BASE_URL}/editorial-standards`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE_URL}/donor-faq`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${BASE_URL}/campaign-verification-policy`, lastModified: SEO_CONTENT_LAST_MODIFIED, changeFrequency: 'monthly', priority: 0.4 },

@@ -280,8 +280,8 @@ describe('sitemap queries only the indexable statuses', () => {
 });
 
 describe('sitemap survives a database failure', () => {
-  /** Pages that need no database at all. */
-  const STATIC_PAGE_COUNT = 19;
+  /** Pages that need no database at all. (19 -> 20: `/newsletter`, 2026-11-05.) */
+  const STATIC_PAGE_COUNT = 20;
   /**
    * What a FAILED campaign read still serves: the static pages plus every
    * category landing page.

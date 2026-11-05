@@ -6,7 +6,8 @@
 > ⚠️ **AMENDED 2026-11-03 — the second half of that instruction is REVERSED.**
 > The empty category pages are no longer advertised in the sitemap; see
 > `docs/169` §5 for the decision, the measurement behind it (Search Console:
-> 60 URLs known, **zero** indexed, 17 of 23 categories empty) and the
+> 17 of 23 categories empty — note the "zero indexed" half of that premise
+> was a MISREADING, corrected 2026-11-05 in `docs/169` §2: 26 are indexed) and the
 > invariant that keeps an advertised category non-empty. **The grid half of
 > this document stands unchanged**, and so do the pages themselves —
 > `generateStaticParams` still builds all 23 and each answers 200. The four

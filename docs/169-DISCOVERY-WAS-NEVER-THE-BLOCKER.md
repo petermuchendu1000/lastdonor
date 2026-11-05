@@ -43,8 +43,34 @@ session. I read `robots.ts` twice and did not read the last two lines of it.
 
 ## 2. What Search Console actually showed
 
-[VERIFIED from the owner's Page Indexing report, 2026-11-03] Google knows
-**60 URLs** on this domain and has indexed **zero**.
+> ⛔ **CORRECTED 2026-11-05. The original text of this section was WRONG, and
+> the error propagated to nine places.** It read: *"Google knows **60 URLs**
+> on this domain and has indexed **zero**."*
+>
+> **60 is the NOT-INDEXED count, not the number of URLs Google knows.** The
+> Page Indexing screen shows two tiles side by side — *Not indexed 60* and
+> **Indexed 26** — and the seven-reason table below it breaks down the 60
+> only. Summing that table to 60 and matching the headline number is what
+> made it look like a total. [VERIFIED from the owner's screenshots,
+> 2026-11-05]
+>
+> **Known = 26 indexed + 60 not indexed = 86.** The seven-reason breakdown
+> below is unchanged and still correct; only the framing around it was wrong.
+>
+> ⚠️ The same screenshot reads **"Last update: 23/10/2026"**, which predates
+> the 2026-11-03 reading, so the 26 was on screen then too — this was a
+> misreading of the same data, not a change in it. [INFERRED: a report cannot
+> have had *newer* data on an earlier date; chain is the stated update date.]
+>
+> ⚠️ **What this overturns:** §5 of this doc reversed a recorded owner
+> decision citing *"60 URLs known and zero indexed"* as the measurement that
+> outweighed it. Half that premise is false. The other half (17 of 23
+> category pages empty) is true and was verified independently, so the
+> decision is left standing — but it should be re-read knowing this.
+
+[VERIFIED from the owner's Page Indexing report, 2026-11-03, breakdown
+re-confirmed 2026-11-05] **26 URLs are indexed.** A further **60 are not**,
+for these reasons:
 
 | Reason | Pages | Reading |
 |---|---|---|
@@ -56,8 +82,10 @@ session. I read `robots.ts` twice and did not read the last two lines of it.
 | Blocked due to other 4xx | 2 | ❓ **[UNKNOWN]** |
 | **Crawled – currently not indexed** | **4** | ⛔ the verdict |
 
-So **54 of the 60 are URLs we never wanted indexed**, and of the four real
-pages Google actually read, it indexed none.
+So **54 of the 60 not-indexed URLs are ones we never wanted indexed**, and of
+the four real pages in the "Crawled – currently not indexed" bucket, Google
+read them and indexed none. That bucket — **4 pages**, beside the **26** it
+did index — is the only genuine declination on this domain.
 
 ### 2.1 The 404s
 
@@ -245,10 +273,16 @@ sitemap does not deindex it; and gating on a live count makes the advertised
 set **flap**. ⚠️ **The flapping cost is accepted, not solved.**
 
 What outweighed them is a measurement that did not exist when they were
-written: Search Console on 2026-11-03 shows **60 URLs known, zero indexed**,
-four of them *"Crawled – currently not indexed"*. On a domain whose crawl
-budget is demonstrably not reaching the pages that matter, advertising 17
-near-empty URLs is a cost with no measured benefit.
+written: Search Console on 2026-11-03 showed four pages *"Crawled – currently
+not indexed"* with **17 of the 23 category pages holding nothing**.
+Advertising 17 near-empty URLs is a cost with no measured benefit.
+
+⛔ **CORRECTED 2026-11-05 — see the notice at §2.** This paragraph originally
+read *"60 URLs known, zero indexed"*. That was a misreading: 60 is the
+not-indexed count and **26 URLs are indexed**. The decision stands on the
+half of the premise that survives (17 of 23 categories empty, verified
+independently across all 23 live pages), but it was argued from a number that
+was not real, and that is recorded rather than quietly repaired.
 
 ### 5.2 The invariant, and why it holds in the safe direction
 

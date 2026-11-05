@@ -17,9 +17,12 @@ The illustrations were indeed clipart and are scrapped. But the stated goal
 could not have been served by them, for three reasons that have nothing to
 do with their quality:
 
-1. **Nothing is indexed.** [VERIFIED from Search Console, `docs/169` §2.3]
-   Google knows **60 URLs** and has indexed **zero**. Google Images only
-   indexes images on pages it has already indexed.
+1. **They were on no indexed page.** ⛔ **CORRECTED 2026-11-05:** this read
+   *"Nothing is indexed. Google knows 60 URLs and has indexed zero."* That
+   was wrong — 60 is the NOT-indexed count and **26 URLs are indexed** (see
+   `docs/169` §2's correction notice). The point still holds, because the
+   graphics sat in a scratchpad directory on no page at all, indexed or not.
+   Google Images only indexes images on pages it has crawled.
 2. **They were on no page.** They existed in a scratchpad directory. An
    image no page renders is never indexed.
 3. **A brand-name image search returns images whose PAGE is about the
@@ -255,7 +258,8 @@ by the emotional register of somebody's crisis, is how this comes back.
 
 ## 8. What this does NOT do
 
-- ⛔ **It does not get anything indexed.** Zero pages are indexed today, and
+- ⛔ **It does not get anything indexed.** 26 pages are indexed and 4 were
+  crawled and declined (corrected 2026-11-05, `docs/169` §2), and
   that is the actual blocker for the Images tab. `docs/169` established the
   cause: Google crawled four real pages and declined, which is the profile
   of a new domain with no inbound links and thin inventory — not a defect in
@@ -356,7 +360,8 @@ attributed to **LastDonor**. That looks like it contradicts `docs/169`
 
 ### 11.1 Image indexing and page indexing are different indexes
 
-`docs/169`'s "Google knows 60 URLs and has indexed ZERO" is Search Console's
+`docs/169`'s page-indexing figures (26 indexed, 60 not — corrected
+2026-11-05, see its §2) are Search Console's
 **page** indexing — eligibility for web results. Google Images maintains a
 separate association, *"this image appears on this page"*, built while
 crawling. A page can sit at *Crawled — currently not indexed* in web search
