@@ -50,9 +50,17 @@ one surface and never carried to the one next to it.
 `withinBounds`, **not** on `error`, so they do not blank themselves when a
 refusal appears.
 
-**The messages.** Six reachable messages contain *"nothing has been
-charged"* — four in `donations/payhero/initiate/route.ts` (`:103`, `:422`,
-`:435`, `:472`) and two in the component itself (`:364`, `:379`).
+**The messages.** ⚠️ **NINE**, not the six an earlier draft of this doc
+claimed — **seven** in `donations/payhero/initiate/route.ts` (`:103`, `:149`,
+`:242`, `:422`, `:435`, `:463`, `:472`) and two in the component (`:364`,
+`:379`).
+
+⚠️ The undercount was my **case-sensitive grep**: `:463` and `:242` open the
+sentence with *"Nothing has been charged"*, and `:149` is *"…right now.
+Nothing has been charged."* A case-insensitive sweep returns 8 lines in the
+route, one of which (`:431`) is a comment, not a message. The three I missed
+are the unsupported-currency refusal, the charge-outside-M-Pesa-bounds
+refusal, and PayHero rejecting the request — none of them exotic.
 
 **Execution, paired, on live production (v177).**
 
@@ -160,15 +168,72 @@ This is the fourth time a test has held a defect in place here (`docs/109`,
 
 ---
 
-## 6. UNCHECKED
+## 6. ✅ DEPLOYED v178, and ALL TEN refusal states driven
 
-- **Not deployed.** Production is v177; this is committed only.
+**v178, 2026-11-05.** In-place `Updating machine config` on the baseline
+machine id, one `app` machine on v178 read twice, 0 orphans.
+
+⚠️ **The page chunk hash did NOT change, and that is not a failed deploy.**
+`MpesaDonationForm` lives in a SHARED chunk, so `/donate`'s page hash is the
+wrong probe — `docs/165` §10.1 says exactly this and I reached for it anyway.
+The shared chunk did move: `3832-e74ceda7023c6169` →
+`3832-156d455ba476b09c`, carrying `Total charged today` **0**,
+`Total to pay today` **2** (card + M-Pesa), `Total to pay monthly` **1**.
+
+⚠️ **And my first count of those said 1, not 2.** `grep -oc` lets `-c`
+override `-o`, so it counts matching LINES — and minified JS is one line, so
+it can only ever return 0 or 1. `docs/169` §8.5 records this trap; this is
+the second time. Recounted with `grep -o | wc -l` it is exactly 2, as
+predicted. ⚠️ Both of my counting mistakes pointed the same way: they made a
+working deploy look like it had not landed. The opposite is equally possible.
+
+### 6.1 Every refusal state, driven against live v178
+
+All ten, in Chromium at 390px:
+
+| state | emitted at | label | asserts a charge | gap | pay latched |
+|---|---|---|---|---|---|
+| credentials missing | `route:103` | Total to pay today | **false** | 36px | no |
+| unsupported currency | `route:149` | Total to pay today | **false** | 36px | no |
+| charge out of bounds | `route:242` | Total to pay today | **false** | 36px | no |
+| configuration | `route:422` | Total to pay today | **false** | 36px | no |
+| transient | `route:435` | Total to pay today | **false** | 36px | no |
+| PayHero rejected | `route:463` | Total to pay today | **false** | 36px | no |
+| internal error | `route:472` | Total to pay today | **false** | 36px | no |
+| **outcome unknown** | `route:459` | Total to pay today | **false** | 36px | **YES** |
+| client fallback | `client:364` | Total to pay today | **false** | 36px | no |
+| client network | `client:379` | Total to pay today | **false** | 36px | no |
+
+**0 of 10** assert a charge; **0 of 10** render without a message.
+
+⛔ **Nothing reached the money rail.** Each state was produced by
+intercepting the initiate call in the browser — `fulfill` with the route's
+own verbatim envelope, or `abort` for the thrown-fetch path. No POST left
+the machine, no STK push was raised, no float was spent.
+
+⛔ **`outcome-unknown` is the discriminating control.** It is the only state
+that renders the named checkbox and disables the pay button (`docs/158` §5),
+which is what proves the probe reads ten different states rather than
+rendering the same thing ten times — and it is also the one message that
+correctly does NOT say nothing was charged.
+
+⚠️ **What this does and does not prove.** It drives the CLIENT: each message
+renders beneath the ledger, and the ledger no longer contradicts it. It does
+**not** prove the server emits each one on its own branch — those bodies are
+copied verbatim from the route, and the branch conditions are covered by
+`payment-outcome-claims.test.ts`, which executes the classifier. Two claims;
+this run makes the first.
+
+⚠️ One run died on a `page.goto` timeout mid-sweep and was re-run, not
+reported (`docs/163` §3). The script now retries navigation three times.
+
+## 7. UNCHECKED
+
 - **The card form's 95px was not re-measured.** `docs/161` measured it; I
   measured only the M-Pesa form's 36px.
-- **Only one of the six refusal paths was driven.** The client `catch` at
-  `:379` was exercised; the four route messages and the
-  `PAYMENT_OUTCOME_UNKNOWN` latch were read, not run. Driving those needs
-  either a real collection or a fault injected server-side.
+- **No refusal was produced by the real server.** Every one was injected at
+  the browser boundary, deliberately: forcing the genuine branches means
+  either breaking production credentials or calling PayHero for real.
 - **The `docs/158` latch is untouched** and still correct: it gates the pay
   button on the UNKNOWN outcome only, where the reassurance is the one thing
   we cannot give.
