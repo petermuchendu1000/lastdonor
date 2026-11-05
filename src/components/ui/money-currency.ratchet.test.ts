@@ -269,15 +269,35 @@ describe('Money currency ratchet', () => {
   it('the charged total is in the BILLED currency and the donation line is not', () => {
     const form = readFileSync(join(process.cwd(), FORM), 'utf8');
 
-    const total = form.slice(form.indexOf('Total charged today'));
-    expect(total.slice(0, 400), 'the charged total must name the billed currency').toMatch(
+    /*
+      ⚠️ Both rows are found STRUCTURALLY - the FIRST and LAST <dt> in the
+      ledger - never by their labels.
+
+      This used to slice from the literal `'Total charged today'`, and when
+      that copy was corrected (`docs/175`) `indexOf` returned **-1**, so
+      `slice(-1)` silently became the single character `'\n'`. It failed
+      loudly this time; a different label length could as easily have sliced
+      a region that passed. `docs/161` §6.1 made the same correction to four
+      of its own tests.
+    */
+    const dlOpen = form.indexOf('<dl');
+    const dlClose = form.indexOf('</dl>', dlOpen);
+    expect(dlOpen, 'no ledger in the form').toBeGreaterThan(-1);
+    expect(dlClose, 'unterminated ledger').toBeGreaterThan(dlOpen);
+    const ledger = form.slice(dlOpen, dlClose);
+
+    const firstDt = ledger.indexOf('<dt');
+    const lastDt = ledger.lastIndexOf('<dt');
+    expect(firstDt, 'ledger has no rows').toBeGreaterThan(-1);
+    expect(lastDt, 'ledger has only one row, so there is no total').toBeGreaterThan(firstDt);
+
+    expect(ledger.slice(lastDt), 'the charged total must name the billed currency').toMatch(
       /currency=\{billedCurrency\}/,
     );
-
-    const donation = form.slice(form.indexOf('>Your donation<'));
-    expect(donation.slice(0, 400), 'the donation line must stay in the campaign currency').toMatch(
-      /currency=\{currency\}/,
-    );
+    expect(
+      ledger.slice(firstDt, lastDt),
+      'the donation line must stay in the campaign currency',
+    ).toMatch(/currency=\{currency\}/);
   });
 });
 

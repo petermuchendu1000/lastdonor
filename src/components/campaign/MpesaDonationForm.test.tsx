@@ -135,9 +135,26 @@ describe('amounts are shillings', () => {
   });
 
   it('states the fee ledger with a zero platform fee', () => {
-    renderForm();
+    const { container } = renderForm();
+
+    // The 0% line IS a claim (`docs/59`), so its wording stays pinned.
     expect(screen.getByText(/LastDonor platform fee/i)).toBeTruthy();
-    expect(screen.getByText(/Total charged today/i)).toBeTruthy();
+
+    /*
+      ⚠️ The total row is found STRUCTURALLY - the last <dt> in the ledger -
+      and not by its label. This line read /Total charged today/i and broke
+      when that copy was corrected (`docs/175`): the row's LABEL is not a
+      claim, the fee line above it is, and pinning copy that is free to
+      change is what `docs/161` §6.1 had to undo in four of its own tests.
+    */
+    const dl = container.querySelector('dl');
+    const terms = dl ? Array.from(dl.querySelectorAll('dt')) : [];
+    expect(terms.length, 'the ledger lost its rows').toBeGreaterThanOrEqual(3);
+    const total = terms[terms.length - 1];
+    expect(total.textContent?.trim(), 'the total row has no label').toBeTruthy();
+    expect(total.nextElementSibling?.textContent, 'the total row states no figure').toMatch(
+      /Ksh/,
+    );
   });
 });
 

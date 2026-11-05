@@ -265,6 +265,14 @@ Driven in Chromium at **390px** (`isMobile: false`, `docs/128` §5):
   Unchanged from the baseline; the dead card credential is `docs/161`,
   owner-only.
 
+### 5.4a ✅ The ledger above this control was wrong, and is fixed
+
+A screenshot taken to show the round-up control also showed the fee ledger,
+which read **"Total charged today"** — and `docs/175` establishes that a
+refusal renders **36px below it** saying *"nothing has been charged"*. It is
+`docs/161` §4.1 on this form, never swept here. Fixed to **"Total to pay
+today"**; the round-up control itself was not involved and did not change.
+
 ### 5.5 Still unchecked
 
 - ⛔ **The pay button was never pressed on a rounded figure.** No money has

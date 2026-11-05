@@ -842,7 +842,24 @@ export function MpesaDonationForm({
           </dd>
         </div>
         <div className="flex justify-between border-t border-border pt-1.5">
-          <dt className="font-semibold text-foreground">Total charged today</dt>
+          {/*
+            ⚠️ This row asserted an EVENT, and `error` renders 36px below it
+            (`:877`), so after any refusal the donor read a total above
+            "...nothing has been charged" - six messages say exactly that
+            (four in the initiate route, two in this file). `docs/161` §4.1
+            measured this on the CARD form and fixed only that one; the
+            M-Pesa form is the rail that actually takes money and was never
+            swept.
+
+            The figure is deliberately NOT blanked - a donor who retries
+            wants their amount still there - and the box is a projection
+            either way. Only the tense was wrong.
+
+            No monthly variant: an M-Pesa STK push is a single authorised
+            debit, not a mandate (`docs/174`), so this form has no
+            `isRecurring` to branch on.
+          */}
+          <dt className="font-semibold text-foreground">Total to pay today</dt>
           <dd className="font-semibold tabular-nums text-foreground">
             <Money
               minor={withinBounds ? billedMinor : 0}
