@@ -7,6 +7,7 @@ import { Money } from '@/components/ui/Money';
 import { CURRENCIES } from '@/lib/money/currencies';
 import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
 import { previewChargeMinor, type ChargePreview } from '@/lib/money/fx-charge';
+import { roundUpOffer } from '@/lib/money/round-up';
 
 import { COLLECTED_UNRECORDED_MESSAGE, PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
 
@@ -202,6 +203,22 @@ export function MpesaDonationForm({
   const billedMinor = chargeMinor ?? amountMinor;
   /** True only when the two genuinely differ and a disclosure is owed. */
   const converts = charge != null && charge.chargeCurrency !== currency;
+
+  /*
+    ── ROUND UP AT THE MOMENT OF GIVING ───────────────────────────────────
+    The next round figure, or null when there is nothing honest to offer.
+
+    Taking it is exactly equivalent to the donor having typed that number:
+    it sets the same state the input sets, so there is ONE authorised debit,
+    one credit path, no accumulated balance and no second charge. Nothing
+    below this line knows the amount arrived any differently.
+
+    ⛔ It rounds the CREDIT, never the charge. Rounding the charge would
+    take more from the donor while crediting the campaign the same, which is
+    a spread the "we take 0%" promise forbids (docs/168). `roundUpOffer`
+    carries that reasoning and the bounds it has to respect.
+  */
+  const roundUpMinor = withinBounds ? roundUpOffer(amountMinor, currency, charge) : null;
 
   const canSubmit =
     phase === 'form' &&
@@ -695,6 +712,29 @@ export function MpesaDonationForm({
             Enter between {formatMoney(def.minDonationMinor, currency, 'exact')} and{' '}
             {formatMoney(def.maxDonationMinor, currency, 'exact')}.
           </p>
+        ) : null}
+
+        {/*
+          Opt-in only, and it states the exact figure. It sets the amount
+          field and nothing else, so a donor who ignores it is unaffected and
+          one who takes it can change it straight back.
+
+          ⛔ No fee or cost claim in this copy. `fee-claims.test.ts` forbids a
+          rate anywhere user-facing, and "this costs the campaign nothing
+          extra" would be a claim about PayHero's banded pricing that the
+          platform cannot substantiate at every amount (docs/168 §10).
+        */}
+        {roundUpMinor !== null ? (
+          <button
+            type="button"
+            onClick={() => {
+              setAmountMajor(String(minorToMajor(roundUpMinor, currency)));
+              setSelectedPreset(null);
+            }}
+            className="mt-2 w-full rounded-xl border border-border bg-muted/40 px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            Round up to {formatMoney(roundUpMinor, currency, 'exact')}
+          </button>
         ) : null}
       </fieldset>
 

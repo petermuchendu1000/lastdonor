@@ -739,3 +739,83 @@ describe('a USD campaign collected over the KES rail', () => {
     expect(screen.queryByText(/KES per/i)).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Round up at the moment of giving.
+ *
+ * `round-up.test.ts` proves the arithmetic. These prove the CONTROL IS
+ * WIRED: that pressing it moves the amount the form will actually post, and
+ * therefore the figure on the pay button. A correct decider that nothing
+ * calls is the defect `docs/170` §11.4 is named for.
+ */
+describe('round up at the moment of giving', () => {
+  function amountInput() {
+    return screen.getByLabelText(/Or enter an amount/i);
+  }
+  function payButton() {
+    return screen.getByRole('button', { name: /Send M-Pesa request|Enter an amount/i });
+  }
+  function roundUpButton() {
+    return screen.queryByRole('button', { name: /^Round up to/i });
+  }
+
+  it('offers the next round figure and moves the amount when taken', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(amountInput(), '650');
+
+    const offer = roundUpButton();
+    expect(offer).toBeTruthy();
+    expect(offer).toHaveTextContent(/K(sh|ES)\s*700\.00/);
+
+    await user.click(offer!);
+
+    // The amount the form will POST moved, and so did the pay button.
+    expect(amountInput()).toHaveValue(700);
+    expect(payButton()).toHaveTextContent(/Ksh\s*700\.00/);
+  });
+
+  it('ANTI-VACUITY: offers nothing on a figure already round', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(amountInput(), '700');
+    expect(roundUpButton()).toBeNull();
+  });
+
+  /*
+    ⛔ The floor tile must never be offered a round-up. Ksh 50.00 is not a
+    multiple of Ksh 100.00, so the bare arithmetic offered to DOUBLE the
+    smallest gift the platform accepts — aimed at the donor who chose the
+    cheapest tile. Caught by a test, fixed in `roundUpOffer`, pinned here in
+    the DOM because that is where the nudge would have appeared.
+  */
+  it('never offers to round up the floor preset', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.click(screen.getByRole('button', { name: /K(sh|ES)\s*50$/i }));
+    expect(roundUpButton()).toBeNull();
+  });
+
+  it('rounds the CREDIT in the campaign currency, and the charge re-derives', async () => {
+    const user = userEvent.setup();
+    renderCrossCurrencyForm();
+    await user.type(amountInput(), '5.40');
+
+    // The offer is in USD - what the campaign is credited.
+    const offer = roundUpButton();
+    expect(offer).toBeTruthy();
+    expect(offer).toHaveTextContent(/\$\s*6\.00/);
+
+    await user.click(offer!);
+
+    /*
+      $6.00 at 129.901648 is Ksh 779.41, rounded up to the whole shilling
+      PayHero takes: Ksh 780.00. The donor pays the converted figure; the
+      campaign is credited the $6.00 they chose. Had the control rounded the
+      CHARGE instead, the credit would still read $5.40 and the difference
+      would be platform margin (docs/168).
+    */
+    expect(payButton()).toHaveTextContent(/Ksh\s*780\.00/);
+    expect(payButton()).not.toHaveTextContent(/\$\s*6\.00/);
+  });
+});
