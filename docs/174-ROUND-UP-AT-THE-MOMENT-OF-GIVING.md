@@ -188,12 +188,89 @@ no-conversion path where `charge` is null.
 
 ---
 
-## 5. UNCHECKED
+## 5. ✅ Deployed as v177 and verified on production
 
-- **Not deployed.** Production is v176; this is committed only.
-- **No browser render.** The control is proven by jsdom execution, not by
-  sight, and **not at 390px** — `docs/151` walked this form at phone width
-  and that measurement has not been repeated with the new control.
+**2026-11-05.** `scripts/deploy.sh --prerender`, 404s, release **v177
+complete**, exit 0. This section replaces the two entries that used to open
+§5 — *"Not deployed. Production is v176; this is committed only"* and *"No
+browser render"* — both of which are now false.
+
+### 5.1 The rollout is not split
+
+`docs/161` §7.2 and `docs/163` §9 are why this is checked at all rather than
+taken from the deploy's own word:
+
+- The log reads **`Updating machine config for 080776daee2d48`**, the
+  in-place update, and **not** `create N "app" machines`.
+- `flyctl status` read **twice** (an empty machine table is a FAILED READ,
+  never "no machines" — `docs/165` §10.2): one `app` machine, the **same id
+  as the baseline**, VERSION **177**, 1/1 passing, both reads identical.
+  `flyctl machine list` independently shows exactly one row.
+- **0** orphaned `fly_app_release_command` machines.
+- ⚠️ The chunk-hash check **genuinely discriminates here**, unlike
+  `docs/165` §10.1's server-only change where 20/20 identical hashes hid a
+  real split: this is a client component, so a split would show two hashes.
+  **20 loads of `/donate` gave one hash**, `page-096a15a1287b81da.js`,
+  differing from the pre-deploy baseline `page-7f83f905a30b77ac.js`.
+- The deploy closed with **`sitemap: 10 campaign URL(s)`**, which is the
+  discriminator proving the builder reached the database (`docs/119` — without
+  `--prerender` the sitemap bakes a fraction of its URLs for up to an hour).
+
+### 5.2 The control works, measured on the live site
+
+⚠️ `'Round up'` is **0 in the `/donate` HTML**, and that is expected rather
+than a failure: the control renders only when `roundUpMinor !== null`, which
+needs an amount, so the copy lives in the client chunk. It is present
+**exactly once**, in `3832-e74ceda7023c6169.js` — with a fabricated string as
+the control proving that grep can report absence.
+
+Driven in Chromium at **390px** (`isMobile: false`, `docs/128` §5):
+
+| driven | measured |
+|---|---|
+| type `650` | offer reads **"Round up to Ksh 700.00"**; pay button still *Ksh 650.00* |
+| click the offer | amount field **`700`**, pay button **"Send M-Pesa request for Ksh 700.00"** |
+| click it again | **no offer** — idempotence |
+| type `700` | **no offer** — anti-vacuity |
+| every one of the six KES preset tiles | **no offer**, the Ksh 50 floor tile included (§2.2) |
+| type `51` | **no offer** — below one step |
+| type `101` | **"Round up to Ksh 200.00"** — the CONTROL, so "silent" cannot pass by being blanket |
+| geometry | **0px** horizontal overflow with the control rendered |
+
+### 5.3 ⚠️ Two of my own probes were broken and one read as a pass
+
+- The floor-tile control reported **`floorTilePresent: 0`** and simply **did
+  not run** — nine assertions passed around a tenth that never executed. The
+  tiles render **`Ksh 50`**, not `Ksh 50.00`: `<Money>` drops cents on a round
+  figure, so `/^Ksh\s*50\.00$/` could never match. **An unrun control is not a
+  pass**, and only enumerating the real button names settled it. Re-run
+  against the actual names, all six tiles are silent.
+  ⚠️ Enumerating them also confirmed `docs/125`'s trap live: the separator is
+  character **160**, a non-breaking space.
+- A `sed 's:…:'` extracting `/media` URLs collided with the `:` in
+  `image:loc` and errored; it printed nothing where a URL belonged, which
+  reads like "no such image in the sitemap".
+
+### 5.4 Regressions, each with a control
+
+- `docs/172`: both organiser photos answer **200 `image/jpeg` with no
+  `X-Robots-Tag`** from `/media/…`, and a fabricated UUID answers **404** —
+  the control, since a route that 200s everything scores the same on the
+  first two.
+- `docs/173`: sitemap **37 locs**, `/newsletter` present, 10 campaign URLs,
+  **18 `<image:loc>`, 0 off-host, 0 bare ampersands** (`docs/171` §10.3).
+- `/`, `/donate`, `/campaigns`, `/newsletter`, `/blog` all **200,
+  `index, follow`**.
+- Health **`degraded` on Stripe alone** — database, PayHero and Redis `ok`.
+  Unchanged from the baseline; the dead card credential is `docs/161`,
+  owner-only.
+
+### 5.5 Still unchecked
+
+- ⛔ **The pay button was never pressed on a rounded figure.** No money has
+  moved through this control. Every outcome above is the form's own state,
+  not a collection — and `docs/147` §11 is the precedent that a real
+  collection is where the surprises are.
 - **The raise cap is invisible to the client.** `Props` carry no cap
   information, so a round-up can push a donation over `unverifiedCapMinor`
   and earn a `409 CAP_EXCEEDED`. That refusal is honest and names the cap
