@@ -1,5 +1,8 @@
 # 176 — A hash cannot promise three different pictures
 
+**✅ DEPLOYED v179 2026-11-06 — see §11 for the verification record, including
+the 3→2 collision now OBSERVED on the live grid rather than computed.**
+
 **2026-11-06.** Owner: *"what we currently have makes the site look
 newbie-like … can we use stock images? Can we edit the stock images?"*
 
@@ -272,7 +275,8 @@ requires more than one distinct plate.
   computed plate. That answers the layout question; it does not exercise
   `next/image`, whose handling of these files is unchanged from the panels
   they replace.
-- **Not deployed.** Standing owner instruction (2026-10-22).
+- ~~**Not deployed.** Standing owner instruction (2026-10-22).~~ **Deployed as
+  v179 on the owner's instruction — see §11.**
 - **The detail-page hero and the dashboard thumbnails** were not inspected
   at their own sizes; only the two card crops were.
 - **No screen reader.** The alt text is unchanged
@@ -283,3 +287,61 @@ requires more than one distinct plate.
   thumbnail, legible on the detail page, and unmeasured for contrast
   against the brightest possible highlight; the scrim was sized against
   that worst case by calculation, not by sampling a rendered plate.
+
+---
+
+## 11. ✅ Deployed v179, 2026-11-06
+
+Gate run first (`scripts/deploy.sh` runs none — CLAUDE.md): lint clean,
+typecheck clean, **8,490 unit tests passing**.
+
+**Rollout is clean, not merely "complete".** The deploy log reads
+`Updating machine config for 080776daee2d48` — the **same machine id as the
+pre-deploy baseline**, so it was updated in place rather than replaced
+(`docs/161` §7.2, `docs/163` §9). Machine table read twice: **one** `app`
+machine, version **179**, 1/1 passing, **0** orphaned
+`fly_app_release_command` machines. ⚠️ Deployed with `--prerender`, and the
+discriminator that proves the builder reached the database is the script's
+closing line: `sitemap: 10 campaign URL(s)` (`docs/119`).
+
+### 11.1 The change is live, and the control is a DELETION
+
+| | result |
+|---|---|
+| rendered `<img>` on `/campaigns` | **10** |
+| treated plates | **8** |
+| old flat panels | **0** |
+| organiser photos (untouched) | **2** |
+| third-party photographs | **0** |
+
+All **69** plate files answer **200**. Two controls both **404**:
+`fabricated-panel-9.webp`, which never existed, and —
+⛔ **the stronger one** — `medical-panel.webp`, the old flat panel. A
+deploy that had added the new files without carrying the **removals** would
+serve that one 200, so its 404 is what proves the image set was *replaced*
+rather than added to.
+
+Three detail pages (`keisha-wallace`, `danielle-sutton`, `marcus-delgado`):
+200, treated plate, **0** third-party, `alt` naming the panel and not the
+person, and the share card **200 `image/jpeg`** — no `docs/112` §7 502 from
+`ImageResponse` meeting a `.webp`.
+
+### 11.2 ⛔ The §4 collision, now OBSERVED
+
+The three `medical` cards on the live grid render **`medical-panel-1`,
+`medical-panel-1`, `medical-panel-3`** — two distinct plates across three
+cards, exactly as §4 computed before the deploy. This is recorded as a
+measurement rather than left as a prediction: the limitation is real on the
+running site, and it is the expected behaviour of three items in three
+buckets, not a regression to chase.
+
+✅ **And the cross-surface stability held on live data**, which §4 asserts
+and only production could show: `danielle-sutton` renders
+`medical-panel-1` on its card **and** `medical-panel-1` on its detail page.
+
+⚠️ One self-inflicted probe failure: I **guessed** the detail-page slug from
+the campaign title and got a 404 on the page and on its share card — which
+reads exactly like the deploy having broken both. The slugs are short
+(`keisha-wallace`), and reading them out of the listing HTML rather than
+inventing them gave 200 on every one. A fabricated URL and a broken feature
+return the same status code.
