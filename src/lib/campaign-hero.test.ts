@@ -19,6 +19,8 @@ import {
   mediaObjectKey,
   isServableMediaKey,
   NEVER_PUBLIC_KEY_PREFIXES,
+  plateVariant,
+  PLATE_VARIANTS,
 } from './campaign-hero';
 import { CATEGORY_CONTENT } from './category-content';
 import { CATEGORY_LABELS } from './categories';
@@ -29,6 +31,21 @@ const PRODUCTION_STOCK = [
   'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=800',
   'https://images.unsplash.com/photo-1438032005730-c779502df39b?w=800',
   'https://images.unsplash.com/photo-1547683905-f686c993aae5?w=800',
+];
+
+/**
+ * Live campaign titles, read off `/campaigns` on 2026-11-06.
+ *
+ * ⚠️ These are the real ones, NOT strings picked because they spread nicely
+ * across the variants. A fixture chosen to make the anti-vacuity row pass
+ * would be the row testing itself.
+ */
+const REAL_TITLES = [
+  'Keisha Wallace Fights to Keep Her Four Kids Off Atlanta Streets',
+  'Help Danielle Sutton Care for Her Twins While Battling Aggressive MS',
+  'Help John Recover After a Car Accident',
+  'Help Maksym Rebuild After the Strike',
+  'Tuan Nguyen Needs Urgent Surgery',
 ];
 
 /** The two campaigns whose organiser actually supplied a photograph. */
@@ -51,7 +68,7 @@ describe('⛔ a stock photograph never stands in for a named person', () => {
       expect(isOrganiserPhoto(url), url).toBe(false);
       const hero = resolveCampaignHero({ heroImageUrl: url, category: 'medical', title: 'X' });
       expect(hero.isPanel, url).toBe(true);
-      expect(hero.src, url).toBe('/images/categories/medical-panel.webp');
+      expect(hero.src, url).toMatch(/^\/images\/categories\/medical-panel-[1-3]\.webp$/);
     }
   });
 
@@ -135,25 +152,47 @@ describe('the panel, and what it is called', () => {
   });
 
   it('an unknown or missing category falls back to community', () => {
+    // Variant 2 is what the empty key hashes to; the point here is the
+    // CATEGORY half, which is why the variant is the same across all three.
     expect(categoryPanelPath('not-a-real-category')).toBe(
-      `/images/categories/${FALLBACK_CATEGORY}-panel.webp`,
+      `/images/categories/${FALLBACK_CATEGORY}-panel-2.webp`,
     );
-    expect(categoryPanelPath(null)).toBe(`/images/categories/${FALLBACK_CATEGORY}-panel.webp`);
-    expect(categoryPanelPath('')).toBe(`/images/categories/${FALLBACK_CATEGORY}-panel.webp`);
+    expect(categoryPanelPath(null)).toBe(`/images/categories/${FALLBACK_CATEGORY}-panel-2.webp`);
+    expect(categoryPanelPath('')).toBe(`/images/categories/${FALLBACK_CATEGORY}-panel-2.webp`);
   });
 
-  it('⛔ every category this build knows has a panel FILE on disk', () => {
+  it('⛔ EVERY VARIANT of every category this build knows is a FILE on disk', () => {
     /*
       A path that resolves to a 404 is worse than the stock photo it
       replaced: the card renders an empty box. The generator derives its
-      list from the same constant, so a 24th category fails here until it
-      is generated.
+      category list from the same constant AND imports `PLATE_VARIANTS` from
+      the module under test, so neither a 24th category nor a 4th variant can
+      be half-introduced - the one that is added first fails here.
     */
     expect(CATEGORY_CONTENT.length).toBeGreaterThan(0);
+    expect(PLATE_VARIANTS).toBeGreaterThanOrEqual(1);
     for (const cat of CATEGORY_CONTENT) {
-      const rel = categoryPanelPath(cat.slug);
-      expect(rel, cat.slug).toBe(`/images/categories/${cat.slug}-panel.webp`);
-      expect(existsSync(join(process.cwd(), 'public', rel)), `missing panel: ${rel}`).toBe(true);
+      for (let v = 1; v <= PLATE_VARIANTS; v += 1) {
+        const rel = `/images/categories/${cat.slug}-panel-${v}.webp`;
+        expect(existsSync(join(process.cwd(), 'public', rel)), `missing plate: ${rel}`).toBe(true);
+      }
+    }
+  });
+
+  it('⛔ the resolver only ever names a path the rule above covers', () => {
+    /*
+      The on-disk sweep proves the FILES exist; without this, a resolver that
+      returned `-panel-9.webp` would sail past it, because that rule never
+      asks what the resolver actually produces.
+    */
+    for (const cat of CATEGORY_CONTENT) {
+      for (const title of REAL_TITLES) {
+        const rel = categoryPanelPath(cat.slug, title);
+        expect(rel, `${cat.slug}/${title}`).toBe(
+          `/images/categories/${cat.slug}-panel-${plateVariant(title)}.webp`,
+        );
+        expect(existsSync(join(process.cwd(), 'public', rel)), `missing plate: ${rel}`).toBe(true);
+      }
     }
   });
 
@@ -163,6 +202,63 @@ describe('the panel, and what it is called', () => {
       expect(hero.alt, cat.slug).toBe(`LastDonor ${CATEGORY_LABELS[cat.slug]} campaign`);
       expect(hero.alt, cat.slug).not.toContain('undefined');
     }
+  });
+});
+
+describe('⚠️ one campaign keeps ONE plate, and campaigns do not all share it', () => {
+  /*
+    These two properties pull in opposite directions and both matter.
+
+    STABLE: the same campaign is rendered on its card, its detail page, two
+    dashboard lists and the sitemap. If the plate were picked at random, or
+    from anything that varies between a server render and a client one, the
+    picture would change as a visitor moved around the site. Hence FNV-1a
+    over the campaign TITLE - no runtime hash seed, no `Math.random`, no
+    `Date`.
+
+    SPREAD: `medical` appears three times on the live listing [VERIFIED
+    2026-11-06 by classifying every `<img>` on `/campaigns`], and three
+    identical pictures side by side is the defect variants exist to fix.
+  */
+  it('the same title always resolves to the same plate', () => {
+    for (const title of REAL_TITLES) {
+      const first = categoryPanelPath('medical', title);
+      for (let i = 0; i < 5; i += 1) {
+        expect(categoryPanelPath('medical', title), title).toBe(first);
+      }
+    }
+  });
+
+  it('⛔ ANTI-VACUITY: real titles reach every variant, so a constant fails', () => {
+    /*
+      Without this row, `plateVariant = () => 1` satisfies every other
+      assertion in this file - stability, the on-disk sweep, the shape regex.
+      The titles are the real production ones, not strings chosen to spread.
+    */
+    const reached = new Set(REAL_TITLES.map((t) => plateVariant(t)));
+    expect(reached.size, `only reached ${[...reached].join(',')}`).toBe(PLATE_VARIANTS);
+  });
+
+  it('is in range for anything, including the pathological', () => {
+    for (const key of ['', ' ', 'a', '🙂', 'x'.repeat(5000), '\u0000']) {
+      const v = plateVariant(key);
+      expect(Number.isInteger(v), JSON.stringify(key)).toBe(true);
+      expect(v, JSON.stringify(key)).toBeGreaterThanOrEqual(1);
+      expect(v, JSON.stringify(key)).toBeLessThanOrEqual(PLATE_VARIANTS);
+    }
+  });
+
+  it('⚠️ the hash is PINNED, so a "harmless" rewrite cannot reshuffle the site', () => {
+    /*
+      Changing the hash is not a refactor - every campaign's picture moves at
+      once. These are hand-recorded outputs, so an edit to `plateVariant`
+      fails here and somebody has to decide that the reshuffle is intended.
+    */
+    expect(plateVariant('')).toBe(2);
+    expect(plateVariant('X')).toBe(3);
+    expect(plateVariant('Keisha Wallace Fights to Keep Her Four Kids Off Atlanta Streets')).toBe(1);
+    expect(plateVariant('Help John Recover After a Car Accident')).toBe(3);
+    expect(plateVariant('Tuan Nguyen Needs Urgent Surgery')).toBe(2);
   });
 });
 
@@ -229,7 +325,7 @@ describe('⛔ an organiser upload is served from OUR domain, never Supabase', ()
       'https://vavxdjqufxrsbyohcwdh.supabase.co/storage/v1/object/public/media/verification-documents/p.jpg';
     const hero = resolveCampaignHero({ heroImageUrl: privateUrl, category: 'medical', title: 'T' });
     expect(hero.isPanel).toBe(true);
-    expect(hero.src).toBe('/images/categories/medical-panel.webp');
+    expect(hero.src).toMatch(/^\/images\/categories\/medical-panel-[1-3]\.webp$/);
   });
 
   it('⚠️ CONTROL: a servable key really is servable, so the rule can fail', () => {

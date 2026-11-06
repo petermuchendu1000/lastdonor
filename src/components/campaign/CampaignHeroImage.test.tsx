@@ -14,6 +14,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CampaignHeroImage } from './CampaignHeroImage';
 import { CATEGORY_CONTENT } from '@/lib/category-content';
+import { plateVariant } from '@/lib/campaign-hero';
 
 vi.mock('next/image', () => ({
   default: (props: Record<string, unknown>) => {
@@ -49,7 +50,10 @@ describe('CampaignHeroImage, on the first render', () => {
       />,
     );
     const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('src', '/images/categories/medical-panel.webp');
+    expect(img).toHaveAttribute(
+      'src',
+      `/images/categories/medical-panel-${plateVariant('Keisha Wallace Fights to Keep Her Four Kids Off Atlanta Streets')}.webp`,
+    );
     // The crawler must never be handed the stock URL at all.
     expect(img.getAttribute('src')).not.toContain('unsplash');
   });
@@ -114,7 +118,10 @@ describe('the error path, which is now only for a real photo that 404s', () => {
 
     fireEvent.error(img);
 
-    expect(img).toHaveAttribute('src', '/images/categories/memorial-panel.webp');
+    expect(img).toHaveAttribute(
+      'src',
+      `/images/categories/memorial-panel-${plateVariant('Gone')}.webp`,
+    );
     expect(img).toHaveAttribute('alt', 'LastDonor Memorial campaign');
   });
 
@@ -133,7 +140,7 @@ describe('the error path, which is now only for a real photo that 404s', () => {
     render(<CampaignHeroImage src={STOCK} alt="T" category="not-real" />);
     expect(screen.getByRole('img')).toHaveAttribute(
       'src',
-      '/images/categories/community-panel.webp',
+      `/images/categories/community-panel-${plateVariant('T')}.webp`,
     );
   });
 
@@ -141,17 +148,44 @@ describe('the error path, which is now only for a real photo that 404s', () => {
     render(<CampaignHeroImage src={STOCK} alt="T" />);
     expect(screen.getByRole('img')).toHaveAttribute(
       'src',
-      '/images/categories/community-panel.webp',
+      `/images/categories/community-panel-${plateVariant('T')}.webp`,
     );
   });
 });
 
 describe('every category renders its own panel', () => {
+  /*
+    The CATEGORY half is pinned literally; the variant comes from the shared
+    function, because which plate a title maps to is pinned by hand-recorded
+    values in `campaign-hero.test.ts` and restating it here would only mean
+    two copies of one answer.
+  */
   it.each(CATEGORY_CONTENT.map((c) => c.slug))('%s', (slug) => {
     render(<CampaignHeroImage src={STOCK} alt="T" category={slug} />);
     expect(screen.getByRole('img')).toHaveAttribute(
       'src',
-      `/images/categories/${slug}-panel.webp`,
+      `/images/categories/${slug}-panel-${plateVariant('T')}.webp`,
     );
+  });
+
+  it('⛔ the TITLE reaches the plate, so one category is not one picture', () => {
+    /*
+      `medical` appears three times on the live listing. The component passes
+      `alt` (the campaign title) through as the variant key, and without this
+      row a component that passed a constant - or dropped the key entirely -
+      would satisfy every assertion above, since they all use one title.
+    */
+    const seen = new Set<string>();
+    for (const title of [
+      'Keisha Wallace Fights to Keep Her Four Kids Off Atlanta Streets',
+      'Help Danielle Sutton Care for Her Twins While Battling Aggressive MS',
+      'Tuan Nguyen Needs Urgent Surgery',
+      'Help John Recover After a Car Accident',
+    ]) {
+      const { unmount } = render(<CampaignHeroImage src={STOCK} alt={title} category="medical" />);
+      seen.add(screen.getByRole('img').getAttribute('src')!);
+      unmount();
+    }
+    expect(seen.size, `all four titles gave ${[...seen].join(', ')}`).toBeGreaterThan(1);
   });
 });
