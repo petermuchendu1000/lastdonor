@@ -159,6 +159,39 @@ export function __resetAiClientsForTests(): void {
   property that matters here. `dots-3-note-preview` also works and is
   the next candidate if one of these rots.
 
+  ── IT ROTTED. 2026-11-06 ────────────────────────────────────────────
+
+  `nvidia/nemotron-3-super-120b-a12b:free` is GONE, and the catalogue
+  says so in its own words:
+
+    404  "This model is unavailable for free. The paid version is
+          available now - use this slug instead:
+          nvidia/nemotron-3-super-120b-a12b"
+
+  ⛔ Taking that suggestion is the WRONG fix. The free rungs exist so a
+  primary outage cannot spend money, and `openrouter.test.ts` pins that
+  intent by asserting the fallback slug contains `:free`. The paid slug
+  answers 200, and adopting it would silently turn the safety net into
+  a bill.
+
+  So the promotion this header already prescribed is taken instead, and
+  it was re-measured today rather than trusted - each sent a JSON-only
+  instruction at max_tokens 300 on the key supplied 2026-11-06:
+
+    dots-studio/dots-3-note-preview:free   200  {"category":"medical",
+                                                 "ok":true}
+    nvidia/nemotron-3.5-super-vl:free      200  {"category":"medical",
+                                                 "ok":true}
+    nvidia/nemotron-3-super-120b-a12b:free 404  (quoted above)
+    qwen/qwen3-coder (primary, paid)       200  "ready"
+
+  ⚠️ The primary was expected to FAIL on this key and did not. The key
+  reports `is_free_tier: true` with `usage: 0` and no credit limit, so
+  the prediction was a 402 - the same error that had been flooding the
+  production log every pipeline run. It answered 200 and billed
+  $0.000006. Reasoning from the key's metadata was wrong; only the call
+  settled it.
+
   The primary is live again on the key supplied 2026-10-18 and costs
   $0.00020774 for a 257p/84c classification. A whole `fetch-news` run
   against production measured $0.0146 - the run cap
@@ -169,5 +202,5 @@ export function __resetAiClientsForTests(): void {
   $100 spend cap of its own and 50 free-model requests a day.
 */
 export const PRIMARY_MODEL = 'qwen/qwen3-coder';
-export const FALLBACK_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+export const FALLBACK_MODEL = 'dots-studio/dots-3-note-preview:free';
 export const TERTIARY_MODEL = 'nvidia/nemotron-3.5-super-vl:free';
