@@ -22,6 +22,7 @@ import {
   moneyLineSize,
 } from '@/lib/og-card-metrics';
 import { heroPixels } from '@/lib/og-hero-image';
+import { logCrawlerHit } from '@/lib/crawler-log';
 import { fitTitle } from '@/lib/og-title-fit';
 import { titleMeasure } from '@/lib/og-title-measure';
 
@@ -74,8 +75,24 @@ interface Params {
  * printed on top of itself. Moving the text to the right half means X's
  * badge lands on the photo, where it belongs.
  */
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   const { slug } = await params;
+
+  /*
+    ⛔ BEFORE ANY WORK, and before the database is touched: a crawler that
+    reaches this route has already read our HTML and parsed `og:image`, so
+    the line it writes is the only evidence we have that the preview pipeline
+    got that far. Logging after the render would lose every request that
+    failed on the way. Nothing is written for an ordinary visitor - see
+    `src/lib/crawler-log.ts` for why that is what keeps this free of personal
+    data.
+  */
+  logCrawlerHit({
+    surface: 'og-card',
+    subject: slug,
+    userAgent: request.headers.get('user-agent'),
+    version: new URL(request.url).searchParams.get('v'),
+  });
 
   const [campaign] = await db
     .select({

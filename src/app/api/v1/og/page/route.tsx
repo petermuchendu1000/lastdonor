@@ -1,5 +1,6 @@
 import { ImageResponse } from '@vercel/og';
 import { loadOgFonts } from '@/lib/og-fonts';
+import { logCrawlerHit } from '@/lib/crawler-log';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,14 @@ export const runtime = 'nodejs';
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+
+  // Same purpose as the campaign card's: see `src/lib/crawler-log.ts`.
+  logCrawlerHit({
+    surface: 'og-page',
+    subject: searchParams.get('title') ?? '(default)',
+    userAgent: request.headers.get('user-agent'),
+  });
+
   const title = searchParams.get('title') ?? 'LastDonor.org';
   const subtitle = searchParams.get('subtitle') ?? '';
 
