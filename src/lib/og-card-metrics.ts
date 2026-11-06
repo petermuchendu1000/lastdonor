@@ -69,13 +69,64 @@ export const OG_TYPE = {
   context: 30,
   /** PRIMARY. Must read at 4.14x. */
   title: 60,
-  /** PRIMARY. The amount raised, or the zero-state ask. */
-  headline: 52,
+  /**
+   * The money line: the amount raised, or the zero-state ask.
+   *
+   * ⛔ SECONDARY AS OF 2026-11-06, AND THAT IS A DELIBERATE DEMOTION, not a
+   * drift. It was 52 and PRIMARY, which made it the second-largest thing on
+   * the card - and because `fitTitle` steps the TITLE down to fit while this
+   * stayed fixed, [VERIFIED by computing the fit for all ten live campaigns]
+   * the money rendered LARGER than the title on three of them. The worst was
+   * `help-maksym-…` at title 42 against money 52, confirmed in the production
+   * JPEG by measuring ink bands in the right panel: the money band is **45px**
+   * tall against 39/31/30 for the three title lines. The same card rendered
+   * through this change measures 36px against the same 39/31/30.
+   *
+   * Owner decision 2026-11-06: keep the amount, shrink it. A campaign at
+   * 0.08% funded was shouting its weakest fact in the largest available type.
+   *
+   * 42 is DERIVED, not picked: `cardPx(MIN_EFFECTIVE_PX, WORST_DOWNSCALE)`.
+   * So it still reads in the narrowest bubble there is, it simply no longer
+   * competes with the title. ⛔ It is a CEILING, not the rendered size - see
+   * `moneyLineSize`, which is what actually holds the invariant.
+   */
+  headline: 42,
   /** Secondary. Goal and donor count. */
   subline: 30,
   /** Secondary. The review guarantee. */
   trust: 30,
 } as const;
+
+/**
+ * The size the money line is actually drawn at.
+ *
+ * ⛔ THE INVARIANT: the money is never larger than the title beside it.
+ *
+ * A constant alone cannot hold that. `TITLE_SIZES` floors at 24, so for any
+ * fixed money size there is a title long enough to be drawn smaller than it -
+ * which is exactly the defect this closes, just further down the ladder. The
+ * only way to guarantee it is to derive the money size FROM the title's
+ * rendered size, which is what this does.
+ *
+ * ⚠️ Accepted consequence, stated rather than hidden: a title at the very
+ * bottom of the ladder drags the money line below the feed-legibility floor
+ * with it. That is the right trade - `TITLE_SIZES` already records that a
+ * title which reaches the floor is unreadable on every platform anyway, and a
+ * money figure out-shouting an unreadable title would be worse, not better.
+ */
+export function moneyLineSize(renderedTitlePx: number): number {
+  return Math.min(OG_TYPE.headline, renderedTitlePx);
+}
+
+/**
+ * Width of the photograph panel, in card pixels.
+ *
+ * Shared because TWO modules must agree on it: the route draws the box, and
+ * `og-hero-image.ts` re-encodes the photograph to exactly fill it. If they
+ * disagreed the image would be scaled twice, once by sharp and once by the
+ * renderer.
+ */
+export const HERO_WIDTH = 456;
 
 /**
  * Sizes the title may take, largest first.
@@ -123,8 +174,16 @@ export const TITLE_LINE_HEIGHT = 1.14;
  */
 export const FALLBACK_MARK_PX = 120;
 
-/** Which entries must clear `PRIMARY_EFFECTIVE_PX` at `WORST_DOWNSCALE`. */
-export const PRIMARY_KEYS = ['title', 'headline'] as const;
+/**
+ * Which entries must clear `PRIMARY_EFFECTIVE_PX` at `WORST_DOWNSCALE`.
+ *
+ * ⚠️ `headline` was here until 2026-11-06 and is deliberately gone: the money
+ * line is no longer one of the two things a stranger must be able to read in
+ * a message bubble. See `OG_TYPE.headline`. Removing it is what ALLOWS the
+ * size to drop below 50 - leaving it listed would have made the owner's
+ * decision fail this file's own rule, which is the signal working.
+ */
+export const PRIMARY_KEYS = ['title'] as const;
 
 /**
  * Output budget.
@@ -164,7 +223,7 @@ export const CARD_JPEG_QUALITY = 90;
  *
  * So this is for every future change, not for the backlog already cached.
  */
-export const CARD_VERSION = 2;
+export const CARD_VERSION = 3;
 
 export const CARD_WIDTH = 1200;
 export const CARD_HEIGHT = 630;

@@ -13,12 +13,15 @@ import {
   CARD_JPEG_QUALITY,
   CARD_WIDTH,
   FALLBACK_MARK_PX,
+  HERO_WIDTH,
   OG_TYPE,
   TITLE_BOX_HEIGHT,
   TITLE_BOX_WIDTH,
   TITLE_LINE_HEIGHT,
   TITLE_SIZES,
+  moneyLineSize,
 } from '@/lib/og-card-metrics';
+import { heroPixels } from '@/lib/og-hero-image';
 import { fitTitle } from '@/lib/og-title-fit';
 import { titleMeasure } from '@/lib/og-title-measure';
 
@@ -120,6 +123,19 @@ export async function GET(_request: Request, { params }: Params) {
   */
   const heroSrc = model.heroSrc ? await probeHeroSrc(model.heroSrc) : null;
 
+  /*
+    ⛔ The renderer is handed PIXELS, never the photograph's URL.
+
+    Satori reads no EXIF, so a phone photograph stored sideways with an
+    `Orientation` tag was painted sideways - while `/_next/image` bakes that
+    rotation in, so the campaign page showed the same photograph upright.
+    [VERIFIED on `help-maksym-…`: stored 3264x2448 orientation 8, page
+    2448x3264 orientation absent.] `heroPixels` applies the rotation before
+    the renderer ever sees the image, so the two surfaces agree by
+    construction. See `src/lib/og-hero-image.ts`.
+  */
+  const heroImage = heroSrc ? await heroPixels(heroSrc) : null;
+
   const categoryLabel = CATEGORY_LABELS[campaign.category] ?? 'Fundraiser';
   const context = [categoryLabel, campaign.location].filter(Boolean).join('  ·  ');
   const fonts = await loadOgFonts();
@@ -162,18 +178,24 @@ export async function GET(_request: Request, { params }: Params) {
         <div
           style={{
             display: 'flex',
-            width: '456px',
+            width: `${HERO_WIDTH}px`,
             height: '100%',
             position: 'relative',
             backgroundColor: '#0B3B38',
           }}
         >
-          {heroSrc ? (
+          {heroImage ? (
+            /*
+              Already cropped to exactly this box by `heroPixels`, so
+              `objectFit` has nothing left to do - but it stays as the
+              guarantee that a future change to either size cannot stretch
+              somebody's photograph.
+            */
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={heroSrc}
+              src={heroImage}
               alt=""
-              style={{ width: '456px', height: '630px', objectFit: 'cover' }}
+              style={{ width: `${HERO_WIDTH}px`, height: `${CARD_HEIGHT}px`, objectFit: 'cover' }}
             />
           ) : (
             /*
@@ -184,8 +206,8 @@ export async function GET(_request: Request, { params }: Params) {
             <div
               style={{
                 display: 'flex',
-                width: '456px',
-                height: '630px',
+                width: `${HERO_WIDTH}px`,
+                height: `${CARD_HEIGHT}px`,
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: '#0B3B38',
@@ -272,11 +294,22 @@ export async function GET(_request: Request, { params }: Params) {
               marginTop: '30px',
             }}
           >
+            {/*
+              ⛔ Sized against the TITLE AS RENDERED, not against a constant.
+
+              `fitTitle` steps the title down to fit, and this line used to be
+              a fixed 52 - so on three of the ten live campaigns the money was
+              drawn LARGER than the title it sat under (`david-nwosu` and
+              `marcus-delgado` at 48, `help-maksym-…` at 42). `moneyLineSize`
+              makes "the money is never larger than the title" true by
+              construction, which a constant cannot do while `TITLE_SIZES`
+              floors at 24.
+            */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'baseline',
-                fontSize: OG_TYPE.headline,
+                fontSize: moneyLineSize(title.size),
                 color: INK,
               }}
             >
