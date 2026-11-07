@@ -243,6 +243,18 @@ Stated positively because absence is a claim (`docs/141` §1):
   `server: Fly`; two independent DoH resolvers agree; NS is Cloudflare but the
   record is grey-clouded. docs/105's reasoning stands — `getClientIp` is
   correct either way — but its status line is stale.
+
+  ✅ **RESOLVED 2026-11-07 (`docs/179`), and this reading was CORRECT about the
+  state while wrong about the cause.** docs/105 §7's status line was not merely
+  stale: it was true when written and then **undone**. Read from the Cloudflare
+  API, the apex `A`, apex `AAAA` and `www` CNAME all carry
+  `modified_on` within **0.82 seconds of each other at 2026-10-24T21:02:06Z** —
+  about 6h20m after the v96 deploy that completed that cutover, and nothing in
+  `docs/` records it. The **apex** is proxied again (`cf-ray` present, answers
+  inside Cloudflare's published space, verified against a freshly fetched list);
+  `www` is deliberately left grey, so the open `www` question in the item above
+  is unchanged. Zone settings survived the revert untouched — `ssl=strict` still
+  carries docs/105's own `12:28:10.428808Z` timestamp to the millisecond.
 - ⚠️ **`/` is `force-dynamic`**, so `cache-control: private, no-cache,
   no-store` and TTFB **0.80 s** against 0.15–0.25 s for every other template,
   on a single machine in **`arn`** behind an `iad` edge.
