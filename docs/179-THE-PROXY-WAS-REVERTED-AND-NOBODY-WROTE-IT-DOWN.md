@@ -291,6 +291,22 @@ Read it twice a few minutes apart before concluding anything — the same rule
 `docs/119` established for an ISR page and `docs/169` met three times in one day
 on the sitemap.
 
+### 6.1 Why this beats the crawler log for the open question
+
+`docs/178` §3.1's limitation is structural: `/campaigns/[slug]` is ISR, so its
+server component does not run per request and cannot log one, and the only
+per-request hook above it is the middleware. Cloudflare sits in front of all of
+that, so it sees the **page** fetch — which is the exact discriminator
+`docs/178` could not reach:
+
+| Cloudflare shows | conclusion |
+|---|---|
+| a Meta fetch of `/campaigns/<slug>` **and** of the og route | we are read end to end; the failure is on their side |
+| a fetch of the page only | Meta reads our HTML and extracts no `og:image` |
+| no Meta request at all | Meta never reaches us; the problem is upstream of our origin |
+
+---
+
 ### 6.2 ⛔ The first version of that script silently dropped the row that matters
 
 Its query asked for three dimensions — `userAgent`, `clientRequestPath` and
@@ -319,21 +335,117 @@ saw nothing"* look identical in output and mean opposite things. Verified by
 execution — a window in 2027 exits **3** with the warning, while the real window
 exits 0 with both rows.
 
-### 6.1 Why this beats the crawler log for the open question
+### 6.3 ⛔ THE ANSWER, and my own instrument gave me the wrong one first
 
-`docs/178` §3.1's limitation is structural: `/campaigns/[slug]` is ISR, so its
-server component does not run per request and cannot log one, and the only
-per-request hook above it is the middleware. Cloudflare sits in front of all of
-that, so it sees the **page** fetch — which is the exact discriminator
-`docs/178` could not reach:
+**Meta fetches us, end to end.** On 2026-11-09 the owner shared
+`/campaigns/danielle-sutton` — a URL Meta had never seen — and two independent
+systems recorded it:
 
-| Cloudflare shows | conclusion |
+```
+# the application log (docs/178's own logger)
+2026-11-09T00:50:39Z [crawler] whatsapp og-card subject=danielle-sutton v=3 ua="WhatsApp/2.2642.101 W"
+
+# Cloudflare analytics, same window
+1  /campaigns/danielle-sutton           WhatsApp/2.2642.101 W     HTTP 200
+1  /api/v1/og/campaign/danielle-sutton  WhatsApp/2.2642.101 W     HTTP 200
+```
+
+So WhatsApp fetched **the page AND the card**, and we answered **200 on both**.
+
+⚠️ **That status claim needed a second query, and my first one could not have
+supported it.** The obvious query filters by `clientRequestPath_like` and
+groups by path and status — which returned `6 × 200` on the page, `2 × 200` on
+the card and **`1 × 301`** on the page. Those are aggregated across *every*
+user agent, so nothing in them says which agent got the 301; the WhatsApp
+client could have been it. Re-asked with `userAgent_like: "%WhatsApp%"` and
+grouped by `{userAgent edgeResponseStatus}`:
+
+```
+2  HTTP 200  WhatsApp/2.2642.101 W      <- the real client, both its requests
+1  HTTP 200  WhatsApp/2.23.20.0 A       <- my own synthetic probe
+```
+
+Now it is established rather than inferred. **Filter by the subject you are
+making a claim about, not by the path it happens to share with everything
+else.**
+
+That closes the question `docs/178` was built to answer — *"did Meta fetch us
+and reject what it got, or did it never fetch us at all?"* — after thirteen
+refuted hypotheses: **it fetches us, and the failure is downstream of our
+origin.** `docs/178` §5 and §6 are amended.
+
+⛔ **But I reported the opposite first, and the cause was this script.** The
+broad pass asked for `limit: 200` with `orderBy: count_DESC`. A crawler fetch
+has `count: 1`, so it sorts **last** and the limit cuts it off **first**. The
+run returned exactly 200 groups and I reported *"still no Meta fetch"*; the
+real figure over the same window was **982 groups containing 4 preview
+fetches**, two of them the real client above.
+
+⚠️ **The only tell was that the group count equalled the limit I had chosen** —
+a number I wrote, matched by a number the API returned. Nothing in the output
+said "truncated". This is the same class as §6.2's dimension-dropping bug:
+**two independent silent-undercount defects in one 60-line script**, both of
+which report a confident, precise, wrong negative.
+
+So the script now runs **two passes that must agree**: a broad pass with a
+**truncation guard** (it refuses to answer when the group count reaches the
+limit) and a **targeted** server-side `userAgent_like` query per preview
+crawler, which cannot be crowded out by volume at all. Both guards are proven
+to fire — `CF_BROAD_LIMIT=200` exits **4**, an empty window exits **3**, and
+crippling the broad regex while leaving the targeted pass intact exits **5**.
+
+### 6.4 ⛔ `userAgent_like` is CASE-SENSITIVE, which was the second false negative
+
+The targeted pass was written with an all-lowercase token list, and it reported
+**1** preview group where the broad pass found 4. Measured by paired query:
+
+| filter | groups |
 |---|---|
-| a Meta fetch of `/campaigns/<slug>` **and** of the og route | we are read end to end; the failure is on their side |
-| a fetch of the page only | Meta reads our HTML and extracts no `og:image` |
-| no Meta request at all | Meta never reaches us; the problem is upstream of our origin |
+| `userAgent_like: "%whatsapp%"` | **0** |
+| `userAgent_like: "%WhatsApp%"` | 2 |
+| `userAgent_like: "%googlebot%"` | **0** |
+| `userAgent_like: "%Googlebot%"` | 5 |
 
----
+Eleven of the twelve tokens matched nothing, which reads exactly like *"no
+preview crawler came"*. ⚠️ And the one that worked — `facebookexternalhit`,
+genuinely lowercase in the real agent string — **masked the cause**, because a
+list where one entry returns data looks like a list that works.
+
+⚠️ **The guard added for §6.3's mistake is what caught it.** Nothing else in
+the run would have: both numbers were plausible, and the lower one was the one
+I was predisposed to believe. The tokens now carry the real capitalisation from
+`crawler-log.test.ts`'s live agent strings.
+
+⛔ **The two cross-check directions mean different things and no longer share an
+exit code.** *Targeted finds what broad missed* is the serious one — it is the
+§6.3 failure mode — so the script refuses to answer. *Broad finds what targeted
+missed* means a token's casing is wrong, and since the broad pass is now
+truncation-guarded its answer still stands, so that warns and names the token.
+
+⚠️ Also: group counts depend on the dimensions requested. The same two WhatsApp
+requests are 2 groups under `{clientRequestPath userAgent}` and 1 under
+`{userAgent}` alone. That is aggregation, not a discrepancy — compare like with
+like before calling it one.
+
+### 6.5 ⚠️ And the experiment `docs/178` §6 prescribed is confounded on a re-share
+
+Before the `danielle-sutton` share, the owner re-shared a URL Meta had already
+seen and the log stayed empty — which I began to read as *"Meta never reaches
+us"*. That inference does not hold, and this repository already said why:
+
+- `docs/142`: *"`facebook-rescrape.ts` exists solely to ask Facebook to fetch
+  those URLs."*
+- `docs/112` §9.2: *"`CARD_VERSION` 2 → 3 changes the `og:image` URL but does
+  **NOT** force a re-scrape."*
+
+Meta caches scraped Open Graph data **per URL**, so no fetch on a re-share is
+*expected*. `docs/178` §6's table offered *"nothing → Meta never reached the
+card"* with no second reading, and that is a defect in the doc. The test only
+discriminates on a URL Meta has never seen — which is why the
+`danielle-sutton` share settled it and the `keisha-wallace` re-share could not.
+⚠️ `?x=1` cannot substitute: `og:url` carries the clean URL and the share sheet
+strips the parameter (`docs/178` §2.1).
+
 
 ## 7. ⛔ What was NOT checked
 
@@ -350,8 +462,25 @@ that, so it sees the **page** fetch — which is the exact discriminator
   (`docs/26`, `docs/66`). Nothing user-facing was measured above 0.8s, and cron
   targets `lastdonor.fly.dev` outside the zone, but no route was deliberately
   driven past 100s.
-- **Bot Fight Mode and the managed ruleset's behaviour toward real crawlers.**
-  The WAF skip rule covers the four signed webhooks; whether any Cloudflare
-  security product challenges `facebookexternalhit` on a *public page* is
-  unmeasured, and if it does it would be a new cause for the very symptom
-  `docs/178` is chasing.
+- ~~**Bot Fight Mode and the managed ruleset's behaviour toward real
+  crawlers.**~~ ✅ **Answered by the §6.3 fetch**: a real WhatsApp client got
+  **HTTP 200** on the page and **200** on the card through the edge, so nothing
+  Cloudflare runs challenged it. ⚠️ That is one client on one URL on one day —
+  not a general guarantee for every preview agent.
+- ⛔ **WHETHER THE PREVIEW ACTUALLY RENDERED.** This is now the whole open
+  question and it cannot be answered from our side at all. We know Meta fetched
+  the page and the card and got 200 on both (§6.3); we do **not** know what it
+  then displayed. The owner has not reported what the `danielle-sutton` share
+  looked like. **Ask that first in the next session** — the answer decides
+  everything:
+  - **card renders** → the defect was only ever Meta's stale cache of the
+    already-shared URLs, and the fix is a re-scrape, not code.
+  - **card still blank** → Meta reads a 200 page and a 200 JPEG and renders
+    nothing, which is a new and much narrower problem than `docs/178` was
+    chasing.
+- **Whether a re-scrape would heal the old URLs.** `facebook-rescrape.ts`
+  exists for exactly this and needs `FACEBOOK_ACCESS_TOKEN`, which is **not**
+  among the 32 secrets on Fly — so it has never been run. Owner action.
+- **Every platform but WhatsApp.** The §6.3 evidence is one WhatsApp Web
+  client. X, Slack, Telegram, LinkedIn, Signal and iMessage each hold their own
+  cache and none was tested.

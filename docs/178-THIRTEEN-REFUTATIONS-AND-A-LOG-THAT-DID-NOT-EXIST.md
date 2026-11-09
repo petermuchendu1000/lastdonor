@@ -200,15 +200,42 @@ Capping it is an owner action on OpenRouter's side.
 
 - **Whether any of this fixes the WhatsApp preview.** Nothing here changes what
   we serve; the card was already correct before the investigation started.
-- **Whether Meta ever fetches us.** That is what the log is *for*; it has
-  recorded only my own synthetic probes so far.
-- **The page fetch**, for the ISR/middleware reason in §3.1. A line's absence
-  therefore has two readings, and §3.1's table says which.
+- ~~**Whether Meta ever fetches us.** That is what the log is *for*; it has
+  recorded only my own synthetic probes so far.~~
+  ✅ **RESOLVED 2026-11-09 — IT DOES** (`docs/179` §6.3). A share of
+  `/campaigns/danielle-sutton`, a URL Meta had never seen, was recorded by two
+  independent systems: this log wrote
+  `[crawler] whatsapp og-card subject=danielle-sutton v=3 ua="WhatsApp/2.2642.101 W"`
+  at `00:50:39Z`, and Cloudflare recorded the same client fetching **both** the
+  page and the card, **HTTP 200 on each**. So the thirteen refutations in §2
+  were refuting the right things: nothing we serve is the problem, and the
+  failure is **downstream of our origin**.
+  ⚠️ Note the user agent. A real client is `WhatsApp/2.2642.101 W`; my own
+  synthetic probes used `WhatsApp/2.23.20.0 A`, the fixture string in
+  `crawler-log.test.ts`. They are told apart by version and timing only, so set
+  any analytics window to start after your own probes.
+- ~~**The page fetch**, for the ISR/middleware reason in §3.1.~~
+  ✅ **Observable since 2026-11-07 without touching the middleware**: the
+  Cloudflare apex proxy sees it (`docs/179` §6.1), which is how the page fetch
+  above was measured. §3.1's limitation on *this log* is unchanged and still
+  correct — it is the instrument that moved, not the route.
 - **Any platform other than WhatsApp** — X, Slack, Signal, Telegram, LinkedIn
   and iMessage each have their own cache and were not tested.
-- **Two credentials are exposed and unrotated**: the OpenRouter key and the
-  production database password, both pasted in plaintext into a session
-  transcript.
+- ⛔ **THREE credentials are exposed and unrotated**, all pasted in plaintext
+  into a session transcript: the OpenRouter key, the production database
+  password, and (added 2026-11-07) a **Fly API token** — `FlyV1 fm2_…`, which
+  can deploy to, read secrets from and destroy machines in the Fly org.
+  Revoke with `fly tokens list` then `fly tokens revoke <id>`.
+- ⚠️ **The AI rungs oscillate rather than stay broken.** 2026-11-07 the log
+  held **66** `[ai]` lines — 55 × `qwen/qwen3-coder (402)` plus all three free
+  rungs hitting `429 free-models-per-day` and ending in *"AI returned empty
+  response from all models"*. 2026-11-09, a ~50-minute window held **0**.
+  OpenRouter's free-per-day allowance resets daily, so [INFERRED] the pipeline
+  works early in a day and exhausts later; a zero reading also has the second
+  reading that the pipeline simply did not run in that window, so **it is not
+  evidence of a fix**. The remedy is in OpenRouter's own message —
+  *"Add 10 credits to unlock 1000 free model requests per day"* — and is an
+  owner action (money, so Gate 8).
 
 ---
 
@@ -223,4 +250,32 @@ flyctl logs --app lastdonor --no-tail | grep '\[crawler\]'
 | result | conclusion |
 |---|---|
 | `whatsapp` or `facebook` lines appear | Meta fetches us and the markup is read — the failure is in rendering or caching on their side |
-| nothing | Meta never reached the card; the page fetch is the next thing to instrument, and §3.1 says what that would cost |
+| nothing | **see the correction below — this row was wrong** |
+
+### 6.1 ⛔ CORRECTION 2026-11-09: that table's second row is confounded
+
+*"Nothing → Meta never reached the card"* offered one reading where there are
+two, and the other one is the likely case:
+
+| reading | meaning |
+|---|---|
+| (a) | Meta never fetches us |
+| (b) | **Meta already holds a cached entry for that URL and correctly does not re-fetch** |
+
+Meta caches scraped Open Graph data **per URL**, which this repository already
+recorded in two places before this doc was written — `docs/142` (*"`facebook-rescrape.ts`
+exists solely to ask Facebook to fetch those URLs"*) and `docs/112` §9.2
+(*"`CARD_VERSION` 2 → 3 changes the `og:image` URL but does **NOT** force a
+re-scrape"*). So on a **re-share**, an empty log is *expected* and proves
+nothing.
+
+⛔ **The experiment only discriminates on a URL Meta has never seen.** A
+re-share of `keisha-wallace` produced nothing and settled nothing; a first
+share of `danielle-sutton` produced fetches of both the page and the card and
+settled it (§5, `docs/179` §6.3). ⚠️ `?x=1` is not a substitute — `og:url`
+carries the clean URL and the share sheet strips the parameter (§2.1).
+
+⚠️ And read the log with `scripts/cf-crawler-reach.sh` rather than a hand-built
+analytics query: `docs/179` §6.3 and §6.4 record two separate ways such a query
+returns a confident, precise **false negative** (a `count_DESC` limit that cuts
+off the `count: 1` rows, and a case-sensitive `userAgent_like`).
