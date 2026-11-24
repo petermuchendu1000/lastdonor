@@ -98,7 +98,7 @@
  * a blank id would return are real third-party customers' payments.
  */
 
-import { getCurrency } from './money/currencies';
+import { SUPPORTED_CURRENCY_CODES, getCurrency } from './money/currencies';
 import { normalisePhone } from './phone';
 // The isolation prefix is defined once, by the rail that introduced it.
 // Re-declaring it here would be a second answer to one question (docs/146).
@@ -125,6 +125,61 @@ export const MAX_ACCOUNT_REFERENCE = 12;
 export const MAX_TRANSACTION_DESC = 13;
 
 /**
+ * What the donor reads on their own handset, in 13 characters.
+ *
+ * The brand, not the campaign title: a title clipped to 13 characters says
+ * nothing ("Help Keisha W"), while the one thing a person needs at a PIN
+ * prompt is who is asking. Checked against `MAX_TRANSACTION_DESC` by a test
+ * rather than by eye.
+ */
+export const TRANSACTION_DESC = 'LastDonor';
+
+/**
+ * How many random characters fit after `LD-`.
+ *
+ * DERIVED from the documented limit, never written down: the whole reason
+ * this reference is short is `MAX_ACCOUNT_REFERENCE`, and a hardcoded 9 would
+ * silently become wrong the day that moves.
+ */
+export const ACCOUNT_REFERENCE_RANDOM_CHARS =
+  MAX_ACCOUNT_REFERENCE - LASTDONOR_REFERENCE_PREFIX.length;
+
+/**
+ * RFC 4648 base32, upper case.
+ *
+ * Upper-case alphanumeric because that is what every reference observed on
+ * this tenant uses and because nothing documents the accepted charset — and
+ * 32 symbols because 256 is an exact multiple of it, so `byte & 31` is
+ * uniform. A modulo over a 36-character alphabet would bias the first four
+ * letters, which is a silly way to lose entropy from a value this short.
+ */
+const REFERENCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+/**
+ * Mint one `LD-XXXXXXXXX` account reference.
+ *
+ * ⚠️ 45 bits (9 × 5), where PayHero's `LD-<uuid>` carries 122. That is forced
+ * by `MAX_ACCOUNT_REFERENCE`, not chosen, and it is why the reference is
+ * never the key to anything that could be read by guessing: the gateway's own
+ * transaction id stays server-side, and a status poll resolving by this value
+ * sits behind an IP limit that makes 10^14 attempts unreachable. If this ever
+ * becomes a bearer token for something that matters, lengthen it — the
+ * server-side limit is Palpluss's, and the 12 characters are theirs too.
+ *
+ * `globalThis.crypto` rather than `node:crypto` deliberately: this module
+ * holds constants the donor's browser may yet need (`MIN_PUSH_INTERVAL_MS`,
+ * the same way `PROMPT_LIFETIME_MS` was needed — docs/159 §7), and a node
+ * builtin import would make it unimportable there.
+ */
+export function mintAccountReference(): string {
+  const bytes = new Uint8Array(ACCOUNT_REFERENCE_RANDOM_CHARS);
+  globalThis.crypto.getRandomValues(bytes);
+  let out = '';
+  for (const b of bytes) out += REFERENCE_ALPHABET[b & 31];
+  return `${LASTDONOR_REFERENCE_PREFIX}${out}`;
+}
+
+/**
  * Palpluss throttles STK pushes per phone, and answers `result_code: "17"`
  * ("Rule limited.") rather than an HTTP error when it bites. [VERIFIED: two
  * rows in the shared ledger, both seconds after a burst to the same number.]
@@ -136,7 +191,7 @@ export const STK_PUSHES_PER_PHONE_PER_MINUTE = 2;
  * throttle above. DERIVED, never picked: at 2 per minute, a third push inside
  * any 60s window is refused, so the floor is 60s / 2.
  *
- * ⚠️ `payhero-abuse-guard.ts` sets `RETRY_COOLDOWN_MS = 20_000`, which permits
+ * ⚠️ `mpesa-abuse-guard.ts` sets `RETRY_COOLDOWN_MS = 20_000`, which permits
  * three pushes a minute. That is correct for PayHero and too permissive here:
  * a donor retrying twice at 20s would have the third prompt silently rule
  * limited. Whatever guards a Palpluss push must respect THIS constant.
@@ -379,6 +434,30 @@ export function isPalplussConfigured(): boolean {
  */
 export function isLiveKey(): boolean {
   return (process.env.PALPLUSS_API_KEY ?? '').startsWith(LIVE_KEY_PREFIX);
+}
+
+/**
+ * The currency this rail charges in, or `null` when nothing routes to it.
+ *
+ * ⚠️ `null` is TODAY'S ANSWER and the reason this returns one instead of
+ * throwing, which is what `payHeroChargeCurrency()` does. No entry in
+ * `CURRENCIES` names `gateway: 'palpluss'` yet (owner action, docs/180 §7),
+ * so the zero case is the live state and has to be a branch a route can
+ * handle rather than an exception. `payHeroChargeCurrency` throws because
+ * exactly one currency has always named it, so there it means "the currency
+ * table is broken".
+ *
+ * ⛔ Not hardcoded to `'KES'`. docs/136 §7 is about a screen whose only
+ * prose-rather-than-derived sentence became false the day the thing started
+ * working; the same applies to a rail's own charge currency. What this rail
+ * charges is a fact about the currency table, so it is read from it.
+ */
+export function palplussChargeCurrency(): string | null {
+  const codes = SUPPORTED_CURRENCY_CODES.filter(
+    (code) => getCurrency(code).gateway === 'palpluss',
+  );
+  // Two would be ambiguous and is as much a refusal as none.
+  return codes.length === 1 ? codes[0] : null;
 }
 
 function authHeader(cfg: PalplussConfig): string {
@@ -706,4 +785,69 @@ export async function getTransactionStatus(transactionId: string): Promise<Trans
 /** True when a status cannot change again. */
 export function isTerminal(status: string): boolean {
   return (TERMINAL_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Why an initiation failed, in the four kinds that mean different things to a
+ * donor. The twin of `classifyInitiationFailure` in `payhero.ts`, and the
+ * distinction it exists for is docs/158's:
+ *
+ *   `configuration` — our side, and NOTHING LEFT THIS PROCESS or Palpluss
+ *                     refused on a credential/route/float. "Nothing has been
+ *                     charged" is substantiated.
+ *   `transient`     — Palpluss ANSWERED 5xx or 429, so it had the request and
+ *                     did not act on it. Also substantiated.
+ *   `rejected`      — Palpluss refused this specific request (4xx). It did not
+ *                     ask Safaricom for anything.
+ *   `unknown`       — NO RESPONSE ARRIVED. Timeout, DNS, TLS, socket reset. The
+ *                     push reaches Safaricom synchronously and we give up at
+ *                     20s, so a prompt may have been raised that we never
+ *                     heard about. ⛔ A donor must NOT be told nothing was
+ *                     charged here.
+ */
+export type PalplussInitiationFailureKind =
+  | 'configuration'
+  | 'transient'
+  | 'rejected'
+  | 'unknown';
+
+export function classifyPalplussInitiationFailure(
+  error: unknown,
+): PalplussInitiationFailureKind {
+  if (error instanceof PalplussNotConfiguredError) return 'configuration';
+  /*
+    ⛔ Our own pre-flight guards, and NOT `unknown`. There are nine of them in
+    `initiateStkPush` (routing, the `LD-` prefix, the reference length, integer
+    minor units, the currency bounds, major-unit alignment, an unusable phone,
+    an unparseable callback URL, a non-https one) and every one throws before
+    `fetch` is reached. docs/158 §4 is the story of the PayHero version of this
+    branch telling donors we might have charged them for requests that never
+    left the building.
+  */
+  if (error instanceof PalplussRequestNotSentError) return 'configuration';
+
+  if (error instanceof PalplussApiError) {
+    // [VERIFIED] a fabricated key answers 401 INVALID_API_KEY.
+    if (error.status === 401 || error.status === 403) return 'configuration';
+    // A missing route or channel. A donor retrying cannot create either.
+    if (error.status === 404) return 'configuration';
+
+    /*
+      The prepaid service wallet is empty (`402 INSUFFICIENT_SERVICE_BALANCE`,
+      docs/180 finding 5). Operator's problem, not the donor's, and emphatically
+      not transient: nothing about waiting tops up a float. docs/147 §11.3 is
+      the same hazard on the other rail, where an unmonitored float drained to
+      182 KES and nothing escalated.
+    */
+    if (error.status === 402) return 'configuration';
+    if (error.code === 'INSUFFICIENT_SERVICE_BALANCE') return 'configuration';
+
+    if (error.status >= 500) return 'transient';
+    if (error.status === 429) return 'transient';
+
+    // Any other 4xx: Palpluss refused this specific request.
+    return 'rejected';
+  }
+
+  return 'unknown';
 }

@@ -37,7 +37,7 @@ import {
   payHeroChargeCurrency,
   toPayHeroMsisdn,
 } from '@/lib/payhero';
-import { checkPhoneAbuseGuard } from '@/lib/payhero-abuse-guard';
+import { checkPhoneAbuseGuard } from '@/lib/mpesa-abuse-guard';
 import { SHARE_ATTRIBUTION_COOKIE, resolveShareLinkForCampaign } from '@/lib/share-links';
 import { initiateMpesaSchema } from '@/lib/validators/payhero';
 import { logError } from '@/lib/errors';
@@ -261,9 +261,15 @@ export async function POST(request: NextRequest) {
       number repeatedly fills their handset with prompts and, after 10 of
       them, gets that number blocked by PayHero for 24 hours. An IP rate limit
       does not address that, because the protected party is the number. See
-      `src/lib/payhero-abuse-guard.ts`.
+      `src/lib/mpesa-abuse-guard.ts`.
+
+      ⚠️ The guard counts BOTH M-Pesa rails, because the handset does not care
+      which one rang it — five pushes here plus five through Palpluss is the
+      ten that gets a bystander blocked. The rail is named rather than
+      defaulted so `tsc` lists every call site: it selects the cooldown, and
+      Palpluss's throttle is three times stricter than PayHero's.
     */
-    const verdict = await checkPhoneAbuseGuard(phone.e164);
+    const verdict = await checkPhoneAbuseGuard(phone.e164, 'payhero');
     if (!verdict.allowed) {
       return NextResponse.json(
         {

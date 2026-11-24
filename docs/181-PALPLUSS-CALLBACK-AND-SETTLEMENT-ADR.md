@@ -53,16 +53,32 @@ PayHero's settlement takes our own `LD-…` reference. This one cannot:
 [VERIFIED 2026-11-24, `docs/180`] `GET /v1/transactions/{id}` accepts only
 Palpluss's own UUID, and our `accountReference` is not a lookup key there.
 
-So the row is found by `palpluss_transaction_id`, which is **UNIQUE and NOT
-NULL**:
+So the row is found by `palpluss_transaction_id`, which is **UNIQUE**:
 
 - **Unique**, because it is the key a callback resolves by.
-- **Not null**, which is where it diverges from
-  `payhero_payment_requests.payhero_reference` — and `docs/158` is the whole
-  story of what that nullability cost. A row with no gateway reference is
-  exactly what a lost response leaves behind, and nothing can later establish
-  whether money moved. Making the column `NOT NULL` means initiate must
-  obtain the id before it writes anything, which is the honest ordering.
+
+> ⚠️ **AMENDED 2026-11-24 by `docs/182` §2: this section also said NOT NULL,
+> and that was wrong.** The column is now nullable; `migrations-v2/0015` drops
+> the constraint. The paragraph below is kept as written so the reasoning can
+> be read against the correction.
+>
+> > **Not null**, which is where it diverges from
+> > `payhero_payment_requests.payhero_reference` — and `docs/158` is the whole
+> > story of what that nullability cost. A row with no gateway reference is
+> > exactly what a lost response leaves behind, and nothing can later
+> > establish whether money moved. Making the column `NOT NULL` means initiate
+> > must obtain the id before it writes anything, which is the honest
+> > ordering.
+>
+> Two things were wrong with it. The `docs/158` argument is **PayHero's**:
+> that rail's status endpoint 404s our own reference and offers no list, so a
+> reference-less row there really is unverifiable forever. Palpluss has a list
+> endpoint carrying `external_reference` on every row
+> ([VERIFIED 2026-11-24]), so here the reference leads back to the
+> transaction. And calling the forced ordering "honest" had it backwards:
+> because Palpluss mints the id, NOT NULL forces **call → insert**, and a
+> crash in that window leaves no row at all — no campaign, no donor, no
+> amount, no quote — for a collection that may already have succeeded.
 
 That column is also the isolation boundary. The tenant is shared with
 `invest254` and `printpesa` (`docs/180` §3), and one of their transaction ids
@@ -311,6 +327,11 @@ a second hand-written list drifting (`docs/144`).
   respecting `MIN_PUSH_INTERVAL_MS` — **not** PayHero's `RETRY_COOLDOWN_MS`,
   which permits three pushes a minute where Palpluss allows two — and it must
   obtain the transaction id before inserting, because the column is NOT NULL.
+  ✅ **BUILT 2026-11-24, `docs/182`.** The first three were right; ⚠️ the last
+  clause was the finding — writing the route is what showed the `NOT NULL` was
+  wrong, and the route now inserts FIRST (see §2.1's amendment above). The
+  per-phone guard also had to grow to count BOTH rails, or adding this route
+  would have doubled every per-number ceiling (`docs/182` §5).
 - ⛔ **OWNER:** the LastDonor Palpluss tenant, and registering
   `lastdonor.org` as a webhook domain so deliveries are signed (`docs/180`
   §7). Until then `PALPLUSS_WEBHOOK_SECRET` is a secret for a signature

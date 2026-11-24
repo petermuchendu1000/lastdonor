@@ -213,6 +213,33 @@ export async function settlePalplussRequest(
     };
   }
 
+  /*
+    ⛔ A row with no gateway id cannot be checked, and saying anything else
+    about it would be a claim.
+
+    Unreachable through THIS function today — the lookup above matches on that
+    very column, so a NULL never comes back — but it is reachable the moment a
+    status poll resolves a row by our own `account_reference`, which is what
+    the next route will do. The state exists because `palpluss_transaction_id`
+    is nullable on purpose (docs/182): the initiate route writes the row before
+    it calls Palpluss, so a lost response leaves exactly this.
+
+    ⚠️ `unverifiable` and NOT `failed`. `docs/159` §6 corrected the PayHero
+    twin for saying "nothing was charged" about a reference-less row: a push
+    may well have been sent, and this platform simply does not know. What
+    makes it recoverable here rather than lost is that
+    [VERIFIED 2026-11-24] `GET /v1/transactions` returns `external_reference`
+    on every row, so the reference leads back to the transaction by hand.
+  */
+  if (!request.palplussTransactionId) {
+    return {
+      kind: 'unverifiable',
+      reason:
+        'No Palpluss transaction id was recorded for this payment request, so its outcome ' +
+        'cannot be established automatically.',
+    };
+  }
+
   const status = await getTransactionStatus(request.palplussTransactionId);
 
   await db

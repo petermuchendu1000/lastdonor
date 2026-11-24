@@ -75,6 +75,14 @@ const ALLOWED_IMPORTERS: Record<string, string> = {
   'src/lib/money/fx-quote.server.ts': 'turns a credit into a charge; the only rate-to-money door',
   'src/app/api/v1/donations/payhero/initiate/route.ts':
     'quotes the charge and persists the rate it used',
+  /*
+    Added 2026-11-24 (docs/182). The second M-Pesa rail, same entry for the
+    same reason: it quotes a charge from a rate and must therefore persist
+    the quote. Both rails collect in KES whatever the campaign is denominated
+    in, so both cross this boundary and both are held to rule 2 below.
+  */
+  'src/app/api/v1/donations/palpluss/initiate/route.ts':
+    'quotes the charge and persists the rate it used',
   'src/app/campaigns/[slug]/donate/page.tsx':
     'reads the rate so the donor is told the charge before pressing pay; writes no money',
   'src/app/campaigns/[slug]/page.tsx': 'reads the snapshot to pass to ApproxMoney',

@@ -1233,17 +1233,29 @@ export const palplussPaymentRequests = pgTable(
     /**
      * Palpluss's own transaction id, and the ONLY key `GET /transactions/{id}`
      * accepts. [VERIFIED 2026-11-24] our `accountReference` is not a lookup
-     * key there, so without this the payment is unverifiable — PayHero's
-     * probed trap #3 (docs/92) in a second costume.
+     * key there, so without this a single payment cannot be checked — a second
+     * costume for PayHero's probed trap #3 (docs/92).
      *
-     * ⛔ UNIQUE, because it is the key a callback resolves by, and NOT NULL,
-     * because a row that cannot be checked should never have been written.
-     * `payhero_payment_requests.payhero_reference` is nullable and `docs/158`
-     * is the whole story of what that nullability cost: a row with no
-     * reference is exactly what a lost response leaves behind, and nothing
-     * can later establish whether money moved.
+     * UNIQUE, because it is the key a callback resolves by and the boundary
+     * that keeps another product's transaction on the shared tenant from
+     * matching a row of ours.
+     *
+     * ⚠️ NULLABLE, and it was `NOT NULL` for one day. docs/182 records the
+     * correction; the short version is that Palpluss mints this id, so a NOT
+     * NULL column forces the API call to happen BEFORE the row exists — and a
+     * process that dies in that window loses the campaign, the donor, the
+     * amount and the FX quote for a collection that may already have
+     * succeeded. Inserting first and writing the id after leaves a row that
+     * holds all of it.
+     *
+     * The docs/158 argument for `NOT NULL` was imported from PayHero, where a
+     * reference-less row really is unverifiable forever: that rail's status
+     * endpoint 404s our own reference and offers no list. Palpluss does —
+     * [VERIFIED 2026-11-24] `GET /v1/transactions` answers 200 with
+     * `external_reference` on every row — so here the reference IS a way back
+     * to the transaction id, which is why `account_reference` below is unique.
      */
-    palplussTransactionId: text('palpluss_transaction_id').notNull(),
+    palplussTransactionId: text('palpluss_transaction_id'),
     /**
      * Our own `LD-…` reference, sent as `accountReference` and echoed back as
      * `external_reference`. Kept for reconciliation against the shared

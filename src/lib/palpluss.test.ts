@@ -24,6 +24,7 @@ vi.mock('./money/currencies', async (importOriginal) => {
 });
 
 const {
+  ACCOUNT_REFERENCE_RANDOM_CHARS,
   MAX_ACCOUNT_REFERENCE,
   MAX_TRANSACTION_DESC,
   MIN_PUSH_INTERVAL_MS,
@@ -31,11 +32,15 @@ const {
   PalplussNotConfiguredError,
   PalplussRequestNotSentError,
   STK_PUSHES_PER_PHONE_PER_MINUTE,
+  TRANSACTION_DESC,
+  classifyPalplussInitiationFailure,
   getTransactionStatus,
   initiateStkPush,
   isLiveKey,
   isPalplussConfigured,
   isTerminal,
+  mintAccountReference,
+  palplussChargeCurrency,
   toPalplussMsisdn,
 } = await import('./palpluss');
 
@@ -489,7 +494,7 @@ describe('throttle constants', () => {
     fails, and somebody re-reads the decision.
   */
   it('is stricter than the PayHero retry cooldown it must not inherit', async () => {
-    const { RETRY_COOLDOWN_MS } = await import('./payhero-abuse-guard');
+    const { RETRY_COOLDOWN_MS } = await import('./mpesa-abuse-guard');
     expect(MIN_PUSH_INTERVAL_MS).toBeGreaterThan(RETRY_COOLDOWN_MS);
   });
 });
@@ -518,5 +523,174 @@ describe('isTerminal', () => {
 
   it.each(['PENDING', 'PROCESSING'])('%s is not terminal', (s) => {
     expect(isTerminal(s)).toBe(false);
+  });
+});
+
+describe('mintAccountReference', () => {
+  /*
+    The reference has to fit Palpluss's documented 12 characters, start with
+    the `LD-` isolation prefix the client refuses to send without, and be
+    drawn freshly each time. All three are cheap to get wrong and each is a
+    different failure: too long is a refused push, no prefix is a refused
+    push, and a predictable value is a reference somebody else can guess.
+  */
+  it('fits the documented limit exactly', () => {
+    const ref = mintAccountReference();
+    expect(ref).toHaveLength(MAX_ACCOUNT_REFERENCE);
+    expect(ref.startsWith('LD-')).toBe(true);
+  });
+
+  it('derives its random length from the limit rather than hardcoding it', () => {
+    expect(ACCOUNT_REFERENCE_RANDOM_CHARS).toBe(MAX_ACCOUNT_REFERENCE - 'LD-'.length);
+  });
+
+  it('uses only base32 characters, so the whole reference survives a round trip', () => {
+    for (let i = 0; i < 200; i += 1) {
+      expect(mintAccountReference()).toMatch(/^LD-[A-Z2-7]+$/);
+    }
+  });
+
+  /*
+    ⛔ ANTI-VACUITY for the two rules above: a constant would satisfy both.
+    200 draws of 45 bits colliding is about 1 in 10^11, so a repeat here means
+    the value is derived from something stable rather than from randomness.
+  */
+  it('is drawn freshly each time', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i += 1) seen.add(mintAccountReference());
+    expect(seen.size).toBe(200);
+  });
+
+  it('uses every position, so no character is quietly fixed', () => {
+    /*
+      A loop that wrote the same symbol into one slot would pass every test
+      above. Checked by collecting the distinct symbols seen at each index.
+    */
+    const perIndex = Array.from({ length: ACCOUNT_REFERENCE_RANDOM_CHARS }, () => new Set<string>());
+    for (let i = 0; i < 300; i += 1) {
+      const body = mintAccountReference().slice(3);
+      body.split('').forEach((ch, idx) => perIndex[idx].add(ch));
+    }
+    for (const [idx, set] of perIndex.entries()) {
+      expect(set.size, `position ${idx} only ever produced ${[...set].join('')}`).toBeGreaterThan(8);
+    }
+  });
+});
+
+describe('TRANSACTION_DESC', () => {
+  it('fits the 13 characters a PIN prompt shows', () => {
+    expect(TRANSACTION_DESC.length).toBeLessThanOrEqual(MAX_TRANSACTION_DESC);
+  });
+
+  it('names the platform, because that is what a person at a PIN prompt needs', () => {
+    expect(TRANSACTION_DESC).toMatch(/LastDonor/);
+  });
+});
+
+describe('palplussChargeCurrency', () => {
+  /*
+    ⚠️ This file routes KES here through its `getCurrency` mock, so the
+    positive case is reachable. The REAL answer today is null — asserted
+    against the unmocked module in the route's integration test, which is the
+    one place that can see production's own routing table.
+  */
+  it('returns the single currency routed to this rail', () => {
+    state.routeKesToPalpluss = true;
+    expect(palplussChargeCurrency()).toBe('KES');
+  });
+
+  it('returns null when nothing routes here, rather than throwing', () => {
+    /*
+      ⛔ The branch that is live today. `payHeroChargeCurrency()` throws on
+      the same condition, which is right there (exactly one currency has
+      always named it, so zero means the table is broken) and wrong here: a
+      route cannot handle an exception as a 503 with an operator log without
+      catching something it cannot distinguish from a real fault.
+    */
+    state.routeKesToPalpluss = false;
+    expect(palplussChargeCurrency()).toBeNull();
+    state.routeKesToPalpluss = true;
+  });
+});
+
+describe('classifyPalplussInitiationFailure', () => {
+  /*
+    `docs/158`. The four kinds differ by one sentence of donor-facing copy
+    about somebody's money, and `unknown` is the only one on which a
+    collection may exist. The route's branches are checked by
+    `payment-outcome-claims.test.ts`; this is the judgement itself.
+  */
+  it('classifies NO RESPONSE as unknown', () => {
+    for (const error of [
+      new Error('The operation was aborted due to timeout'),
+      new TypeError('fetch failed'),
+      Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+      'a string nobody expected',
+      null,
+    ]) {
+      expect(classifyPalplussInitiationFailure(error)).toBe('unknown');
+    }
+  });
+
+  it('classifies OUR OWN pre-flight refusals as configuration, never unknown', () => {
+    /*
+      ⛔ docs/158 §4: the PayHero version of this branch told donors we might
+      have charged them for requests that never left the process. Every guard
+      inside `initiateStkPush` raises this class, and the point of the class
+      is that nothing was dispatched.
+    */
+    expect(
+      classifyPalplussInitiationFailure(new PalplussRequestNotSentError('callbackUrl must be https.')),
+    ).toBe('configuration');
+    expect(classifyPalplussInitiationFailure(new PalplussNotConfiguredError())).toBe('configuration');
+  });
+
+  it.each([
+    [401, 'INVALID_API_KEY'],
+    [403, null],
+    [404, 'TRANSACTION_NOT_FOUND'],
+    [402, 'INSUFFICIENT_SERVICE_BALANCE'],
+  ])('classifies %i as configuration', (status, code) => {
+    expect(classifyPalplussInitiationFailure(new PalplussApiError(status, 'nope', code))).toBe(
+      'configuration',
+    );
+  });
+
+  it('classifies an empty service wallet by CODE as well as by status', () => {
+    /*
+      The float is prepaid, and no amount of retrying tops one up (docs/180
+      finding 5; docs/147 §11.3 is the same hazard on the other rail). Matched
+      on the nested code too, because the HTTP status for it is undocumented
+      and `error.code` is the status restated (docs/180 finding 2).
+    */
+    expect(
+      classifyPalplussInitiationFailure(
+        new PalplussApiError(400, 'insufficient balance', 'INSUFFICIENT_SERVICE_BALANCE'),
+      ),
+    ).toBe('configuration');
+  });
+
+  it.each([500, 502, 503, 504, 429])('classifies %i as transient', (status) => {
+    expect(classifyPalplussInitiationFailure(new PalplussApiError(status, 'later'))).toBe(
+      'transient',
+    );
+  });
+
+  it.each([400, 409, 422])('classifies %i as this request being rejected', (status) => {
+    expect(classifyPalplussInitiationFailure(new PalplussApiError(status, 'nope'))).toBe('rejected');
+  });
+
+  /*
+    ⛔ ANTI-VACUITY, and the one property the whole thing exists for: the
+    answer for "the gateway answered" and the answer for "nothing answered"
+    must not be the same value. A classifier that returned one kind for
+    everything would satisfy several rules above.
+  */
+  it('never gives a timeout the same kind as a gateway that answered', () => {
+    const timeout = classifyPalplussInitiationFailure(new Error('aborted'));
+    const answered = classifyPalplussInitiationFailure(new PalplussApiError(502, 'bad gateway'));
+    expect(timeout).not.toBe(answered);
+    expect(answered).toBe('transient');
+    expect(timeout).toBe('unknown');
   });
 });

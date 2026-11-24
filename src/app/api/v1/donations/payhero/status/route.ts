@@ -5,7 +5,7 @@ import { db } from '@/db';
 import { payheroPaymentRequests } from '@/db/schema';
 import { payheroStatusQuerySchema } from '@/lib/validators/payhero';
 import { settlePayHeroRequest } from '@/lib/services/payhero-settlement';
-import { PROMPT_LIFETIME_MS } from '@/lib/payhero-abuse-guard';
+import { PROMPT_LIFETIME_MS } from '@/lib/mpesa-abuse-guard';
 import {
   COLLECTED_UNRECORDED_MESSAGE,
   claimForSettledCollection,

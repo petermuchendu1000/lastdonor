@@ -25,15 +25,67 @@
  * reclassifying the timeout each fail it; pinning the string `'unknown'` would
  * have caught none of those.
  *
+ * ── Why the routes are DISCOVERED and not named ───────────────────────────
+ *
+ * This file named ONE route until 2026-11-24. The second M-Pesa rail
+ * (`docs/182`) carries the identical four-kind copy down to the sentence, and
+ * a rule naming `payhero/initiate` would have gone green against it without
+ * ever reading it — `docs/116` §4 exactly, where a review gate named two
+ * files and the third insert went unreviewed in production, and `docs/134`'s
+ * sweep for the same reason.
+ *
+ * So the initiate routes come off disk, and each is matched to the classifier
+ * IT IMPORTS. A route importing none fails; a rail absent from `RAILS` fails.
+ * The registry is checked against the filesystem rather than the other way
+ * round, which is what makes a third rail impossible to add silently.
+ *
  * @vitest-environment node
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { classifyInitiationFailure, PayHeroApiError } from '@/lib/payhero';
+import { classifyPalplussInitiationFailure, PalplussApiError } from '@/lib/palpluss';
 
 const ROOT = resolve(__dirname, '../../../../..');
-const INITIATE = 'src/app/api/v1/donations/payhero/initiate/route.ts';
+const DONATIONS = resolve(__dirname);
+
+/**
+ * One entry per M-Pesa rail: how to run its classifier, and an error object
+ * that rail's own client would raise for "the gateway answered 5xx".
+ *
+ * The `classifier` string is the import name a route uses, which is how a
+ * discovered route is matched to its rail without this file knowing any
+ * route's path.
+ */
+const RAILS = [
+  {
+    rail: 'payhero',
+    classifier: 'classifyInitiationFailure',
+    classify: classifyInitiationFailure as (e: unknown) => string,
+    gatewayAnswered: () => new PayHeroApiError(502, 'bad gateway'),
+  },
+  {
+    rail: 'palpluss',
+    classifier: 'classifyPalplussInitiationFailure',
+    classify: classifyPalplussInitiationFailure as (e: unknown) => string,
+    gatewayAnswered: () => new PalplussApiError(502, 'bad gateway'),
+  },
+] as const;
+
+/** Every `.../initiate/route.ts` under the donations tree. */
+function initiateRoutes(): string[] {
+  return readdirSync(DONATIONS, { recursive: true, encoding: 'utf8' })
+    .filter((p) => /(^|[\\/])initiate[\\/]route\.ts$/.test(p))
+    .map((p) => resolve(DONATIONS, p).replace(ROOT + '/', ''))
+    .sort();
+}
+
+/** The rail whose classifier this route imports, or null. */
+function railFor(rel: string): (typeof RAILS)[number] | null {
+  const code = readFileSync(resolve(ROOT, rel), 'utf8');
+  return RAILS.find((r) => new RegExp(`\\b${r.classifier}\\b`).test(code)) ?? null;
+}
 
 /** Phrasings that tell a donor their money is untouched. */
 const NOT_CHARGED =
@@ -41,6 +93,46 @@ const NOT_CHARGED =
 
 function source(rel: string): string {
   return readFileSync(resolve(ROOT, rel), 'utf8');
+}
+
+/**
+ * Inline any module-level string constant back into the code.
+ *
+ * ⚠️ WHY THIS EXISTS, found 2026-11-24 by this rule firing on correct code.
+ *
+ * The Palpluss route hoists its "our side, and nothing has been charged"
+ * sentence into one constant, because THREE separate refusals use it and four
+ * near-identical promises about somebody's money is the `docs/152` defect
+ * (a refund paragraph fifty lines from the sentence that corrected it). A
+ * rule that reads a branch as text sees `OUR_SIDE` and finds no reassurance —
+ * so without this it would have reported honest copy as missing, and, worse,
+ * would have pressured the next author to duplicate donor-facing money copy
+ * in order to satisfy a test.
+ *
+ * Deliberately narrow: only `const NAME = <string literals joined by +>;` at
+ * the start of a line, and only whole-word occurrences afterwards. Anything
+ * cleverer belongs in a compiler.
+ */
+function expandStringConsts(s: string): string {
+  const decl = /^[ \t]*const ([A-Za-z_$][\w$]*) =\s*((?:'(?:[^'\\]|\\.)*'\s*\+?\s*)+);/gm;
+  let out = s;
+  for (const m of s.matchAll(decl)) {
+    const [, name, expr] = m;
+    const value = Array.from(expr.matchAll(/'((?:[^'\\]|\\.)*)'/g))
+      .map((p) => p[1])
+      .join('');
+    out = out.replace(new RegExp(`\\b${name}\\b(?!\\s*=\\s*')`, 'g'), `'${value}'`);
+  }
+  return out;
+}
+
+/**
+ * A file's code as these rules read it: comments blanked, string constants
+ * inlined. One helper, so no rule can accidentally read a raw file and start
+ * matching prose or missing hoisted copy.
+ */
+function readCode(rel: string): string {
+  return expandStringConsts(stripComments(source(rel)));
 }
 
 /** Blank comments, keeping newlines, so prose never counts as code. */
@@ -82,51 +174,76 @@ export function branchBody(code: string, kind: string): string | null {
 }
 
 describe('⛔ the no-response branch must not claim the donor is unharmed', () => {
-  it('a timeout classifies as a kind of its own, and that branch exists', () => {
+  const routes = initiateRoutes();
+
+  it('finds the initiate routes at all, and knows the rail of each', () => {
+    /*
+      ⛔ ANTI-VACUITY, and the reason this file stopped naming one path. If
+      discovery broke, or a third rail arrived, every rule below would pass
+      over nothing at all.
+    */
+    expect(routes.length, 'no initiate routes found - discovery is broken').toBeGreaterThanOrEqual(
+      RAILS.length,
+    );
+    const orphans = routes.filter((r) => railFor(r) === null);
+    expect(
+      orphans,
+      'an initiate route that imports no failure classifier cannot be telling a donor the ' +
+        'truth about the no-response case. Add the rail to RAILS and classify. docs/158.',
+    ).toEqual([]);
+  });
+
+  it.each(routes)('%s: a timeout classifies as a kind of its own, and that branch exists', (rel) => {
     /*
       Executed, not assumed. If somebody reclassifies the timeout back onto a
       branch that claims nothing was charged, this is where it shows.
     */
-    const kind = classifyInitiationFailure(new Error('The operation was aborted'));
+    const rail = railFor(rel)!;
+    const kind = rail.classify(new Error('The operation was aborted'));
     expect(kind, 'a timeout must not share a kind with "the gateway answered"').not.toBe(
       'transient',
     );
-    expect(classifyInitiationFailure(new PayHeroApiError(502, 'bad gateway'))).toBe('transient');
+    // The CONTROL: a gateway that really did answer 5xx is the other kind.
+    expect(rail.classify(rail.gatewayAnswered())).toBe('transient');
 
-    const body = branchBody(stripComments(source(INITIATE)), kind);
-    expect(body, `the initiate route has no branch for kind "${kind}"`).not.toBeNull();
+    const body = branchBody(readCode(rel), kind);
+    expect(body, `${rel} has no branch for kind "${kind}"`).not.toBeNull();
   });
 
-  it('⛔ its message does NOT say nothing was charged', () => {
-    const kind = classifyInitiationFailure(new Error('The operation was aborted'));
-    const body = branchBody(stripComments(source(INITIATE)), kind)!;
+  it.each(routes)('%s: ⛔ its message does NOT say nothing was charged', (rel) => {
+    const rail = railFor(rel)!;
+    const kind = rail.classify(new Error('The operation was aborted'));
+    const body = branchBody(readCode(rel), kind)!;
     expect(
       NOT_CHARGED.test(body),
-      `The "${kind}" branch tells the donor their money is untouched, and on that branch no ` +
-        'response arrived so we cannot know. Say we could not confirm, and tell them to check ' +
-        'their own M-Pesa messages before retrying. docs/158.',
+      `In ${rel} the "${kind}" branch tells the donor their money is untouched, and on that ` +
+        'branch no response arrived so we cannot know. Say we could not confirm, and tell them ' +
+        'to check their own M-Pesa messages before retrying. docs/158.',
     ).toBe(false);
   });
 
-  it('⚠️ ANTI-VACUITY: the branches that CAN substantiate it still say it', () => {
-    /*
-      Without this the rule is satisfied by deleting the reassurance
-      everywhere - which would tell every donor we might have charged them,
-      including the many cases where we know perfectly well we did not.
-    */
-    const code = stripComments(source(INITIATE));
-    for (const kind of ['transient', 'configuration'] as const) {
-      const body = branchBody(code, kind);
-      expect(body, `no branch for "${kind}"`).not.toBeNull();
-      expect(
-        NOT_CHARGED.test(body!),
-        `the "${kind}" branch should still reassure the donor - the gateway answered`,
-      ).toBe(true);
-    }
-  });
+  it.each(routes)(
+    '%s: ⚠️ ANTI-VACUITY: the branches that CAN substantiate it still say it',
+    (rel) => {
+      /*
+        Without this the rule is satisfied by deleting the reassurance
+        everywhere - which would tell every donor we might have charged them,
+        including the many cases where we know perfectly well we did not.
+      */
+      const code = readCode(rel);
+      for (const kind of ['transient', 'configuration'] as const) {
+        const body = branchBody(code, kind);
+        expect(body, `${rel} has no branch for "${kind}"`).not.toBeNull();
+        expect(
+          NOT_CHARGED.test(body!),
+          `in ${rel} the "${kind}" branch should still reassure the donor - the gateway answered`,
+        ).toBe(true);
+      }
+    },
+  );
 
   it('⛔ and the shared default for that code does not claim it either', () => {
-    const errors = stripComments(source('src/lib/errors.ts'));
+    const errors = readCode('src/lib/errors.ts');
     const at = errors.indexOf('PAYMENT_OUTCOME_UNKNOWN');
     expect(at, 'the error code is gone - re-read docs/158 before removing it').toBeGreaterThan(-1);
     const entry = errors.slice(at, at + 700);
@@ -136,14 +253,55 @@ describe('⛔ the no-response branch must not claim the donor is unharmed', () =
     ).toBe(false);
   });
 
-  it('⚠️ the row records an unknown outcome as unknown, not as a failure', () => {
-    // The row is the only record of the attempt, and it carries status
-    // 'failed' for want of anywhere better; the REASON must not agree with it.
-    const code = stripComments(source(INITIATE));
-    expect(code).toMatch(/Initiation outcome UNKNOWN/);
-    expect(code, 'an unknown outcome should reach an operator, not sit at warning').toMatch(
-      /kind === 'unknown'\s*\?\s*'Initiation outcome UNKNOWN|'configuration' \|\| kind === 'unknown'/,
+  it.each(routes)(
+    '%s: ⚠️ the row records an unknown outcome as unknown, not as a failure',
+    (rel) => {
+      // The row is the only record of the attempt, and it carries status
+      // 'failed' for want of anywhere better; the REASON must not agree with it.
+      const code = readCode(rel);
+      expect(code).toMatch(/Initiation outcome UNKNOWN/);
+      expect(code, 'an unknown outcome should reach an operator, not sit at warning').toMatch(
+        /kind === 'unknown'\s*\?\s*\n?\s*'Initiation outcome UNKNOWN|'configuration' \|\| kind === 'unknown'/,
+      );
+    },
+  );
+
+  /*
+    ⛔ ANTI-VACUITY FOR THE EXPANDER.
+
+    The "does NOT say nothing was charged" rule passes trivially if the
+    expander silently stops working — a branch that only references a
+    constant looks reassurance-free. The ANTI-VACUITY rule above fails
+    closed in that case, but only for the branches that must claim it, so
+    this asserts the mechanism directly: expansion must change something,
+    and a known hoisted sentence must actually appear in the code the rules
+    see.
+  */
+  it('⚠️ the control: hoisted copy really is inlined before matching', () => {
+    const sample = [
+      "  const OUR_SIDE =",
+      "    'M-Pesa payments are unavailable right now. ' +",
+      "    'Nothing has been charged.';",
+      '  return fail(503, X, OUR_SIDE);',
+    ].join('\n');
+
+    const expanded = expandStringConsts(sample);
+    expect(NOT_CHARGED.test(sample.split('\n')[3])).toBe(false);
+    expect(
+      NOT_CHARGED.test(expanded.split('\n').at(-1)!),
+      'the expander no longer inlines a hoisted string constant, so any rule reading a ' +
+        'branch as text has silently stopped seeing copy that lives in one',
+    ).toBe(true);
+
+    // And it fires on at least one real route, not only on the sample.
+    const expandedSomething = routes.some(
+      (rel) => readCode(rel).length !== stripComments(source(rel)).length,
     );
+    expect(
+      expandedSomething,
+      'no initiate route hoists copy into a constant any more - if that is deliberate, ' +
+        'this control is the thing to re-read, not to delete',
+    ).toBe(true);
   });
 
   it('⚠️ the control: the matcher really does recognise the claim', () => {

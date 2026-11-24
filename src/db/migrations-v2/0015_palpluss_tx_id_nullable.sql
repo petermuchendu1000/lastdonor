@@ -1,0 +1,1 @@
+ALTER TABLE "palpluss_payment_requests" ALTER COLUMN "palpluss_transaction_id" DROP NOT NULL;

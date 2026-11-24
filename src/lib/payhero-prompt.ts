@@ -6,14 +6,14 @@
  * Both the server and the donor's browser need this number, and they must not
  * hold two copies of it:
  *
- *   - `payhero-abuse-guard.ts` refuses a second prompt to the same phone while
+ *   - `mpesa-abuse-guard.ts` refuses a second prompt to the same phone while
  *     one is still live, and `status/route.ts` uses it to decide when to stop
  *     telling the client to poll;
  *   - `MpesaDonationForm` derives its own poll ceiling from it, and that
  *     ceiling MUST exceed the lifetime or the browser gives up while the
  *     prompt is still answerable (`docs/159`).
  *
- * It used to live in `payhero-abuse-guard.ts`, which imports `@/db` — so a
+ * It used to live in `mpesa-abuse-guard.ts`, which imports `@/db` — so a
  * client component could not reach it without pulling the database client into
  * the bundle. `docs/139` §7 is the rule: a constant shared across the
  * server/client boundary lives in a module neither side owns. ⛔ This file

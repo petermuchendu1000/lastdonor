@@ -124,6 +124,8 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
     from it, and the outcome is re-fetched over our own authenticated call.
     docs/180.
   */
+  'POST /api/v1/donations/palpluss/initiate':
+    'Guest M-Pesa donation, second rail; per-number abuse guard across BOTH rails. docs/182.',
   'POST /api/v1/donations/palpluss/callback':
     'Signature verified when present, never required; outcome re-fetched. docs/180.',
   'GET /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',

@@ -159,12 +159,23 @@ export const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
       'A forged request cannot assert a payment. Same shape as the Didit webhook, docs/81.',
   },
   {
+    pattern: /^\/api\/v1\/donations\/palpluss\/initiate$/,
+    methods: ['POST'],
+    reason:
+      'Guest M-Pesa donation on the second rail; same product requirement as ' +
+      'create-checkout and the PayHero twin. Tightly rate-limited (palpluss_initiate, ' +
+      '5/60s) AND guarded per phone number by checkPhoneAbuseGuard, which counts BOTH ' +
+      'M-Pesa rails because the handset does not care which one rang it. Palpluss also ' +
+      'throttles at 2 pushes per phone per minute and reports a refusal as result_code ' +
+      '"17" rather than an HTTP error. See docs/180 and docs/182.',
+  },
+  {
     pattern: /^\/api\/v1\/donations\/palpluss\/callback$/,
     methods: ['POST'],
     reason:
       'Palpluss payment callback (docs/180). Unlike PayHero, Palpluss DOES sign callbacks ' +
       '(Standard Webhooks) and the route verifies when headers are present and refuses a ' +
-      'bad signature with 400 - but signing is configured PER DOMAIN in their console and ' +
+      'bad signature with 401 - but signing is configured PER DOMAIN in their console and ' +
       'lastdonor.org is not registered yet, so deliveries currently arrive unsigned. That ' +
       'is survivable only because the body is never believed: the route reads one ' +
       'transaction id and asks Palpluss for the outcome over an authenticated call of our ' +

@@ -355,6 +355,22 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
         analytics: false,
         prefix: 'rl:lastdonor:payhero_callback',
       }),
+      palpluss_initiate: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(PALPLUSS_INITIATE_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:palpluss_initiate',
+      }),
+      /*
+        Its own prefix, so one rail's provider traffic cannot exhaust the
+        other's bucket. Both callbacks arrive from a single provider IP each.
+      */
+      palpluss_callback: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(PALPLUSS_CALLBACK_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:palpluss_callback',
+      }),
       // See SESSION_READ_LIMIT below. Its own prefix, so the bucket is not
       // shared with sign-in attempts.
       session: new Ratelimit({
@@ -483,7 +499,7 @@ export function isCollaboratorInvite(pathname: string, method: string): boolean 
   the request body, so it is the tightest tier on the platform alongside
   `sms`. Note that the IP limit is the OUTER bound and not the real control:
   the protection that matters is per phone number and lives in
-  `src/lib/payhero-abuse-guard.ts`, because the party at risk is the number
+  `src/lib/mpesa-abuse-guard.ts`, because the party at risk is the number
   (whose owner PayHero blocks for 24 hours after 10 unanswered pushes) and a
   distributed caller changes IP freely. docs/85 reached the same conclusion
   about six-digit codes.
@@ -508,6 +524,37 @@ export const PAYHERO_PATH_PREFIX = '/api/v1/donations/payhero';
 export const PAYHERO_INITIATE_PATH = `${PAYHERO_PATH_PREFIX}/initiate`;
 export const PAYHERO_STATUS_PATH = `${PAYHERO_PATH_PREFIX}/status`;
 export const PAYHERO_CALLBACK_PATH = `${PAYHERO_PATH_PREFIX}/callback`;
+
+/*
+  ── The second M-Pesa rail (docs/180, docs/182) ───────────────────────────
+
+  The same two reasons, for the same two shapes of route. `initiate` makes a
+  body-supplied number ring, so it gets `initiate`'s tight bucket; the real
+  control is again per phone number and in the database, now across BOTH
+  rails (`src/lib/mpesa-abuse-guard.ts`).
+
+  ⚠️ `callback` is a GAP BEING CLOSED, not a new tier for a new route. The
+  Palpluss callback shipped in docs/181 with no entry here, so it fell
+  through to the `donations` tier at 10/60 s — keyed by IP, and every
+  Palpluss callback arrives from Palpluss. Ten settlements a minute across
+  the whole platform, after which the provider's retries would have been
+  429'd and the settlements silently deferred. The PayHero callback has had
+  60/60 s from the start for exactly this reason; nothing made the second one
+  inherit it.
+
+  It can afford to be bounded at all for the same reason PayHero's can: a
+  transaction id outside our own table is refused before any outbound call,
+  and only an id matching a real pending row of ours causes one.
+*/
+export const PALPLUSS_PATH_PREFIX = '/api/v1/donations/palpluss';
+export const PALPLUSS_INITIATE_PATH = `${PALPLUSS_PATH_PREFIX}/initiate`;
+export const PALPLUSS_CALLBACK_PATH = `${PALPLUSS_PATH_PREFIX}/callback`;
+
+/** Bucket for {@link PALPLUSS_INITIATE_PATH}: 5 pushes / 60 s / IP. */
+export const PALPLUSS_INITIATE_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
+
+/** Bucket for {@link PALPLUSS_CALLBACK_PATH}: 60 callbacks / 60 s / IP. */
+export const PALPLUSS_CALLBACK_LIMIT: RateLimitConfig = { maxRequests: 60, windowMs: 60_000 };
 
 /** Bucket for {@link PAYHERO_INITIATE_PATH}: 5 pushes / 60 s / IP. */
 export const PAYHERO_INITIATE_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
@@ -561,6 +608,8 @@ export function getLimiterTier(pathname: string, method: string = 'GET'): string
   if (pathname.startsWith(PAYHERO_INITIATE_PATH)) return 'payhero_initiate';
   if (pathname.startsWith(PAYHERO_STATUS_PATH)) return 'payhero_status';
   if (pathname.startsWith(PAYHERO_CALLBACK_PATH)) return 'payhero_callback';
+  if (pathname.startsWith(PALPLUSS_INITIATE_PATH)) return 'palpluss_initiate';
+  if (pathname.startsWith(PALPLUSS_CALLBACK_PATH)) return 'palpluss_callback';
   if (pathname.startsWith('/api/v1/donations')) return 'donations';
   if (pathname.startsWith('/api/v1/users')) return 'users';
   return 'default';
@@ -579,6 +628,24 @@ const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
   // ever added below.
   [SESSION_READ_PATH]: SESSION_READ_LIMIT,
   '/api/v1/donations/create-intent': { maxRequests: 10, windowMs: 60_000 },
+  /*
+    ⚠️ The five M-Pesa paths, added 2026-11-24 because they were ABSENT and
+    the fallback's catch-all is 100/60 s — so whenever Upstash is unreachable
+    the deliberately tight 5/60 s initiate bucket silently became twenty
+    times looser, and `status`'s deliberately generous 120 became tighter.
+    Production has reported `redis: error`, so this table is not hypothetical.
+
+    The outer IP bound was never the real control on `initiate` (that is the
+    per-number guard in `src/lib/mpesa-abuse-guard.ts`, which is in the
+    database precisely because Upstash is best-effort here), so this is not a
+    hole that was open to abuse — but a fallback that contradicts the tier it
+    stands in for is not a fallback.
+  */
+  [PAYHERO_INITIATE_PATH]: PAYHERO_INITIATE_LIMIT,
+  [PAYHERO_STATUS_PATH]: PAYHERO_STATUS_LIMIT,
+  [PAYHERO_CALLBACK_PATH]: PAYHERO_CALLBACK_LIMIT,
+  [PALPLUSS_INITIATE_PATH]: PALPLUSS_INITIATE_LIMIT,
+  [PALPLUSS_CALLBACK_PATH]: PALPLUSS_CALLBACK_LIMIT,
   '/api/v1/auth': { maxRequests: 10, windowMs: 60_000 },
   '/api/v1/newsletter': { maxRequests: 5, windowMs: 60_000 },
   // Before '/api/v1/users': insertion order decides, and the broader entry

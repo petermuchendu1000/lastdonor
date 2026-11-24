@@ -121,7 +121,8 @@ no float monitor for this rail. `docs/150` is the shape one would take.
 such rows in the ledger, both seconds after a burst to one number.]
 
 ⚠️ **Our existing guard is too permissive for this rail.**
-`payhero-abuse-guard.ts` sets `RETRY_COOLDOWN_MS = 20_000`, which permits
+`payhero-abuse-guard.ts` (renamed `mpesa-abuse-guard.ts` 2026-11-24, `docs/182`
+§5) sets `RETRY_COOLDOWN_MS = 20_000`, which permits
 **three** pushes a minute. Correct for PayHero, and here the third is silently
 rule-limited. `MIN_PUSH_INTERVAL_MS` is **derived** as
 `60_000 / STK_PUSHES_PER_PHONE_PER_MINUTE`, with a test asserting the product

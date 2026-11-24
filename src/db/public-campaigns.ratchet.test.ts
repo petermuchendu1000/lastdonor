@@ -41,6 +41,8 @@ const ELIGIBILITY: Record<string, string> = {
     'money in: one named campaign',
   'app/api/v1/donations/payhero/initiate/route.ts':
     'money in, by M-Pesa: this is the route that collects for the fund',
+  'app/api/v1/donations/palpluss/initiate/route.ts':
+    'money in, by M-Pesa on the second rail: one named campaign, fund included',
   'app/campaigns/[slug]/page.tsx':
     'one campaign, looked up by slug, for its own page',
   'app/campaigns/[slug]/donate/page.tsx':
