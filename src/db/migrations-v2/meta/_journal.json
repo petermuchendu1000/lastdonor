@@ -99,6 +99,13 @@
       "when": 1793608581843,
       "tag": "0013_outgoing_ser_duncan",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795518156557,
+      "tag": "0014_palpluss_payment_requests",
+      "breakpoints": true
     }
   ]
 }

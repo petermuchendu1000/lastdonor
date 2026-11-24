@@ -115,6 +115,17 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
   'POST /api/v1/donations/confirm': 'Return leg of the guest donation flow.',
   'POST /api/v1/donations/payhero/initiate': 'Guest M-Pesa donation; per-number abuse guard.',
   'POST /api/v1/donations/payhero/callback': 'No shared secret by design; outcome re-fetched. docs/92.',
+  /*
+    Palpluss DOES sign (Standard Webhooks) and the route refuses a bad
+    signature with 401 - but signing is per-domain in their console and
+    lastdonor.org is not registered yet, so deliveries arrive UNSIGNED and
+    cannot be required to be signed. Public and safe for the same reason the
+    PayHero one is: the body is never believed, only a transaction id is read
+    from it, and the outcome is re-fetched over our own authenticated call.
+    docs/180.
+  */
+  'POST /api/v1/donations/palpluss/callback':
+    'Signature verified when present, never required; outcome re-fetched. docs/180.',
   'GET /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',
   'HEAD /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',
 

@@ -10,7 +10,7 @@
 
 import { db } from '@/db';
 import { insertCampaignUpdate, insertCampaignMessage } from '@/lib/echo-counters';
-import { campaigns, donations, users, auditLogs, fundPoolAllocations, donorCampaignSubscriptions } from '@/db/schema';
+import { campaigns, donations, users, auditLogs, fundPoolAllocations, donorCampaignSubscriptions, paymentProviderEnum } from '@/db/schema';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { getCampaignPhase } from '@/lib/utils/phase';
@@ -47,8 +47,16 @@ import type Stripe from 'stripe';
  * reports it.
  */
 export interface GatewayCharge {
-  /** Which gateway took the money. Decides what can later be done with it. */
-  provider: 'stripe' | 'payhero';
+  /**
+   * Which gateway took the money. Decides what can later be done with it —
+   * every refund path branches on `donations.provider` before calling an API,
+   * and `palpluss` has no refund endpoint any more than `payhero` does.
+   *
+   * ⛔ Derived from the database enum, not restated. `paymentProviderEnum` is
+   * the source of truth, so adding a rail there makes `tsc` enumerate the
+   * call sites here instead of leaving a second list to drift (docs/144).
+   */
+  provider: (typeof paymentProviderEnum.enumValues)[number];
   /**
    * The gateway's own reference, already namespaced for the provider
    * (`pi_…`, `payhero_…`). Stored in `donations.stripe_payment_id`, whose

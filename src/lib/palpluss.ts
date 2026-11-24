@@ -164,6 +164,84 @@ export type PalplussStatus =
   | 'CANCELLED'
   | 'EXPIRED';
 
+/** Every status this client recognises. Anything else is NOT money. */
+const KNOWN_STATUSES: readonly string[] = Object.freeze([
+  'PENDING',
+  'PROCESSING',
+  'SUCCESS',
+  'FAILED',
+  'REVERSED',
+  'CANCELLED',
+  'EXPIRED',
+]);
+
+/**
+ * What a settlement should DO about a status.
+ *
+ * ⛔ A PURE FUNCTION, and executed by its tests rather than read as text.
+ * `docs/162` §5.1 found that a structural rule cannot see which way a branch
+ * points — an injection that INVERTED a settlement decision passed every
+ * text rule — and `docs/157` §4.1 fixed the same class by making the
+ * judgement pure. The whole of "is this money" lives here, in one expression
+ * per outcome, so a test can drive all seven values plus an unknown one.
+ *
+ *   `pending`      — not over. Poll again; settle nothing.
+ *   `success`      — the donor paid. The only value that books a donation.
+ *   `failed`       — over, and no money moved.
+ *   `reversed`     — money moved and came BACK. Not a failure, not a success.
+ *   `unrecognised` — Palpluss's vocabulary grew. Treated as pending so a
+ *                    later read can resolve it, never as an outcome.
+ */
+export type PalplussStatusClass =
+  | 'pending'
+  | 'success'
+  | 'failed'
+  | 'reversed'
+  | 'unrecognised';
+
+export function classifyPalplussStatus(raw: string | null | undefined): PalplussStatusClass {
+  const s = (raw ?? '').trim().toUpperCase();
+
+  if (!KNOWN_STATUSES.includes(s)) return 'unrecognised';
+
+  switch (s) {
+    case 'PENDING':
+    case 'PROCESSING':
+      return 'pending';
+    case 'SUCCESS':
+      return 'success';
+    /*
+      ⛔ REVERSED is deliberately NOT folded into `failed`, though both decline
+      to book a donation and the difference is invisible on screen.
+
+      `failed` means no money ever moved: the donor cancelled, the prompt
+      expired, or the balance was short. `REVERSED` means Palpluss took the
+      money and then returned it. Those need different records — a reversal is
+      a movement on the service account that somebody may have to reconcile,
+      and on the day it arrives for a collection we had ALREADY booked, it is
+      a refund nobody asked us for. Merging them would file that under
+      "the payment did not go through" and lose it.
+
+      [UNVERIFIED by execution] no REVERSED has ever been observed on this
+      tenant — the ledger's 50 rows are SUCCESS and FAILED only. It is in the
+      published status enum, so it is handled rather than guessed at.
+    */
+    case 'REVERSED':
+      return 'reversed';
+    case 'FAILED':
+    case 'CANCELLED':
+    case 'EXPIRED':
+      return 'failed';
+    default:
+      /*
+        Unreachable: the membership check above has already run. Kept because
+        `KNOWN_STATUSES` and this switch are two lists that could drift, and
+        a silent fall-through would read an unhandled status as an outcome.
+      */
+      return 'unrecognised';
+  }
+}
+
 export interface StkPushRequest {
   /** Integer minor units, in `currency`. Our ledger's unit (docs/92). */
   readonly amountMinor: number;
@@ -200,7 +278,26 @@ export interface StkPushAccepted {
 
 export interface TransactionSnapshot {
   readonly transactionId: string;
+  /**
+   * The status narrowed to the vocabulary we know, or `PENDING` when Palpluss
+   * sent something else.
+   *
+   * ⚠️ Do NOT branch a settlement on this field. It cannot represent "a
+   * status we do not recognise", so an unknown value arrives here
+   * indistinguishable from a genuine `PENDING`. Classify `rawStatus` with
+   * `classifyPalplussStatus` instead.
+   */
   readonly status: PalplussStatus;
+  /**
+   * Exactly what Palpluss said, before any narrowing.
+   *
+   * ⛔ This field exists because `status` used to be a CAST —
+   * `asString(...) as PalplussStatus` — which is a lie at the type level: an
+   * unrecognised status compiled as a known one and would have been read as
+   * whatever the fallback was. The raw string is the only honest input to a
+   * decision about somebody's money.
+   */
+  readonly rawStatus: string;
   readonly amountMajor: number | null;
   readonly currency: string | null;
   readonly phone: string | null;
@@ -582,9 +679,19 @@ export async function getTransactionStatus(transactionId: string): Promise<Trans
     throw new PalplussApiError(200, 'status response is for a different transaction');
   }
 
+  const rawStatus = asString(pick(data, 'status', 'status')) ?? '';
+
   return {
     transactionId: id,
-    status: (asString(pick(data, 'status', 'status')) ?? 'PENDING') as PalplussStatus,
+    /*
+      Narrowed for display, and NOT the field a settlement reads. An
+      unrecognised status lands on `PENDING` here, which is why `rawStatus`
+      sits beside it and `classifyPalplussStatus` takes that one.
+    */
+    status: (KNOWN_STATUSES.includes(rawStatus.trim().toUpperCase())
+      ? (rawStatus.trim().toUpperCase() as PalplussStatus)
+      : 'PENDING') as PalplussStatus,
+    rawStatus,
     amountMajor: asNumber(data.amount),
     currency: asString(data.currency),
     phone: asString(pick(data, 'phone_number', 'phone')),

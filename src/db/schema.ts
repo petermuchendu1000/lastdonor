@@ -79,7 +79,15 @@ export const donationSourceEnum = pgEnum('donation_source', ['real', 'seed']);
  * marked by `donations.source = 'seed'` (docs/33) and carry the provider of
  * whatever rail the campaign would have used.
  */
-export const paymentProviderEnum = pgEnum('payment_provider', ['stripe', 'payhero']);
+export const paymentProviderEnum = pgEnum('payment_provider', [
+  'stripe',
+  'payhero',
+  // The second M-Pesa rail (docs/180). `donations.provider` is read before any
+  // gateway API is called - handing a `palpluss_…` reference to PayHero's
+  // status endpoint, or to `stripe.refunds.create`, is the bug all four refund
+  // paths once had (docs/92).
+  'palpluss',
+]);
 
 /**
  * The life of one M-Pesa STK push.
@@ -1190,6 +1198,153 @@ export const payheroPaymentRequests = pgTable(
     */
     foreignKey({
       name: 'payhero_requests_campaign_credited_currency_fk',
+      columns: [table.campaignId, table.creditedCurrency],
+      foreignColumns: [campaigns.id, campaigns.currency],
+    }),
+  ],
+);
+
+// ─── Palpluss Payment Requests (second M-Pesa rail, docs/180) ──────────────
+
+/**
+ * The life of one Palpluss STK push, as WE record it.
+ *
+ * ⛔ Three values, and deliberately not seven. Palpluss's own vocabulary is
+ * PENDING / PROCESSING / SUCCESS / FAILED / REVERSED / CANCELLED / EXPIRED,
+ * and this column is not a mirror of it — it is our settlement lifecycle.
+ * `classifyPalplussStatus` collapses their seven onto what we must DO, and
+ * the detail that collapsing loses is kept in `failure_reason` as words.
+ *
+ * ⚠️ No `abandoned`. `payhero_request_status` carries one and [VERIFIED by
+ * `docs/129`] nothing has ever written it, which left an organiser three
+ * filter options that can never match. An enum value you do not write is a
+ * migration on a live money table that buys nothing.
+ */
+export const palplussRequestStatusEnum = pgEnum('palpluss_request_status', [
+  'pending',
+  'succeeded',
+  'failed',
+]);
+
+export const palplussPaymentRequests = pgTable(
+  'palpluss_payment_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * Palpluss's own transaction id, and the ONLY key `GET /transactions/{id}`
+     * accepts. [VERIFIED 2026-11-24] our `accountReference` is not a lookup
+     * key there, so without this the payment is unverifiable — PayHero's
+     * probed trap #3 (docs/92) in a second costume.
+     *
+     * ⛔ UNIQUE, because it is the key a callback resolves by, and NOT NULL,
+     * because a row that cannot be checked should never have been written.
+     * `payhero_payment_requests.payhero_reference` is nullable and `docs/158`
+     * is the whole story of what that nullability cost: a row with no
+     * reference is exactly what a lost response leaves behind, and nothing
+     * can later establish whether money moved.
+     */
+    palplussTransactionId: text('palpluss_transaction_id').notNull(),
+    /**
+     * Our own `LD-…` reference, sent as `accountReference` and echoed back as
+     * `external_reference`. Kept for reconciliation against the shared
+     * tenant's ledger (docs/180 §3) — NOT a lookup key for the gateway.
+     */
+    accountReference: text('account_reference').notNull(),
+    /** Safaricom's CheckoutRequestID. Informational. */
+    providerCheckoutId: text('provider_checkout_id'),
+    campaignId: uuid('campaign_id')
+      .notNull()
+      .references(() => campaigns.id),
+    /*
+      ── CHARGE vs CREDIT ───────────────────────────────────────────────────
+      The same split `docs/168` established for PayHero, for the same reason:
+      the rail charges KES whatever the campaign is denominated in.
+
+      `currency`/`amount` are the CHARGE. `credited_currency`/
+      `credited_amount_minor` are the CREDIT, and the composite FK at the
+      bottom is what makes "a campaign is only ever credited in its own
+      currency" a database guarantee rather than a convention.
+    */
+    /** The CHARGE currency — the rail's. M-Pesa can only charge KES. */
+    currency: text('currency').notNull(),
+    /** The CHARGE, in minor units of `currency`. What the donor pays. */
+    amount: integer('amount').notNull(),
+    /** The CREDIT, in minor units of `credited_currency`. */
+    creditedAmountMinor: integer('credited_amount_minor').notNull(),
+    /** The CREDIT currency. FK-bound to the campaign's currency below. */
+    creditedCurrency: text('credited_currency').notNull(),
+    /**
+     * The rate that produced the charge, x1_000_000, recorded so the credit is
+     * never re-derived at settlement. ⛔ `bigint` for `docs/168`'s reason:
+     * int4 caps at a rate of 2,147 per unit, fine for KES at ~130 and
+     * silently wrong for a currency like IDR.
+     */
+    fxRateMicro: bigint('fx_rate_micro', { mode: 'number' }).notNull(),
+    fxMarginBps: integer('fx_margin_bps').notNull(),
+    fxQuotedAt: timestamp('fx_quoted_at', { withTimezone: true }).notNull(),
+    /** The normalised number, for the per-number abuse guard. */
+    phoneE164: text('phone_e164').notNull(),
+    /** What was sent to Palpluss, in their canonical `254…` form. */
+    msisdnSent: text('msisdn_sent').notNull(),
+    /**
+     * The Palpluss channel that collected it, asserted against the callback.
+     * ⚠️ A uuid here, where PayHero's is an integer.
+     */
+    channelId: text('channel_id'),
+    status: palplussRequestStatusEnum('status').notNull().default('pending'),
+    /**
+     * What actually happened, in words, when the row is not a plain success.
+     * This is where the detail the three-value enum cannot hold goes: a
+     * reversal, an unbooked collection, Safaricom's own result description.
+     */
+    failureReason: text('failure_reason'),
+    /** The M-Pesa receipt number, once settled. */
+    providerReference: text('provider_reference'),
+    /** Set once a donation row exists, which is the discriminator docs/162 needs. */
+    donationId: uuid('donation_id').references(() => donations.id),
+    // Donor context, held until the outcome is known.
+    donorName: text('donor_name').notNull().default('Anonymous'),
+    donorEmail: text('donor_email').notNull(),
+    donorLocation: text('donor_location'),
+    message: text('message'),
+    isAnonymous: boolean('is_anonymous').notNull().default(false),
+    subscribedToUpdates: boolean('subscribed_to_updates').notNull().default(false),
+    shareLinkId: uuid('share_link_id').references(() => campaignShareLinks.id),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    /*
+      UNIQUE on the gateway's id, not on ours. This is the key the callback and
+      the status poll both resolve by, and it is also the isolation boundary:
+      a transaction id belonging to another product on the shared tenant
+      matches no row and is refused before any network call.
+    */
+    uniqueIndex('idx_palpluss_requests_tx_id').on(table.palplussTransactionId),
+    uniqueIndex('idx_palpluss_requests_account_ref').on(table.accountReference),
+    index('idx_palpluss_requests_campaign').on(table.campaignId),
+    index('idx_palpluss_requests_status').on(table.status),
+    index('idx_palpluss_requests_phone_created').on(table.phoneE164, table.createdAt),
+    check('palpluss_requests_amount_positive', sql`${table.amount} > 0`),
+    check('palpluss_requests_currency_iso4217', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check('palpluss_requests_credited_amount_positive', sql`${table.creditedAmountMinor} > 0`),
+    check(
+      'palpluss_requests_credited_currency_iso4217',
+      sql`${table.creditedCurrency} ~ '^[A-Z]{3}$'`,
+    ),
+    check('palpluss_requests_fx_rate_positive', sql`${table.fxRateMicro} > 0`),
+    check(
+      'palpluss_requests_fx_margin_bounded',
+      sql`${table.fxMarginBps} >= 0 AND ${table.fxMarginBps} <= 10000`,
+    ),
+    /*
+      The same guarantee `donations` and `payhero_payment_requests` carry: a
+      campaign is only ever CREDITED in its own currency, enforced by the
+      database rather than by whoever writes the next settlement path.
+    */
+    foreignKey({
+      name: 'palpluss_requests_campaign_credited_currency_fk',
       columns: [table.campaignId, table.creditedCurrency],
       foreignColumns: [campaigns.id, campaigns.currency],
     }),

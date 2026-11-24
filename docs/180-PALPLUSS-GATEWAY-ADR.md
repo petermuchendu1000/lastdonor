@@ -307,10 +307,13 @@ file now. It did, however, expose finding (e).
   callbacks stay unsigned (§3.2).
 - ⛔ **OWNER:** decide whether KES routes to Palpluss. One line, and it should
   wait for a successful collection (§2.2).
-- Not built: the callback route, a `palpluss_payment_requests` table, the
-  settlement path, a float monitor (§2.f), the per-phone guard wired to
-  `MIN_PUSH_INTERVAL_MS` (§2.g), and B2C payouts. None of it is needed while
-  the rail is unrouted, and all of it is needed before it is.
+- ✅ **AMENDED 2026-11-24 by `docs/181`:** the callback route, the
+  `palpluss_payment_requests` table and the settlement path are now BUILT and
+  tested. Still not built: the **initiate** route (so nothing writes a row
+  for that settlement to settle), a float monitor (§2.f), the per-phone guard
+  wired to `MIN_PUSH_INTERVAL_MS` (§2.g), a status-poll route, and B2C
+  payouts. None of it is needed while the rail is unrouted, and all of it is
+  needed before it is.
 - `redis: error` appeared in production health during this session (`ok` at
   00:17, `error` at 00:36). Unrelated to this work. Not fatal — the limiter
   falls through to an in-memory backstop, and with one app machine that is

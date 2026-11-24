@@ -159,6 +159,19 @@ export const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
       'A forged request cannot assert a payment. Same shape as the Didit webhook, docs/81.',
   },
   {
+    pattern: /^\/api\/v1\/donations\/palpluss\/callback$/,
+    methods: ['POST'],
+    reason:
+      'Palpluss payment callback (docs/180). Unlike PayHero, Palpluss DOES sign callbacks ' +
+      '(Standard Webhooks) and the route verifies when headers are present and refuses a ' +
+      'bad signature with 400 - but signing is configured PER DOMAIN in their console and ' +
+      'lastdonor.org is not registered yet, so deliveries currently arrive unsigned. That ' +
+      'is survivable only because the body is never believed: the route reads one ' +
+      'transaction id and asks Palpluss for the outcome over an authenticated call of our ' +
+      'own, so a forged request cannot assert a payment. Same shape as the Didit webhook ' +
+      '(docs/81) and the PayHero callback (docs/92).',
+  },
+  {
     pattern: /^\/api\/v1\/donations\/payhero\/status$/,
     methods: GET_ONLY,
     reason:
