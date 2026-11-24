@@ -138,7 +138,7 @@ export interface CurrencyDefinition {
    * Which gateway takes money in this currency. Used to pick the rail and to
    * refuse a donation the platform cannot actually collect.
    */
-  readonly gateway: 'stripe' | 'payhero';
+  readonly gateway: 'stripe' | 'payhero' | 'palpluss';
 }
 
 /**

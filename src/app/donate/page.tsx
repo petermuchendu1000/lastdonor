@@ -1,7 +1,7 @@
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { DonationForm } from '@/components/campaign/DonationForm';
 import { MpesaDonationForm } from '@/components/campaign/MpesaDonationForm';
-import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { getCurrency, isSupportedCurrency, type CurrencyDefinition } from '@/lib/money/currencies';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
@@ -28,9 +28,21 @@ const GENERAL_FUND_TITLE = 'the LastDonor general fund';
  * Keyed by `CurrencyDefinition['gateway']`, so `tsc` names this map the day a
  * third gateway is added rather than letting it render `undefined`.
  */
-const RAIL_WORDS: Record<'stripe' | 'payhero', string> = {
+/*
+  Keyed off the gateway union itself rather than restating it, so a fourth
+  gateway fails the build here too instead of this Record quietly drifting out
+  of step with `currencies.ts`. Adding `palpluss` was already caught that way:
+  widening the union broke exactly this line and nothing else.
+
+  `palpluss` and `payhero` share a word on purpose. This sentence tells a donor
+  HOW they will pay, and both are M-Pesa; which processor carries it is not a
+  distinction a donor can act on, and naming one here would be the processor
+  claim `docs/152` confines to the policy pages.
+*/
+const RAIL_WORDS: Record<CurrencyDefinition['gateway'], string> = {
   stripe: 'card',
   payhero: 'M-Pesa',
+  palpluss: 'M-Pesa',
 };
 
 /**
