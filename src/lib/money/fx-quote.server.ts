@@ -228,7 +228,13 @@ export async function chargePreviewFor(
     creditExponent: credit.exponent,
     rateMicro: Math.round((rateCharge / rateCredit) * 1_000_000),
     marginBps: FX_MARGIN_BPS,
-    /* PayHero takes whole major units only - `payhero.ts:472`. */
+    /*
+      Both M-Pesa rails take whole major units only, and each refuses a
+      fraction before sending: `payhero.ts` ("amountMinor must be a whole
+      number of major units") and the Palpluss client ("Palpluss accepts
+      whole KES only"). So this is a property of the channel, not of one
+      provider.
+    */
     roundUpToMultiple: 10 ** charge.exponent,
   };
 }

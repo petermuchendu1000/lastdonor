@@ -23,8 +23,23 @@ import {
   POLL_INTERVAL_MS,
 } from './MpesaDonationForm';
 import { PROMPT_LIFETIME_MS } from '@/lib/mpesa-prompt';
+import { mpesaRailFor } from '@/lib/mpesa-rail';
 
 const MAX_POLL_ATTEMPTS_EXPECTED = MAX_POLL_ATTEMPTS;
+
+/**
+ * The path a currency's own rail serves, derived here independently of the
+ * form's `RAIL_PATHS` table.
+ *
+ * Deriving matters: the whole point of the change these tests cover is that
+ * one line in the currency table moves every donor to the other rail, so a
+ * literal here would turn a working form into a failing test.
+ */
+function initiatePathFor(currency: string): string {
+  const rail = mpesaRailFor(currency);
+  expect(rail, `${currency} routes to no M-Pesa rail`).not.toBeNull();
+  return `/api/v1/donations/${rail}/initiate`;
+}
 
 /**
  * The unresolved screen is found by its CONTROL, not by its prose.
@@ -212,7 +227,14 @@ describe('the double-tap latch', () => {
     await user.click(button);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/donations/payhero/initiate');
+    /*
+      ⚠️ DERIVED, not the literal this line used to hold. The form picks its
+      rail from the currency table now, so a hardcoded `payhero` path here
+      would fail the day the owner points KES at Palpluss - reporting a
+      correct form as broken. `which rail the form drives` below is where
+      that choice is actually under test.
+    */
+    expect(fetchMock.mock.calls[0][0]).toBe(initiatePathFor('KES'));
 
     await act(async () => { held.resolve(initiateOk()); });
   });
@@ -371,6 +393,92 @@ describe('outcomes', () => {
     expect(alert).toMatch(/cancelled/i);
     expect(alert).toMatch(/timed out/i);
     expect(screen.getByRole('button', { name: /Try again/i })).toBeTruthy();
+  });
+
+  /*
+    `reversed` - the Palpluss rail's own terminal state (`docs/181` §3.4).
+    Money moved and came back, so this screen sits between the two it must not
+    become: the failed screen (which says nothing was charged, and then offers
+    three causes none of which is a reversal) and the unrecorded one (which
+    opens "your payment went through" and stops there).
+  */
+  it('reports a reversal as its own outcome, claiming neither failure nor success', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/initiate')) return Promise.resolve(initiateOk());
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          data: {
+            state: 'reversed',
+            keepPolling: false,
+            // The route's own wording.
+            message:
+              'The money left your account and was sent back. No donation was recorded.',
+          },
+        }),
+      });
+    });
+
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    /*
+      ⚠️ Found via the alert region, not via the text. Matching /sent back/i
+      directly threw "Found multiple elements" - the heading and the message
+      both say it, which is the screen reading correctly.
+    */
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    const alert = screen.getByRole('alert').textContent ?? '';
+    expect(alert).toMatch(/sent back/i);
+
+    // ⛔ Something WAS charged, so docs/158's reassurance would be false.
+    expect(alert).not.toMatch(/nothing (?:has been|was) charged/i);
+    // ⛔ And no donation exists, so nobody is thanked for one.
+    expect(alert).not.toMatch(/thank you|your donation is in/i);
+    // ⛔ The failed screen's three causes are all false of a reversal.
+    expect(alert).not.toMatch(/usually means|cancelled|timed out/i);
+    // ⛔ No turnaround and no date: the reversal is the rail's, not ours.
+    expect(alert).not.toMatch(/business days|\d+\s*days/i);
+    // It points at the one record that can settle it, and offers a human.
+    expect(alert).toMatch(/M-Pesa messages/i);
+    expect(alert).toMatch(/support@lastdonor\.org/i);
+    // Net nothing was taken, so retrying cannot double-pay - unlike the
+    // unrecorded screen, which deliberately offers no retry.
+    expect(screen.getByRole('button', { name: /Try again/i })).toBeTruthy();
+  });
+
+  it('CONTROL: a reversal is not shown as the unresolved screen', async () => {
+    /*
+      ⛔ The regression this is really about. Before the `reversed` branch
+      existed the state fell through to `keepPolling === false` and rendered
+      "We could not confirm this payment" - about an outcome the server had
+      just confirmed precisely. That screen is identified by its "Check
+      again" control (`docs/159` §5.2: by the property, not the prose).
+    */
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/initiate')) return Promise.resolve(initiateOk());
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          data: { state: 'reversed', keepPolling: false, message: null },
+        }),
+      });
+    });
+
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(unresolvedScreen(), 'a reversal rendered the unresolved screen').toBeNull();
+    // And with no server message it still says what happened, from its own
+    // fallback rather than silence.
+    expect(screen.getByRole('alert').textContent).toMatch(/sent back/i);
   });
 
   it('lets the donor retry after a failure, and sends exactly one new request', async () => {
@@ -754,6 +862,143 @@ describe('a USD campaign collected over the KES rail', () => {
     expect(pay).toHaveTextContent(/Ksh\s*50\.00/);
     expect(screen.queryByText(/conversion margin/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/KES per/i)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Which rail the form drives.
+ *
+ * ⛔ THE INVARIANT: the rail that charges is the rail whose currency is on the
+ * pay button. The form derives it from the BILLED currency - the same value it
+ * prints - so the figure the donor agreed to and the API that takes it cannot
+ * come apart.
+ *
+ * ⚠️ These are behavioural on purpose. `mpesa-rail.test.ts` can read that the
+ * form contains `mpesaRailFor(billedCurrency)`, but `mpesaRailFor(currency)`
+ * compiles, reads just as sensibly, and differs only in that it sends every
+ * cross-currency donor to a refusal screen - so the distinction is invisible
+ * to any structural rule and has to be driven (`docs/162` §5.1).
+ */
+describe('which rail the form drives', () => {
+  function renderUnsupportedRail() {
+    // A card campaign with no M-Pesa quote: nothing here can be collected
+    // over a handset, which is the one state `paths` is null in.
+    return render(
+      <MpesaDonationForm
+        campaignId={CAMPAIGN_ID}
+        campaignTitle="Help Keisha"
+        backTo={BACK_TO_CAMPAIGN}
+        currency="USD"
+      />,
+    );
+  }
+
+  it('posts to the rail its own currency routes to', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(initiateOk());
+
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    expect(fetchMock.mock.calls[0][0]).toBe(initiatePathFor('KES'));
+  });
+
+  it('⛔ a USD campaign charged in shillings posts to the SHILLING rail', async () => {
+    /*
+      ⛔ THE DISCRIMINATING CASE. The campaign is USD, which routes to the card
+      rail, and the charge is KES. If the rail were taken from the CAMPAIGN's
+      currency this form would resolve no rail at all, render the refusal
+      below, and never call anything - so this test distinguishes the two
+      spellings where no text rule can.
+    */
+    const user = userEvent.setup();
+    /*
+      ⚠️ Held mid-submit, as the double-tap test does. With a resolved
+      `initiateOk()` the form reaches the waiting screen and its first poll
+      fires, so `toHaveBeenCalledTimes(1)` saw two calls - the form working,
+      and my assertion counting the wrong thing.
+    */
+    const held = pending<unknown>();
+    fetchMock.mockReturnValue(held.promise);
+
+    renderCrossCurrencyForm();
+    await user.type(screen.getByLabelText(/Or enter an amount/i), '5');
+    await user.type(screen.getByLabelText(/M-Pesa number/i), '0713572703');
+    await user.type(screen.getByLabelText(/^Email$/i), 'donor@example.com');
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(initiatePathFor('KES'));
+
+    await act(async () => { held.resolve(initiateOk()); });
+  });
+
+  it('polls the status route of the SAME rail it initiated on', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).includes('/initiate')
+          ? initiateOk()
+          : {
+              ok: true,
+              json: async () => ({
+                ok: true,
+                data: { state: 'pending', keepPolling: true, message: null },
+              }),
+            },
+      ),
+    );
+
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: /Send M-Pesa request/i }));
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/status'))).toBe(true),
+    );
+    const statusCall = fetchMock.mock.calls.find((c) => String(c[0]).includes('/status'))!;
+    const initiated = String(fetchMock.mock.calls[0][0]);
+    expect(String(statusCall[0]).split('?')[0]).toBe(initiated.replace('/initiate', '/status'));
+  });
+
+  it('⛔ refuses, and asks for nothing, when no rail collects the billed currency', async () => {
+    /*
+      Fail closed. Both render sites gate on the same derivation so this
+      should be unreachable - but a form that cannot be paid is better than
+      one whose submit the server refuses after the donor has typed their
+      number and email.
+    */
+    renderUnsupportedRail();
+
+    /*
+      ⚠️ Identified by its PROPERTY - an announced refusal with no fields to
+      fill - and not by its wording. My first version matched the copy, which
+      is `docs/160` §5.2's mistake: the words are free to improve, and what
+      must not change is that nothing can be submitted.
+    */
+    expect(screen.getByRole('alert').textContent?.length).toBeGreaterThan(20);
+    expect(screen.queryByRole('button', { name: /Send M-Pesa request/i })).toBeNull();
+    expect(screen.queryByLabelText(/M-Pesa number/i)).toBeNull();
+    expect(screen.queryByLabelText(/Or enter an amount/i)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: the refusal is not shown for a currency a rail does collect', () => {
+    /*
+      ⛔ Without this, hiding the form for EVERYBODY would satisfy the rule
+      above - and the two campaigns differ only in their currency.
+    */
+    /*
+      ⚠️ Checked by the FIELDS, the exact inverse of the rule above. My first
+      version looked for the pay button and failed: with no amount entered yet
+      it is labelled "Enter an amount to continue", so that assertion could
+      not have passed on a working form either.
+    */
+    renderForm();
+    expect(screen.getByLabelText(/M-Pesa number/i)).toBeTruthy();
+    expect(screen.getByLabelText(/^Email$/i)).toBeTruthy();
+    expect(screen.queryByRole('alert'), 'the form rendered a refusal').toBeNull();
   });
 });
 

@@ -260,6 +260,23 @@ sweep cannot see), on the public donate page of **every live campaign at
 once**. `payhero/initiate/route.ts:204` has the same call, where it would
 surface as a 500.
 
+### 6.0 ✅ RESOLVED 2026-11-25 by `docs/184`
+
+The page now reads `mpesaChargeCurrency()`, which returns **null** where
+`payHeroChargeCurrency()` threw, and handles it — no M-Pesa rail means no
+charge to preview and the client falls through. So the throw described above
+is gone, and §6.1's reason for deferring it ("it means deciding what that page
+shows when no rail routes to a campaign's currency") was answered by building
+the decider the four-site problem needed anyway.
+
+⚠️ `charge-currency-premise.test.ts` is therefore **deleted**, on its own
+instruction, and `src/lib/mpesa-rail.test.ts` covers strictly more — including
+the zero-rail and two-rail configurations EXECUTED under a simulated currency
+table, which is the branch no test could reach while exactly one currency
+routes to M-Pesa. `docs/184` §5 and §5.2.
+
+Everything below is kept as the record of the finding.
+
 ### 6.1 Why it is not fixed here
 
 The fix is not mechanical. It means deciding what that page shows when no rail

@@ -2,6 +2,7 @@ import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { DonationForm } from '@/components/campaign/DonationForm';
 import { MpesaDonationForm } from '@/components/campaign/MpesaDonationForm';
 import { getCurrency, isSupportedCurrency, type CurrencyDefinition } from '@/lib/money/currencies';
+import { mpesaRailFor } from '@/lib/mpesa-rail';
 import { GENERAL_FUND_CAMPAIGN_ID } from '@/lib/constants';
 import { db } from '@/db';
 import { campaigns } from '@/db/schema';
@@ -222,12 +223,17 @@ export default async function DonatePage() {
               currency outright. Offering one form for both would show a donor
               a payment method that cannot complete.
 
+              ⛔ The question is whether ANY M-Pesa rail collects it, not
+              whether PayHero does. This read `gateway === 'payhero'`, which
+              would have dropped the fund onto the dead card form the day the
+              owner points KES at Palpluss (`src/lib/mpesa-rail.ts`).
+
               ⛔ `backTo` is `null` on purpose: the general fund has no public
               campaign page, so there is nothing to go "back" to. Passing a
               slug here would have handed a donor a 404 the instant their
               money left their phone (`docs/118`, `docs/147`).
             */}
-            {getCurrency(fund.currency).gateway === 'payhero' ? (
+            {mpesaRailFor(fund.currency) !== null ? (
               <MpesaDonationForm
                 campaignId={GENERAL_FUND_CAMPAIGN_ID}
                 campaignTitle={GENERAL_FUND_TITLE}

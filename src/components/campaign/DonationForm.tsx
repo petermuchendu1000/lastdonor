@@ -35,13 +35,19 @@ export type DonationStep = 'details' | 'payment' | 'pending' | 'declined' | 'suc
 /*
   ── WHY THIS FORM IS LEGITIMATELY IN DOLLARS, AND WHAT GUARDS THAT ──────────
 
-  `src/app/campaigns/[slug]/donate/client.tsx:248` picks the form by GATEWAY:
-  `getCurrency(currency).gateway === 'payhero'` renders `MpesaDonationForm`
-  (which reads bounds and symbols from the currency registry), and everything
-  else renders this one. `CURRENCIES` holds exactly two entries - USD on
-  `stripe`, KES on `payhero` (`src/lib/money/currencies.ts`) - so every
-  campaign that reaches THIS form is a dollar campaign, and its preset ladder,
-  impact hints and `$` copy are correct rather than merely unnoticed.
+  `src/app/campaigns/[slug]/donate/client.tsx` picks the form by RAIL:
+  `mpesaRailFor(currency) !== null || chargePreview` renders
+  `MpesaDonationForm` (which reads bounds and symbols from the currency
+  registry), and everything else renders this one. `CURRENCIES` holds exactly
+  two entries - USD on `stripe`, KES on an M-Pesa rail
+  (`src/lib/money/currencies.ts`) - so every campaign that reaches THIS form
+  is a dollar campaign, and its preset ladder, impact hints and `$` copy are
+  correct rather than merely unnoticed.
+
+  ⚠️ That condition used to name PayHero and no longer does: a USD campaign
+  with a fresh rate reaches the M-Pesa form too (`docs/168`), and which
+  M-Pesa rail is a question for `src/lib/mpesa-rail.ts` rather than for a
+  literal here (`docs/184`).
 
   ⛔ That is true by construction TODAY and silently false the moment a third
   collectable currency lands on Stripe: a euro campaign would render this

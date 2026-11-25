@@ -401,9 +401,20 @@ the reversal message must differ from the two it is not.
 
 ## 10. What is still not built
 
-- ⛔ **Any UI.** `MpesaDonationForm` fetches the PayHero paths. Wiring it means
-  choosing the rail from the campaign's currency and adding the `reversed`
-  branch §5 now demands.
+- ✅ **RESOLVED 2026-11-25 by `docs/184`.** This read: *"Any UI.
+  `MpesaDonationForm` fetches the PayHero paths. Wiring it means choosing the
+  rail from the campaign's currency and adding the `reversed` branch §5 now
+  demands."*
+
+  Both halves happened, and ⚠️ **the first half is phrased wrongly here**: the
+  rail must come from the **billed** currency, not the campaign's. They are the
+  same for a KES campaign and differ for the USD ones — which is all of the
+  live ones — so taking the campaign's would have sent every cross-currency
+  donor to a refusal screen. `docs/184` §2 has the invariant and §7.1 row 3 is
+  the injection that distinguishes the two spellings, which no text rule can.
+
+  §5's rule did arm, exactly as designed, and is recorded firing in
+  `docs/184` §4. The rail decider is `src/lib/mpesa-rail.ts`.
 - ⛔ **A float monitor for this rail** (`docs/182` §10, `docs/150`'s shape).
 - ⛔ **The `reversed`-on-re-poll limit** of §4.
 - ⛔ **Nothing sweeps `palpluss_payment_requests`.** The poll is now the path

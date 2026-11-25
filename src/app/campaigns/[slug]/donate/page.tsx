@@ -17,7 +17,7 @@ import { publicCampaignPath } from '@/lib/campaign-links';
   press pay; it writes no money (docs/168).
 */
 import { chargePreviewFor } from '@/lib/money/fx-quote.server';
-import { payHeroChargeCurrency } from '@/lib/payhero';
+import { mpesaChargeCurrency } from '@/lib/mpesa-rail';
 import { DonatePageClient } from './client';
 
 interface PageProps {
@@ -202,11 +202,24 @@ export default async function DonatePage({ params, searchParams }: PageProps) {
     ⚠️ One extra query on this route. `docs/87` caps an entry point at three
     concurrent; this is sequential and after the campaign lookup, not added
     to a `Promise.all`.
+
+    ⛔ The target comes from `mpesaChargeCurrency()`, which RETURNS NULL where
+    `payHeroChargeCurrency()` - the previous call here - THREW. That throw is
+    the trap `docs/182` §6 reported and could not fix: it runs for every
+    campaign on every load, not inside a branch keyed on the campaign's own
+    rail, so the moment KES names `gateway: 'palpluss'` it found zero
+    currencies and threw during render. A throw in a server component is the
+    error boundary inside a 200 (`docs/88` F9) - on the public donate page of
+    every live campaign at once, and invisible to a status-code sweep.
+
+    Null is a real state and is handled rather than thrown: no M-Pesa rail
+    means no charge to preview, the client falls through to the card form, and
+    `charge-currency-premise.test.ts` is deleted per its own instruction.
   */
-  const chargePreview = await chargePreviewFor(
-    campaign.currency,
-    payHeroChargeCurrency(),
-  );
+  const mpesaCurrency = mpesaChargeCurrency();
+  const chargePreview = mpesaCurrency
+    ? await chargePreviewFor(campaign.currency, mpesaCurrency)
+    : null;
 
   return (
     <DonatePageClient

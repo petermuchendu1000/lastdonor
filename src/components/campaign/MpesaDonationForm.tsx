@@ -8,10 +8,40 @@ import { CURRENCIES } from '@/lib/money/currencies';
 import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
 import { previewChargeMinor, type ChargePreview } from '@/lib/money/fx-charge';
 import { roundUpOffer } from '@/lib/money/round-up';
+import { mpesaRailFor, type MpesaRail } from '@/lib/mpesa-rail';
 
 import { COLLECTED_UNRECORDED_MESSAGE, PROMPT_LIFETIME_MS } from '@/lib/mpesa-prompt';
 
 const SUPPORT_EMAIL = 'support@lastdonor.org';
+
+/**
+ * The two routes each M-Pesa rail serves.
+ *
+ * ⛔ `Record<MpesaRail, …>`, not a template literal, and that is the point.
+ * Building `` `/api/v1/donations/${rail}/status` `` would be shorter and would
+ * take the LITERAL PATHS out of this file — and three guards in
+ * `src/app/api/v1/donations/` find the clients of a route by asking which
+ * source files name its path. `settled-collection-claims.test.ts`'s contract
+ * rule in particular is written to arm itself *"the moment the form is
+ * pointed at one"*, and it decides that by `CLIENT.includes(routePath)`. A
+ * template would have silently disarmed it for BOTH rails while looking like
+ * an improvement. (Its own anti-vacuity control catches that, which is how I
+ * know rather than assume.)
+ *
+ * A Record also enumerates: a third rail fails to compile here until somebody
+ * declares its routes, where an array with a lookup compiles with a hole
+ * (`docs/144`).
+ */
+const RAIL_PATHS: Record<MpesaRail, { initiate: string; status: string }> = {
+  payhero: {
+    initiate: '/api/v1/donations/payhero/initiate',
+    status: '/api/v1/donations/payhero/status',
+  },
+  palpluss: {
+    initiate: '/api/v1/donations/palpluss/initiate',
+    status: '/api/v1/donations/palpluss/status',
+  },
+};
 
 /**
  * How often to ask whether the payment resolved.
@@ -63,11 +93,28 @@ type Phase =
   | 'failed'
   | 'unresolved'
   /**
-   * PayHero collected the money and no donation was recorded. `docs/162`.
+   * The rail collected the money and no donation was recorded. `docs/162`.
    * Distinct from `succeeded` because the donation does not exist, and from
    * `failed`/`unresolved` because the payment is known to have gone through.
    */
-  | 'collected_unrecorded';
+  | 'collected_unrecorded'
+  /**
+   * The money left the donor's account and was sent back. `docs/181` §3.4.
+   *
+   * ⛔ Not folded into `failed`: that screen tells the donor nothing has been
+   * charged and then appends three ordinary causes - a cancelled prompt, a
+   * timeout, too little balance - and not one of them is true of a reversal,
+   * which is `docs/160`'s defect handed a new input. Not folded into
+   * `collected_unrecorded` either, whose first words are "Your payment went
+   * through": here it went through and came back.
+   *
+   * ⚠️ Reachable only on the Palpluss rail, which is the only one with a
+   * REVERSED status. That is configuration, not dead code: the server answers
+   * it today and the screen is driven by tests. The rule in
+   * `settled-collection-claims.test.ts` is what requires it to exist before
+   * the form can be pointed at that route at all.
+   */
+  | 'reversed';
 
 interface Props {
   campaignId: string;
@@ -205,6 +252,23 @@ export function MpesaDonationForm({
   const converts = charge != null && charge.chargeCurrency !== currency;
 
   /*
+    ── WHICH RAIL ─────────────────────────────────────────────────────────
+    Derived from the currency the donor is BILLED in - the same value printed
+    on the pay button two lines up - so the rail that performs the charge is
+    by construction the rail whose currency the donor was shown. That is the
+    invariant `src/lib/mpesa-rail.ts` exists to hold, and the reason this is
+    not a prop: a prop would be a second answer to a question already
+    answered here, settable wrongly at either render site.
+
+    `null` when no M-Pesa rail collects that currency. Both pages gate on the
+    same derivation, so it should be unreachable - and it is answered with a
+    refusal rather than a guess, because the alternative is posting a donor's
+    money at a rail that has already said it cannot take it.
+  */
+  const rail = mpesaRailFor(billedCurrency);
+  const paths = rail ? RAIL_PATHS[rail] : null;
+
+  /*
     ── ROUND UP AT THE MOMENT OF GIVING ───────────────────────────────────
     The next round figure, or null when there is nothing honest to offer.
 
@@ -229,10 +293,13 @@ export function MpesaDonationForm({
 
   // ── Polling ───────────────────────────────────────────────────────────────
   const poll = useCallback(async () => {
-    if (!reference) return;
+    // `paths` is null only when no rail collects this currency, and the
+    // refusal screen renders instead of the form in that case - so this is
+    // unreachable rather than tolerated. It is a guard, not a fallback.
+    if (!reference || !paths) return;
     try {
       const res = await fetch(
-        `/api/v1/donations/payhero/status?reference=${encodeURIComponent(reference)}`,
+        `${paths.status}?reference=${encodeURIComponent(reference)}`,
         { cache: 'no-store' },
       );
       const body = await res.json();
@@ -246,7 +313,13 @@ export function MpesaDonationForm({
         component. A response type must describe the responder.
       */
       const { state, keepPolling, message } = body.data as {
-        state: 'pending' | 'succeeded' | 'failed' | 'abandoned' | 'collected_unrecorded';
+        state:
+          | 'pending'
+          | 'succeeded'
+          | 'failed'
+          | 'abandoned'
+          | 'collected_unrecorded'
+          | 'reversed';
         keepPolling: boolean;
         message: string | null;
       };
@@ -270,6 +343,23 @@ export function MpesaDonationForm({
       if (state === 'failed' || state === 'abandoned') {
         setPhase('failed');
         setStatusMessage(message ?? null);
+        return;
+      }
+      /*
+        The money moved and came back (`docs/181` §3.4). Its own phase rather
+        than either neighbour: the failed screen would tell this donor nothing
+        had been charged and then offer three causes that are all false of a
+        reversal, and the unrecorded screen opens "Your payment went through",
+        which is only half of what happened here.
+
+        Deliberately placed AFTER the failed branch. `unverifiable-claims.test.ts`
+        derives the states the failed screen claims with by reading the
+        conditions nearest that assignment, and a new state inserted above it
+        would be read as one of them.
+      */
+      if (state === 'reversed') {
+        setStatusMessage(message ?? null);
+        setPhase('reversed');
         return;
       }
       /*
@@ -302,7 +392,13 @@ export function MpesaDonationForm({
     } catch {
       // A dropped poll is not evidence about the payment. Try again.
     }
-  }, [reference, onDonationComplete]);
+    /*
+      `paths` is the same object every render for a given rail - it is read out
+      of the module-level table, not built here - so listing it cannot re-arm
+      the interval. `docs/159`: anything that re-creates `poll` re-runs the
+      effect, which is why the attempt counter is a ref.
+    */
+  }, [reference, paths, onDonationComplete]);
 
   useEffect(() => {
     if (phase !== 'waiting' || !reference) return;
@@ -335,12 +431,14 @@ export function MpesaDonationForm({
   }, [phase, reference, poll]);
 
   async function submit() {
-    if (submitting.current || !canSubmit) return;
+    // See `poll`: unreachable, because the refusal screen replaces the form
+    // (and so this button) when no rail collects the billed currency.
+    if (submitting.current || !canSubmit || !paths) return;
     submitting.current = true;
     setError(null);
 
     try {
-      const res = await fetch('/api/v1/donations/payhero/initiate', {
+      const res = await fetch(paths.initiate, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -560,6 +658,64 @@ export function MpesaDonationForm({
     );
   }
 
+  // ── Reversed ──────────────────────────────────────────────────────────────
+  if (phase === 'reversed') {
+    /*
+      `docs/181` §3.4. The rail reported REVERSED: the debit happened and was
+      undone. Only the Palpluss rail has this status.
+
+      ⛔ What this screen may and may not say, which is the whole reason it is
+      not one of its neighbours:
+
+        - NOT "nothing has been charged". Something was (`docs/158` inverted,
+          the same way `collected_unrecorded` inverts it).
+        - NOT the failed screen's three causes. A cancelled prompt, a timeout
+          and an empty balance all produce FAILED, not REVERSED, so every one
+          of them would be a reason we know to be wrong (`docs/160`).
+        - NOT "your payment went through" full stop, which is where
+          `collected_unrecorded` begins. It went through and came back.
+        - NO turnaround and NO date (`docs/78`, `docs/140`): the reversal is
+          the rail's, we did not initiate it and we do not know when it
+          lands in the donor's balance.
+
+      ⚠️ It says the money "was sent back", not "is back in your account" -
+      what we have is the gateway's report, not the donor's balance. So the
+      donor is pointed at the one record that can settle it, their own M-Pesa
+      messages.
+
+      "Try again" is offered, unlike on the unrecorded screen. There the money
+      is gone and retrying pays twice; here the net position is nothing taken,
+      so a retry is the ordinary next step.
+    */
+    return (
+      <div className="py-2 text-center" role="alert">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+          <ArrowPathIcon className="h-8 w-8 text-muted-foreground" />
+        </div>
+
+        <h3 className="font-display text-2xl font-bold text-card-foreground">
+          Your payment was sent back
+        </h3>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          {statusMessage ??
+            'The money left your account and was sent back, so no donation was recorded.'}
+        </p>
+        <p className="mx-auto mt-2 max-w-md text-sm font-medium text-card-foreground">
+          Check your M-Pesa messages. If the money has not come back, email{' '}
+          {SUPPORT_EMAIL} with your confirmation message and we will sort it out.
+        </p>
+
+        <button
+          type="button"
+          onClick={retry}
+          className="btn-press mt-6 inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   // ── Failed ────────────────────────────────────────────────────────────────
   if (phase === 'unresolved') {
     /*
@@ -648,6 +804,30 @@ export function MpesaDonationForm({
           Try again
         </button>
       </div>
+    );
+  }
+
+  // ── No rail collects this currency ────────────────────────────────────────
+  if (!paths) {
+    /*
+      Fail closed. Both render sites gate on the same derivation, so reaching
+      this means a caller showed the M-Pesa form for a currency no M-Pesa rail
+      takes - and the honest answer is to show no payment form rather than one
+      whose submit the server would refuse. `docs/42` hides the donate form
+      when the general fund row is missing for the same reason, and `docs/172`
+      resolves an unrecognised image to a panel rather than passing it
+      through: a guard is allowed to be unreachable, as long as its direction
+      is the safe one.
+
+      ⛔ "Nothing has been charged" is substantiated here and nowhere near the
+      `docs/158` hazard: no request has been made, because this replaces the
+      form rather than following a submit.
+    */
+    return (
+      <p className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground" role="alert">
+        We cannot take M-Pesa donations for this campaign right now. Nothing has
+        been charged. Please email {SUPPORT_EMAIL} so we can help you give.
+      </p>
     );
   }
 

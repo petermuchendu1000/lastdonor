@@ -8,7 +8,8 @@ import { DonationForm } from '@/components/campaign/DonationForm';
 import type { DonationStep } from '@/components/campaign/DonationForm';
 import { ProgressBar } from '@/components/campaign/ProgressBar';
 import { formatMoney } from '@/lib/money/format';
-import { getCurrency, isSupportedCurrency } from '@/lib/money/currencies';
+import { isSupportedCurrency } from '@/lib/money/currencies';
+import { mpesaRailFor } from '@/lib/mpesa-rail';
 import { MpesaDonationForm } from '@/components/campaign/MpesaDonationForm';
 import type { ChargePreview } from '@/lib/money/fx-charge';
 import { confirmDonation } from '@/lib/donations/confirm-client';
@@ -284,8 +285,15 @@ export function DonatePageClient({
                  `chargePreview` is null when we have no fresh rate, and
                  then this correctly falls back rather than offering a form
                  whose charge we cannot state.
+
+                 ⛔ And it asks WHETHER AN M-PESA RAIL COLLECTS, not whether
+                 PayHero does. Naming one rail here would have sent every
+                 shilling campaign to the card form the day the owner flips
+                 KES to Palpluss - a one-line change to the currency table
+                 silently removing the only payment method that works
+                 (`src/lib/mpesa-rail.ts`).
                */
-            getCurrency(currency).gateway === 'payhero' || chargePreview ? (
+            mpesaRailFor(currency) !== null || chargePreview ? (
               <MpesaDonationForm
                 campaignId={campaignId}
                 campaignTitle={campaignTitle}
