@@ -10,7 +10,7 @@ import {
   COLLECTED_UNRECORDED_MESSAGE,
   claimForSettledCollection,
   type SettledCollectionClaim,
-} from '@/lib/payhero-prompt';
+} from '@/lib/mpesa-prompt';
 import { PayHeroNotConfiguredError } from '@/lib/payhero';
 import { logError } from '@/lib/errors';
 import type { ApiError, ApiResponse } from '@/types/api';

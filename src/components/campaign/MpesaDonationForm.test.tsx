@@ -22,7 +22,7 @@ import {
   MAX_POLL_ATTEMPTS,
   POLL_INTERVAL_MS,
 } from './MpesaDonationForm';
-import { PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
+import { PROMPT_LIFETIME_MS } from '@/lib/mpesa-prompt';
 
 const MAX_POLL_ATTEMPTS_EXPECTED = MAX_POLL_ATTEMPTS;
 

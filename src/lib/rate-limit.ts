@@ -365,6 +365,12 @@ function initDistributedLimiters(): Record<string, UpstashLimiter> | null {
         Its own prefix, so one rail's provider traffic cannot exhaust the
         other's bucket. Both callbacks arrive from a single provider IP each.
       */
+      palpluss_status: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(PALPLUSS_STATUS_LIMIT.maxRequests, '60 s'),
+        analytics: false,
+        prefix: 'rl:lastdonor:palpluss_status',
+      }),
       palpluss_callback: new Ratelimit({
         redis,
         limiter: Ratelimit.slidingWindow(PALPLUSS_CALLBACK_LIMIT.maxRequests, '60 s'),
@@ -548,10 +554,28 @@ export const PAYHERO_CALLBACK_PATH = `${PAYHERO_PATH_PREFIX}/callback`;
 */
 export const PALPLUSS_PATH_PREFIX = '/api/v1/donations/palpluss';
 export const PALPLUSS_INITIATE_PATH = `${PALPLUSS_PATH_PREFIX}/initiate`;
+export const PALPLUSS_STATUS_PATH = `${PALPLUSS_PATH_PREFIX}/status`;
 export const PALPLUSS_CALLBACK_PATH = `${PALPLUSS_PATH_PREFIX}/callback`;
 
 /** Bucket for {@link PALPLUSS_INITIATE_PATH}: 5 pushes / 60 s / IP. */
 export const PALPLUSS_INITIATE_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 60_000 };
+
+/**
+ * Bucket for {@link PALPLUSS_STATUS_PATH}: 120 polls / 60 s / IP.
+ *
+ * The same figure as the PayHero poll and for the same measured reason: an
+ * honest donor's browser polls every few seconds for up to a three-minute
+ * prompt, which is tens of requests from ONE payment. Under the `donations`
+ * tier (10/60 s) that donor is 429'd during their own donation — the defect
+ * the SMS tier had, where five requests of ordinary use tripped a
+ * five-request limit.
+ *
+ * ⛔ Do not tighten it towards `donations`. This route reads one row, and
+ * makes at most one outbound call for a payment that is genuinely still
+ * pending; and it is the ONLY path by which a late settlement is discovered
+ * (`docs/159`), so throttling it loses money, not load.
+ */
+export const PALPLUSS_STATUS_LIMIT: RateLimitConfig = { maxRequests: 120, windowMs: 60_000 };
 
 /** Bucket for {@link PALPLUSS_CALLBACK_PATH}: 60 callbacks / 60 s / IP. */
 export const PALPLUSS_CALLBACK_LIMIT: RateLimitConfig = { maxRequests: 60, windowMs: 60_000 };
@@ -609,6 +633,7 @@ export function getLimiterTier(pathname: string, method: string = 'GET'): string
   if (pathname.startsWith(PAYHERO_STATUS_PATH)) return 'payhero_status';
   if (pathname.startsWith(PAYHERO_CALLBACK_PATH)) return 'payhero_callback';
   if (pathname.startsWith(PALPLUSS_INITIATE_PATH)) return 'palpluss_initiate';
+  if (pathname.startsWith(PALPLUSS_STATUS_PATH)) return 'palpluss_status';
   if (pathname.startsWith(PALPLUSS_CALLBACK_PATH)) return 'palpluss_callback';
   if (pathname.startsWith('/api/v1/donations')) return 'donations';
   if (pathname.startsWith('/api/v1/users')) return 'users';
@@ -645,6 +670,7 @@ const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
   [PAYHERO_STATUS_PATH]: PAYHERO_STATUS_LIMIT,
   [PAYHERO_CALLBACK_PATH]: PAYHERO_CALLBACK_LIMIT,
   [PALPLUSS_INITIATE_PATH]: PALPLUSS_INITIATE_LIMIT,
+  [PALPLUSS_STATUS_PATH]: PALPLUSS_STATUS_LIMIT,
   [PALPLUSS_CALLBACK_PATH]: PALPLUSS_CALLBACK_LIMIT,
   '/api/v1/auth': { maxRequests: 10, windowMs: 60_000 },
   '/api/v1/newsletter': { maxRequests: 5, windowMs: 60_000 },

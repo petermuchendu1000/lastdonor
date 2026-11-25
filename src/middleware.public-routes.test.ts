@@ -130,6 +130,10 @@ const INTENTIONALLY_PUBLIC: Record<string, string> = {
     'Signature verified when present, never required; outcome re-fetched. docs/180.',
   'GET /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',
   'HEAD /api/v1/donations/payhero/status': 'Guest polls their own payment while the prompt is live.',
+  'GET /api/v1/donations/palpluss/status':
+    'Guest polls their own payment, second rail; our reference only, never the gateway id. docs/183.',
+  'HEAD /api/v1/donations/palpluss/status':
+    'Guest polls their own payment, second rail; our reference only, never the gateway id. docs/183.',
 
   // Scheduler cannot hold a session; every handler calls verifyCronAuth.
   'GET /api/v1/cron/payhero-float': 'verifyCronAuth.',

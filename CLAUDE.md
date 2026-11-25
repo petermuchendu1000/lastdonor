@@ -196,6 +196,7 @@ transcript or a commit message is lost.
 | `180-PALPLUSS-GATEWAY-ADR.md` | **A SECOND M-Pesa rail, BUILT AND TESTED BUT NOT ROUTED — no currency names `gateway: 'palpluss'`, so nothing in production calls it; the flip is one line. ⚠️ CORRECTS ITS OWN PREMISE: the work was asked for as "payhero was disabled" and it is NOT — [VERIFIED twice, 20 min apart] production health reports `payhero: ok`, and that check calls `getWalletBalance` + `assessFloat`, so the credential authenticates and the wallet answers. Replacing a working rail that 102 files reference and that is the only one which has ever taken money is a migration, not an outage fix, so Palpluss was added ALONGSIDE (owner decision after being shown the reading). ⛔ **THE TENANT IS SHARED AND LIVE**: the supplied key's own ledger carries callbacks to `invest254-api.fly.dev` and `printpesa.com`, references `Invest254`/`TamuTraders`/`Madolar`/`66Investors`, and successful collections up to KES 500 from ~15 third-party numbers — `docs/86`'s shared-`elopis` and `docs/92`'s BETWOIN problem again; owner decision is LastDonor gets its OWN tenant. ⛔ **A BLANK TRANSACTION ID RETURNS THAT LEDGER, HTTP 200**: `GET /v1/transactions/` collapses onto the LIST endpoint and answers 200 with 20 rows, as does `../transactions`, while a malformed NON-empty id correctly 400s — so the dangerous input is exactly what an `undefined` variable produces (PayHero's trap #2 in a new costume), and the guard requires the UUID SHAPE before a URL exists. ⛔ **THE TWO ENDPOINTS OF ONE FLOW DISAGREE ON CASING AND ON NAMES** — initiate is camelCase (`transactionId`, `phone`, `accountReference`) and status is snake_case (`transaction_id`, `phone_number`, **`external_reference`**); both conflicting doc claims were right about one endpoint each, so `pick()` is LOAD-BEARING and proven so by injection in both directions (snake-only fails 1 test, camel-only fails 11). ⛔ **HTTP 200 + `success: true` + `resultCode: "0"` IS NOT PAYMENT** — [VERIFIED by a real KES 1 push] all three signals were present on a transaction that settled `FAILED`/`1038` 29s later. Also: the real error code is nested at `error.details.code` (`error.code` is the HTTP status restated); `error.message` is a STRING on some failures and an **ARRAY** on others; the fee is prepaid, flat KES 3 at ≥10, **0 at KES 1 and 0 on all 26 failed rows** (the published page says failures are still charged — the ledger contradicts it) with ⛔ NO float monitor for this rail; and Palpluss throttles **2 pushes per phone per minute** reported as `result_code: "17" "Rule limited."`, so ⚠️ `payhero-abuse-guard.ts`'s `RETRY_COOLDOWN_MS = 20_000` permits THREE a minute and is too permissive here — `MIN_PUSH_INTERVAL_MS` is DERIVED with a tripwire. ⚠️ **§5 A TIMING SIDE-CHANNEL IS INVISIBLE TO EVERY FUNCTIONAL TEST**: replacing `timingSafeEqual` with `a === b` passed all 71 tests, because the comparison stays functionally correct — so that property is asserted STRUCTURALLY with an anti-vacuity control (the mirror of `docs/162` §5.1: there execution was needed because text could not see a branch; here text is needed because execution cannot see the property). ⚠️ Callbacks arrive **UNSIGNED** until `lastdonor.org` is registered as a webhook domain (signing is per-domain) — survivable only because a callback body is never the outcome (`docs/81`/`docs/92`: read one id, re-ask the gateway). 22 injections all behaving, 2 MUST-PASS; ⚠️ one row was the real hole above, two were harness bugs, and the corrected run was briefly measured against a DIRTY baseline because `import.meta.url` is not a `file:` URL here and threw during COLLECTION, printing `Tests no tests` with no failure line (`docs/124` §5.1 / `docs/138` §6.1's trap) — use `path.resolve(__dirname, …)`. ⚠️ The live probe ran against the RAW API, not `initiateStkPush`, because KES 1 is below `minDonationMinor` and probing a contract must not weaken a donor-facing floor; it settled by POLL with no callback route in existence. Read §2, §3 and §7 before touching either M-Pesa rail.** |
 | `181-PALPLUSS-CALLBACK-AND-SETTLEMENT-ADR.md` | **Three of the six items docs/180 §7 left open: the `palpluss_payment_requests` table (`migrations-v2/0014`), the settlement path and the callback route. ⛔ STILL NOT ROUTED **and still not reachable** — the INITIATE route is deliberately not in this change, so nothing writes a row for this settlement to settle; it is exercised by 23 integration tests on hand-seeded rows (docs/162's method) and by no donor. ⚠️ A happy accident: when initiate is written the raise-cap ratchet catches it with no edit, because it discovers money-in routes by searching for `initiateStkPush(` and this client's function shares PayHero's name. ⛔ **THE LOOKUP KEY IS THEIRS, NOT OURS** — `GET /v1/transactions/{id}` accepts only Palpluss's UUID, so `palpluss_transaction_id` is the resolution key AND the isolation boundary (a foreign tenant's id matches no row and is refused before any network call). ⚠️ **AMENDED 2026-11-24 by docs/182: it said NOT NULL and that was WRONG.** The column is now NULLABLE. Palpluss mints the id, so NOT NULL forces the API call to happen BEFORE the row exists — and a crash in that window loses the campaign, the donor, the amount and the FX quote for a collection that may already have succeeded. The docs/158 argument was imported from PayHero, where a reference-less row really is unverifiable forever; here [VERIFIED] `GET /v1/transactions` returns `external_reference` on every row, so the reference leads back to the transaction. UNIQUE is unchanged. ⛔ **SEVEN STATUSES COLLAPSED BY A PURE FUNCTION** (`classifyPalplussStatus`) because docs/162 §5.1 proved by injection that text cannot see which way a branch points — and **`REVERSED` is deliberately NOT folded into `failed`**: both decline to book and look identical to a donor, but money moved and came BACK, which is a movement on the service account and, for an already-booked collection, a refund nobody asked for (own audit event at `error` vs `info`). An **unrecognised** status is left PENDING, never read as a failure. ⛔ **A SOUNDNESS HOLE IN MY OWN docs/180 CLIENT, CLOSED**: the status was a CAST (`as PalplussStatus`), so an unrecognised value compiled as a known one — `TransactionSnapshot` now carries `rawStatus` and the settlement classifies THAT (injection 18: pointing it at the narrowed field fails 12 of 23). ⛔ **THE CALLBACK IS SIGNED AND STILL NOT BELIEVED** — a signature authenticates the SENDER, not the OUTCOME, and docs/180 measured Palpluss itself answering `success: true`/`resultCode: "0"` on a transaction that settled FAILED 29s later. `unsigned` is PROCESSED (signing is per-domain and `lastdonor.org` is unregistered, so every delivery is unsigned today) while `invalid` is REFUSED with 401 before any lookup — ⚠️ injection 20 shows that "tightening" it to `!== 'valid'` breaks today's real traffic. Verification is over `request.text()` RAW BYTES, since a parse-then-restringify would make every check fail with no symptom but refusals. ⚠️ **§4.2 TWO REAL HOLES IN MY OWN TESTS, found by injection**: every fixture was same-currency so swapping CREDIT for CHARGE changed nothing and PASSED (docs/168's entire subject, untested by 21 green tests — closed with the real KES 650 → $5.00 figures), and the lost-race path was unreachable so returning the STALE `request.donationId` passed (docs/162's false claim with its sign flipped; forced by having the gateway stub do what the winner would do). ⚠️ §4.3 my classifier tests asserted `'success'` was unrecognised in one table and normalised in another — one file, both halves of a contradiction (docs/109). ⚠️ §4.4 a fixture `phaseAtTime: 'active'` that Postgres refused, reading like a code defect (docs/128 §6). ⚠️ §4.1 `ALTER TYPE ADD VALUE` works inside drizzle's transaction because nothing USES the value there — established by running it. 26 injections all behaving (24 fire, 2 MUST-PASS). Read §2, §3.1 and §6 before touching either M-Pesa rail.** |
 | `182-PALPLUSS-INITIATE-AND-A-NOT-NULL-THAT-WAS-WRONG.md` | **The Palpluss initiate route, and ⛔ A CORRECTION TO docs/181 ONE DAY OLD: `palpluss_transaction_id` is NULLABLE (`migrations-v2/0015`). Writing the route is what showed the column was wrong — Palpluss mints the id, so NOT NULL forces call-then-insert, and a crash in that window leaves NOTHING: the money may be collected and no record says for which campaign, which donor, or what the credit should be. Insert-then-call leaves a row holding all of it plus our `LD-` reference, which is RECOVERABLE — [VERIFIED read-only] `GET /v1/transactions` answers 200 with `external_reference` on every row, where PayHero's status endpoint 404s our reference and offers no list, which is the asymmetry docs/181's generalisation missed. ⚠️ No server-side filter on it (three spellings all returned the full 20, identical to a FABRICATED-PARAMETER control, while `limit=2` WAS honoured — so 'the filter is ignored' is distinguishable from 'all parameters are'), so recovery means paging the ledger, not a lookup. ⛔ **THE ABUSE GUARD NOW COUNTS BOTH RAILS** and `payhero-abuse-guard.ts` is renamed `mpesa-abuse-guard.ts`: per-rail counting silently DOUBLES every ceiling the moment a second rail exists — five pushes each is the ten that gets a bystander blocked for 24h — so not doing it would have halved a control written to protect a stranger, with nothing failing (docs/83/docs/121's shape). The rail is a REQUIRED parameter so tsc named every call site (docs/125: a default is invisible at the call site) and it selects the cooldown, because Palpluss throttles at 2/minute reported as `result_code: "17"` not an HTTP error. ⛔ FOUR sequential queries, deliberately NOT a `UNION ALL`: the two status columns are different enum types, a union needs a cast, and a cast means a `sql` template on a money path (docs/101's unqualified identifier, docs/107's bare Date). ⛔ **REPORTED NOT FIXED: flipping KES to palpluss breaks EVERY donate page** — `donate/page.tsx:208` calls `payHeroChargeCurrency()` unconditionally for every campaign and it THROWS when no currency routes to payhero, which in a server component is the error boundary inside a 200 (docs/88 F9). Not fixed because it needs a product decision on the busiest money surface; instead a PREMISE TRIPWIRE turns it into a build failure that names the remedy, and relaxes on its own if the page is fixed properly (docs/127's shape). **Injection R18 flips that currency — the owner's actual next step — and it fires.** ⛔ TWO GAPS FOUND WIRING THE TIERS: the docs/181 callback had NO rate-limit tier so it fell to `donations` at 10/60s keyed by IP, and every Palpluss callback arrives from Palpluss (ten settlements a minute platform-wide, then 429'd retries); and the in-memory fallback listed NONE of the five M-Pesa paths against a 100/60s catch-all, so with Upstash down the tight 5/60s initiate bucket was twenty times LOOSER — and production health has reported `redis: error`. ⛔ **A RULE THAT NAMED ONE FILE**: `payment-outcome-claims.test.ts` (the docs/158 honesty rule) read one hardcoded path, and the new route carries the identical four-kind copy — it would have gone green without reading it (docs/116 §4, docs/134). It now DISCOVERS `**/initiate/route.ts` and matches each to the classifier IT IMPORTS. ⚠️ **And then it fired on CORRECT code**: the route hoists its 'nothing has been charged' sentence into one constant (three refusals use it; four drifting promises about money is docs/152), so a text rule saw `OUR_SIDE` and found nothing — left alone it would have pressured the next author to DUPLICATE donor-facing money copy to satisfy a test. `expandStringConsts` inlines such constants, with an anti-vacuity control because the honesty rule passes trivially if the expander stops working. ⚠️ **CORRECTS docs/126**: it reads as if the node integration suite cannot load `next/server` — that was true of NextAuth, which imports it; a public route handler loads fine, which is why this route has 22 integration tests EXECUTING the real campaign lookup, cap, FX read, guard, insert, composite FK and audit row (docs/124 §5.1: a mock cannot raise an FK violation, and docs/107 §7 records that no route's query is executed by anything — the PayHero twin has no behavioural test at all). The ordering is proven BY EXECUTION: the stub queries the table at the instant the gateway would be reached. ⚠️ The unit total rose 60 where my files account for 44, and the balance was TRACED not waved through (docs/89): discovery-driven ratchets growing because they found the route. 21/21 injections behave; R1 is docs/181's state in effect. Read §2, §5 and §6 before touching either M-Pesa rail or the donate page.** |
+| `183-THE-POLL-THAT-CLOSES-THE-LOOP.md` | **The Palpluss status poll, closing the first item docs/182 §10 left open - and it is not a convenience: [VERIFIED] **nothing sweeps `palpluss_payment_requests`**, so the donor's own poll is the ONLY path by which a late settlement is ever discovered (docs/159), and every callback on this rail is UNSIGNED until the webhook domain is registered. ⛔ **It accepts only OUR `LD-` reference, in the exact 12-character shape `mintAccountReference()` produces** - the pattern is DERIVED from the minting constants, because the length exists only because Palpluss documents it and a literal `{9}` would silently stop matching the day that moves, refusing every real poll with a 400. Palpluss's own transaction id is refused by name in a test: it is the key to a tenant ledger that may be shared with another product, and a blank or traversing value reads all of it with HTTP 200 (docs/180 finding 1). ⛔ The response carries **no `failure_reason`** - on this table that is OPERATOR text (the initiate route writes *'Reconcile by matching this row's account_reference against external_reference'*), and not selecting it also avoids the dead select docs/159 found on the PayHero twin, where the column is read ZERO times. ⛔ **A row with no gateway id stops the poll and claims nothing**, and this route is the FIRST REACHABLE CALLER of the state docs/182 §2 created by making that column nullable - the callback cannot reach it, because it arrives carrying the very id such a row lacks; the assertion that matters is that the gateway is NOT called, since a blank id is exactly what reads a stranger's ledger. ⛔ **The one new judgement is `reversed`**: money moved and came BACK, which is neither `failed` (whose screen says nothing was charged and then appends three ordinary causes, none true of a reversal - docs/160's defect on a new input) nor `collected_unrecorded` (which opens 'Your payment went through'). ⚠️ [UNVERIFIED by execution] no REVERSED has ever been seen on this tenant. ⛔ **§4 REPORTED NOT FIXED**: a RE-poll of a reversed row reads as `failed`, because the discriminator lives only in the operator text this route refuses to read and the status enum has three values by design - a fourth means a migration on a live money table for a path never observed (docs/129's proportion rule). ⛔ **§5 THE CONTRACT GAP IS NOW A BUILD FAILURE**: the shared form has no `reversed` branch, so an unhandled terminal state falls through to the `unresolved` screen headed 'We could not confirm this payment' - about an outcome the server just confirmed. The rule is DERIVED FROM WHO FETCHES WHAT (every non-`pending` state a route answers must be explicitly tested by any client that fetches it), so it is vacuous today and ARMS ITSELF the moment the form is pointed at this rail; `pending` is exempt because it is the fall-through by design. ⚠️ **§6 A RULE THAT NAMED ONE FILE, FOR THE THIRD TIME IN THREE DAYS** - `collected-unrecorded-claims.test.ts` (the docs/162 guard) read one hardcoded path and this route carries the identical three-branch structure, so it would have gone green without reading it. Now discovers `**/status/route.ts` and derives each route's TABLE from its own `.from(...)`. The general form, stated once: **a guard written while one implementation exists names that implementation, and the second is invisible to it.** ⛔ **§7 NOTHING GUARDED ANY OF THE SIX M-PESA RATE-LIMIT TIERS** - [VERIFIED] no test referenced one, while docs/85 had pinned the identical ordering hazard for `sms` by test. It had already bitten twice (docs/182 §7.1's tier-less callback falling to `donations` at 10/60s keyed by an IP that is always Palpluss's, and §7.2's fallback table listing none of them against a 100/60s catch-all). The new sweep DISCOVERS rails from disk - a directory holding a `callback/route.ts` - so a seventh path fails until somebody decides its bucket. ⚠️ **§7.1 its own first version could not see half of what it guards**: exhausting the declared ceiling only discriminates BELOW the catch-all, and both status polls are 120 against 100, so injection R11 deleted the status fallback entry and the test stayed GREEN. The discriminator for that direction is a request PAST the catch-all. ⚠️ **§9.4 TWO of my own assertions were wrong, not the code**: a phrase match cannot tell a CONDITIONAL from a claim - I forbade 'went through' on the expired-prompt message, which reads *'If your phone says it went through, email support'*, i.e. the platform DECLINING to claim (docs/152's qualifier rule, docs/140's date rule) - and two rows pinned copy rather than the property (docs/160 §5.2, docs/163 §5.2). ⚠️ §8 `payhero-prompt.ts` is renamed `mpesa-prompt.ts`: every export is a fact about M-Pesa or about our own rows, two rails import it, and NO behaviour changed. Read §2, §3.4, §4 and §5 before touching either poll or wiring the form.** |
 | `audit-2026-10-14/` | Raw agent reports + executable proof scripts behind docs/29 |
 
 ---
@@ -206,8 +207,8 @@ transcript or a commit message is lost.
 npm run dev            # dev server (Turbopack)
 npm run lint           # ESLint
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # Vitest (8733 pass + 16 skipped, 316 files passed +
-                       #   3 skipped = 319, as of 2026-11-24)
+npm run test:unit      # Vitest (8779 pass + 16 skipped, 318 files passed +
+                       #   3 skipped = 321, as of 2026-11-25)
                        #   ⚠️ The "8066 … 280 files" this file carried was stale
                        #   by 99 tests and 9 files (docs/154, docs/155), and the
                        #   "7739 … 267" before that was stale too. THIS LINE
@@ -215,8 +216,8 @@ npm run test:unit      # Vitest (8733 pass + 16 skipped, 316 files passed +
                        #   ⚠️ A large jump is not always new coverage: docs/144
                        #   added 19 icon wraps, and icon.test.tsx is five
                        #   `it.each(ALL)` blocks, so one wrap is ~5 tests.
-npm run test:integration  # Vitest + a throwaway Postgres (375 tests, 37 files,
-                       #   as of 2026-11-24). Needs DATABASE_URL pointed at a
+npm run test:integration  # Vitest + a throwaway Postgres (392 tests, 38 files,
+                       #   as of 2026-11-25). Needs DATABASE_URL pointed at a
                        #   THROWAWAY cluster - every file truncates it (docs/98).
 npm run test:e2e       # Playwright: 2 Chromium projects, 23 files
                        #   COLLECTS 188 (94 per project). On the runner
@@ -804,7 +805,7 @@ These exist for a reason; changing them has consequences beyond the local file.
   up while the donor is still typing their PIN. The counter is a `useRef`:
   bumping state re-creates `poll`, re-runs the effect and re-arms the interval.
 
-  ⛔ **`PROMPT_LIFETIME_MS` lives in `src/lib/payhero-prompt.ts`, which imports
+  ⛔ **`PROMPT_LIFETIME_MS` lives in `src/lib/mpesa-prompt.ts`, which imports
   NOTHING.** It was in `payhero-abuse-guard.ts` (now `mpesa-abuse-guard.ts`,
   docs/182), which imports `@/db` - and
   `docs/139` §7 is the rule: a constant shared across the server/client boundary
@@ -923,7 +924,7 @@ These exist for a reason; changing them has consequences beyond the local file.
   it.
 
   ⛔ **Decide with `claimForSettledCollection` from
-  `src/lib/payhero-prompt.ts` — ONE decider.** THREE branches of
+  `src/lib/mpesa-prompt.ts` — ONE decider.** THREE branches of
   `status/route.ts` can answer for a settled collection (the terminal-row
   early return, `case 'recorded'`, `case 'already_settled'`) and all three
   used to read `status` alone, so a guard on any one of them passes against
@@ -1074,6 +1075,82 @@ These exist for a reason; changing them has consequences beyond the local file.
   on the public donate page of every live campaign at once.
   `charge-currency-premise.test.ts` turns it into a build failure that names
   the remedy, and relaxes on its own once the page tolerates a null.
+
+- **The donor's status poll resolves OUR reference, and reads the gateway id
+  out of our own row.** Added 2026-11-25, see `docs/183`.
+  `GET /api/v1/donations/palpluss/status?reference=LD-XXXXXXXXX`, the twin of
+  the PayHero poll. It exists because [VERIFIED] **nothing sweeps
+  `palpluss_payment_requests`** — so this is the only path by which a late
+  settlement is ever discovered (`docs/159`), and on this rail every callback
+  is additionally unsigned until the webhook domain is registered.
+
+  ⛔ **`palplussStatusQuerySchema` pins the whole reference**, in the exact
+  shape `mintAccountReference()` produces, and DERIVES the pattern from
+  `ACCOUNT_REFERENCE_RANDOM_CHARS` — a literal `{9}` would stop matching the
+  day Palpluss's 12-character limit moves, and the symptom would be every poll
+  answering 400. Palpluss's own transaction id must never be accepted: it is
+  the key to `GET /v1/transactions/{id}` on a tenant that may be shared with
+  another product, and a blank or traversing value reads all of it with HTTP
+  200 (`docs/180` finding 1).
+
+  ⛔ **Never select `failure_reason` on this table.** It is an operator field:
+  the initiate route writes *"Reconcile by matching this row's
+  account_reference against external_reference in Palpluss's transaction
+  list"* into it (`docs/182` §3). Not selecting it also avoids the dead select
+  `docs/159` found on the PayHero twin, where the column is read zero times.
+  Likewise the gateway id, the donor's details and the phone number stay out
+  of the payload — a 45-bit reference is guessable in principle.
+
+  ⛔ **`amount`/`currency` are the CHARGE**, not the credit (`docs/168`): a
+  donor watching their own prompt resolve needs the figure that left their
+  account.
+
+  ⛔ **A row with no gateway id answers `pending` with the poll stopped, and
+  does NOT call the gateway.** That state exists because `docs/182` §2 made
+  the column nullable, and this route is its first reachable caller.
+  `getTransactionStatus` refuses a non-UUID before building a URL precisely
+  because a blank id reads another tenant's ledger, so the route must not
+  reach it at all. ⚠️ `pending`, never `failed`: a push may well have been
+  sent (`docs/159` §6), and the loose end is recoverable by hand because
+  `GET /v1/transactions` returns `external_reference` on every row.
+
+  ⛔ **`reversed` is its own state.** Money moved and came back, which is
+  neither `failed` — whose screen says nothing was charged and then appends
+  three ordinary causes, none true of a reversal, which is `docs/160`'s defect
+  on a new input — nor `collected_unrecorded`, which opens "Your payment went
+  through". ⚠️ [UNVERIFIED by execution] no REVERSED has been seen on this
+  tenant. ⛔ And a RE-poll of a reversed row reads as `failed`: the
+  discriminator lives only in the operator text this route refuses to read.
+  Reported, not fixed (`docs/183` §4) — a fourth enum value is a migration on
+  a live money table for a path never observed (`docs/129`).
+
+  ⛔ **Before pointing `MpesaDonationForm` at this rail, give it a `reversed`
+  branch.** `settled-collection-claims.test.ts` requires every non-`pending`
+  state a status route answers to be explicitly tested by any client that
+  fetches it — derived from who fetches what, so it is vacuous today and fails
+  the build the moment the form's URL changes. `pending` is exempt: it is the
+  fall-through by design.
+
+- **Every M-Pesa path has a rate-limit tier of its own, in BOTH lookups.**
+  Added 2026-11-25, see `docs/183` §7. All of them sit under
+  `/api/v1/donations/` and both lookups match by prefix in order, so a
+  narrower entry must come first in each. `docs/85` pinned that rule for the
+  `sms` tier by test and **nothing pinned it for M-Pesa at all** — which is
+  how `docs/182` §7.1's tier-less callback came to inherit `donations` at
+  10/60 s keyed by an IP that is always the provider's, and how §7.2's
+  fallback table came to list none of them against a 100/60 s catch-all.
+
+  `src/lib/rate-limit.mpesa.test.ts` DISCOVERS the rails from disk — a
+  directory under `donations/` holding a `callback/route.ts` — so a seventh
+  path fails the build until somebody declares its bucket. ⛔ Do not satisfy
+  it by declaring a path into the `donations` tier; a control asserts that
+  tier is still what a sibling donations route gets.
+
+  ⚠️ **Exhausting a declared ceiling only discriminates BELOW the fallback
+  catch-all.** Both status polls are 120 against 100, so a missing fallback
+  entry makes them *tighter* and the obvious assertion stays green — injection
+  R11 proved it. For those the discriminator is a request PAST the catch-all,
+  which can only be allowed if the route's own entry matched.
 
 - **The per-phone abuse guard counts BOTH M-Pesa rails.** Added 2026-11-24,
   see `docs/182` §5. `src/lib/mpesa-abuse-guard.ts` (renamed from

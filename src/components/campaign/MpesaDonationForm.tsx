@@ -9,7 +9,7 @@ import { formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
 import { previewChargeMinor, type ChargePreview } from '@/lib/money/fx-charge';
 import { roundUpOffer } from '@/lib/money/round-up';
 
-import { COLLECTED_UNRECORDED_MESSAGE, PROMPT_LIFETIME_MS } from '@/lib/payhero-prompt';
+import { COLLECTED_UNRECORDED_MESSAGE, PROMPT_LIFETIME_MS } from '@/lib/mpesa-prompt';
 
 const SUPPORT_EMAIL = 'support@lastdonor.org';
 

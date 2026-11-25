@@ -58,7 +58,7 @@
 import { and, count, desc, eq, gte } from 'drizzle-orm';
 import { db } from '@/db';
 import { palplussPaymentRequests, payheroPaymentRequests } from '@/db/schema';
-import { PROMPT_LIFETIME_MS } from './payhero-prompt';
+import { PROMPT_LIFETIME_MS } from './mpesa-prompt';
 import { MIN_PUSH_INTERVAL_MS } from './palpluss';
 
 /**
@@ -76,13 +76,13 @@ import { MIN_PUSH_INTERVAL_MS } from './palpluss';
  * It is written as an assumption on purpose. The real figure comes from the
  * live test recorded in `docs/92`.
  *
- * ⛔ The value itself lives in `src/lib/payhero-prompt.ts`, which imports
+ * ⛔ The value itself lives in `src/lib/mpesa-prompt.ts`, which imports
  * nothing, because the donor's BROWSER needs it too and this module imports
  * `@/db` (`docs/159`; the boundary rule is `docs/139` §7). It is re-exported
  * here so existing server callers are unaffected. It is rail-independent: the
  * prompt is Safaricom's either way.
  */
-export { PROMPT_LIFETIME_MS } from './payhero-prompt';
+export { PROMPT_LIFETIME_MS } from './mpesa-prompt';
 
 /** Which rail the push being considered would go out on. */
 export type MpesaRail = 'payhero' | 'palpluss';

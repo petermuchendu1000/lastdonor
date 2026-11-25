@@ -190,6 +190,19 @@ export const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
       'require a session. Resolves only a LastDonor-minted reference against our own row ' +
       'and returns no donor details.',
   },
+  {
+    pattern: /^\/api\/v1\/donations\/palpluss\/status$/,
+    methods: GET_ONLY,
+    reason:
+      'The same poll on the second M-Pesa rail, and public for the same reason: a guest ' +
+      'donor watching their own PIN prompt resolve holds no session. It accepts ONLY a ' +
+      'LastDonor-minted reference in the exact 12-character shape we mint, resolves it ' +
+      "against our own row, and reads Palpluss's transaction id out of that row rather " +
+      'than from the caller - that id is the key to a tenant ledger that may be shared ' +
+      'with another product (docs/180 finding 1). Returns no donor details, no gateway ' +
+      'identifier and no failure_reason, which on that table is operator text. ' +
+      'See docs/183.',
+  },
 
   // ─── Operational / read-only ─────────────────────────────────────────────
   {
