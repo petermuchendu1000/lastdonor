@@ -100,7 +100,7 @@ export default function TermsPage() {
           <ul className="mt-3 list-disc space-y-2 pl-6">
             <li>
               Donations are final once they complete. Card donations are
-              processed by Stripe, and M-Pesa donations by PayHero.
+              processed by Stripe, and M-Pesa donations by Palpluss.
             </li>
             <li>
               Per-transaction limits depend on the campaign&rsquo;s currency:{' '}

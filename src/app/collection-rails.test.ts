@@ -77,6 +77,21 @@ const GATEWAYS = [...new Set(Object.values(CURRENCIES).map((c) => c.gateway))].s
 const PROSE_NAME: Record<string, RegExp> = {
   stripe: /\bStripe\b/,
   payhero: /\bPayHero\b/,
+  /*
+    ⛔ Added by `docs/185`, which moved KES to this rail. `GATEWAYS` above is
+    derived from the collectable set, so it gained a key this map did not have
+    — and the sharing-list rule indexes it directly, so the flip crashed with
+    `Cannot read properties of undefined` rather than naming the gap. The
+    tripwire below now turns that into a sentence.
+
+    ⚠️ Company name ONLY here, with no `M-Pesa` alternative — unlike the map
+    in `refund-policy/refund-rails.test.ts`. That is not an inconsistency: the
+    rule this feeds asks which companies are DISCLOSED AS RECIPIENTS of
+    personal data, and only the legal entity's name answers that. The refund
+    page is addressed to a donor asking how their money comes back, where the
+    channel word is the right one.
+  */
+  palpluss: /\bPalpluss\b/,
 };
 
 /** A sentence that claims something about who TAKES the money. */
@@ -242,6 +257,26 @@ describe('the privacy policy names the companies that actually receive data', ()
     const stop = after.search(/\d\.\s+(?:Data Retention|Your Rights|Security|Cookies)/i);
     return stop > 0 ? after.slice(0, stop) : after.slice(0, 1200);
   })();
+
+  it('the premise holds: every collectable gateway has a prose spelling', () => {
+    /*
+      ⛔ TRIPWIRE, added by `docs/185`. `PROSE_NAME` is keyed by gateway and
+      `GATEWAYS` is derived from the currency table, so the two can drift —
+      and when KES moved to Palpluss they did: the rule below indexed a key
+      that was not there and died with `Cannot read properties of undefined`,
+      which reads as a broken test rather than as a missing spelling.
+
+      Its sibling in `refund-policy/refund-rails.test.ts` already carried this
+      check, which is why that file named the gap in a sentence while this one
+      crashed. Fail here, with the gateway named.
+    */
+    const unspelled = GATEWAYS.filter((g) => !PROSE_NAME[g]);
+    expect(
+      unspelled,
+      `${unspelled.join(', ')} can take money and has no entry in PROSE_NAME, so every ` +
+        'rule in this file is blind to it. Add how it is spelled in prose.',
+    ).toEqual([]);
+  });
 
   it('⛔ the sharing list names every gateway that can take a payment', () => {
     expect(SHARING_LIST.length, 'the slice is empty - anti-vacuity').toBeGreaterThan(100);

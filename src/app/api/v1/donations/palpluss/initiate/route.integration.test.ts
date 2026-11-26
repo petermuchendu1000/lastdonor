@@ -378,12 +378,20 @@ describe('everything that can refuse does so before a prompt is sent', () => {
   });
 
   /*
-    ⛔ TODAY'S ACTUAL STATE, asserted with the real function's answer.
+    A configuration this route must survive, no longer today's state.
 
-    No currency names `gateway: 'palpluss'`, so this route refuses every
-    request. That is why the rest of this file stubs the derivation — and why
-    this test exists, so the refusal is a measured branch rather than an
-    assumption about an unreachable one.
+    ⚠️ This block said *"TODAY'S ACTUAL STATE … no currency names
+    `gateway: 'palpluss'`, so this route refuses every request"*, and
+    `docs/185` flipped KES onto this rail. The branch is still worth a test —
+    a rail can be left collecting nothing, and PayHero is in exactly that
+    position now — but it is a simulated state again rather than the live one,
+    which is why the control below had to invert.
+
+    The derivation stays STUBBED for the rest of this file deliberately: a
+    test of THIS ROUTE should not depend on which rail the product is
+    configured to collect on today. `payhero.test.ts` learned the same thing
+    the hard way, where ten tests failed on the flip for no reason of their
+    own.
   */
   it('refuses when no currency routes to this rail at all', async () => {
     chargeCurrency.mockReturnValue(null);
@@ -395,13 +403,25 @@ describe('everything that can refuse does so before a prompt is sent', () => {
     await expectNothingSent(campaign.id);
   });
 
-  it('CONTROL: the real derivation returns null today, which is what that branch is for', async () => {
+  it('CONTROL: the real derivation answers, so this route is live and not a stub', async () => {
+    /*
+      ⚠️ INVERTED by `docs/185`. This asserted `toBeNull()` with the message
+      *"a currency now routes to Palpluss - the stub in this file is no longer
+      standing in for an unreachable state, and docs/182 should be re-read"* -
+      and that is exactly what happened. The tripwire fired on the one change
+      it was written for.
+
+      It still earns its place pointing the other way: the stub above could
+      otherwise hide this route being unreachable in production, which is the
+      state it was in for two days and the state PayHero is in now.
+    */
     const real = await vi.importActual<typeof import('@/lib/palpluss')>('@/lib/palpluss');
     expect(
       real.palplussChargeCurrency(),
-      'a currency now routes to Palpluss - the stub in this file is no longer standing in ' +
-        'for an unreachable state, and docs/182 should be re-read',
-    ).toBeNull();
+      'no currency routes to Palpluss, so every test above is driving a route that ' +
+        'refuses in production. docs/185 flipped KES onto this rail; if that has been ' +
+        'reverted, this file needs re-reading rather than satisfying.',
+    ).not.toBeNull();
   });
 });
 

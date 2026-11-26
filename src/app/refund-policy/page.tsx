@@ -89,7 +89,7 @@ export default function RefundPolicyPage() {
               Payment details are handled by the payment provider for that
               currency, and LastDonor does not store full card numbers or
               mobile money PINs. Card payments are processed by Stripe, and
-              M-Pesa payments by PayHero.
+              M-Pesa payments by Palpluss.
             </li>
             <li>LastDonor charges 0% platform fees on fundraisers, and no processing fee is deducted from a donation.</li>
             <li>Donor names and donation amounts may appear publicly unless the donor selects anonymous.</li>

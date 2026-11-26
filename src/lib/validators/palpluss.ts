@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ACCOUNT_REFERENCE_RANDOM_CHARS, MAX_ACCOUNT_REFERENCE } from '@/lib/palpluss';
-import { LASTDONOR_REFERENCE_PREFIX } from '@/lib/payhero';
+import { LASTDONOR_REFERENCE_PREFIX } from '@/lib/mpesa-prompt';
 
 /**
  * The exact shape `mintAccountReference()` produces: `LD-` plus

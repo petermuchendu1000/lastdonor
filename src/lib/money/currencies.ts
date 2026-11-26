@@ -235,7 +235,7 @@ export const CURRENCIES: Readonly<Record<string, CurrencyDefinition>> = Object.f
     */
     minGoalMinor: 10_000_000,
     maxGoalMinor: 1_000_000_000,
-    gateway: 'payhero' as const,
+    gateway: 'palpluss' as const,
   }),
 });
 

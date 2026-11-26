@@ -8,6 +8,40 @@
  * combination is what breaks a `res.json()` client.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+/*
+  ── Why this file mocks the currency table ────────────────────────────────
+
+  ⛔ It did not, until `docs/185`. Every `initiateStkPush` test here passes a
+  KES request, and `initiateStkPush` refuses any currency whose gateway is not
+  `payhero` — so these tests only ever worked because the LIVE table happened
+  to route KES here. The flip moved KES to Palpluss and **ten tests failed at
+  once**, none of them because anything about this client had changed.
+
+  That is the right failure (the guard works) and the wrong subject: a test of
+  THIS CLIENT should not depend on which rail the product is configured to
+  collect on today. So the gateway is forced, in both directions, exactly as
+  `palpluss.test.ts` does — and the toggle is what lets the
+  `payHeroChargeCurrency` tests drive the zero-currency case, which is the
+  live state now.
+*/
+const state = vi.hoisted(() => ({ routeKesToPayhero: true }));
+
+vi.mock('./money/currencies', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./money/currencies')>();
+  return {
+    ...actual,
+    getCurrency: (code: string) => {
+      const real = actual.getCurrency(code);
+      if (real.code !== 'KES') return real;
+      return {
+        ...real,
+        gateway: state.routeKesToPayhero ? ('payhero' as const) : ('palpluss' as const),
+      };
+    },
+  };
+});
+
 import {
   LASTDONOR_REFERENCE_PREFIX,
   PayHeroApiError,
@@ -19,6 +53,7 @@ import {
   getWalletBalance,
   initiateStkPush,
   isPayHeroConfigured,
+  payHeroChargeCurrency,
   toPayHeroMsisdn,
 } from '@/lib/payhero';
 
@@ -37,6 +72,8 @@ function respond(
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  // Reset the routing toggle, so a test that flips it cannot leak.
+  state.routeKesToPayhero = true;
   process.env.PAYHERO_API_USERNAME = 'test-user';
   process.env.PAYHERO_API_PASSWORD = 'test-pass';
   process.env.PAYHERO_CHANNEL_ID = String(CHANNEL_ID);
@@ -550,5 +587,39 @@ describe('getWalletBalance', () => {
   it('throws rather than reporting a balance it did not get', async () => {
     fetchMock.mockResolvedValue(respond('{"wallet_type":"service_wallet"}'));
     await expect(getWalletBalance()).rejects.toThrow(/no available_balance/);
+  });
+});
+
+/*
+  The charge currency, and the null the flip made live.
+
+  ⚠️ This client had NO test of `payHeroChargeCurrency()` at all, while its
+  twin `palplussChargeCurrency()` had one for exactly this case - which is
+  part of why the throw survived as long as it did (`docs/185`).
+*/
+describe('payHeroChargeCurrency', () => {
+  it('returns the single currency routed to this rail', () => {
+    expect(payHeroChargeCurrency()).toBe('KES');
+  });
+
+  it('⛔ returns null when nothing routes here, rather than throwing', () => {
+    /*
+      THE LIVE STATE since `docs/185`: zero currencies name `gateway:
+      'payhero'`. It used to throw, justified on the premise that "exactly one
+      currency has always named it, so zero means the table is broken" - and
+      the flip is what made zero a deliberate configuration instead. A route
+      cannot answer an exception as a 503 with an operator log without
+      catching something it cannot tell from a real fault.
+    */
+    state.routeKesToPayhero = false;
+    expect(payHeroChargeCurrency()).toBeNull();
+  });
+
+  it('CONTROL: the toggle is what moves it, so neither case is a coincidence', () => {
+    expect(payHeroChargeCurrency()).toBe('KES');
+    state.routeKesToPayhero = false;
+    expect(payHeroChargeCurrency()).toBeNull();
+    state.routeKesToPayhero = true;
+    expect(payHeroChargeCurrency()).toBe('KES');
   });
 });

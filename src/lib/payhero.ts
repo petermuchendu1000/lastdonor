@@ -97,25 +97,16 @@
 
 import { normalisePhone } from './phone';
 import { getCurrency, SUPPORTED_CURRENCY_CODES } from './money/currencies';
+import { LASTDONOR_REFERENCE_PREFIX } from './mpesa-prompt';
 
 const BASE_URL = 'https://backend.payhero.co.ke';
-
-/**
- * Every LastDonor `external_reference` starts with this.
- *
- * The isolation boundary on a shared account. A callback carrying anything
- * else is BETWOIN's traffic or a forgery, and is refused before any lookup.
- * It is a prefix rather than a secret because it is not a security control on
- * its own — the authority is our own stored intent row, which is keyed by the
- * full reference. This just makes the wrong ones cheap to reject.
- */
-export const LASTDONOR_REFERENCE_PREFIX = 'LD-';
 
 /** M-Pesa is the only provider this client requests. */
 const PROVIDER_MPESA = 'm-pesa';
 
 /**
- * The currency this rail actually charges in.
+ * The currency this rail actually charges in, or `null` when nothing routes
+ * to it.
  *
  * [VERIFIED] the push payload carries `amount` and NO currency field, so the
  * charge currency is a property of the CHANNEL, not of the request. A
@@ -123,21 +114,28 @@ const PROVIDER_MPESA = 'm-pesa';
  * its own (docs/168).
  *
  * DERIVED from `CURRENCIES` rather than written down twice, so it cannot
- * drift from the `gateway !== 'payhero'` refusal below. Throws rather than
- * guessing if the set is ever ambiguous - picking one of two silently is how
- * a donor gets charged in the wrong money.
+ * drift from the `gateway !== 'payhero'` refusal below.
+ *
+ * ⚠️ **This THREW until 2026-11-26, and the reason it stopped is a fact about
+ * the world, not a style preference.** `docs/182` §4 justified the throw like
+ * this: *"`payHeroChargeCurrency` throws because exactly one currency has
+ * always named it, so there it means the currency table is broken."* That
+ * premise expired the moment `KES` moved to `gateway: 'palpluss'`
+ * (`docs/185`): **zero** currencies name this rail now, and that is a
+ * deliberate configuration, not a broken table. A function cannot answer
+ * "the table is broken" for a state the table is supposed to be able to hold.
+ *
+ * ⛔ So `null` for NONE and for AMBIGUOUS, the same answer deliberately and
+ * for the same reason its twin gives: a caller can act on neither, and
+ * picking one of two silently is how a donor is charged in the wrong money.
+ * The two rails are now symmetric in reality - either can collect nothing -
+ * so they are symmetric here, and `mpesa-rail-symmetry.test.ts` holds that.
  */
-export function payHeroChargeCurrency(): string {
+export function payHeroChargeCurrency(): string | null {
   const codes = SUPPORTED_CURRENCY_CODES.filter(
     (code) => getCurrency(code).gateway === 'payhero',
   );
-  if (codes.length !== 1) {
-    throw new Error(
-      `Expected exactly one PayHero currency, found ${codes.length}: ${codes.join(', ')}. ` +
-        'Resolve which one this rail charges in before collecting.',
-    );
-  }
-  return codes[0];
+  return codes.length === 1 ? codes[0] : null;
 }
 
 /**
@@ -722,3 +720,10 @@ export async function getWalletBalance(): Promise<WalletBalance> {
     walletStatus: typeof data.wallet_status === 'string' ? data.wallet_status : null,
   };
 }
+
+/*
+  Re-exported so the move in `docs/185` broke no call site. The DEFINITION
+  lives in `mpesa-prompt.ts` now — see the note there for why it had to leave
+  this file.
+*/
+export { LASTDONOR_REFERENCE_PREFIX };

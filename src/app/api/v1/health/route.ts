@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { stripe } from '@/lib/stripe';
 import { pingRedis } from '@/lib/locks';
 import { getWalletBalance, isPayHeroConfigured } from '@/lib/payhero';
+import { isPalplussConfigured } from '@/lib/palpluss';
 import { assessFloat } from '@/lib/payhero-float';
 
 /*
@@ -133,6 +134,40 @@ export async function GET() {
         error: 'M-Pesa collection service check failed',
       };
     }
+  }
+
+  /*
+    ── Palpluss: the rail that actually collects since `docs/185` ──────────
+
+    ⛔ Added because the flip left this endpoint watching the WRONG RAIL. It
+    reported `payhero: ok` — authenticated, float healthy — for a gateway that
+    no currency routes to any more, and said nothing at all about the one
+    taking every shilling. "Can this platform collect money?" had no answer
+    here, which is the `docs/136` §7 shape: a screen reporting confidently on
+    something that is not running.
+
+    ⚠️ **Configuration only, and no network call**, which is a smaller check
+    than PayHero's above and not by choice: `src/lib/palpluss.ts` exposes no
+    balance read at all, so there is nothing to probe. Palpluss's fee is
+    prepaid from a service wallet and an empty wallet refuses collection
+    before Safaricom is reached (`docs/180`), so this rail has **no float
+    monitor** — `docs/150`'s shape has no equivalent here and that is recorded
+    as open rather than silently absent.
+
+    So this answers the one question it can, which is also the question the
+    flip made urgent: is the key set at all? Without it `palpluss/initiate`
+    answers 503 to every donor and the platform collects nothing.
+  */
+  if (!isPalplussConfigured()) {
+    checks.palpluss = {
+      status: 'error',
+      error:
+        'Palpluss not configured (PALPLUSS_API_KEY unset); M-Pesa donations cannot be ' +
+        'collected, and M-Pesa is the only rail that works',
+    };
+    console.error('[health] Palpluss is not configured; the KES rail is down.');
+  } else {
+    checks.palpluss = { status: 'ok' };
   }
 
   // Redis (Upstash) check - backs distributed rate limiting and cron locks.

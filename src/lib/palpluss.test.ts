@@ -12,13 +12,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 */
 const state = vi.hoisted(() => ({ routeKesToPalpluss: true }));
 
+/*
+  ⚠️ The toggle FORCES the gateway both ways, and that changed with
+  `docs/185`. It used to override KES only when `routeKesToPalpluss` was true
+  and otherwise return the real definition, on the premise that the real
+  definition said `payhero` — the comment on the refusal test below said so
+  outright: *"the REAL routing: KES -> payhero"*. The flip made that premise
+  false, so switching the toggle OFF stopped changing anything and two tests
+  measured the same configuration twice.
+
+  Forcing both arms makes this file independent of whichever rail the live
+  table happens to name, which is what a test of THIS CLIENT should be.
+*/
 vi.mock('./money/currencies', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./money/currencies')>();
   return {
     ...actual,
     getCurrency: (code: string) => {
       const real = actual.getCurrency(code);
-      return real.code === 'KES' && state.routeKesToPalpluss ? { ...real, gateway: 'palpluss' as const } : real;
+      if (real.code !== 'KES') return real;
+      return {
+        ...real,
+        gateway: state.routeKesToPalpluss ? ('palpluss' as const) : ('payhero' as const),
+      };
     },
   };
 });
@@ -123,7 +139,7 @@ describe('initiateStkPush pre-flight guards', () => {
     nothing was charged — which is only honest because no request left.
   */
   it('refuses a currency this gateway does not collect', async () => {
-    state.routeKesToPalpluss = false; // the REAL routing: KES -> payhero
+    state.routeKesToPalpluss = false; // a table where KES routes elsewhere
     const spy = fetchMock();
     await expect(initiateStkPush(req())).rejects.toBeInstanceOf(PalplussRequestNotSentError);
     expect(spy).not.toHaveBeenCalled();
@@ -601,11 +617,16 @@ describe('palplussChargeCurrency', () => {
 
   it('returns null when nothing routes here, rather than throwing', () => {
     /*
-      ⛔ The branch that is live today. `payHeroChargeCurrency()` throws on
-      the same condition, which is right there (exactly one currency has
-      always named it, so zero means the table is broken) and wrong here: a
-      route cannot handle an exception as a 503 with an operator log without
-      catching something it cannot distinguish from a real fault.
+      ⛔ A route cannot handle an exception as a 503 with an operator log
+      without catching something it cannot distinguish from a real fault, so
+      this answers null.
+
+      ⚠️ This comment used to add that `payHeroChargeCurrency()` throws on the
+      same condition and was "right there, because exactly one currency has
+      always named it, so zero means the table is broken". `docs/185` spent
+      that premise: zero currencies name PayHero now, deliberately. It returns
+      null too, and `mpesa-rail-symmetry.test.ts` holds the two shapes
+      together.
     */
     state.routeKesToPalpluss = false;
     expect(palplussChargeCurrency()).toBeNull();

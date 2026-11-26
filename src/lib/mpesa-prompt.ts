@@ -88,3 +88,29 @@ export function claimForSettledCollection(
 ): SettledCollectionClaim {
   return donationId == null ? 'collected_unrecorded' : 'succeeded';
 }
+
+/**
+ * Every LastDonor gateway reference starts with this.
+ *
+ * The isolation boundary on a shared account. A callback carrying anything
+ * else is another company's traffic or a forgery, and is refused before any
+ * lookup. It is a prefix rather than a secret because it is not a security
+ * control on its own - the authority is our own stored intent row, which is
+ * keyed by the full reference. This just makes the wrong ones cheap to
+ * reject.
+ *
+ * ⛔ **It lived in `payhero.ts` until `docs/185`, and had to move**, which is
+ * this file's own stated criterion applied one more time: every export here
+ * is a fact about M-Pesa or about OUR OWN ROWS, and both rails import it.
+ * `src/lib/palpluss.ts` imported it `from './payhero'`, so the Palpluss
+ * client depended on the module of the rail that - after the flip - collects
+ * nothing.
+ *
+ * ⚠️ That coupling is how the move was found rather than reasoned about: the
+ * health-route test mocks `@/lib/payhero` wholesale, and adding a Palpluss
+ * check to that route made the mock swallow a constant Palpluss needed,
+ * failing with *"No LASTDONOR_REFERENCE_PREFIX export is defined on the
+ * @/lib/payhero mock"*. `docs/159` states the rule and `docs/183` §8 renamed
+ * this file for it; this is the third application.
+ */
+export const LASTDONOR_REFERENCE_PREFIX = 'LD-';

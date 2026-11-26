@@ -102,7 +102,7 @@ import { SUPPORTED_CURRENCY_CODES, getCurrency } from './money/currencies';
 import { normalisePhone } from './phone';
 // The isolation prefix is defined once, by the rail that introduced it.
 // Re-declaring it here would be a second answer to one question (docs/146).
-import { LASTDONOR_REFERENCE_PREFIX } from './payhero';
+import { LASTDONOR_REFERENCE_PREFIX } from './mpesa-prompt';
 
 const BASE_URL = 'https://api.palpluss.com/v1';
 

@@ -5,6 +5,7 @@ const balanceRetrieve = vi.fn();
 const pingRedis = vi.fn();
 const getWalletBalance = vi.fn();
 const isPayHeroConfigured = vi.fn();
+const isPalplussConfigured = vi.fn();
 
 vi.mock('@/db', () => ({ db: { execute: (...a: unknown[]) => dbExecute(...a) } }));
 vi.mock('@/lib/stripe', () => ({
@@ -15,6 +16,17 @@ vi.mock('@/lib/payhero', () => ({
   getWalletBalance: () => getWalletBalance(),
   isPayHeroConfigured: () => isPayHeroConfigured(),
 }));
+/*
+  ⚠️ `docs/185` added a Palpluss check to this route, and the FIRST symptom was
+  this file failing to collect: *"No LASTDONOR_REFERENCE_PREFIX export is
+  defined on the @/lib/payhero mock"*. The payhero mock above is wholesale, and
+  `palpluss.ts` imported that constant `from './payhero'` - so mocking one rail
+  silently broke the other. The constant moved to `mpesa-prompt.ts`, which both
+  rails may own equally; this mock is narrow for the same reason.
+*/
+vi.mock('@/lib/palpluss', () => ({
+  isPalplussConfigured: () => isPalplussConfigured(),
+}));
 
 const { GET } = await import('./route');
 
@@ -24,6 +36,7 @@ beforeEach(() => {
   balanceRetrieve.mockReset().mockResolvedValue({});
   pingRedis.mockReset().mockResolvedValue({ configured: true, ok: true });
   isPayHeroConfigured.mockReset().mockReturnValue(true);
+  isPalplussConfigured.mockReset().mockReturnValue(true);
   // 2239 KES of float at a flat 8.9 per collection is ~251 collections,
   // comfortably above the low-float threshold. This is the real figure
   // measured after the first live collection.
@@ -38,11 +51,23 @@ describe('GET /api/v1/health (deep readiness, NOT the Fly probe)', () => {
 
     // Redis was previously never checked at all, while being load-bearing for
     // distributed rate limiting and (as of P1-11) cron overlap locks.
-    expect(Object.keys(body.checks).sort()).toEqual(['database', 'payhero', 'redis', 'stripe']);
+    /*
+      ⛔ `palpluss` added by `docs/185`. The flip left this endpoint reporting
+      `payhero: ok` - authenticated, float healthy - for a rail no currency
+      routes to, while saying nothing about the one collecting every shilling.
+      "Can this platform take money?" had no answer here.
+    */
+    expect(Object.keys(body.checks).sort()).toEqual([
+      'database',
+      'palpluss',
+      'payhero',
+      'redis',
+      'stripe',
+    ]);
     expect(pingRedis).toHaveBeenCalledTimes(1);
   });
 
-  it('is healthy and 200 when all four dependencies answer', async () => {
+  it('is healthy and 200 when every dependency answers', async () => {
     const response = await GET();
     expect(response.status).toBe(200);
 
@@ -121,6 +146,37 @@ describe('GET /api/v1/health (deep readiness, NOT the Fly probe)', () => {
       expect(body.checks.payhero.error).toMatch(/cannot be collected/i);
       // Nothing was asked of PayHero, because there is nothing to ask with.
       expect(getWalletBalance).not.toHaveBeenCalled();
+    });
+
+    /*
+      ⛔ The rail that actually collects since `docs/185`.
+
+      ⚠️ Its check is CONFIGURATION ONLY, and that is smaller than PayHero's
+      above because `src/lib/palpluss.ts` exposes no balance read at all -
+      there is nothing to probe. Palpluss's fee is prepaid from a service
+      wallet and an empty wallet refuses collection before Safaricom is
+      reached (`docs/180`), so this rail has NO float monitor and `docs/150`'s
+      alert has no equivalent here. Recorded as open rather than implied.
+    */
+    it('reports an unconfigured Palpluss key as an error, not silence', async () => {
+      isPalplussConfigured.mockReturnValue(false);
+
+      const response = await GET();
+      const body = await response.json();
+
+      expect(response.status).toBe(503);
+      expect(body.checks.palpluss.status).toBe('error');
+      expect(body.checks.palpluss.error).toMatch(/not configured/i);
+      expect(body.checks.palpluss.error).toMatch(/cannot be collected/i);
+    });
+
+    it('CONTROL: a configured Palpluss key is reported ok, so the rule can pass', async () => {
+      /*
+        Without this, a check hardwired to `error` would satisfy the rule above
+        while reporting the platform permanently broken.
+      */
+      const body = await (await GET()).json();
+      expect(body.checks.palpluss.status).toBe('ok');
     });
 
     it('reports a rejected credential as an error', async () => {

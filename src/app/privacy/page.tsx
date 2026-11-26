@@ -128,7 +128,27 @@ export default function PrivacyPage() {
               <strong>Stripe:</strong> For card payment processing
             </li>
             <li>
-              <strong>PayHero:</strong> For M-Pesa payment processing
+              <strong>Palpluss:</strong> For M-Pesa payment processing
+            </li>
+            {/*
+              ⚠️ PayHero is KEPT, and that is a judgement rather than an
+              oversight. `docs/185` moved KES to Palpluss, so PayHero receives
+              nothing new - and the rule directly above this list is about
+              **Vercel**, a company that hosted nothing here ever. PayHero is
+              not that: it processed every M-Pesa donation this platform has
+              taken and [VERIFIED] still holds those donors' phone numbers
+              (`payhero_payment_requests.msisdn_sent`, 5 rows since
+              2026-10-21). Dropping it would UNDERSTATE the disclosure, which
+              on a privacy policy is the worse direction to be wrong in.
+
+              Only the TENSE changed. No date and no retention period is
+              stated, because neither is a fact this codebase holds - and
+              `docs/152` already recorded that no retention period is stated
+              for the stored phone at all.
+            */}
+            <li>
+              <strong>PayHero:</strong> Processed the M-Pesa payments made before
+              we moved to Palpluss, and still holds the records of those payments
             </li>
             <li>
               <strong>Resend:</strong> For transactional emails
@@ -188,7 +208,7 @@ export default function PrivacyPage() {
             by the payment provider for that currency, so we never hold your
             card number or your mobile money PIN: card payments go to Stripe,
             a PCI DSS Level 1 certified provider, and M-Pesa payments to
-            PayHero.
+            Palpluss.
           </p>
         </section>
 

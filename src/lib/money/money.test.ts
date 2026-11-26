@@ -10,6 +10,7 @@ import {
   normaliseCurrencyCode,
 } from '@/lib/money/currencies';
 import { currencySymbol, formatMoney, majorToMinor, minorToMajor } from '@/lib/money/format';
+import { mpesaRailFor } from '@/lib/mpesa-rail';
 
 describe('currency registry', () => {
   it('enables exactly the currencies the platform can collect', () => {
@@ -25,8 +26,21 @@ describe('currency registry', () => {
   });
 
   it('routes each currency to the gateway that can actually collect it', () => {
+    /*
+      ⚠️ This read `expect(CURRENCIES.KES.gateway).toBe('payhero')` and so
+      pinned today's CONFIGURATION rather than the property its own name
+      claims. `docs/185` moved KES to Palpluss and this was the test that
+      failed - correctly, but with nothing to say beyond "the value changed".
+
+      The property is that a currency routes to a rail that can collect it,
+      which is a fact about the channel: USD is a card currency and Stripe is
+      the card rail, KES is M-Pesa and there are two M-Pesa rails. WHICH
+      M-Pesa rail is an owner decision, and a flip between them must not fail
+      a test in `money.test.ts` - it is held by `mpesaRailFor` instead.
+    */
     expect(CURRENCIES.USD.gateway).toBe('stripe');
-    expect(CURRENCIES.KES.gateway).toBe('payhero');
+    expect(mpesaRailFor('KES'), 'KES must route to an M-Pesa rail').not.toBeNull();
+    expect(mpesaRailFor('USD'), 'a card currency is not an M-Pesa rail').toBeNull();
   });
 
   it('normalises case and surrounding whitespace', () => {

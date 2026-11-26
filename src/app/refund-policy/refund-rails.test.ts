@@ -60,6 +60,21 @@ const GATEWAYS = [...new Set(Object.values(CURRENCIES).map((c) => c.gateway))].s
 const PROSE_NAME: Record<string, RegExp> = {
   stripe: /\bStripe\b/,
   payhero: /\bPayHero\b|\bM-?Pesa\b/i,
+  /*
+    ⛔ Added by `docs/185`, which moved KES to this rail. Without it
+    `GATEWAYS` (derived from the collectable set) contained a key this map did
+    not, and the rule indexing it crashed with `Cannot read properties of
+    undefined` instead of saying which gateway had no prose spelling.
+
+    ⚠️ The `M-Pesa` alternative is deliberate and is shared with the PayHero
+    entry above: a donor reading a policy page needs the CHANNEL word, not the
+    name of a company they have never heard of. The cost is that this rule
+    cannot tell one M-Pesa rail from another, so it would accept "M-Pesa
+    payments by PayHero" while asking about Palpluss.
+    `src/app/no-dead-processor.test.ts` is the rule that asks the other
+    question.
+  */
+  palpluss: /\bPalpluss\b|\bM-?Pesa\b/i,
 };
 
 /**

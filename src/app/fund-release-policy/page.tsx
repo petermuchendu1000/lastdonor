@@ -55,7 +55,7 @@ export default function FundReleasePolicyPage() {
               money leaves (`docs/121`). Collection and payout are different
               questions and only one of them has two answers.
             */}
-            <li>Card donations are processed by Stripe, which handles card, wallet, subscription, and settlement mechanics. M-Pesa donations are processed by PayHero.</li>
+            <li>Card donations are processed by Stripe, which handles card, wallet, subscription, and settlement mechanics. M-Pesa donations are processed by Palpluss.</li>
             <li>LastDonor records donation details needed for donor support, campaign progress, fraud prevention, and compliance.</li>
             <li>LastDonor charges 0% platform fees on fundraisers, and no processing fee is deducted from a donation or from a payout.</li>
           </ul>

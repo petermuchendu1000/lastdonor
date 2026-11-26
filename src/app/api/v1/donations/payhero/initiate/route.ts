@@ -105,6 +105,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    /*
+      ── Is anything actually routed to this rail? ─────────────────────────
+
+      `payHeroChargeCurrency()` reads the currency table rather than
+      hardcoding KES, and returns null when no currency names
+      `gateway: 'payhero'` — which is TODAY'S STATE, because `docs/185`
+      moved KES to Palpluss. So this branch is live, not defensive: this
+      route is unreachable from the donation form now, and a donor who
+      reaches it on a cached client is told the truth instead of meeting a
+      500.
+
+      ⛔ It is asked HERE, before the body parse and before any database
+      work, for the same reason the cap and the quote are placed where they
+      are: this is the last point at which refusing costs nothing. The call
+      used to sit at line ~204, AFTER the campaign lookup, the amount check
+      and the raise cap — and it THREW, landing in the outer catch as a bare
+      500 after four queries. `docs/182` §6 recorded that ("where it would
+      surface as a 500") and did not fix it; the flip is what made it
+      reachable.
+
+      `initiateStkPush` refuses the same thing independently, so this is not
+      the only guard — it is the one that produces a sensible answer instead
+      of a classified exception.
+    */
+    const chargeCurrencyCode = payHeroChargeCurrency();
+    if (!chargeCurrencyCode) {
+      console.error(
+        '[payhero/initiate] No currency in src/lib/money/currencies.ts names ' +
+          "gateway: 'payhero', so this rail collects nothing. Nothing was sent.",
+        { requestId },
+      );
+      return fail(
+        503,
+        'PAYMENTS_UNAVAILABLE',
+        'M-Pesa payments are unavailable right now. This is a problem on our side, not with ' +
+          'your phone, and nothing has been charged. Please email support@lastdonor.org so we ' +
+          'can help you give.',
+      );
+    }
+
     const parsed = initiateMpesaSchema.safeParse(await request.json());
     if (!parsed.success) {
       const first = parsed.error.errors[0];
@@ -201,7 +241,6 @@ export async function POST(request: NextRequest) {
       settlement - re-deriving it there would move the credit after the donor
       had agreed to the charge.
     */
-    const chargeCurrencyCode = payHeroChargeCurrency();
     const quoted = await quoteCharge({
       creditMinor: data.amount,
       creditCurrency: currency.code,
