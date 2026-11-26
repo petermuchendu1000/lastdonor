@@ -292,11 +292,61 @@ caught by it, and both are worth naming:
 
 ## 8. What was NOT changed, and is open
 
-- ⛔ **Whether `PALPLUSS_API_KEY` is set in production is [UNKNOWN].**
-  `flyctl` is not installed in this sandbox, so the secret list could not be
-  read. **If it is unset, this flip means the platform collects nothing** —
-  `palpluss/initiate` answers 503 to every donor. The new health check is what
-  reports it; read `/api/v1/health` after deploying.
+- ✅ **RESOLVED 2026-11-26, and the finding was real: the key was ABSENT from
+  production.** The owner supplied it, it is now **STAGED** on Fly
+  (`PALPLUSS_API_KEY`, and `PALPLUSS_WEBHOOK_SECRET` beside it), and this item
+  used to read *"[UNKNOWN]. `flyctl` is not installed in this sandbox, so the
+  secret list could not be read."*
+
+  ⚠️ **THAT WAS WRONG, AND IT IS THE `docs/150` LESSON A THIRD TIME.** flyctl
+  *was* installed, at `/root/.fly/bin/flyctl` — [VERIFIED] by this session's
+  own `flyctl-install.log`, which ends *"flyctl was installed successfully"*
+  and then *"Manually add the directory to your ~/.bashrc"*. It was a **PATH
+  miss**, not a missing tool, and `command -v flyctl` reports the two
+  identically. `docs/150` records asserting twice that nothing read
+  `getWalletBalance` when a float check already existed; `docs/179` §3.1
+  records hand-rolling a diff the repo already had as a gated test. **Look for
+  the instrument, and when one is reported absent, look for the evidence it
+  was ever there** — here, a log file in the same directory as the claim.
+
+  What the secret list then showed, which no amount of reasoning would have:
+  **`PALPLUSS_API_KEY` was not there at all**, so the flip would have made
+  `palpluss/initiate` answer 503 to every donor the moment it deployed. The
+  §4 health check is what reports that state, and it was added in the same
+  change that created it.
+
+  The key was verified before being staged, **with a control that can produce
+  the other answer** (`docs/135` §5, `docs/169` §8): `GET /v1/transactions?limit=1`
+  answers **200** with the real key and **401** with a well-formed wrong one,
+  so 200 is evidence about the key and not merely about the endpoint.
+
+  ⛔ **`--stage`, not `set`** — `flyctl secrets set` restarts machines, which
+  is a deploy, and the standing owner instruction is not to. Staging stores
+  the value and applies it on the owner's next deploy, which is also the
+  **correct ordering**: the secret is in place before the code that needs it,
+  where the reverse leaves a window in which KES routes to a rail with no
+  credential. Verified by evidence rather than by the tool's own message:
+  afterwards the app is still **v183**, one machine, `LAST UPDATED
+  2026-11-16`, 1/1 passing, with no new release — so nothing restarted.
+
+  ⚠️ **If the owner rotates that key, the staged value must be re-set before
+  the next deploy**, or the deploy carries a dead credential and the platform
+  collects nothing — the same failure this resolves, arriving later and harder
+  to read. The session's other credentials were supplied on the understanding
+  they would be rotated; a `pp_live_` payment key is a production credential
+  and was supplied for exactly this, which is why it was staged.
+
+  ⚠️ `PALPLUSS_CHANNEL_ID` is deliberately **not** staged: `config()` reads it
+  as `?? null` and `palpluss.ts:692` spreads it into the push body only when
+  present, and `docs/180`'s real KES 1 collection succeeded without it. It is
+  optional in fact, not merely in type.
+
+  ⚠️ `PALPLUSS_WEBHOOK_SECRET` is staged although callbacks arrive unsigned
+  today, because the alternative is latent: with no secret configured, the day
+  Palpluss *does* sign, `verifyPalplussSignature` reads `secret: ''`, the
+  digest cannot match, and every delivery becomes `invalid` → **401**. Staging
+  it changes nothing while deliveries are unsigned (`unsigned` is processed on
+  purpose) and only ever affects the signed case, so it strictly reduces risk.
 - ⛔ **The Palpluss tenant is shared with another product** (`docs/180` §2 —
   its ledger carries `Invest254`, `TamuTraders` and callbacks to
   `printpesa.com`). Isolation is the `LD-` reference namespace. The owner
